@@ -1,0 +1,33 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": true,
+    "allowUnsandboxedCommands": false,
+    "excludedCommands": ["docker", "podman"],
+    "network": {
+      "allowedDomains": [
+        "github.com",
+        "api.github.com",
+        "proxy.golang.org",
+        "sum.golang.org",
+        "pkg.go.dev",
+        "context7.com"
+      ],
+      "allowLocalBinding": true
+    }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(go *)",
+      "Bash(git *)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git reset --hard *)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(.env)",
+      "Read(.env.*)"
+    ]
+  }
+}

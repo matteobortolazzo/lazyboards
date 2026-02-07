@@ -1,0 +1,30 @@
+# Worktrees
+.worktrees/
+
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+lazyboards
+
+# Test binary
+*.test
+
+# Output
+*.out
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
