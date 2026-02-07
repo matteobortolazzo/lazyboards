@@ -6,3 +6,15 @@ Claude reads this file automatically. Its rules are authoritative and override a
 ---
 
 <!-- Entries will be added below this line by the lessons-collector agent -->
+
+### Git worktrees require at least one commit on the source branch
+- **Mistake:** `git worktree add` on a branch with no commits creates an orphan branch instead of branching from the source.
+- **Fix:** Ensure `main` has at least one commit before creating worktrees.
+
+### Go cache dirs are read-only in Claude Code sandbox
+- **Mistake:** `go test` and `go get` fail with "read-only file system" when writing to default `~/go/` and `~/.cache/go-build/`.
+- **Fix:** Set `GOPATH=/tmp/claude/gopath GOCACHE=/tmp/claude/gocache GOMODCACHE=/tmp/claude/gomodcache` before any Go commands.
+
+### lipgloss Width() sets content width, borders are additional
+- **Mistake:** Column width calculated as `b.Width / len(b.Columns)` without accounting for border characters, causing total rendered width to exceed terminal width.
+- **Fix:** Subtract border overhead: `colWidth := (b.Width / len(b.Columns)) - borderWidth`.
