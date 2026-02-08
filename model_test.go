@@ -64,10 +64,10 @@ func TestNewBoard_ColumnsHaveCorrectTitles(t *testing.T) {
 	}
 }
 
-func TestNewBoard_ActiveColumnStartsAtZero(t *testing.T) {
+func TestNewBoard_ActiveTabStartsAtZero(t *testing.T) {
 	b := NewBoard()
-	if b.ActiveColumn != 0 {
-		t.Errorf("ActiveColumn = %d, want 0", b.ActiveColumn)
+	if b.ActiveTab != 0 {
+		t.Errorf("ActiveTab = %d, want 0", b.ActiveTab)
 	}
 }
 
@@ -106,53 +106,53 @@ func TestNewBoard_ColumnCursorsStartAtZero(t *testing.T) {
 	}
 }
 
-// --- Column Navigation ---
+// --- Tab Navigation ---
 
-func TestColumnNavigation_L_MovesRight(t *testing.T) {
+func TestTabNavigation_L_MovesRight(t *testing.T) {
 	b := NewBoard()
 	b = sendKey(t, b, keyMsg("l"))
-	if b.ActiveColumn != 1 {
-		t.Errorf("after 'l': ActiveColumn = %d, want 1", b.ActiveColumn)
+	if b.ActiveTab != 1 {
+		t.Errorf("after 'l': ActiveTab = %d, want 1", b.ActiveTab)
 	}
 }
 
-func TestColumnNavigation_H_MovesLeft(t *testing.T) {
+func TestTabNavigation_H_MovesLeft(t *testing.T) {
 	b := NewBoard()
 	// Move right first so we can move left
 	b = sendKey(t, b, keyMsg("l"))
 	b = sendKey(t, b, keyMsg("h"))
-	if b.ActiveColumn != 0 {
-		t.Errorf("after 'l' then 'h': ActiveColumn = %d, want 0", b.ActiveColumn)
+	if b.ActiveTab != 0 {
+		t.Errorf("after 'l' then 'h': ActiveTab = %d, want 0", b.ActiveTab)
 	}
 }
 
-func TestColumnNavigation_RightArrow_MovesRight(t *testing.T) {
+func TestTabNavigation_RightArrow_MovesRight(t *testing.T) {
 	b := NewBoard()
 	b = sendKey(t, b, arrowMsg(tea.KeyRight))
-	if b.ActiveColumn != 1 {
-		t.Errorf("after Right arrow: ActiveColumn = %d, want 1", b.ActiveColumn)
+	if b.ActiveTab != 1 {
+		t.Errorf("after Right arrow: ActiveTab = %d, want 1", b.ActiveTab)
 	}
 }
 
-func TestColumnNavigation_LeftArrow_MovesLeft(t *testing.T) {
+func TestTabNavigation_LeftArrow_MovesLeft(t *testing.T) {
 	b := NewBoard()
 	b = sendKey(t, b, arrowMsg(tea.KeyRight))
 	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
-	if b.ActiveColumn != 0 {
-		t.Errorf("after Right then Left arrow: ActiveColumn = %d, want 0", b.ActiveColumn)
+	if b.ActiveTab != 0 {
+		t.Errorf("after Right then Left arrow: ActiveTab = %d, want 0", b.ActiveTab)
 	}
 }
 
-func TestColumnNavigation_H_ClampsAtStart(t *testing.T) {
+func TestTabNavigation_H_ClampsAtStart(t *testing.T) {
 	b := NewBoard()
 	// Already at column 0, pressing h should stay at 0
 	b = sendKey(t, b, keyMsg("h"))
-	if b.ActiveColumn != 0 {
-		t.Errorf("'h' at column 0: ActiveColumn = %d, want 0", b.ActiveColumn)
+	if b.ActiveTab != 0 {
+		t.Errorf("'h' at column 0: ActiveTab = %d, want 0", b.ActiveTab)
 	}
 }
 
-func TestColumnNavigation_L_ClampsAtEnd(t *testing.T) {
+func TestTabNavigation_L_ClampsAtEnd(t *testing.T) {
 	b := NewBoard()
 	if len(b.Columns) < 2 {
 		t.Fatal("NewBoard() must have at least 2 columns for this test")
@@ -162,12 +162,12 @@ func TestColumnNavigation_L_ClampsAtEnd(t *testing.T) {
 	for i := 0; i < len(b.Columns); i++ {
 		b = sendKey(t, b, keyMsg("l"))
 	}
-	if b.ActiveColumn != lastColumn {
-		t.Errorf("pressing 'l' past end: ActiveColumn = %d, want %d", b.ActiveColumn, lastColumn)
+	if b.ActiveTab != lastColumn {
+		t.Errorf("pressing 'l' past end: ActiveTab = %d, want %d", b.ActiveTab, lastColumn)
 	}
 }
 
-func TestColumnNavigation_FullTraversal(t *testing.T) {
+func TestTabNavigation_FullTraversal(t *testing.T) {
 	b := NewBoard()
 	if len(b.Columns) < 2 {
 		t.Fatal("NewBoard() must have at least 2 columns for this test")
@@ -178,16 +178,16 @@ func TestColumnNavigation_FullTraversal(t *testing.T) {
 	for i := 0; i < lastColumn; i++ {
 		b = sendKey(t, b, keyMsg("l"))
 	}
-	if b.ActiveColumn != lastColumn {
-		t.Errorf("after traversing right: ActiveColumn = %d, want %d", b.ActiveColumn, lastColumn)
+	if b.ActiveTab != lastColumn {
+		t.Errorf("after traversing right: ActiveTab = %d, want %d", b.ActiveTab, lastColumn)
 	}
 
 	// Move all the way back left
 	for i := 0; i < lastColumn; i++ {
 		b = sendKey(t, b, keyMsg("h"))
 	}
-	if b.ActiveColumn != 0 {
-		t.Errorf("after traversing back left: ActiveColumn = %d, want 0", b.ActiveColumn)
+	if b.ActiveTab != 0 {
+		t.Errorf("after traversing back left: ActiveTab = %d, want 0", b.ActiveTab)
 	}
 }
 
@@ -197,7 +197,7 @@ func TestItemNavigation_J_MovesCursorDown(t *testing.T) {
 	b := NewBoard()
 	requireColumns(t, b)
 	b = sendKey(t, b, keyMsg("j"))
-	cursor := b.Columns[b.ActiveColumn].Cursor
+	cursor := b.Columns[b.ActiveTab].Cursor
 	if cursor != 1 {
 		t.Errorf("after 'j': cursor = %d, want 1", cursor)
 	}
@@ -209,7 +209,7 @@ func TestItemNavigation_K_MovesCursorUp(t *testing.T) {
 	// Move down first so we can move up
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("k"))
-	cursor := b.Columns[b.ActiveColumn].Cursor
+	cursor := b.Columns[b.ActiveTab].Cursor
 	if cursor != 0 {
 		t.Errorf("after 'j' then 'k': cursor = %d, want 0", cursor)
 	}
@@ -219,7 +219,7 @@ func TestItemNavigation_DownArrow_MovesCursorDown(t *testing.T) {
 	b := NewBoard()
 	requireColumns(t, b)
 	b = sendKey(t, b, arrowMsg(tea.KeyDown))
-	cursor := b.Columns[b.ActiveColumn].Cursor
+	cursor := b.Columns[b.ActiveTab].Cursor
 	if cursor != 1 {
 		t.Errorf("after Down arrow: cursor = %d, want 1", cursor)
 	}
@@ -230,7 +230,7 @@ func TestItemNavigation_UpArrow_MovesCursorUp(t *testing.T) {
 	requireColumns(t, b)
 	b = sendKey(t, b, arrowMsg(tea.KeyDown))
 	b = sendKey(t, b, arrowMsg(tea.KeyUp))
-	cursor := b.Columns[b.ActiveColumn].Cursor
+	cursor := b.Columns[b.ActiveTab].Cursor
 	if cursor != 0 {
 		t.Errorf("after Down then Up arrow: cursor = %d, want 0", cursor)
 	}
@@ -241,7 +241,7 @@ func TestItemNavigation_K_ClampsAtStart(t *testing.T) {
 	requireColumns(t, b)
 	// Already at cursor 0, pressing k should stay at 0
 	b = sendKey(t, b, keyMsg("k"))
-	cursor := b.Columns[b.ActiveColumn].Cursor
+	cursor := b.Columns[b.ActiveTab].Cursor
 	if cursor != 0 {
 		t.Errorf("'k' at cursor 0: cursor = %d, want 0", cursor)
 	}
@@ -250,7 +250,7 @@ func TestItemNavigation_K_ClampsAtStart(t *testing.T) {
 func TestItemNavigation_J_ClampsAtEnd(t *testing.T) {
 	b := NewBoard()
 	requireColumns(t, b)
-	cardCount := len(b.Columns[b.ActiveColumn].Cards)
+	cardCount := len(b.Columns[b.ActiveTab].Cards)
 	if cardCount == 0 {
 		t.Fatal("active column has no cards; cannot test cursor clamping")
 	}
@@ -258,7 +258,7 @@ func TestItemNavigation_J_ClampsAtEnd(t *testing.T) {
 	for i := 0; i < cardCount+1; i++ {
 		b = sendKey(t, b, keyMsg("j"))
 	}
-	cursor := b.Columns[b.ActiveColumn].Cursor
+	cursor := b.Columns[b.ActiveTab].Cursor
 	lastIndex := cardCount - 1
 	if cursor != lastIndex {
 		t.Errorf("pressing 'j' past end: cursor = %d, want %d", cursor, lastIndex)
@@ -276,7 +276,7 @@ func TestItemNavigation_CursorIsPerColumn(t *testing.T) {
 	// Switch to column 1
 	b = sendKey(t, b, keyMsg("l"))
 	// Column 1 cursor should still be at 0
-	cursor := b.Columns[b.ActiveColumn].Cursor
+	cursor := b.Columns[b.ActiveTab].Cursor
 	if cursor != 0 {
 		t.Errorf("column 1 cursor after switching = %d, want 0 (cursor should be per-column)", cursor)
 	}
@@ -321,29 +321,75 @@ func TestWindowResize_UpdatesDimensions(t *testing.T) {
 
 // --- View Rendering ---
 
-func TestView_ContainsAllColumnTitles(t *testing.T) {
+func TestView_TabBarShowsAllTabNames(t *testing.T) {
 	b := NewBoard()
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
 	for _, title := range expectedColumnTitles {
 		if !strings.Contains(view, title) {
-			t.Errorf("View() does not contain column title %q", title)
+			t.Errorf("View() does not contain tab name %q", title)
 		}
 	}
 }
 
-func TestView_ContainsCardData(t *testing.T) {
+func TestView_ContainsActiveTabCardData(t *testing.T) {
 	b := NewBoard()
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
-	// Check that at least one card's number and title appear in the view
-	for _, col := range b.Columns {
-		for _, card := range col.Cards {
-			// Cards should display as "#<number> <title> [<label>]"
-			if !strings.Contains(view, card.Title) {
-				t.Errorf("View() does not contain card title %q", card.Title)
+	// Only the active tab's cards should appear in the view
+	activeCol := b.Columns[b.ActiveTab]
+	for _, card := range activeCol.Cards {
+		if !strings.Contains(view, card.Title) {
+			t.Errorf("View() does not contain active tab card title %q", card.Title)
+		}
+	}
+}
+
+func TestView_DetailPanelShowsSelectedCard(t *testing.T) {
+	b := NewBoard()
+	b.Width = 120
+	b.Height = 40
+	view := b.View()
+
+	// Detail panel should show the selected card's label
+	selectedCard := b.Columns[b.ActiveTab].Cards[0]
+	if !strings.Contains(view, selectedCard.Label) {
+		t.Errorf("View() detail panel does not contain selected card label %q", selectedCard.Label)
+	}
+
+	// After navigating down, detail should update to the new card
+	b = sendKey(t, b, keyMsg("j"))
+	view = b.View()
+	nextCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	if !strings.Contains(view, nextCard.Label) {
+		t.Errorf("View() detail panel does not contain card label %q after navigating", nextCard.Label)
+	}
+}
+
+func TestView_OnlyActiveTabCardsVisible(t *testing.T) {
+	b := NewBoard()
+	b.Width = 120
+	b.Height = 40
+
+	// Switch to tab 1 (Refined)
+	b = sendKey(t, b, keyMsg("l"))
+	view := b.View()
+
+	// Cards from tab 0 (New) should NOT be visible
+	for _, card := range b.Columns[0].Cards {
+		if strings.Contains(view, card.Title) {
+			// Only fail if this card title doesn't also appear in the active tab
+			found := false
+			for _, activeCard := range b.Columns[b.ActiveTab].Cards {
+				if activeCard.Title == card.Title {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("View() contains card title %q from inactive tab", card.Title)
 			}
 		}
 	}
@@ -354,7 +400,6 @@ func TestView_ContainsHelpBar(t *testing.T) {
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
-	// The help bar should contain key binding hints
 	helpKeywords := []string{"h/l", "j/k", "q"}
 	for _, kw := range helpKeywords {
 		if !strings.Contains(view, kw) {
