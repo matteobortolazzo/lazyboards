@@ -45,13 +45,26 @@ type Column struct {
 
 // Board is the top-level model implementing tea.Model.
 type Board struct {
-	Columns    []Column
-	ActiveTab  int
-	Width      int
-	Height     int
-	mode       boardMode
-	titleInput textinput.Model
-	labelInput textinput.Model
+	Columns       []Column
+	ActiveTab     int
+	Width         int
+	Height        int
+	mode          boardMode
+	titleInput    textinput.Model
+	labelInput    textinput.Model
+	validationErr string
+}
+
+func (b Board) maxCardNumber() int {
+	max := 0
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			if card.Number > max {
+				max = card.Number
+			}
+		}
+	}
+	return max
 }
 
 func (b Board) Init() tea.Cmd {
@@ -72,6 +85,23 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case tea.KeyEscape:
 				b.mode = normalMode
 				return b, nil
+			case tea.KeyEnter:
+				title := strings.TrimSpace(b.titleInput.Value())
+				if title == "" {
+					b.validationErr = "Title is required"
+					return b, nil
+				}
+				newCard := Card{
+					Number: b.maxCardNumber() + 1,
+					Title:  title,
+					Label:  strings.TrimSpace(b.labelInput.Value()),
+				}
+				b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
+				b.titleInput.SetValue("")
+				b.labelInput.SetValue("")
+				b.validationErr = ""
+				b.mode = normalMode
+				return b, nil
 			case tea.KeyTab:
 				var cmd tea.Cmd
 				if b.titleInput.Focused() {
@@ -83,6 +113,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return b, cmd
 			default:
+				b.validationErr = ""
 				var cmd tea.Cmd
 				if b.titleInput.Focused() {
 					b.titleInput, cmd = b.titleInput.Update(msg)
@@ -193,15 +224,19 @@ func (b Board) View() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
 	// Help bar.
-	helpBar := helpStyle.Render("h/l: switch tab  j/k: navigate  q: quit")
+	helpBar := helpStyle.Render("h/l: switch tab  j/k: navigate  n: new  q: quit")
 
 	// Assemble inner content.
 	inner := lipgloss.JoinVertical(lipgloss.Left, tabBar, panels, helpBar)
 
 	if b.mode == createMode {
 		modalWidth := 40
+		var errLine string
+		if b.validationErr != "" {
+			errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
+		}
 		modalContent := "New Card\n\n" +
-			"Title:\n" + b.titleInput.View() + "\n\n" +
+			"Title:\n" + b.titleInput.View() + errLine + "\n\n" +
 			"Label:\n" + b.labelInput.View()
 
 		modalStyle := lipgloss.NewStyle().
