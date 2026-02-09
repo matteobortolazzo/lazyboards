@@ -1,8 +1,23 @@
 package main
 
+import "github.com/charmbracelet/bubbles/textinput"
+
 // NewBoard returns a Board pre-populated with 5 Kanban columns and fake cards.
 func NewBoard() Board {
+	ti := textinput.New()
+	ti.Placeholder = "Title"
+	ti.Focus()
+	ti.CharLimit = 100
+	ti.Width = 40
+
+	li := textinput.New()
+	li.Placeholder = "Label"
+	li.CharLimit = 50
+	li.Width = 40
+
 	return Board{
+		titleInput: ti,
+		labelInput: li,
 		Columns: []Column{
 			{
 				Title: "New",

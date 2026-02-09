@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -44,15 +45,17 @@ type Column struct {
 
 // Board is the top-level model implementing tea.Model.
 type Board struct {
-	Columns   []Column
-	ActiveTab int
-	Width     int
-	Height    int
-	mode      boardMode
+	Columns    []Column
+	ActiveTab  int
+	Width      int
+	Height     int
+	mode       boardMode
+	titleInput textinput.Model
+	labelInput textinput.Model
 }
 
 func (b Board) Init() tea.Cmd {
-	return nil
+	return textinput.Blink
 }
 
 func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -68,9 +71,26 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.Type {
 			case tea.KeyEscape:
 				b.mode = normalMode
+				return b, nil
+			case tea.KeyTab:
+				var cmd tea.Cmd
+				if b.titleInput.Focused() {
+					b.titleInput.Blur()
+					cmd = b.labelInput.Focus()
+				} else {
+					b.labelInput.Blur()
+					cmd = b.titleInput.Focus()
+				}
+				return b, cmd
+			default:
+				var cmd tea.Cmd
+				if b.titleInput.Focused() {
+					b.titleInput, cmd = b.titleInput.Update(msg)
+				} else if b.labelInput.Focused() {
+					b.labelInput, cmd = b.labelInput.Update(msg)
+				}
+				return b, cmd
 			}
-			// All other keys in createMode are blocked (no-op).
-			return b, nil
 
 		default: // normalMode
 			switch msg.String() {
@@ -78,6 +98,10 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return b, tea.Quit
 			case "n":
 				b.mode = createMode
+				b.titleInput.SetValue("")
+				b.labelInput.SetValue("")
+				b.titleInput.Focus()
+				b.labelInput.Blur()
 			case "h", "left":
 				if b.ActiveTab > 0 {
 					b.ActiveTab--
@@ -173,6 +197,23 @@ func (b Board) View() string {
 
 	// Assemble inner content.
 	inner := lipgloss.JoinVertical(lipgloss.Left, tabBar, panels, helpBar)
+
+	if b.mode == createMode {
+		modalWidth := 40
+		modalContent := "New Card\n\n" +
+			"Title:\n" + b.titleInput.View() + "\n\n" +
+			"Label:\n" + b.labelInput.View()
+
+		modalStyle := lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("205")).
+			Padding(1, 2).
+			Width(modalWidth)
+
+		modal := modalStyle.Render(modalContent)
+
+		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
+	}
 
 	return outerStyle.Width(innerWidth).Render(inner)
 }
