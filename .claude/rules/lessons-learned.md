@@ -28,3 +28,10 @@ Claude reads this file automatically. Its rules are authoritative and override a
 - **Root cause**: BubbleTea's Cmd return value encodes async work (timers, animations, subscriptions). Discarding it breaks all animations. The textinput component uses a Cmd to schedule cursor blinks.
 - **Fix**: Always capture and propagate the Cmd: `var cmd tea.Cmd; model, cmd = model.Update(msg); return model, cmd`. Also update tests to check behavior (e.g., mode stays in createMode) instead of checking `cmd == nil`.
 - **Rule**: Never discard `tea.Cmd` values from sub-model `Update()` calls. Always propagate them up through the component hierarchy.
+
+### Heredoc in git commit fails in sandbox — use commit -F instead
+- **Date**: 2026-02-09
+- **What happened**: `git commit -m "$(cat <<'EOF' ... EOF)"` failed with "can't create temp file for here document: read-only file system", even with `TMPDIR=/tmp/claude`.
+- **Root cause**: The shell (zsh) needs to write heredoc content to a temp file before expansion. The sandbox blocks writes to the default temp directory, and setting `TMPDIR` in the same command doesn't affect the shell's heredoc processing.
+- **Fix**: Write the commit message to a file first with `printf ... > /tmp/claude/commit-msg.txt`, then use `git commit -F /tmp/claude/commit-msg.txt`.
+- **Rule**: Never use heredoc syntax for git commit messages in sandbox. Always use `git commit -F <file>` with a pre-written message file.
