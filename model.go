@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -29,6 +30,8 @@ type boardMode int
 const (
 	normalMode boardMode = iota
 	createMode
+	loadingMode
+	errorMode
 )
 
 // Card represents a single Kanban card (e.g., a GitHub issue).
@@ -45,6 +48,16 @@ type Column struct {
 	Cursor int
 }
 
+// boardFetchedMsg is sent when the provider successfully returns board data.
+type boardFetchedMsg struct {
+	board provider.Board
+}
+
+// boardFetchErrorMsg is sent when the provider fails to fetch board data.
+type boardFetchErrorMsg struct {
+	err error
+}
+
 // Board is the top-level model implementing tea.Model.
 type Board struct {
 	Columns       []Column
@@ -56,24 +69,12 @@ type Board struct {
 	labelInput    textinput.Model
 	validationErr string
 	provider      provider.BoardProvider
+	spinner       spinner.Model
+	loadErr       string
 }
 
-// NewBoardFromProvider creates a Board by fetching data from the given provider.
-func NewBoardFromProvider(p provider.BoardProvider) (Board, error) {
-	board, err := p.FetchBoard(context.Background())
-	if err != nil {
-		return Board{}, fmt.Errorf("fetching board: %w", err)
-	}
-
-	cols := make([]Column, len(board.Columns))
-	for i, pc := range board.Columns {
-		cards := make([]Card, len(pc.Cards))
-		for j, c := range pc.Cards {
-			cards[j] = Card{Number: c.Number, Title: c.Title, Label: c.Label}
-		}
-		cols[i] = Column{Title: pc.Title, Cards: cards}
-	}
-
+// NewBoard creates a Board in loadingMode. Call Init() to start fetching data.
+func NewBoard(p provider.BoardProvider) Board {
 	ti := textinput.New()
 	ti.Placeholder = "Title"
 	ti.Focus()
@@ -85,20 +86,61 @@ func NewBoardFromProvider(p provider.BoardProvider) (Board, error) {
 	li.CharLimit = 50
 	li.Width = 40
 
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+
 	return Board{
-		Columns:    cols,
+		mode:       loadingMode,
 		titleInput: ti,
 		labelInput: li,
 		provider:   p,
-	}, nil
+		spinner:    s,
+	}
+}
+
+// fetchBoardCmd returns a tea.Cmd that fetches board data from the provider.
+func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
+	return func() tea.Msg {
+		board, err := p.FetchBoard(context.Background())
+		if err != nil {
+			return boardFetchErrorMsg{err: err}
+		}
+		return boardFetchedMsg{board: board}
+	}
 }
 
 func (b Board) Init() tea.Cmd {
-	return textinput.Blink
+	return tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 }
 
 func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case boardFetchedMsg:
+		cols := make([]Column, len(msg.board.Columns))
+		for i, pc := range msg.board.Columns {
+			cards := make([]Card, len(pc.Cards))
+			for j, c := range pc.Cards {
+				cards[j] = Card{Number: c.Number, Title: c.Title, Label: c.Label}
+			}
+			cols[i] = Column{Title: pc.Title, Cards: cards}
+		}
+		b.Columns = cols
+		b.mode = normalMode
+		return b, nil
+
+	case boardFetchErrorMsg:
+		b.mode = errorMode
+		b.loadErr = msg.err.Error()
+		return b, nil
+
+	case spinner.TickMsg:
+		if b.mode == loadingMode {
+			var cmd tea.Cmd
+			b.spinner, cmd = b.spinner.Update(msg)
+			return b, cmd
+		}
+		return b, nil
+
 	case tea.KeyMsg:
 		// ctrl+c always quits regardless of mode.
 		if msg.String() == "ctrl+c" {
@@ -106,6 +148,21 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch b.mode {
+		case loadingMode:
+			// Ignore all keys while loading.
+			return b, nil
+
+		case errorMode:
+			switch msg.String() {
+			case "q":
+				return b, tea.Quit
+			case "r":
+				b.mode = loadingMode
+				b.loadErr = ""
+				return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+			}
+			return b, nil
+
 		case createMode:
 			switch msg.Type {
 			case tea.KeyEscape:
@@ -185,6 +242,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+
 	case tea.WindowSizeMsg:
 		b.Width = msg.Width
 		b.Height = msg.Height
@@ -193,7 +251,21 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (b Board) View() string {
-	if b.Width == 0 || len(b.Columns) == 0 {
+	if b.Width == 0 {
+		return ""
+	}
+
+	if b.mode == loadingMode {
+		loadingText := b.spinner.View() + " Loading board..."
+		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, loadingText)
+	}
+
+	if b.mode == errorMode {
+		errorText := "Error: " + b.loadErr + "\n\nPress r to retry | q to quit"
+		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, errorText)
+	}
+
+	if len(b.Columns) == 0 {
 		return ""
 	}
 
