@@ -20,6 +20,14 @@ var (
 	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
 
+// boardMode represents the current interaction mode of the board.
+type boardMode int
+
+const (
+	normalMode boardMode = iota
+	createMode
+)
+
 // Card represents a single Kanban card (e.g., a GitHub issue).
 type Card struct {
 	Number int
@@ -40,6 +48,7 @@ type Board struct {
 	ActiveTab int
 	Width     int
 	Height    int
+	mode      boardMode
 }
 
 func (b Board) Init() tea.Cmd {
@@ -49,26 +58,44 @@ func (b Board) Init() tea.Cmd {
 func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
+		// ctrl+c always quits regardless of mode.
+		if msg.String() == "ctrl+c" {
 			return b, tea.Quit
-		case "h", "left":
-			if b.ActiveTab > 0 {
-				b.ActiveTab--
+		}
+
+		switch b.mode {
+		case createMode:
+			switch msg.Type {
+			case tea.KeyEscape:
+				b.mode = normalMode
 			}
-		case "l", "right":
-			if b.ActiveTab < len(b.Columns)-1 {
-				b.ActiveTab++
-			}
-		case "j", "down":
-			col := &b.Columns[b.ActiveTab]
-			if col.Cursor < len(col.Cards)-1 {
-				col.Cursor++
-			}
-		case "k", "up":
-			col := &b.Columns[b.ActiveTab]
-			if col.Cursor > 0 {
-				col.Cursor--
+			// All other keys in createMode are blocked (no-op).
+			return b, nil
+
+		default: // normalMode
+			switch msg.String() {
+			case "q":
+				return b, tea.Quit
+			case "n":
+				b.mode = createMode
+			case "h", "left":
+				if b.ActiveTab > 0 {
+					b.ActiveTab--
+				}
+			case "l", "right":
+				if b.ActiveTab < len(b.Columns)-1 {
+					b.ActiveTab++
+				}
+			case "j", "down":
+				col := &b.Columns[b.ActiveTab]
+				if col.Cursor < len(col.Cards)-1 {
+					col.Cursor++
+				}
+			case "k", "up":
+				col := &b.Columns[b.ActiveTab]
+				if col.Cursor > 0 {
+					col.Cursor--
+				}
 			}
 		}
 	case tea.WindowSizeMsg:
