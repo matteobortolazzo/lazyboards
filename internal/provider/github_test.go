@@ -11,8 +11,10 @@ import (
 
 // mockIssuesClient implements GitHubIssuesClient with configurable return values.
 type mockIssuesClient struct {
-	issues []*github.Issue
-	err    error
+	issues       []*github.Issue
+	err          error
+	createdIssue *github.Issue
+	createErr    error
 }
 
 func (m *mockIssuesClient) ListByRepo(
@@ -22,6 +24,15 @@ func (m *mockIssuesClient) ListByRepo(
 	_ *github.IssueListByRepoOptions,
 ) ([]*github.Issue, *github.Response, error) {
 	return m.issues, nil, m.err
+}
+
+func (m *mockIssuesClient) Create(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ *github.IssueRequest,
+) (*github.Issue, *github.Response, error) {
+	return m.createdIssue, nil, m.createErr
 }
 
 // makeIssue builds a github.Issue with the given number, title, and label names.
@@ -383,8 +394,56 @@ func TestGitHubFetchBoard_SkipsPullRequests(t *testing.T) {
 	}
 }
 
-func TestGitHubCreateCard_ReturnsNotImplementedError(t *testing.T) {
-	client := &mockIssuesClient{}
+func TestGitHubCreateCard_Success_WithLabel(t *testing.T) {
+	client := &mockIssuesClient{
+		createdIssue: makeIssue(42, "New feature", "backlog"),
+	}
+	columns := []string{"Backlog", "Done"}
+
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	card, err := provider.CreateCard(context.Background(), "New feature", "backlog")
+	if err != nil {
+		t.Fatalf("CreateCard returned error: %v", err)
+	}
+	if card.Number != 42 {
+		t.Errorf("card.Number = %d, want 42", card.Number)
+	}
+	if card.Title != "New feature" {
+		t.Errorf("card.Title = %q, want %q", card.Title, "New feature")
+	}
+	if card.Label != "backlog" {
+		t.Errorf("card.Label = %q, want %q", card.Label, "backlog")
+	}
+}
+
+func TestGitHubCreateCard_Success_WithoutLabel(t *testing.T) {
+	client := &mockIssuesClient{
+		createdIssue: makeIssue(7, "Quick fix"),
+	}
+	columns := []string{"New"}
+
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	card, err := provider.CreateCard(context.Background(), "Quick fix", "")
+	if err != nil {
+		t.Fatalf("CreateCard returned error: %v", err)
+	}
+	if card.Number != 7 {
+		t.Errorf("card.Number = %d, want 7", card.Number)
+	}
+	if card.Title != "Quick fix" {
+		t.Errorf("card.Title = %q, want %q", card.Title, "Quick fix")
+	}
+	if card.Label != "" {
+		t.Errorf("card.Label = %q, want empty string", card.Label)
+	}
+}
+
+func TestGitHubCreateCard_APIError_ReturnsError(t *testing.T) {
+	client := &mockIssuesClient{
+		createErr: errors.New("authentication required"),
+	}
 	columns := []string{"New"}
 
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
@@ -393,7 +452,7 @@ func TestGitHubCreateCard_ReturnsNotImplementedError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from CreateCard, got nil")
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "not implemented") {
-		t.Errorf("error = %q, want it to contain %q", err.Error(), "not implemented")
+	if !strings.Contains(err.Error(), "authentication") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "authentication")
 	}
 }
