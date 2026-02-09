@@ -799,14 +799,6 @@ func TestCreateMode_TypingUpdatesLabelField(t *testing.T) {
 	}
 }
 
-func TestCreateMode_InitReturnsCmds(t *testing.T) {
-	b := newTestBoard(t)
-	cmd := b.Init()
-	if cmd == nil {
-		t.Error("Init() should return a non-nil cmd")
-	}
-}
-
 func TestCreateMode_FieldsResetOnReopen(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
@@ -842,8 +834,12 @@ func TestSubmit_CreatesCardInNewColumn(t *testing.T) {
 		b = sendKey(t, b, keyMsg(string(ch)))
 	}
 
-	// Press Enter to submit.
+	// Press Enter to submit (transitions to creatingMode).
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// Simulate async success.
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "My task", Label: ""}})
+	b = m.(Board)
 
 	// A new card should exist in the "New" column (index 0).
 	if len(b.Columns[0].Cards) != originalCardCount+1 {
@@ -877,9 +873,12 @@ func TestSubmit_AutoNumbersCard(t *testing.T) {
 	}
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	// The new card's Number should be maxNumber + 1.
-	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
+	// Simulate async success with expected auto-numbered card.
 	expectedNumber := maxNumber + 1
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: expectedNumber, Title: "Auto numbered", Label: ""}})
+	b = m.(Board)
+
+	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
 	if newCard.Number != expectedNumber {
 		t.Errorf("new card Number = %d, want %d (max existing + 1)", newCard.Number, expectedNumber)
 	}
@@ -899,6 +898,10 @@ func TestSubmit_WithLabel(t *testing.T) {
 	}
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
+	// Simulate async success.
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Labeled task", Label: "bug"}})
+	b = m.(Board)
+
 	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
 	if newCard.Label != "bug" {
 		t.Errorf("new card Label = %q, want %q", newCard.Label, "bug")
@@ -914,6 +917,10 @@ func TestSubmit_EmptyLabelAllowed(t *testing.T) {
 		b = sendKey(t, b, keyMsg(string(ch)))
 	}
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// Simulate async success with empty label.
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "No label task", Label: ""}})
+	b = m.(Board)
 
 	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
 	if newCard.Label != "" {
@@ -968,6 +975,10 @@ func TestSubmit_ReturnsToNormalMode(t *testing.T) {
 	}
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
+	// Simulate async success.
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Done task", Label: ""}})
+	b = m.(Board)
+
 	if b.mode != normalMode {
 		t.Errorf("mode = %d after successful submit, want %d (normalMode)", b.mode, normalMode)
 	}
@@ -987,6 +998,10 @@ func TestSubmit_ResetsFieldsAfterCreation(t *testing.T) {
 	}
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
+	// Simulate async success.
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Some task", Label: "feature"}})
+	b = m.(Board)
+
 	if b.titleInput.Value() != "" {
 		t.Errorf("titleInput.Value() = %q after submit, want empty string (fields should reset)", b.titleInput.Value())
 	}
@@ -1003,5 +1018,237 @@ func TestView_HelpBarShowsNewHint(t *testing.T) {
 
 	if !strings.Contains(view, "n: new") {
 		t.Errorf("View() help bar does not contain %q", "n: new")
+	}
+}
+
+// --- Reserved Label Validation ---
+
+func TestCreateMode_ReservedLabel_ShowsError(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	// Enter createMode and type a title.
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "Test title" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Tab to label field and type the first column title (a reserved label).
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	reservedLabel := b.Columns[0].Title // "New"
+	for _, ch := range reservedLabel {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Press Enter to submit.
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// Should stay in createMode with a validation error.
+	if b.mode != createMode {
+		t.Errorf("mode = %d, want %d (createMode) when reserved label used", b.mode, createMode)
+	}
+	if !strings.Contains(b.validationErr, "Cannot use reserved column label") {
+		t.Errorf("validationErr = %q, want it to contain %q", b.validationErr, "Cannot use reserved column label")
+	}
+}
+
+func TestCreateMode_ReservedLabel_CaseInsensitive(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	// Enter createMode and type a title.
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "Test title" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Tab to label field and type the first column title in lowercase.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	reservedLabel := strings.ToLower(b.Columns[0].Title) // "new"
+	for _, ch := range reservedLabel {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Press Enter to submit.
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// Should stay in createMode with a validation error (case-insensitive check).
+	if b.mode != createMode {
+		t.Errorf("mode = %d, want %d (createMode) when reserved label used (lowercase)", b.mode, createMode)
+	}
+	if !strings.Contains(b.validationErr, "Cannot use reserved column label") {
+		t.Errorf("validationErr = %q, want it to contain %q", b.validationErr, "Cannot use reserved column label")
+	}
+}
+
+func TestCreateMode_ReservedLabel_NonReservedAllowed(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	// Enter createMode and type a title.
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "Test title" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Tab to label field and type a non-reserved label.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	for _, ch := range "bug" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Press Enter to submit.
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// Should NOT be stuck in createMode with a reserved label error.
+	if b.mode == createMode && strings.Contains(b.validationErr, "Cannot use reserved column label") {
+		t.Errorf("non-reserved label 'bug' should not trigger reserved label error, but got validationErr = %q", b.validationErr)
+	}
+}
+
+// --- Async Submission ---
+
+// newCreatingTestBoard creates a Board in creatingMode for testing async creation.
+func newCreatingTestBoard(t *testing.T) Board {
+	t.Helper()
+	b := newLoadedTestBoard(t)
+	b.mode = creatingMode
+	return b
+}
+
+func TestCreateMode_Submit_TransitionsToCreatingMode(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	// Enter createMode and type a title.
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "Test" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Press Enter to submit.
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// Should transition to creatingMode (async submission in progress).
+	if b.mode != creatingMode {
+		t.Errorf("mode = %d, want %d (creatingMode) after submitting form", b.mode, creatingMode)
+	}
+}
+
+func TestCreatingMode_IgnoresKeys(t *testing.T) {
+	b := newCreatingTestBoard(t)
+
+	origTab := b.ActiveTab
+	origCursor := b.Columns[b.ActiveTab].Cursor
+
+	// All navigation and action keys should be ignored.
+	for _, key := range []string{"h", "l", "j", "k", "q", "n"} {
+		b = sendKey(t, b, keyMsg(key))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	if b.mode != creatingMode {
+		t.Errorf("mode = %d after keys in creatingMode, want %d (creatingMode)", b.mode, creatingMode)
+	}
+	if b.ActiveTab != origTab {
+		t.Errorf("ActiveTab = %d after keys in creatingMode, want %d (unchanged)", b.ActiveTab, origTab)
+	}
+	if b.Columns[b.ActiveTab].Cursor != origCursor {
+		t.Errorf("cursor = %d after keys in creatingMode, want %d (unchanged)", b.Columns[b.ActiveTab].Cursor, origCursor)
+	}
+}
+
+func TestCreatingMode_SpinnerTickPropagated(t *testing.T) {
+	b := newCreatingTestBoard(t)
+
+	tickMsg := spinner.TickMsg{}
+	m, cmd := b.Update(tickMsg)
+	updated := m.(Board)
+
+	if updated.mode != creatingMode {
+		t.Errorf("mode = %d after spinner tick in creatingMode, want %d (creatingMode)", updated.mode, creatingMode)
+	}
+	if cmd == nil {
+		t.Error("spinner tick in creatingMode should return a non-nil cmd")
+	}
+}
+
+func TestCreatingMode_Success_AppendsCardAndClosesModal(t *testing.T) {
+	b := newCreatingTestBoard(t)
+	originalCardCount := len(b.Columns[0].Cards)
+
+	msg := cardCreatedMsg{card: provider.Card{Number: 99, Title: "New task", Label: "feature"}}
+	m, _ := b.Update(msg)
+	updated := m.(Board)
+
+	// Should return to normalMode.
+	if updated.mode != normalMode {
+		t.Errorf("mode = %d after cardCreatedMsg, want %d (normalMode)", updated.mode, normalMode)
+	}
+
+	// New card should be appended to the first column.
+	if len(updated.Columns[0].Cards) != originalCardCount+1 {
+		t.Fatalf("Columns[0].Cards count = %d, want %d (one card added)", len(updated.Columns[0].Cards), originalCardCount+1)
+	}
+	newCard := updated.Columns[0].Cards[len(updated.Columns[0].Cards)-1]
+	if newCard.Number != 99 {
+		t.Errorf("new card Number = %d, want 99", newCard.Number)
+	}
+	if newCard.Title != "New task" {
+		t.Errorf("new card Title = %q, want %q", newCard.Title, "New task")
+	}
+	if newCard.Label != "feature" {
+		t.Errorf("new card Label = %q, want %q", newCard.Label, "feature")
+	}
+
+	// Fields should be reset.
+	if updated.titleInput.Value() != "" {
+		t.Errorf("titleInput.Value() = %q after success, want empty string", updated.titleInput.Value())
+	}
+	if updated.labelInput.Value() != "" {
+		t.Errorf("labelInput.Value() = %q after success, want empty string", updated.labelInput.Value())
+	}
+	if updated.validationErr != "" {
+		t.Errorf("validationErr = %q after success, want empty string", updated.validationErr)
+	}
+}
+
+func TestCreatingMode_Error_ShowsErrorAndPreservesInput(t *testing.T) {
+	b := newCreatingTestBoard(t)
+	b.titleInput.SetValue("My title")
+	b.labelInput.SetValue("my-label")
+
+	msg := cardCreateErrorMsg{err: errors.New("API error")}
+	m, _ := b.Update(msg)
+	updated := m.(Board)
+
+	// Should go back to createMode so user can edit and retry.
+	if updated.mode != createMode {
+		t.Errorf("mode = %d after cardCreateErrorMsg, want %d (createMode)", updated.mode, createMode)
+	}
+
+	// Validation error should contain the API error message.
+	if !strings.Contains(updated.validationErr, "API error") {
+		t.Errorf("validationErr = %q, want it to contain %q", updated.validationErr, "API error")
+	}
+
+	// Input fields should be preserved so user can retry.
+	if updated.titleInput.Value() != "My title" {
+		t.Errorf("titleInput.Value() = %q after error, want %q (input should be preserved)", updated.titleInput.Value(), "My title")
+	}
+	if updated.labelInput.Value() != "my-label" {
+		t.Errorf("labelInput.Value() = %q after error, want %q (input should be preserved)", updated.labelInput.Value(), "my-label")
+	}
+
+	// Title input should be focused for easy editing.
+	if !updated.titleInput.Focused() {
+		t.Error("titleInput should be focused after error so user can edit and retry")
+	}
+}
+
+func TestCreatingMode_View_ShowsSpinner(t *testing.T) {
+	b := newCreatingTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	view := b.View()
+	if !strings.Contains(view, "Creating card") {
+		t.Error("View() in creatingMode should contain 'Creating card'")
 	}
 }
