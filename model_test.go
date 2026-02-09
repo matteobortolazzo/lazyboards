@@ -417,3 +417,113 @@ func TestView_IsNotEmpty(t *testing.T) {
 		t.Error("View() returned empty string, want rendered board content")
 	}
 }
+
+// --- Create Mode ---
+
+func TestNewBoard_StartsInNormalMode(t *testing.T) {
+	b := NewBoard()
+	if b.mode != normalMode {
+		t.Errorf("NewBoard().mode = %d, want %d (normalMode)", b.mode, normalMode)
+	}
+}
+
+func TestCreateMode_N_EntersCreateMode(t *testing.T) {
+	b := NewBoard()
+	b = sendKey(t, b, keyMsg("n"))
+	if b.mode != createMode {
+		t.Errorf("after 'n': mode = %d, want %d (createMode)", b.mode, createMode)
+	}
+}
+
+func TestCreateMode_Escape_ReturnsToNormalMode(t *testing.T) {
+	b := NewBoard()
+	b = sendKey(t, b, keyMsg("n"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+	if b.mode != normalMode {
+		t.Errorf("after 'n' then Escape: mode = %d, want %d (normalMode)", b.mode, normalMode)
+	}
+}
+
+func TestCreateMode_BlocksNavigation(t *testing.T) {
+	b := NewBoard()
+	requireColumns(t, b)
+	b = sendKey(t, b, keyMsg("n"))
+
+	origTab := b.ActiveTab
+	origCursor := b.Columns[b.ActiveTab].Cursor
+
+	// h, l should not change ActiveTab
+	b = sendKey(t, b, keyMsg("h"))
+	if b.ActiveTab != origTab {
+		t.Errorf("'h' in createMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
+	}
+	b = sendKey(t, b, keyMsg("l"))
+	if b.ActiveTab != origTab {
+		t.Errorf("'l' in createMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
+	}
+
+	// j, k should not change cursor
+	b = sendKey(t, b, keyMsg("j"))
+	if b.Columns[b.ActiveTab].Cursor != origCursor {
+		t.Errorf("'j' in createMode changed cursor to %d, want %d", b.Columns[b.ActiveTab].Cursor, origCursor)
+	}
+	b = sendKey(t, b, keyMsg("k"))
+	if b.Columns[b.ActiveTab].Cursor != origCursor {
+		t.Errorf("'k' in createMode changed cursor to %d, want %d", b.Columns[b.ActiveTab].Cursor, origCursor)
+	}
+}
+
+func TestCreateMode_BlocksArrowKeys(t *testing.T) {
+	b := NewBoard()
+	requireColumns(t, b)
+	b = sendKey(t, b, keyMsg("n"))
+
+	origTab := b.ActiveTab
+	origCursor := b.Columns[b.ActiveTab].Cursor
+
+	// Arrow keys should not change ActiveTab or cursor
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
+	if b.ActiveTab != origTab {
+		t.Errorf("Left arrow in createMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyRight))
+	if b.ActiveTab != origTab {
+		t.Errorf("Right arrow in createMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	if b.Columns[b.ActiveTab].Cursor != origCursor {
+		t.Errorf("Down arrow in createMode changed cursor to %d, want %d", b.Columns[b.ActiveTab].Cursor, origCursor)
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyUp))
+	if b.Columns[b.ActiveTab].Cursor != origCursor {
+		t.Errorf("Up arrow in createMode changed cursor to %d, want %d", b.Columns[b.ActiveTab].Cursor, origCursor)
+	}
+}
+
+func TestCreateMode_BlocksQuit(t *testing.T) {
+	b := NewBoard()
+	b = sendKey(t, b, keyMsg("n"))
+	_, cmd := b.Update(keyMsg("q"))
+	if cmd != nil {
+		t.Error("'q' in createMode should NOT return a Cmd, but got non-nil")
+	}
+}
+
+func TestCreateMode_CtrlC_StillQuits(t *testing.T) {
+	b := NewBoard()
+	b = sendKey(t, b, keyMsg("n"))
+	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Error("Ctrl+C in createMode should return a non-nil Cmd (tea.Quit)")
+	}
+}
+
+func TestCreateMode_N_DoesNotToggle(t *testing.T) {
+	b := NewBoard()
+	b = sendKey(t, b, keyMsg("n"))
+	// Pressing n again should NOT toggle back to normalMode
+	b = sendKey(t, b, keyMsg("n"))
+	if b.mode != createMode {
+		t.Errorf("pressing 'n' twice: mode = %d, want %d (createMode, should not toggle)", b.mode, createMode)
+	}
+}
