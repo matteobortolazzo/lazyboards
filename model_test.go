@@ -503,9 +503,11 @@ func TestCreateMode_BlocksArrowKeys(t *testing.T) {
 func TestCreateMode_BlocksQuit(t *testing.T) {
 	b := NewBoard()
 	b = sendKey(t, b, keyMsg("n"))
-	_, cmd := b.Update(keyMsg("q"))
-	if cmd != nil {
-		t.Error("'q' in createMode should NOT return a Cmd, but got non-nil")
+	m, _ := b.Update(keyMsg("q"))
+	updated := m.(Board)
+	// q should NOT quit — board should still be in createMode
+	if updated.mode != createMode {
+		t.Errorf("'q' in createMode changed mode to %d, want %d (createMode)", updated.mode, createMode)
 	}
 }
 
@@ -525,5 +527,133 @@ func TestCreateMode_N_DoesNotToggle(t *testing.T) {
 	b = sendKey(t, b, keyMsg("n"))
 	if b.mode != createMode {
 		t.Errorf("pressing 'n' twice: mode = %d, want %d (createMode, should not toggle)", b.mode, createMode)
+	}
+}
+
+// --- Create Mode UI ---
+
+func TestCreateMode_ViewShowsModal(t *testing.T) {
+	b := NewBoard()
+	b.Width = 120
+	b.Height = 40
+	b = sendKey(t, b, keyMsg("n"))
+	view := b.View()
+	if !strings.Contains(view, "New Card") {
+		t.Error("View() in createMode should contain 'New Card' header text")
+	}
+}
+
+func TestCreateMode_ViewShowsTitleField(t *testing.T) {
+	b := NewBoard()
+	b.Width = 120
+	b.Height = 40
+	b = sendKey(t, b, keyMsg("n"))
+	view := b.View()
+	if !strings.Contains(view, "Title") {
+		t.Error("View() in createMode should contain 'Title' label or placeholder")
+	}
+}
+
+func TestCreateMode_ViewShowsLabelField(t *testing.T) {
+	b := NewBoard()
+	b.Width = 120
+	b.Height = 40
+	b = sendKey(t, b, keyMsg("n"))
+	view := b.View()
+	if !strings.Contains(view, "Label") {
+		t.Error("View() in createMode should contain 'Label' label or placeholder")
+	}
+}
+
+func TestCreateMode_TabSwitchesFocus(t *testing.T) {
+	b := NewBoard()
+	b = sendKey(t, b, keyMsg("n"))
+
+	// Title should be focused initially.
+	if !b.titleInput.Focused() {
+		t.Error("titleInput should be focused when entering createMode")
+	}
+	if b.labelInput.Focused() {
+		t.Error("labelInput should NOT be focused when entering createMode")
+	}
+
+	// Tab should switch focus to labelInput.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	if b.titleInput.Focused() {
+		t.Error("titleInput should NOT be focused after Tab")
+	}
+	if !b.labelInput.Focused() {
+		t.Error("labelInput should be focused after Tab")
+	}
+
+	// Another Tab should switch focus back to titleInput.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	if !b.titleInput.Focused() {
+		t.Error("titleInput should be focused after second Tab")
+	}
+	if b.labelInput.Focused() {
+		t.Error("labelInput should NOT be focused after second Tab")
+	}
+}
+
+func TestCreateMode_TypingUpdatesTitleField(t *testing.T) {
+	b := NewBoard()
+	b = sendKey(t, b, keyMsg("n"))
+
+	// Type characters while title is focused.
+	for _, ch := range "Fix bug" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	if b.titleInput.Value() != "Fix bug" {
+		t.Errorf("titleInput.Value() = %q, want %q", b.titleInput.Value(), "Fix bug")
+	}
+}
+
+func TestCreateMode_TypingUpdatesLabelField(t *testing.T) {
+	b := NewBoard()
+	b = sendKey(t, b, keyMsg("n"))
+
+	// Tab to label field.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+
+	// Type characters while label is focused.
+	for _, ch := range "bug" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	if b.labelInput.Value() != "bug" {
+		t.Errorf("labelInput.Value() = %q, want %q", b.labelInput.Value(), "bug")
+	}
+}
+
+func TestCreateMode_InitReturnsBlink(t *testing.T) {
+	b := NewBoard()
+	cmd := b.Init()
+	if cmd == nil {
+		t.Error("Init() should return a non-nil Cmd (textinput.Blink)")
+	}
+}
+
+func TestCreateMode_FieldsResetOnReopen(t *testing.T) {
+	b := NewBoard()
+	b = sendKey(t, b, keyMsg("n"))
+
+	// Type something in the title field.
+	for _, ch := range "hello" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Escape back to normalMode.
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	// Re-enter createMode.
+	b = sendKey(t, b, keyMsg("n"))
+
+	if b.titleInput.Value() != "" {
+		t.Errorf("titleInput.Value() after reopen = %q, want empty string (fields should reset)", b.titleInput.Value())
+	}
+	if b.labelInput.Value() != "" {
+		t.Errorf("labelInput.Value() after reopen = %q, want empty string (fields should reset)", b.labelInput.Value())
 	}
 }
