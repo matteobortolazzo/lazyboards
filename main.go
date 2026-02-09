@@ -54,11 +54,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	board, err := NewBoardFromProvider(bp)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading board: %v\n", err)
-		os.Exit(1)
-	}
+	board := NewBoard(bp)
 
 	p := tea.NewProgram(board, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
