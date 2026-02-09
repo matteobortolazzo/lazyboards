@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 // Package-level styles.
@@ -53,18 +55,42 @@ type Board struct {
 	titleInput    textinput.Model
 	labelInput    textinput.Model
 	validationErr string
+	provider      provider.BoardProvider
 }
 
-func (b Board) maxCardNumber() int {
-	max := 0
-	for _, col := range b.Columns {
-		for _, card := range col.Cards {
-			if card.Number > max {
-				max = card.Number
-			}
-		}
+// NewBoardFromProvider creates a Board by fetching data from the given provider.
+func NewBoardFromProvider(p provider.BoardProvider) (Board, error) {
+	board, err := p.FetchBoard(context.Background())
+	if err != nil {
+		return Board{}, fmt.Errorf("fetching board: %w", err)
 	}
-	return max
+
+	cols := make([]Column, len(board.Columns))
+	for i, pc := range board.Columns {
+		cards := make([]Card, len(pc.Cards))
+		for j, c := range pc.Cards {
+			cards[j] = Card{Number: c.Number, Title: c.Title, Label: c.Label}
+		}
+		cols[i] = Column{Title: pc.Title, Cards: cards}
+	}
+
+	ti := textinput.New()
+	ti.Placeholder = "Title"
+	ti.Focus()
+	ti.CharLimit = 100
+	ti.Width = 40
+
+	li := textinput.New()
+	li.Placeholder = "Label"
+	li.CharLimit = 50
+	li.Width = 40
+
+	return Board{
+		Columns:    cols,
+		titleInput: ti,
+		labelInput: li,
+		provider:   p,
+	}, nil
 }
 
 func (b Board) Init() tea.Cmd {
@@ -91,10 +117,16 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					b.validationErr = "Title is required"
 					return b, nil
 				}
+				label := strings.TrimSpace(b.labelInput.Value())
+				created, err := b.provider.CreateCard(context.Background(), title, label)
+				if err != nil {
+					b.validationErr = err.Error()
+					return b, nil
+				}
 				newCard := Card{
-					Number: b.maxCardNumber() + 1,
-					Title:  title,
-					Label:  strings.TrimSpace(b.labelInput.Value()),
+					Number: created.Number,
+					Title:  created.Title,
+					Label:  created.Label,
 				}
 				b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
 				b.titleInput.SetValue("")
