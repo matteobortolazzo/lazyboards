@@ -657,3 +657,179 @@ func TestCreateMode_FieldsResetOnReopen(t *testing.T) {
 		t.Errorf("labelInput.Value() after reopen = %q, want empty string (fields should reset)", b.labelInput.Value())
 	}
 }
+
+// --- Form Submission ---
+
+func TestSubmit_CreatesCardInNewColumn(t *testing.T) {
+	b := NewBoard()
+	originalCardCount := len(b.Columns[0].Cards)
+
+	// Enter createMode and type a title.
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "My task" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Press Enter to submit.
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// A new card should exist in the "New" column (index 0).
+	if len(b.Columns[0].Cards) != originalCardCount+1 {
+		t.Fatalf("Columns[0].Cards count = %d, want %d (one card added)", len(b.Columns[0].Cards), originalCardCount+1)
+	}
+
+	// The new card should be the last card in the column.
+	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
+	if newCard.Title != "My task" {
+		t.Errorf("new card Title = %q, want %q", newCard.Title, "My task")
+	}
+}
+
+func TestSubmit_AutoNumbersCard(t *testing.T) {
+	b := NewBoard()
+
+	// Find the max card number across all columns.
+	maxNumber := 0
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			if card.Number > maxNumber {
+				maxNumber = card.Number
+			}
+		}
+	}
+
+	// Enter createMode, type a title, and submit.
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "Auto numbered" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// The new card's Number should be maxNumber + 1.
+	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
+	expectedNumber := maxNumber + 1
+	if newCard.Number != expectedNumber {
+		t.Errorf("new card Number = %d, want %d (max existing + 1)", newCard.Number, expectedNumber)
+	}
+}
+
+func TestSubmit_WithLabel(t *testing.T) {
+	b := NewBoard()
+
+	// Enter createMode, type title, Tab to label, type label, submit.
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "Labeled task" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	for _, ch := range "bug" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
+	if newCard.Label != "bug" {
+		t.Errorf("new card Label = %q, want %q", newCard.Label, "bug")
+	}
+}
+
+func TestSubmit_EmptyLabelAllowed(t *testing.T) {
+	b := NewBoard()
+
+	// Enter createMode, type title only (no label), submit.
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "No label task" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
+	if newCard.Label != "" {
+		t.Errorf("new card Label = %q, want empty string (empty label is OK)", newCard.Label)
+	}
+}
+
+func TestSubmit_EmptyTitleShowsError(t *testing.T) {
+	b := NewBoard()
+
+	// Enter createMode and press Enter without typing a title.
+	b = sendKey(t, b, keyMsg("n"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// Should stay in createMode.
+	if b.mode != createMode {
+		t.Errorf("mode = %d, want %d (createMode) when title is empty", b.mode, createMode)
+	}
+
+	// Should have a validation error containing "Title is required".
+	if !strings.Contains(b.validationErr, "Title is required") {
+		t.Errorf("validationErr = %q, want it to contain %q", b.validationErr, "Title is required")
+	}
+}
+
+func TestSubmit_ErrorClearsOnTyping(t *testing.T) {
+	b := NewBoard()
+
+	// Trigger validation error.
+	b = sendKey(t, b, keyMsg("n"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// Confirm error is set.
+	if b.validationErr == "" {
+		t.Fatal("expected validationErr to be set after empty submit, got empty string")
+	}
+
+	// Type a character — error should clear.
+	b = sendKey(t, b, keyMsg("a"))
+	if b.validationErr != "" {
+		t.Errorf("validationErr = %q after typing, want empty string (error should clear)", b.validationErr)
+	}
+}
+
+func TestSubmit_ReturnsToNormalMode(t *testing.T) {
+	b := NewBoard()
+
+	// Enter createMode, type title, submit.
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "Done task" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d after successful submit, want %d (normalMode)", b.mode, normalMode)
+	}
+}
+
+func TestSubmit_ResetsFieldsAfterCreation(t *testing.T) {
+	b := NewBoard()
+
+	// Enter createMode, type title and label, submit.
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "Some task" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	for _, ch := range "feature" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	if b.titleInput.Value() != "" {
+		t.Errorf("titleInput.Value() = %q after submit, want empty string (fields should reset)", b.titleInput.Value())
+	}
+	if b.labelInput.Value() != "" {
+		t.Errorf("labelInput.Value() = %q after submit, want empty string (fields should reset)", b.labelInput.Value())
+	}
+}
+
+func TestView_HelpBarShowsNewHint(t *testing.T) {
+	b := NewBoard()
+	b.Width = 120
+	b.Height = 40
+	view := b.View()
+
+	if !strings.Contains(view, "n: new") {
+		t.Errorf("View() help bar does not contain %q", "n: new")
+	}
+}
