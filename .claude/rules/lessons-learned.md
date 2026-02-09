@@ -14,3 +14,17 @@ Claude reads this file automatically. Its rules are authoritative and override a
 ### lipgloss Width() sets content width, borders are additional
 - **Mistake:** Column width calculated as `b.Width / len(b.Columns)` without accounting for border characters, causing total rendered width to exceed terminal width.
 - **Fix:** Subtract border overhead: `colWidth := (b.Width / len(b.Columns)) - borderWidth`.
+
+### Always run git worktree add from main repo directory
+- **Date**: 2026-02-09
+- **What happened**: Running `git worktree add .worktrees/5-create-modal-ui` from inside another worktree (`.worktrees/5-create-mode-state/`) created the new worktree nested inside the first one instead of under the main repo's `.worktrees/` directory.
+- **Root cause**: Git interprets relative paths from the current working directory, so running the command from a nested worktree made `.worktrees/` resolve relative to that nested location.
+- **Fix**: Always `cd /home/mborto/Repos/lazyboards && git worktree add .worktrees/<name> ...` before creating stacked or new worktrees. Use absolute paths for the main repository.
+- **Rule**: Git worktree operations must be executed from the main repository root, not from within an existing worktree.
+
+### BubbleTea textinput Cmd must always be propagated
+- **Date**: 2026-02-09
+- **What happened**: When forwarding key messages to `textinput.Model.Update()` in createMode, the returned `tea.Cmd` was discarded with `_`. This broke the cursor blink animation after the first keystroke.
+- **Root cause**: BubbleTea's Cmd return value encodes async work (timers, animations, subscriptions). Discarding it breaks all animations. The textinput component uses a Cmd to schedule cursor blinks.
+- **Fix**: Always capture and propagate the Cmd: `var cmd tea.Cmd; model, cmd = model.Update(msg); return model, cmd`. Also update tests to check behavior (e.g., mode stays in createMode) instead of checking `cmd == nil`.
+- **Rule**: Never discard `tea.Cmd` values from sub-model `Update()` calls. Always propagate them up through the component hierarchy.
