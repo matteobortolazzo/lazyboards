@@ -28,8 +28,17 @@ func main() {
 
 	var bp provider.BoardProvider
 	switch cfg.Provider {
-	case "fake":
-		bp = provider.NewFakeProvider()
+	case "":
+		fmt.Fprintf(os.Stderr, "No provider configured.\n\n")
+		fmt.Fprintf(os.Stderr, "Create a .lazyboards.yml file with:\n\n")
+		fmt.Fprintf(os.Stderr, "  provider: github\n")
+		fmt.Fprintf(os.Stderr, "  repo: owner/repo\n")
+		fmt.Fprintf(os.Stderr, "  columns:\n")
+		fmt.Fprintf(os.Stderr, "    - New\n")
+		fmt.Fprintf(os.Stderr, "    - \"In Progress\"\n")
+		fmt.Fprintf(os.Stderr, "    - Done\n\n")
+		fmt.Fprintf(os.Stderr, "Then set GITHUB_TOKEN in your environment.\n")
+		os.Exit(1)
 	case "github":
 		token := os.Getenv("GITHUB_TOKEN")
 		if token == "" {

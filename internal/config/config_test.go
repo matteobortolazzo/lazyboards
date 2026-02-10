@@ -59,8 +59,8 @@ func TestLoad_MissingGlobalFile_ReturnsDefaults(t *testing.T) {
 		t.Fatalf("Load() returned unexpected error: %v", err)
 	}
 
-	if result.Provider != "fake" {
-		t.Errorf("Provider = %q, want %q", result.Provider, "fake")
+	if result.Provider != "" {
+		t.Errorf("Provider = %q, want empty string", result.Provider)
 	}
 	if result.Repo != "" {
 		t.Errorf("Repo = %q, want empty string", result.Repo)
@@ -227,8 +227,8 @@ func TestLoad_BothMissing_ReturnsDefaults(t *testing.T) {
 		t.Fatalf("Load() returned unexpected error: %v", err)
 	}
 
-	if result.Provider != "fake" {
-		t.Errorf("Provider = %q, want %q", result.Provider, "fake")
+	if result.Provider != "" {
+		t.Errorf("Provider = %q, want empty string", result.Provider)
 	}
 	if result.Repo != "" {
 		t.Errorf("Repo = %q, want empty string", result.Repo)

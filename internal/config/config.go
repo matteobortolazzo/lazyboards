@@ -54,10 +54,5 @@ func Load(globalPath, localPath string) (Config, error) {
 		}
 	}
 
-	// Apply defaults.
-	if cfg.Provider == "" {
-		cfg.Provider = "fake"
-	}
-
 	return cfg, nil
 }

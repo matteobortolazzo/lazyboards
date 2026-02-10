@@ -11,6 +11,22 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Card creation via modal form with validation
 - Responsive terminal resizing
 
+## Configuration
+
+Copy the example config and adjust values:
+
+```
+cp .lazyboards.yml.example .lazyboards.yml
+```
+
+Set your GitHub token:
+
+```
+export GITHUB_TOKEN=your_token_here
+```
+
+See `.lazyboards.yml.example` for all available options.
+
 ## Install
 
 ```
