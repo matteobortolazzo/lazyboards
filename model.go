@@ -30,6 +30,7 @@ type boardMode int
 const (
 	normalMode boardMode = iota
 	createMode
+	creatingMode
 	loadingMode
 	errorMode
 )
@@ -55,6 +56,16 @@ type boardFetchedMsg struct {
 
 // boardFetchErrorMsg is sent when the provider fails to fetch board data.
 type boardFetchErrorMsg struct {
+	err error
+}
+
+// cardCreatedMsg is sent when the provider successfully creates a card.
+type cardCreatedMsg struct {
+	card provider.Card
+}
+
+// cardCreateErrorMsg is sent when the provider fails to create a card.
+type cardCreateErrorMsg struct {
 	err error
 }
 
@@ -109,6 +120,17 @@ func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
 	}
 }
 
+// createCardCmd returns a tea.Cmd that creates a card via the provider.
+func createCardCmd(p provider.BoardProvider, title, label string) tea.Cmd {
+	return func() tea.Msg {
+		card, err := p.CreateCard(context.Background(), title, label)
+		if err != nil {
+			return cardCreateErrorMsg{err: err}
+		}
+		return cardCreatedMsg{card: card}
+	}
+}
+
 func (b Board) Init() tea.Cmd {
 	return tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 }
@@ -133,8 +155,28 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.loadErr = msg.err.Error()
 		return b, nil
 
+	case cardCreatedMsg:
+		newCard := Card{
+			Number: msg.card.Number,
+			Title:  msg.card.Title,
+			Label:  msg.card.Label,
+		}
+		b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
+		b.titleInput.SetValue("")
+		b.labelInput.SetValue("")
+		b.validationErr = ""
+		b.mode = normalMode
+		return b, nil
+
+	case cardCreateErrorMsg:
+		b.validationErr = msg.err.Error()
+		b.mode = createMode
+		cmd := b.titleInput.Focus()
+		b.labelInput.Blur()
+		return b, cmd
+
 	case spinner.TickMsg:
-		if b.mode == loadingMode {
+		if b.mode == loadingMode || b.mode == creatingMode {
 			var cmd tea.Cmd
 			b.spinner, cmd = b.spinner.Update(msg)
 			return b, cmd
@@ -148,8 +190,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch b.mode {
-		case loadingMode:
-			// Ignore all keys while loading.
+		case loadingMode, creatingMode:
+			// Ignore all keys while loading or creating.
 			return b, nil
 
 		case errorMode:
@@ -175,22 +217,16 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return b, nil
 				}
 				label := strings.TrimSpace(b.labelInput.Value())
-				created, err := b.provider.CreateCard(context.Background(), title, label)
-				if err != nil {
-					b.validationErr = err.Error()
-					return b, nil
+				for _, col := range b.Columns {
+					if strings.EqualFold(col.Title, label) {
+						b.validationErr = "Cannot use reserved column label"
+						return b, nil
+					}
 				}
-				newCard := Card{
-					Number: created.Number,
-					Title:  created.Title,
-					Label:  created.Label,
-				}
-				b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
-				b.titleInput.SetValue("")
-				b.labelInput.SetValue("")
-				b.validationErr = ""
-				b.mode = normalMode
-				return b, nil
+				b.mode = creatingMode
+				b.titleInput.Blur()
+				b.labelInput.Blur()
+				return b, tea.Batch(b.spinner.Tick, createCardCmd(b.provider, title, label))
 			case tea.KeyTab:
 				var cmd tea.Cmd
 				if b.titleInput.Focused() {
@@ -333,15 +369,20 @@ func (b Board) View() string {
 	// Assemble inner content.
 	inner := lipgloss.JoinVertical(lipgloss.Left, tabBar, panels, helpBar)
 
-	if b.mode == createMode {
+	if b.mode == createMode || b.mode == creatingMode {
 		modalWidth := 40
-		var errLine string
-		if b.validationErr != "" {
-			errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
+		var modalContent string
+		if b.mode == creatingMode {
+			modalContent = "New Card\n\n" + b.spinner.View() + " Creating card..."
+		} else {
+			var errLine string
+			if b.validationErr != "" {
+				errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
+			}
+			modalContent = "New Card\n\n" +
+				"Title:\n" + b.titleInput.View() + errLine + "\n\n" +
+				"Label:\n" + b.labelInput.View()
 		}
-		modalContent := "New Card\n\n" +
-			"Title:\n" + b.titleInput.View() + errLine + "\n\n" +
-			"Label:\n" + b.labelInput.View()
 
 		modalStyle := lipgloss.NewStyle().
 			BorderStyle(lipgloss.RoundedBorder()).
