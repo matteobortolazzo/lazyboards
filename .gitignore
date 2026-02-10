@@ -25,6 +25,9 @@ go.work.sum
 *.swp
 *.swo
 
+# Configuration
+.lazyboards.yml
+
 # Environment
 .env
 .env.*
