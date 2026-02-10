@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
@@ -16,15 +17,30 @@ const expectedColumnCount = 5
 // expectedColumnTitles are the Kanban column names from the spec.
 var expectedColumnTitles = []string{"New", "Refined", "Implementing", "PR Ready", "Done"}
 
-// newTestBoard creates a Board from FakeProvider for use in tests.
+// newTestBoard creates a Board in loadingMode using NewBoard.
 func newTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b, err := NewBoardFromProvider(p)
+	return NewBoard(p)
+}
+
+// newLoadedTestBoard creates a Board and sends a boardFetchedMsg to transition
+// it to normalMode with populated columns (simulating a successful fetch).
+func newLoadedTestBoard(t *testing.T) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p)
+	// Simulate the provider returning board data.
+	board, err := p.FetchBoard(nil)
 	if err != nil {
-		t.Fatalf("NewBoardFromProvider failed: %v", err)
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}
-	return b
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	return updated
 }
 
 // errorProvider is a test-only provider that always returns errors.
@@ -64,30 +80,159 @@ func sendKey(t *testing.T, b Board, msg tea.Msg) Board {
 func requireColumns(t *testing.T, b Board) {
 	t.Helper()
 	if len(b.Columns) == 0 {
-		t.Fatal("newTestBoard() returned 0 columns; cannot test item navigation")
+		t.Fatal("board has 0 columns; cannot test item navigation")
 	}
 }
 
-// --- NewBoardFromProvider Error Handling ---
+// --- Async Loading: Initial State ---
 
-func TestNewBoardFromProvider_ReturnsError(t *testing.T) {
-	_, err := NewBoardFromProvider(errorProvider{})
-	if err == nil {
-		t.Error("expected error from NewBoardFromProvider when provider fails, got nil")
+func TestNewBoard_StartsInLoadingMode(t *testing.T) {
+	b := newTestBoard(t)
+	if b.mode != loadingMode {
+		t.Errorf("mode = %d, want loadingMode", b.mode)
 	}
 }
 
-// --- Initial State ---
+func TestNewBoard_InitReturnsCmds(t *testing.T) {
+	b := newTestBoard(t)
+	cmd := b.Init()
+	if cmd == nil {
+		t.Error("Init() should return non-nil cmd (batch of spinner tick + fetch)")
+	}
+}
+
+// --- Async Loading: Fetch Success ---
+
+func TestLoading_FetchSuccess_TransitionsToNormalMode(t *testing.T) {
+	b := newTestBoard(t)
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{{
+			Title: "Col1",
+			Cards: []provider.Card{{Number: 1, Title: "Card1", Label: "bug"}},
+		}},
+	}}
+	m, _ := b.Update(msg)
+	updated := m.(Board)
+	if updated.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode after successful fetch", updated.mode)
+	}
+	if len(updated.Columns) == 0 {
+		t.Error("Columns should be populated after successful fetch")
+	}
+}
+
+// --- Async Loading: Fetch Error ---
+
+func TestLoading_FetchError_TransitionsToErrorMode(t *testing.T) {
+	b := newTestBoard(t)
+	msg := boardFetchErrorMsg{err: errors.New("connection failed")}
+	m, _ := b.Update(msg)
+	updated := m.(Board)
+	if updated.mode != errorMode {
+		t.Errorf("mode = %d, want errorMode after fetch error", updated.mode)
+	}
+}
+
+// --- Error Mode: Retry ---
+
+func TestErrorMode_R_RetriesAndTransitionsToLoadingMode(t *testing.T) {
+	b := newTestBoard(t)
+	// Put board in errorMode.
+	m, _ := b.Update(boardFetchErrorMsg{err: errors.New("fail")})
+	b = m.(Board)
+	// Press r to retry.
+	m, cmd := b.Update(keyMsg("r"))
+	b = m.(Board)
+	if b.mode != loadingMode {
+		t.Errorf("mode = %d, want loadingMode after retry", b.mode)
+	}
+	if cmd == nil {
+		t.Error("retry should return non-nil cmd (spinner tick + fetch)")
+	}
+}
+
+// --- Error Mode: Quit ---
+
+func TestErrorMode_Q_Quits(t *testing.T) {
+	b := newTestBoard(t)
+	m, _ := b.Update(boardFetchErrorMsg{err: errors.New("fail")})
+	b = m.(Board)
+	_, cmd := b.Update(keyMsg("q"))
+	if cmd == nil {
+		t.Error("'q' in errorMode should return quit cmd")
+	}
+}
+
+// --- Loading Mode: Key Isolation ---
+
+func TestLoadingMode_IgnoresNavigationKeys(t *testing.T) {
+	b := newTestBoard(t)
+	origTab := b.ActiveTab
+	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("k"))
+	if b.ActiveTab != origTab {
+		t.Error("navigation keys should be ignored in loadingMode")
+	}
+	if b.mode != loadingMode {
+		t.Error("mode should still be loadingMode after navigation keys")
+	}
+}
+
+// --- Loading Mode: View ---
+
+func TestLoading_ViewShowsLoadingText(t *testing.T) {
+	b := newTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	view := b.View()
+	if !strings.Contains(view, "Loading board") {
+		t.Error("View() in loadingMode should contain 'Loading board'")
+	}
+}
+
+// --- Error Mode: View ---
+
+func TestError_ViewShowsErrorAndRetryHint(t *testing.T) {
+	b := newTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	m, _ := b.Update(boardFetchErrorMsg{err: errors.New("connection failed")})
+	b = m.(Board)
+	view := b.View()
+	if !strings.Contains(view, "connection failed") {
+		t.Error("View() in errorMode should contain the error message")
+	}
+	if !strings.Contains(view, "r") {
+		t.Error("View() in errorMode should contain retry hint")
+	}
+}
+
+// --- Loading Mode: Spinner ---
+
+func TestLoading_SpinnerTickPropagated(t *testing.T) {
+	b := newTestBoard(t)
+	// Send a spinner.TickMsg to the board in loadingMode.
+	tickMsg := spinner.TickMsg{}
+	m, _ := b.Update(tickMsg)
+	updated := m.(Board)
+	if updated.mode != loadingMode {
+		t.Error("mode should still be loadingMode after spinner tick")
+	}
+}
+
+// --- Loaded Board: Initial State ---
 
 func TestNewBoard_HasExpectedColumnCount(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	if got := len(b.Columns); got != expectedColumnCount {
-		t.Errorf("NewBoardFromProvider() has %d columns, want %d", got, expectedColumnCount)
+		t.Errorf("loaded board has %d columns, want %d", got, expectedColumnCount)
 	}
 }
 
 func TestNewBoard_ColumnsHaveCorrectTitles(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	if len(b.Columns) != len(expectedColumnTitles) {
 		t.Fatalf("column count %d != expected title count %d", len(b.Columns), len(expectedColumnTitles))
 	}
@@ -99,14 +244,14 @@ func TestNewBoard_ColumnsHaveCorrectTitles(t *testing.T) {
 }
 
 func TestNewBoard_ActiveTabStartsAtZero(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	if b.ActiveTab != 0 {
 		t.Errorf("ActiveTab = %d, want 0", b.ActiveTab)
 	}
 }
 
 func TestNewBoard_EachColumnHasCards(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	for i, col := range b.Columns {
 		if len(col.Cards) == 0 {
 			t.Errorf("column %d (%q) has no cards, want at least one", i, col.Title)
@@ -115,7 +260,7 @@ func TestNewBoard_EachColumnHasCards(t *testing.T) {
 }
 
 func TestNewBoard_CardsHaveRequiredFields(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	for ci, col := range b.Columns {
 		for cardIdx, card := range col.Cards {
 			if card.Number == 0 {
@@ -132,7 +277,7 @@ func TestNewBoard_CardsHaveRequiredFields(t *testing.T) {
 }
 
 func TestNewBoard_ColumnCursorsStartAtZero(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	for i, col := range b.Columns {
 		if col.Cursor != 0 {
 			t.Errorf("column %d cursor = %d, want 0", i, col.Cursor)
@@ -143,7 +288,7 @@ func TestNewBoard_ColumnCursorsStartAtZero(t *testing.T) {
 // --- Tab Navigation ---
 
 func TestTabNavigation_L_MovesRight(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("l"))
 	if b.ActiveTab != 1 {
 		t.Errorf("after 'l': ActiveTab = %d, want 1", b.ActiveTab)
@@ -151,7 +296,7 @@ func TestTabNavigation_L_MovesRight(t *testing.T) {
 }
 
 func TestTabNavigation_H_MovesLeft(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	// Move right first so we can move left
 	b = sendKey(t, b, keyMsg("l"))
 	b = sendKey(t, b, keyMsg("h"))
@@ -161,7 +306,7 @@ func TestTabNavigation_H_MovesLeft(t *testing.T) {
 }
 
 func TestTabNavigation_RightArrow_MovesRight(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, arrowMsg(tea.KeyRight))
 	if b.ActiveTab != 1 {
 		t.Errorf("after Right arrow: ActiveTab = %d, want 1", b.ActiveTab)
@@ -169,7 +314,7 @@ func TestTabNavigation_RightArrow_MovesRight(t *testing.T) {
 }
 
 func TestTabNavigation_LeftArrow_MovesLeft(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, arrowMsg(tea.KeyRight))
 	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
 	if b.ActiveTab != 0 {
@@ -178,7 +323,7 @@ func TestTabNavigation_LeftArrow_MovesLeft(t *testing.T) {
 }
 
 func TestTabNavigation_H_ClampsAtStart(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	// Already at column 0, pressing h should stay at 0
 	b = sendKey(t, b, keyMsg("h"))
 	if b.ActiveTab != 0 {
@@ -187,9 +332,9 @@ func TestTabNavigation_H_ClampsAtStart(t *testing.T) {
 }
 
 func TestTabNavigation_L_ClampsAtEnd(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	if len(b.Columns) < 2 {
-		t.Fatal("newTestBoard() must have at least 2 columns for this test")
+		t.Fatal("board must have at least 2 columns for this test")
 	}
 	lastColumn := len(b.Columns) - 1
 	// Move to the last column and then one more
@@ -202,9 +347,9 @@ func TestTabNavigation_L_ClampsAtEnd(t *testing.T) {
 }
 
 func TestTabNavigation_FullTraversal(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	if len(b.Columns) < 2 {
-		t.Fatal("newTestBoard() must have at least 2 columns for this test")
+		t.Fatal("board must have at least 2 columns for this test")
 	}
 	lastColumn := len(b.Columns) - 1
 
@@ -228,7 +373,7 @@ func TestTabNavigation_FullTraversal(t *testing.T) {
 // --- Item Navigation ---
 
 func TestItemNavigation_J_MovesCursorDown(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
 	b = sendKey(t, b, keyMsg("j"))
 	cursor := b.Columns[b.ActiveTab].Cursor
@@ -238,7 +383,7 @@ func TestItemNavigation_J_MovesCursorDown(t *testing.T) {
 }
 
 func TestItemNavigation_K_MovesCursorUp(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
 	// Move down first so we can move up
 	b = sendKey(t, b, keyMsg("j"))
@@ -250,7 +395,7 @@ func TestItemNavigation_K_MovesCursorUp(t *testing.T) {
 }
 
 func TestItemNavigation_DownArrow_MovesCursorDown(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
 	b = sendKey(t, b, arrowMsg(tea.KeyDown))
 	cursor := b.Columns[b.ActiveTab].Cursor
@@ -260,7 +405,7 @@ func TestItemNavigation_DownArrow_MovesCursorDown(t *testing.T) {
 }
 
 func TestItemNavigation_UpArrow_MovesCursorUp(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
 	b = sendKey(t, b, arrowMsg(tea.KeyDown))
 	b = sendKey(t, b, arrowMsg(tea.KeyUp))
@@ -271,7 +416,7 @@ func TestItemNavigation_UpArrow_MovesCursorUp(t *testing.T) {
 }
 
 func TestItemNavigation_K_ClampsAtStart(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
 	// Already at cursor 0, pressing k should stay at 0
 	b = sendKey(t, b, keyMsg("k"))
@@ -282,7 +427,7 @@ func TestItemNavigation_K_ClampsAtStart(t *testing.T) {
 }
 
 func TestItemNavigation_J_ClampsAtEnd(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
 	cardCount := len(b.Columns[b.ActiveTab].Cards)
 	if cardCount == 0 {
@@ -300,10 +445,10 @@ func TestItemNavigation_J_ClampsAtEnd(t *testing.T) {
 }
 
 func TestItemNavigation_CursorIsPerColumn(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
 	if len(b.Columns) < 2 {
-		t.Fatal("newTestBoard() must have at least 2 columns for this test")
+		t.Fatal("board must have at least 2 columns for this test")
 	}
 	// Move cursor down in column 0
 	b = sendKey(t, b, keyMsg("j"))
@@ -319,7 +464,7 @@ func TestItemNavigation_CursorIsPerColumn(t *testing.T) {
 // --- Quit ---
 
 func TestQuit_Q_ReturnsQuitCmd(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	_, cmd := b.Update(keyMsg("q"))
 	if cmd == nil {
 		t.Error("'q' key should return a non-nil Cmd (tea.Quit)")
@@ -327,7 +472,7 @@ func TestQuit_Q_ReturnsQuitCmd(t *testing.T) {
 }
 
 func TestQuit_CtrlC_ReturnsQuitCmd(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
 		t.Error("Ctrl+C should return a non-nil Cmd (tea.Quit)")
@@ -337,7 +482,7 @@ func TestQuit_CtrlC_ReturnsQuitCmd(t *testing.T) {
 // --- Window Resize ---
 
 func TestWindowResize_UpdatesDimensions(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	wantWidth := 120
 	wantHeight := 40
 	m, _ := b.Update(tea.WindowSizeMsg{Width: wantWidth, Height: wantHeight})
@@ -356,7 +501,7 @@ func TestWindowResize_UpdatesDimensions(t *testing.T) {
 // --- View Rendering ---
 
 func TestView_TabBarShowsAllTabNames(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
@@ -368,7 +513,7 @@ func TestView_TabBarShowsAllTabNames(t *testing.T) {
 }
 
 func TestView_ContainsActiveTabCardData(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
@@ -382,7 +527,7 @@ func TestView_ContainsActiveTabCardData(t *testing.T) {
 }
 
 func TestView_DetailPanelShowsSelectedCard(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
@@ -403,7 +548,7 @@ func TestView_DetailPanelShowsSelectedCard(t *testing.T) {
 }
 
 func TestView_OnlyActiveTabCardsVisible(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 
@@ -430,7 +575,7 @@ func TestView_OnlyActiveTabCardsVisible(t *testing.T) {
 }
 
 func TestView_ContainsHelpBar(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
@@ -443,7 +588,7 @@ func TestView_ContainsHelpBar(t *testing.T) {
 }
 
 func TestView_IsNotEmpty(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
@@ -454,15 +599,8 @@ func TestView_IsNotEmpty(t *testing.T) {
 
 // --- Create Mode ---
 
-func TestNewBoard_StartsInNormalMode(t *testing.T) {
-	b := newTestBoard(t)
-	if b.mode != normalMode {
-		t.Errorf("NewBoardFromProvider().mode = %d, want %d (normalMode)", b.mode, normalMode)
-	}
-}
-
 func TestCreateMode_N_EntersCreateMode(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
 	if b.mode != createMode {
 		t.Errorf("after 'n': mode = %d, want %d (createMode)", b.mode, createMode)
@@ -470,7 +608,7 @@ func TestCreateMode_N_EntersCreateMode(t *testing.T) {
 }
 
 func TestCreateMode_Escape_ReturnsToNormalMode(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 	if b.mode != normalMode {
@@ -479,7 +617,7 @@ func TestCreateMode_Escape_ReturnsToNormalMode(t *testing.T) {
 }
 
 func TestCreateMode_BlocksNavigation(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
 	b = sendKey(t, b, keyMsg("n"))
 
@@ -508,7 +646,7 @@ func TestCreateMode_BlocksNavigation(t *testing.T) {
 }
 
 func TestCreateMode_BlocksArrowKeys(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
 	b = sendKey(t, b, keyMsg("n"))
 
@@ -535,7 +673,7 @@ func TestCreateMode_BlocksArrowKeys(t *testing.T) {
 }
 
 func TestCreateMode_BlocksQuit(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
 	m, _ := b.Update(keyMsg("q"))
 	updated := m.(Board)
@@ -546,7 +684,7 @@ func TestCreateMode_BlocksQuit(t *testing.T) {
 }
 
 func TestCreateMode_CtrlC_StillQuits(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
 	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
@@ -555,7 +693,7 @@ func TestCreateMode_CtrlC_StillQuits(t *testing.T) {
 }
 
 func TestCreateMode_N_DoesNotToggle(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
 	// Pressing n again should NOT toggle back to normalMode
 	b = sendKey(t, b, keyMsg("n"))
@@ -567,7 +705,7 @@ func TestCreateMode_N_DoesNotToggle(t *testing.T) {
 // --- Create Mode UI ---
 
 func TestCreateMode_ViewShowsModal(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 	b = sendKey(t, b, keyMsg("n"))
@@ -578,7 +716,7 @@ func TestCreateMode_ViewShowsModal(t *testing.T) {
 }
 
 func TestCreateMode_ViewShowsTitleField(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 	b = sendKey(t, b, keyMsg("n"))
@@ -589,7 +727,7 @@ func TestCreateMode_ViewShowsTitleField(t *testing.T) {
 }
 
 func TestCreateMode_ViewShowsLabelField(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 	b = sendKey(t, b, keyMsg("n"))
@@ -600,7 +738,7 @@ func TestCreateMode_ViewShowsLabelField(t *testing.T) {
 }
 
 func TestCreateMode_TabSwitchesFocus(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
 
 	// Title should be focused initially.
@@ -631,7 +769,7 @@ func TestCreateMode_TabSwitchesFocus(t *testing.T) {
 }
 
 func TestCreateMode_TypingUpdatesTitleField(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
 
 	// Type characters while title is focused.
@@ -645,7 +783,7 @@ func TestCreateMode_TypingUpdatesTitleField(t *testing.T) {
 }
 
 func TestCreateMode_TypingUpdatesLabelField(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
 
 	// Tab to label field.
@@ -661,16 +799,16 @@ func TestCreateMode_TypingUpdatesLabelField(t *testing.T) {
 	}
 }
 
-func TestCreateMode_InitReturnsBlink(t *testing.T) {
+func TestCreateMode_InitReturnsCmds(t *testing.T) {
 	b := newTestBoard(t)
 	cmd := b.Init()
 	if cmd == nil {
-		t.Error("Init() should return a non-nil Cmd (textinput.Blink)")
+		t.Error("Init() should return a non-nil cmd")
 	}
 }
 
 func TestCreateMode_FieldsResetOnReopen(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
 
 	// Type something in the title field.
@@ -695,7 +833,7 @@ func TestCreateMode_FieldsResetOnReopen(t *testing.T) {
 // --- Form Submission ---
 
 func TestSubmit_CreatesCardInNewColumn(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	originalCardCount := len(b.Columns[0].Cards)
 
 	// Enter createMode and type a title.
@@ -720,7 +858,7 @@ func TestSubmit_CreatesCardInNewColumn(t *testing.T) {
 }
 
 func TestSubmit_AutoNumbersCard(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 
 	// Find the max card number across all columns.
 	maxNumber := 0
@@ -748,7 +886,7 @@ func TestSubmit_AutoNumbersCard(t *testing.T) {
 }
 
 func TestSubmit_WithLabel(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 
 	// Enter createMode, type title, Tab to label, type label, submit.
 	b = sendKey(t, b, keyMsg("n"))
@@ -768,7 +906,7 @@ func TestSubmit_WithLabel(t *testing.T) {
 }
 
 func TestSubmit_EmptyLabelAllowed(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 
 	// Enter createMode, type title only (no label), submit.
 	b = sendKey(t, b, keyMsg("n"))
@@ -784,7 +922,7 @@ func TestSubmit_EmptyLabelAllowed(t *testing.T) {
 }
 
 func TestSubmit_EmptyTitleShowsError(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 
 	// Enter createMode and press Enter without typing a title.
 	b = sendKey(t, b, keyMsg("n"))
@@ -802,7 +940,7 @@ func TestSubmit_EmptyTitleShowsError(t *testing.T) {
 }
 
 func TestSubmit_ErrorClearsOnTyping(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 
 	// Trigger validation error.
 	b = sendKey(t, b, keyMsg("n"))
@@ -821,7 +959,7 @@ func TestSubmit_ErrorClearsOnTyping(t *testing.T) {
 }
 
 func TestSubmit_ReturnsToNormalMode(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 
 	// Enter createMode, type title, submit.
 	b = sendKey(t, b, keyMsg("n"))
@@ -836,7 +974,7 @@ func TestSubmit_ReturnsToNormalMode(t *testing.T) {
 }
 
 func TestSubmit_ResetsFieldsAfterCreation(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 
 	// Enter createMode, type title and label, submit.
 	b = sendKey(t, b, keyMsg("n"))
@@ -858,7 +996,7 @@ func TestSubmit_ResetsFieldsAfterCreation(t *testing.T) {
 }
 
 func TestView_HelpBarShowsNewHint(t *testing.T) {
-	b := newTestBoard(t)
+	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
