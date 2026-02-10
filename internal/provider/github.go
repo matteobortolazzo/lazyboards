@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/google/go-github/v68/github"
@@ -14,6 +15,7 @@ var _ BoardProvider = (*GitHubProvider)(nil)
 // GitHubIssuesClient abstracts the GitHub Issues API for testing.
 type GitHubIssuesClient interface {
 	ListByRepo(ctx context.Context, owner string, repo string, opts *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error)
+	Create(ctx context.Context, owner string, repo string, issue *github.IssueRequest) (*github.Issue, *github.Response, error)
 }
 
 // GitHubProvider fetches board data from GitHub Issues.
@@ -102,7 +104,31 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 	return Board{Columns: columns}, nil
 }
 
-// CreateCard is not yet implemented for the GitHub provider.
-func (g *GitHubProvider) CreateCard(_ context.Context, _ string, _ string) (Card, error) {
-	return Card{}, errors.New("not implemented")
+// CreateCard creates a GitHub issue with the given title and optional label.
+func (g *GitHubProvider) CreateCard(ctx context.Context, title string, label string) (Card, error) {
+	req := &github.IssueRequest{
+		Title: github.Ptr(title),
+	}
+	if label != "" {
+		req.Labels = &[]string{label}
+	}
+
+	issue, _, err := g.client.Create(ctx, g.owner, g.repo, req)
+	if err != nil {
+		var ghErr *github.ErrorResponse
+		if errors.As(err, &ghErr) && ghErr.Response.StatusCode == 422 {
+			return Card{}, fmt.Errorf("label %q does not exist in the repository", label)
+		}
+		return Card{}, err
+	}
+
+	card := Card{
+		Number: issue.GetNumber(),
+		Title:  issue.GetTitle(),
+	}
+	if label != "" {
+		card.Label = label
+	}
+
+	return card, nil
 }
