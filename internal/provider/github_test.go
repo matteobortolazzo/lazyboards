@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -11,8 +12,10 @@ import (
 
 // mockIssuesClient implements GitHubIssuesClient with configurable return values.
 type mockIssuesClient struct {
-	issues []*github.Issue
-	err    error
+	issues       []*github.Issue
+	err          error
+	createdIssue *github.Issue // returned by Create
+	createErr    error         // returned by Create
 }
 
 func (m *mockIssuesClient) ListByRepo(
@@ -22,6 +25,15 @@ func (m *mockIssuesClient) ListByRepo(
 	_ *github.IssueListByRepoOptions,
 ) ([]*github.Issue, *github.Response, error) {
 	return m.issues, nil, m.err
+}
+
+func (m *mockIssuesClient) Create(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ *github.IssueRequest,
+) (*github.Issue, *github.Response, error) {
+	return m.createdIssue, nil, m.createErr
 }
 
 // makeIssue builds a github.Issue with the given number, title, and label names.
@@ -383,17 +395,101 @@ func TestGitHubFetchBoard_SkipsPullRequests(t *testing.T) {
 	}
 }
 
-func TestGitHubCreateCard_ReturnsNotImplementedError(t *testing.T) {
-	client := &mockIssuesClient{}
+func TestGitHubCreateCard_WithLabel(t *testing.T) {
+	expectedNumber := 42
+	expectedTitle := "New feature"
+	expectedLabel := "bug"
+
+	client := &mockIssuesClient{
+		createdIssue: makeIssue(expectedNumber, expectedTitle, expectedLabel),
+	}
 	columns := []string{"New"}
 
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
-	_, err := provider.CreateCard(context.Background(), "Some title", "some-label")
+	card, err := provider.CreateCard(context.Background(), expectedTitle, expectedLabel)
+	if err != nil {
+		t.Fatalf("CreateCard returned error: %v", err)
+	}
+
+	if card.Number != expectedNumber {
+		t.Errorf("card.Number = %d, want %d", card.Number, expectedNumber)
+	}
+	if card.Title != expectedTitle {
+		t.Errorf("card.Title = %q, want %q", card.Title, expectedTitle)
+	}
+	if card.Label != expectedLabel {
+		t.Errorf("card.Label = %q, want %q", card.Label, expectedLabel)
+	}
+}
+
+func TestGitHubCreateCard_WithoutLabel(t *testing.T) {
+	expectedNumber := 7
+	expectedTitle := "No label issue"
+
+	client := &mockIssuesClient{
+		createdIssue: makeIssue(expectedNumber, expectedTitle),
+	}
+	columns := []string{"New"}
+
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	card, err := provider.CreateCard(context.Background(), expectedTitle, "")
+	if err != nil {
+		t.Fatalf("CreateCard returned error: %v", err)
+	}
+
+	if card.Number != expectedNumber {
+		t.Errorf("card.Number = %d, want %d", card.Number, expectedNumber)
+	}
+	if card.Title != expectedTitle {
+		t.Errorf("card.Title = %q, want %q", card.Title, expectedTitle)
+	}
+	if card.Label != "" {
+		t.Errorf("card.Label = %q, want empty string", card.Label)
+	}
+}
+
+func TestGitHubCreateCard_InvalidLabel_ReturnsFriendlyError(t *testing.T) {
+	invalidLabel := "nonexistent"
+	client := &mockIssuesClient{
+		createErr: &github.ErrorResponse{
+			Response: &http.Response{StatusCode: 422},
+			Message:  "Validation Failed",
+		},
+	}
+	columns := []string{"New"}
+
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	_, err := provider.CreateCard(context.Background(), "title", invalidLabel)
+	if err == nil {
+		t.Fatal("expected error from CreateCard with invalid label, got nil")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, invalidLabel) {
+		t.Errorf("error = %q, want it to contain the invalid label %q", errMsg, invalidLabel)
+	}
+	if !strings.Contains(errMsg, "does not exist") {
+		t.Errorf("error = %q, want it to contain %q", errMsg, "does not exist")
+	}
+}
+
+func TestGitHubCreateCard_GenericAPIError_PassesThrough(t *testing.T) {
+	apiErrMsg := "server error"
+	client := &mockIssuesClient{
+		createErr: errors.New(apiErrMsg),
+	}
+	columns := []string{"New"}
+
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	_, err := provider.CreateCard(context.Background(), "title", "label")
 	if err == nil {
 		t.Fatal("expected error from CreateCard, got nil")
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "not implemented") {
-		t.Errorf("error = %q, want it to contain %q", err.Error(), "not implemented")
+	if !strings.Contains(err.Error(), apiErrMsg) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
 	}
 }
