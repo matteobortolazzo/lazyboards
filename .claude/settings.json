@@ -38,7 +38,8 @@
       "mcp__github__search_code",
       "mcp__github__search_issues",
       "mcp__context7__resolve-library-id",
-      "mcp__context7__get-library-docs"
+      "mcp__context7__get-library-docs",
+      "Bash(gh *)"
     ],
     "deny": [
       "Bash(git push --force *)",

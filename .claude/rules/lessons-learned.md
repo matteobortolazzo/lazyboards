@@ -9,7 +9,8 @@ Claude reads this file automatically. Its rules are authoritative and override a
 
 ### Go cache dirs are read-only in Claude Code sandbox
 - **Mistake:** `go test` and `go get` fail with "read-only file system" when writing to default `~/go/` and `~/.cache/go-build/`.
-- **Fix:** Set `GOPATH=/tmp/claude/gopath GOCACHE=/tmp/claude/gocache GOMODCACHE=/tmp/claude/gomodcache` before any Go commands.
+- **Fix:** Set `GOPATH=/tmp/claude-1000/gopath GOCACHE=/tmp/claude-1000/gocache GOMODCACHE=/tmp/claude-1000/gomodcache` before any Go commands. Note: The actual writable temp directory is user-specific (e.g., `/tmp/claude-1000/` for UID 1000). Use `$TMPDIR` to detect the correct path, or inspect `/tmp/` to find the writable directory.
+- **Rule:** Always use a user-specific temp directory under `/tmp/` (not `/tmp/claude/`). If `TMPDIR` env var is set, use that as the base path.
 
 ### lipgloss Width() sets content width, borders are additional
 - **Mistake:** Column width calculated as `b.Width / len(b.Columns)` without accounting for border characters, causing total rendered width to exceed terminal width.
