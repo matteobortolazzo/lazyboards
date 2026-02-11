@@ -40,7 +40,11 @@ func main() {
 			os.Exit(1)
 		}
 
-		w := finalModel.(ConfigWizard)
+		w, ok := finalModel.(ConfigWizard)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "Unexpected wizard state\n")
+			os.Exit(1)
+		}
 		if w.Cancelled() {
 			os.Exit(0)
 		}
