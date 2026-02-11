@@ -8,12 +8,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultColumns are the hardcoded Kanban column names.
+var DefaultColumns = []string{"New", "Refined", "Implementing", "PR Ready"}
+
 // Config holds the application configuration.
 type Config struct {
-	Provider string   `yaml:"provider"`
-	Repo     string   `yaml:"repo"`
-	Project  string   `yaml:"project"`
-	Columns  []string `yaml:"columns"`
+	Provider string `yaml:"provider"`
+	Repo     string `yaml:"repo"`
 }
 
 const DefaultLocalPath = ".lazyboards.yml"

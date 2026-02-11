@@ -54,17 +54,8 @@ func NewFakeProvider() *FakeProvider {
 					{Number: 15, Title: "Help bar", Label: "ui"},
 				},
 			},
-			{
-				Title: "Done",
-				Cards: []Card{
-					{Number: 16, Title: "Go module", Label: "infra"},
-					{Number: 17, Title: "Scaffold", Label: "feature"},
-					{Number: 18, Title: "Fake data", Label: "feature"},
-					{Number: 19, Title: "Tests", Label: "test"},
-				},
-			},
 		},
-		nextNumber: 20,
+		nextNumber: 16,
 	}
 }
 

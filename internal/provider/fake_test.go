@@ -6,10 +6,10 @@ import (
 )
 
 // expectedColumnCount is the number of Kanban columns in a fresh board.
-const expectedColumnCount = 5
+const expectedColumnCount = 4
 
 // expectedColumnTitles are the Kanban column names in order.
-var expectedColumnTitles = []string{"New", "Refined", "Implementing", "PR Ready", "Done"}
+var expectedColumnTitles = []string{"New", "Refined", "Implementing", "PR Ready"}
 
 func TestFetchBoard_ReturnsExpectedColumns(t *testing.T) {
 	fp := NewFakeProvider()

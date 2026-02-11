@@ -16,8 +16,6 @@ func TestLoad_ValidGlobalConfig(t *testing.T) {
 	cfg := Config{
 		Provider: "github",
 		Repo:     "owner/repo",
-		Project:  "my-project",
-		Columns:  []string{"Todo", "In Progress", "Done"},
 	}
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
@@ -38,15 +36,6 @@ func TestLoad_ValidGlobalConfig(t *testing.T) {
 	if result.Repo != "owner/repo" {
 		t.Errorf("Repo = %q, want %q", result.Repo, "owner/repo")
 	}
-	if result.Project != "my-project" {
-		t.Errorf("Project = %q, want %q", result.Project, "my-project")
-	}
-	if len(result.Columns) != 3 {
-		t.Fatalf("Columns length = %d, want 3", len(result.Columns))
-	}
-	if result.Columns[0] != "Todo" || result.Columns[1] != "In Progress" || result.Columns[2] != "Done" {
-		t.Errorf("Columns = %v, want [Todo, In Progress, Done]", result.Columns)
-	}
 }
 
 func TestLoad_MissingGlobalFile_ReturnsDefaults(t *testing.T) {
@@ -65,12 +54,6 @@ func TestLoad_MissingGlobalFile_ReturnsDefaults(t *testing.T) {
 	if result.Repo != "" {
 		t.Errorf("Repo = %q, want empty string", result.Repo)
 	}
-	if result.Project != "" {
-		t.Errorf("Project = %q, want empty string", result.Project)
-	}
-	if result.Columns != nil {
-		t.Errorf("Columns = %v, want nil", result.Columns)
-	}
 }
 
 func TestLoad_LocalOverridesGlobal(t *testing.T) {
@@ -81,8 +64,6 @@ func TestLoad_LocalOverridesGlobal(t *testing.T) {
 	globalCfg := Config{
 		Provider: "github",
 		Repo:     "owner/repo",
-		Project:  "my-project",
-		Columns:  []string{"Backlog", "Active", "Review"},
 	}
 	globalData, err := yaml.Marshal(globalCfg)
 	if err != nil {
@@ -92,8 +73,8 @@ func TestLoad_LocalOverridesGlobal(t *testing.T) {
 		t.Fatalf("failed to write global config: %v", err)
 	}
 
-	// Local only sets columns
-	localYAML := "columns:\n  - Todo\n  - Done\n"
+	// Local only sets repo
+	localYAML := "repo: other/repo\n"
 	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
 		t.Fatalf("failed to write local config: %v", err)
 	}
@@ -103,20 +84,13 @@ func TestLoad_LocalOverridesGlobal(t *testing.T) {
 		t.Fatalf("Load() returned unexpected error: %v", err)
 	}
 
-	// Global values should be preserved
+	// Global provider should be preserved
 	if result.Provider != "github" {
 		t.Errorf("Provider = %q, want %q (from global)", result.Provider, "github")
 	}
-	if result.Repo != "owner/repo" {
-		t.Errorf("Repo = %q, want %q (from global)", result.Repo, "owner/repo")
-	}
-
-	// Local columns should override global
-	if len(result.Columns) != 2 {
-		t.Fatalf("Columns length = %d, want 2", len(result.Columns))
-	}
-	if result.Columns[0] != "Todo" || result.Columns[1] != "Done" {
-		t.Errorf("Columns = %v, want [Todo, Done] (from local)", result.Columns)
+	// Local repo should override global
+	if result.Repo != "other/repo" {
+		t.Errorf("Repo = %q, want %q (from local)", result.Repo, "other/repo")
 	}
 }
 
@@ -145,37 +119,6 @@ func TestLoad_LocalOverridesProvider(t *testing.T) {
 	}
 }
 
-func TestLoad_EmptyColumnsInLocalClearsGlobal(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
-	globalCfg := Config{
-		Columns: []string{"A", "B", "C"},
-	}
-	globalData, err := yaml.Marshal(globalCfg)
-	if err != nil {
-		t.Fatalf("failed to marshal global config: %v", err)
-	}
-	if err := os.WriteFile(globalPath, globalData, 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-
-	localYAML := "columns: []\n"
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
-
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
-
-	if len(result.Columns) != 0 {
-		t.Errorf("Columns = %v, want empty slice (local empty should clear global)", result.Columns)
-	}
-}
-
 func TestLoad_MissingLocalFile_UsesGlobalOnly(t *testing.T) {
 	dir := t.TempDir()
 	globalPath := filepath.Join(dir, "global.yml")
@@ -183,8 +126,6 @@ func TestLoad_MissingLocalFile_UsesGlobalOnly(t *testing.T) {
 	globalCfg := Config{
 		Provider: "github",
 		Repo:     "org/repo",
-		Project:  "board-1",
-		Columns:  []string{"Open", "Closed"},
 	}
 	globalData, err := yaml.Marshal(globalCfg)
 	if err != nil {
@@ -205,15 +146,6 @@ func TestLoad_MissingLocalFile_UsesGlobalOnly(t *testing.T) {
 	if result.Repo != "org/repo" {
 		t.Errorf("Repo = %q, want %q", result.Repo, "org/repo")
 	}
-	if result.Project != "board-1" {
-		t.Errorf("Project = %q, want %q", result.Project, "board-1")
-	}
-	if len(result.Columns) != 2 {
-		t.Fatalf("Columns length = %d, want 2", len(result.Columns))
-	}
-	if result.Columns[0] != "Open" || result.Columns[1] != "Closed" {
-		t.Errorf("Columns = %v, want [Open, Closed]", result.Columns)
-	}
 }
 
 func TestLoad_BothMissing_ReturnsDefaults(t *testing.T) {
@@ -232,12 +164,6 @@ func TestLoad_BothMissing_ReturnsDefaults(t *testing.T) {
 	}
 	if result.Repo != "" {
 		t.Errorf("Repo = %q, want empty string", result.Repo)
-	}
-	if result.Project != "" {
-		t.Errorf("Project = %q, want empty string", result.Project)
-	}
-	if result.Columns != nil {
-		t.Errorf("Columns = %v, want nil", result.Columns)
 	}
 }
 

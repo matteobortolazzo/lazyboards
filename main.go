@@ -32,11 +32,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "No provider configured.\n\n")
 		fmt.Fprintf(os.Stderr, "Create a .lazyboards.yml file with:\n\n")
 		fmt.Fprintf(os.Stderr, "  provider: github\n")
-		fmt.Fprintf(os.Stderr, "  repo: owner/repo\n")
-		fmt.Fprintf(os.Stderr, "  columns:\n")
-		fmt.Fprintf(os.Stderr, "    - New\n")
-		fmt.Fprintf(os.Stderr, "    - \"In Progress\"\n")
-		fmt.Fprintf(os.Stderr, "    - Done\n\n")
+		fmt.Fprintf(os.Stderr, "  repo: owner/repo\n\n")
 		fmt.Fprintf(os.Stderr, "Then set GITHUB_TOKEN in your environment.\n")
 		os.Exit(1)
 	case "github":
@@ -50,14 +46,10 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Invalid repo format %q, expected \"owner/repo\"\n", cfg.Repo)
 			os.Exit(1)
 		}
-		if len(cfg.Columns) == 0 {
-			fmt.Fprintf(os.Stderr, "At least one column must be configured\n")
-			os.Exit(1)
-		}
 		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 		tc := oauth2.NewClient(context.Background(), ts)
 		ghClient := github.NewClient(tc)
-		bp = provider.NewGitHubProvider(ghClient.Issues, parts[0], parts[1], cfg.Columns)
+		bp = provider.NewGitHubProvider(ghClient.Issues, parts[0], parts[1], config.DefaultColumns)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown provider: %q\n", cfg.Provider)
 		os.Exit(1)

@@ -5,9 +5,3 @@
 
 provider: github
 repo: owner/repo
-columns:
-  - New
-  - Refined
-  - Implementing
-  - "PR Ready"
-  - Done
