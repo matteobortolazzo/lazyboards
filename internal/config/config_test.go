@@ -203,6 +203,128 @@ func TestLoad_InvalidLocalYAML_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestSaveGlobal_WritesProviderOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "global.yml")
+
+	cfg := Config{
+		Provider: "github",
+		Repo:     "owner/repo",
+	}
+	if err := cfg.SaveGlobal(path); err != nil {
+		t.Fatalf("SaveGlobal() returned unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved file: %v", err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "provider:") {
+		t.Error("saved file should contain 'provider:' key")
+	}
+	if strings.Contains(content, "repo:") {
+		t.Error("saved file should not contain 'repo:' key, but it does")
+	}
+
+	// Verify the value round-trips correctly
+	var result map[string]string
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		t.Fatalf("failed to unmarshal saved YAML: %v", err)
+	}
+	if result["provider"] != "github" {
+		t.Errorf("provider = %q, want %q", result["provider"], "github")
+	}
+}
+
+func TestSaveGlobal_CreatesParentDirectories(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "deeply", "global.yml")
+
+	cfg := Config{Provider: "github"}
+	if err := cfg.SaveGlobal(path); err != nil {
+		t.Fatalf("SaveGlobal() returned unexpected error: %v", err)
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected file to exist at %s, got error: %v", path, err)
+	}
+}
+
+func TestSaveLocal_WritesRepoOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "local.yml")
+
+	cfg := Config{
+		Provider: "github",
+		Repo:     "owner/repo",
+	}
+	if err := cfg.SaveLocal(path); err != nil {
+		t.Fatalf("SaveLocal() returned unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved file: %v", err)
+	}
+
+	content := string(data)
+	if !strings.Contains(content, "repo:") {
+		t.Error("saved file should contain 'repo:' key")
+	}
+	if strings.Contains(content, "provider:") {
+		t.Error("saved file should not contain 'provider:' key, but it does")
+	}
+
+	// Verify the value round-trips correctly
+	var result map[string]string
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		t.Fatalf("failed to unmarshal saved YAML: %v", err)
+	}
+	if result["repo"] != "owner/repo" {
+		t.Errorf("repo = %q, want %q", result["repo"], "owner/repo")
+	}
+}
+
+func TestExists_ReturnsTrueWhenGlobalExists(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	if err := os.WriteFile(globalPath, []byte("provider: github\n"), 0644); err != nil {
+		t.Fatalf("failed to create global file: %v", err)
+	}
+
+	if !Exists(globalPath, localPath) {
+		t.Error("Exists() = false, want true when global file exists")
+	}
+}
+
+func TestExists_ReturnsTrueWhenLocalExists(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	if err := os.WriteFile(localPath, []byte("repo: owner/repo\n"), 0644); err != nil {
+		t.Fatalf("failed to create local file: %v", err)
+	}
+
+	if !Exists(globalPath, localPath) {
+		t.Error("Exists() = false, want true when local file exists")
+	}
+}
+
+func TestExists_ReturnsFalseWhenBothMissing(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	if Exists(globalPath, localPath) {
+		t.Error("Exists() = true, want false when both files are missing")
+	}
+}
+
 func TestDefaultGlobalPath_ContainsExpectedSuffix(t *testing.T) {
 	path, err := DefaultGlobalPath()
 	if err != nil {
