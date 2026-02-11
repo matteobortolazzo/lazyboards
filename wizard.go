@@ -15,15 +15,6 @@ const (
 	doneStep
 )
 
-// wizardResult is the tea.Msg sent when the wizard completes.
-type wizardResult struct {
-	provider string
-	repo     string
-}
-
-// wizardQuitMsg is sent when the user cancels the wizard.
-type wizardQuitMsg struct{}
-
 // ConfigWizard is a BubbleTea model that guides the user through initial configuration.
 type ConfigWizard struct {
 	step        wizardStep
@@ -33,6 +24,22 @@ type ConfigWizard struct {
 	repoErr     string
 	width       int
 	height      int
+	cancelled   bool
+}
+
+// Cancelled returns true if the user pressed Esc or Ctrl+C.
+func (w ConfigWizard) Cancelled() bool {
+	return w.cancelled
+}
+
+// Provider returns the selected provider name.
+func (w ConfigWizard) Provider() string {
+	return w.providers[w.providerIdx]
+}
+
+// Repo returns the repo value from the text input.
+func (w ConfigWizard) Repo() string {
+	return w.repoInput.Value()
 }
 
 // NewConfigWizard creates a ConfigWizard with optional pre-filled values.
@@ -72,7 +79,8 @@ func (w ConfigWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEscape:
-			return w, func() tea.Msg { return wizardQuitMsg{} }
+			w.cancelled = true
+			return w, tea.Quit
 		}
 
 		switch w.step {
@@ -102,11 +110,7 @@ func (w ConfigWizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return w, nil
 				}
 				w.step = doneStep
-				result := wizardResult{
-					provider: w.providers[w.providerIdx],
-					repo:     w.repoInput.Value(),
-				}
-				return w, func() tea.Msg { return result }
+				return w, tea.Quit
 			default:
 				w.repoErr = ""
 				var cmd tea.Cmd

@@ -217,6 +217,49 @@ func TestWizard_View_ShowsHelpBar(t *testing.T) {
 	}
 }
 
+// --- Cancelled / Result Method Tests ---
+
+func TestWizard_Esc_SetsCancelled(t *testing.T) {
+	w := NewConfigWizard("", "")
+	m, _ := w.Update(arrowMsg(tea.KeyEsc))
+	updated := m.(ConfigWizard)
+	if !updated.Cancelled() {
+		t.Error("Cancelled() should be true after Esc")
+	}
+}
+
+func TestWizard_CtrlC_SetsCancelled(t *testing.T) {
+	w := NewConfigWizard("", "")
+	m, _ := w.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated := m.(ConfigWizard)
+	if !updated.Cancelled() {
+		t.Error("Cancelled() should be true after Ctrl+C")
+	}
+}
+
+func TestWizard_Completion_ResultMethods(t *testing.T) {
+	w := NewConfigWizard("", "owner/repo")
+	w = sendWizardKey(t, w, arrowMsg(tea.KeyEnter)) // pass provider step
+	m, _ := w.Update(arrowMsg(tea.KeyEnter))         // submit repo
+	updated := m.(ConfigWizard)
+	if updated.Cancelled() {
+		t.Error("Cancelled() should be false after successful completion")
+	}
+	if updated.Provider() != "github" {
+		t.Errorf("Provider() = %q, want %q", updated.Provider(), "github")
+	}
+	if updated.Repo() != "owner/repo" {
+		t.Errorf("Repo() = %q, want %q", updated.Repo(), "owner/repo")
+	}
+}
+
+func TestWizard_NotCancelledByDefault(t *testing.T) {
+	w := NewConfigWizard("", "")
+	if w.Cancelled() {
+		t.Error("Cancelled() should be false on new wizard")
+	}
+}
+
 // --- Error Clearing Test ---
 
 func TestWizard_RepoStep_TypingClearsError(t *testing.T) {
