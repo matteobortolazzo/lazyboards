@@ -253,3 +253,494 @@ func TestLoad_UnknownYAMLFields_Ignored(t *testing.T) {
 		t.Errorf("Repo = %q, want %q", result.Repo, "owner/repo")
 	}
 }
+
+// --- Action parsing and validation tests ---
+
+func TestLoad_ParsesActionsFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+actions:
+  o:
+    name: Open in browser
+    type: url
+    url: "https://example.com/{id}"
+  x:
+    name: Run tests
+    type: shell
+    command: "go test ./..."
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Actions) != 2 {
+		t.Fatalf("Actions count = %d, want 2", len(result.Actions))
+	}
+
+	urlAction, ok := result.Actions["o"]
+	if !ok {
+		t.Fatal("Actions missing key 'o'")
+	}
+	if urlAction.Name != "Open in browser" {
+		t.Errorf("Actions[o].Name = %q, want %q", urlAction.Name, "Open in browser")
+	}
+	if urlAction.Type != "url" {
+		t.Errorf("Actions[o].Type = %q, want %q", urlAction.Type, "url")
+	}
+	if urlAction.URL != "https://example.com/{id}" {
+		t.Errorf("Actions[o].URL = %q, want %q", urlAction.URL, "https://example.com/{id}")
+	}
+
+	shellAction, ok := result.Actions["x"]
+	if !ok {
+		t.Fatal("Actions missing key 'x'")
+	}
+	if shellAction.Name != "Run tests" {
+		t.Errorf("Actions[x].Name = %q, want %q", shellAction.Name, "Run tests")
+	}
+	if shellAction.Type != "shell" {
+		t.Errorf("Actions[x].Type = %q, want %q", shellAction.Type, "shell")
+	}
+	if shellAction.Command != "go test ./..." {
+		t.Errorf("Actions[x].Command = %q, want %q", shellAction.Command, "go test ./...")
+	}
+}
+
+func TestLoad_NoActions_EmptyMap(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+repo: owner/repo
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Actions) != 0 {
+		t.Errorf("Actions count = %d, want 0 for config without actions", len(result.Actions))
+	}
+}
+
+func TestLoad_ActionMissingName_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+actions:
+  o:
+    type: url
+    url: "https://example.com"
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, err := Load(globalPath, localPath)
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for action missing name")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "name") {
+		t.Errorf("error = %q, want it to contain 'name'", err.Error())
+	}
+}
+
+func TestLoad_ActionInvalidType_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+actions:
+  o:
+    name: Bad action
+    type: webhook
+    url: "https://example.com"
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, err := Load(globalPath, localPath)
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for invalid action type")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "type") {
+		t.Errorf("error = %q, want it to contain 'type'", err.Error())
+	}
+}
+
+func TestLoad_ActionMissingType_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+actions:
+  o:
+    name: No type action
+    url: "https://example.com"
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, err := Load(globalPath, localPath)
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for action missing type")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "type") {
+		t.Errorf("error = %q, want it to contain 'type'", err.Error())
+	}
+}
+
+func TestLoad_ActionURLType_MissingURL_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+actions:
+  o:
+    name: Open
+    type: url
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, err := Load(globalPath, localPath)
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for url type missing url field")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "url") {
+		t.Errorf("error = %q, want it to contain 'url'", err.Error())
+	}
+}
+
+func TestLoad_ActionShellType_MissingCommand_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+actions:
+  x:
+    name: Run tests
+    type: shell
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, err := Load(globalPath, localPath)
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for shell type missing command field")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "command") {
+		t.Errorf("error = %q, want it to contain 'command'", err.Error())
+	}
+}
+
+func TestLoad_ActionKeyMultipleChars_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+actions:
+  open:
+    name: Open
+    type: url
+    url: "https://example.com"
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, err := Load(globalPath, localPath)
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for multi-character action key")
+	}
+	errLower := strings.ToLower(err.Error())
+	if !strings.Contains(errLower, "single character") {
+		t.Errorf("error = %q, want it to contain 'single character'", err.Error())
+	}
+}
+
+func TestLoad_ActionConflictsWithBuiltinKey_ReturnsError(t *testing.T) {
+	builtinKeys := []string{"h", "l", "j", "k", "q", "r", "n"}
+
+	for _, key := range builtinKeys {
+		t.Run("key_"+key, func(t *testing.T) {
+			dir := t.TempDir()
+			globalPath := filepath.Join(dir, "global.yml")
+			localPath := filepath.Join(dir, "nonexistent.yml")
+
+			yamlContent := `provider: github
+actions:
+  ` + key + `:
+    name: Conflicting action
+    type: url
+    url: "https://example.com"
+`
+			if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+				t.Fatalf("failed to write config: %v", err)
+			}
+
+			_, err := Load(globalPath, localPath)
+			if err == nil {
+				t.Fatalf("Load() returned nil error, want error for built-in key %q", key)
+			}
+			errLower := strings.ToLower(err.Error())
+			if !strings.Contains(errLower, "conflict") && !strings.Contains(errLower, "built-in") {
+				t.Errorf("error = %q, want it to contain 'conflict' or 'built-in'", err.Error())
+			}
+		})
+	}
+}
+
+func TestLoad_ValidURLAction_NoError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+actions:
+  o:
+    name: Open in browser
+    type: url
+    url: "https://example.com/{id}"
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
+	}
+	action := result.Actions["o"]
+	if action.Type != "url" {
+		t.Errorf("Actions[o].Type = %q, want %q", action.Type, "url")
+	}
+}
+
+func TestLoad_ValidShellAction_NoError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+actions:
+  x:
+    name: Run tests
+    type: shell
+    command: "go test ./..."
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
+	}
+	action := result.Actions["x"]
+	if action.Type != "shell" {
+		t.Errorf("Actions[x].Type = %q, want %q", action.Type, "shell")
+	}
+}
+
+func TestLoad_ActionURLType_WithExtraCommand_NoError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+actions:
+  o:
+    name: Open and run
+    type: url
+    url: "https://example.com"
+    command: "echo extra"
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error for url type with extra command: %v", err)
+	}
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
+	}
+}
+
+func TestLoad_LocalActionsOverrideGlobal(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	globalYAML := `provider: github
+actions:
+  o:
+    name: Global open
+    type: url
+    url: "https://global.example.com"
+`
+	localYAML := `actions:
+  o:
+    name: Local open
+    type: url
+    url: "https://local.example.com"
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
+	}
+
+	action := result.Actions["o"]
+	if action.Name != "Local open" {
+		t.Errorf("Actions[o].Name = %q, want %q (local should override global)", action.Name, "Local open")
+	}
+	if action.URL != "https://local.example.com" {
+		t.Errorf("Actions[o].URL = %q, want %q (local should override global)", action.URL, "https://local.example.com")
+	}
+}
+
+func TestLoad_GlobalAndLocalActionsMerge(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	globalYAML := `provider: github
+actions:
+  o:
+    name: Open
+    type: url
+    url: "https://example.com"
+`
+	localYAML := `actions:
+  x:
+    name: Execute
+    type: shell
+    command: "make build"
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Actions) != 2 {
+		t.Fatalf("Actions count = %d, want 2 (merged global + local)", len(result.Actions))
+	}
+
+	if _, ok := result.Actions["o"]; !ok {
+		t.Error("Actions missing key 'o' from global config")
+	}
+	if _, ok := result.Actions["x"]; !ok {
+		t.Error("Actions missing key 'x' from local config")
+	}
+}
+
+func TestLoad_GlobalOnlyActions(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	globalYAML := `provider: github
+actions:
+  o:
+    name: Open
+    type: url
+    url: "https://example.com"
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
+	}
+	if _, ok := result.Actions["o"]; !ok {
+		t.Error("Actions missing key 'o' from global config")
+	}
+}
+
+func TestLoad_LocalOnlyActions(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "nonexistent-global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	localYAML := `provider: github
+actions:
+  x:
+    name: Execute
+    type: shell
+    command: "make test"
+`
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
+	}
+	if _, ok := result.Actions["x"]; !ok {
+		t.Error("Actions missing key 'x' from local config")
+	}
+}
