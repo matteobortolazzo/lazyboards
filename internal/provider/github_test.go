@@ -184,8 +184,8 @@ func TestGitHubFetchBoard_CardFieldsPopulated(t *testing.T) {
 	if card.Title != issueTitle {
 		t.Errorf("card.Title = %q, want %q", card.Title, issueTitle)
 	}
-	if card.Label != issueLabel {
-		t.Errorf("card.Label = %q, want %q", card.Label, issueLabel)
+	if len(card.Labels) == 0 || card.Labels[0] != issueLabel {
+		t.Errorf("card.Labels = %v, want [%q]", card.Labels, issueLabel)
 	}
 }
 
@@ -214,8 +214,8 @@ func TestGitHubFetchBoard_CardFieldsPopulated_UnmatchedLabel(t *testing.T) {
 	}
 
 	card := todoCol.Cards[0]
-	if card.Label != "" {
-		t.Errorf("card.Label = %q, want empty string for unmatched label", card.Label)
+	if len(card.Labels) != 1 || card.Labels[0] != "nonexistent" {
+		t.Errorf("card.Labels = %v, want [\"nonexistent\"] (all issue labels collected)", card.Labels)
 	}
 }
 
@@ -335,9 +335,9 @@ func TestGitHubFetchBoard_MultipleLabels_FirstMatchWins(t *testing.T) {
 		t.Errorf("Done column card = %q, want %q", doneCol.Cards[0].Title, "Multi-labeled issue")
 	}
 
-	// The card's Label field should be "Done" (the first matching label).
-	if doneCol.Cards[0].Label != "Done" {
-		t.Errorf("card.Label = %q, want %q", doneCol.Cards[0].Label, "Done")
+	// The card's Labels field should contain "Done" (the first matching label).
+	if len(doneCol.Cards[0].Labels) == 0 || doneCol.Cards[0].Labels[0] != "Done" {
+		t.Errorf("card.Labels = %v, want [\"Done\"]", doneCol.Cards[0].Labels)
 	}
 
 	// Other columns should be empty.
@@ -418,8 +418,8 @@ func TestGitHubCreateCard_WithLabel(t *testing.T) {
 	if card.Title != expectedTitle {
 		t.Errorf("card.Title = %q, want %q", card.Title, expectedTitle)
 	}
-	if card.Label != expectedLabel {
-		t.Errorf("card.Label = %q, want %q", card.Label, expectedLabel)
+	if len(card.Labels) == 0 || card.Labels[0] != expectedLabel {
+		t.Errorf("card.Labels = %v, want [%q]", card.Labels, expectedLabel)
 	}
 }
 
@@ -445,8 +445,8 @@ func TestGitHubCreateCard_WithoutLabel(t *testing.T) {
 	if card.Title != expectedTitle {
 		t.Errorf("card.Title = %q, want %q", card.Title, expectedTitle)
 	}
-	if card.Label != "" {
-		t.Errorf("card.Label = %q, want empty string", card.Label)
+	if len(card.Labels) != 0 {
+		t.Errorf("card.Labels = %v, want empty slice", card.Labels)
 	}
 }
 

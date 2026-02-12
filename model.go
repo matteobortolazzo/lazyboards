@@ -10,6 +10,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -47,7 +49,13 @@ const (
 type Card struct {
 	Number int
 	Title  string
-	Label  string
+	Labels []string
+}
+
+// actionResultMsg is sent when an async shell action completes.
+type actionResultMsg struct {
+	success bool
+	message string
 }
 
 // Column represents a Kanban column containing cards.
@@ -93,10 +101,16 @@ type Board struct {
 	loadErr       string
 	statusBar     StatusBar
 	loaded        bool
+	actions       map[string]config.Action
+	executor      action.Executor
+	repoOwner     string
+	repoName      string
+	providerName  string
+	normalHints   []Hint
 }
 
 // NewBoard creates a Board in loadingMode. Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, executor action.Executor, repoOwner, repoName, providerName string) Board {
 	ti := textinput.New()
 	ti.Placeholder = "Title"
 	ti.Focus()
@@ -111,15 +125,28 @@ func NewBoard(p provider.BoardProvider) Board {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 
-	sb := NewStatusBar(normalModeHints)
+	// Build normal-mode hints: defaults + action hints.
+	hints := make([]Hint, len(normalModeHints))
+	copy(hints, normalModeHints)
+	for key, act := range actions {
+		hints = append(hints, Hint{Key: key, Desc: act.Name})
+	}
+
+	sb := NewStatusBar(hints)
 
 	return Board{
-		mode:       loadingMode,
-		titleInput: ti,
-		labelInput: li,
-		provider:   p,
-		spinner:    s,
-		statusBar:  sb,
+		mode:         loadingMode,
+		titleInput:   ti,
+		labelInput:   li,
+		provider:     p,
+		spinner:      s,
+		statusBar:    sb,
+		actions:      actions,
+		executor:     executor,
+		repoOwner:    repoOwner,
+		repoName:     repoName,
+		providerName: providerName,
+		normalHints:  hints,
 	}
 }
 
@@ -142,6 +169,21 @@ func createCardCmd(p provider.BoardProvider, title, label string) tea.Cmd {
 			return cardCreateErrorMsg{err: err}
 		}
 		return cardCreatedMsg{card: card}
+	}
+}
+
+// runShellCmd returns a tea.Cmd that executes a shell command asynchronously.
+func runShellCmd(executor action.Executor, command string) tea.Cmd {
+	return func() tea.Msg {
+		stderr, err := executor.RunShell(command)
+		if err != nil {
+			msg := "Error: " + err.Error()
+			if stderr != "" {
+				msg = "Error: " + stderr
+			}
+			return actionResultMsg{success: false, message: msg}
+		}
+		return actionResultMsg{success: true, message: "Done"}
 	}
 }
 
@@ -219,7 +261,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i, pc := range msg.board.Columns {
 			cards := make([]Card, len(pc.Cards))
 			for j, c := range pc.Cards {
-				cards[j] = Card{Number: c.Number, Title: c.Title, Label: c.Label}
+				cards[j] = Card{Number: c.Number, Title: c.Title, Labels: c.Labels}
 			}
 			cols[i] = Column{Title: pc.Title, Cards: cards}
 		}
@@ -227,7 +269,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.mode = normalMode
 		var cmd tea.Cmd
 		if b.loaded {
-			b.statusBar.SetActionHints(normalModeHints)
+			b.statusBar.SetActionHints(b.normalHints)
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", 3*time.Second)
 		}
 		b.loaded = true
@@ -246,7 +288,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newCard := Card{
 			Number: msg.card.Number,
 			Title:  msg.card.Title,
-			Label:  msg.card.Label,
+			Labels: msg.card.Labels,
 		}
 		b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
 		b.titleInput.SetValue("")
@@ -260,6 +302,10 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.mode = createMode
 		cmd := b.titleInput.Focus()
 		b.labelInput.Blur()
+		return b, cmd
+
+	case actionResultMsg:
+		cmd := b.statusBar.SetTimedMessage(msg.message, 3*time.Second)
 		return b, cmd
 
 	case spinner.TickMsg:
@@ -373,6 +419,30 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					col.Cursor--
 				}
 				b.clampScrollOffset()
+			default:
+				// Check if it's a custom action key.
+				if act, ok := b.actions[msg.String()]; ok {
+					col := b.Columns[b.ActiveTab]
+					if len(col.Cards) == 0 {
+						return b, nil
+					}
+					card := col.Cards[col.Cursor]
+					vars := action.BuildTemplateVars(card.Number, card.Title, card.Labels, b.repoOwner, b.repoName, b.providerName)
+
+					switch act.Type {
+					case "url":
+						expanded := action.ExpandTemplate(act.URL, vars)
+						if err := b.executor.OpenURL(expanded); err != nil {
+							cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), 3*time.Second)
+							return b, cmd
+						}
+						return b, nil
+					case "shell":
+						expanded := action.ExpandTemplate(act.Command, action.BuildShellSafeVars(vars))
+						cmd := b.statusBar.SetTimedMessage("Running...", 30*time.Second)
+						return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
+					}
+				}
 			}
 		}
 
@@ -494,7 +564,7 @@ func (b Board) View() string {
 	if len(col.Cards) > 0 {
 		card := col.Cards[col.Cursor]
 		rightContent = detailTitleStyle.Render(fmt.Sprintf("#%d %s", card.Number, card.Title)) +
-			"\n" + fmt.Sprintf("Label: %s", card.Label)
+			"\n" + fmt.Sprintf("Labels: %s", strings.Join(card.Labels, ", "))
 	}
 	rightPanel := rightPanelStyle.
 		Width(rightContentWidth).

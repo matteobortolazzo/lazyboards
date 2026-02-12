@@ -9,6 +9,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -22,7 +24,7 @@ var expectedColumnTitles = []string{"New", "Refined", "Implementing", "PR Ready"
 func newTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	return NewBoard(p)
+	return NewBoard(p, nil, nil, "", "", "")
 }
 
 // newLoadedTestBoard creates a Board and sends a boardFetchedMsg to transition
@@ -30,7 +32,7 @@ func newTestBoard(t *testing.T) Board {
 func newLoadedTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p)
+	b := NewBoard(p, nil, nil, "", "", "")
 	// Simulate the provider returning board data.
 	board, err := p.FetchBoard(nil)
 	if err != nil {
@@ -76,6 +78,19 @@ func sendKey(t *testing.T, b Board, msg tea.Msg) Board {
 	return updated
 }
 
+// execCmds recursively executes a tea.Cmd, handling tea.BatchMsg.
+func execCmds(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	if batchMsg, ok := msg.(tea.BatchMsg); ok {
+		for _, subCmd := range batchMsg {
+			execCmds(subCmd)
+		}
+	}
+}
+
 // requireColumns fails the test immediately if the board has no columns,
 // preventing panics from index-out-of-range on the stub implementation.
 func requireColumns(t *testing.T, b Board) {
@@ -109,7 +124,7 @@ func TestLoading_FetchSuccess_TransitionsToNormalMode(t *testing.T) {
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{{
 			Title: "Col1",
-			Cards: []provider.Card{{Number: 1, Title: "Card1", Label: "bug"}},
+			Cards: []provider.Card{{Number: 1, Title: "Card1", Labels: []string{"bug"}}},
 		}},
 	}}
 	m, _ := b.Update(msg)
@@ -270,8 +285,8 @@ func TestNewBoard_CardsHaveRequiredFields(t *testing.T) {
 			if card.Title == "" {
 				t.Errorf("column %d card %d: Title is empty", ci, cardIdx)
 			}
-			if card.Label == "" {
-				t.Errorf("column %d card %d: Label is empty", ci, cardIdx)
+			if len(card.Labels) == 0 {
+				t.Errorf("column %d card %d: Labels is empty, want at least one label", ci, cardIdx)
 			}
 		}
 	}
@@ -533,18 +548,20 @@ func TestView_DetailPanelShowsSelectedCard(t *testing.T) {
 	b.Height = 40
 	view := b.View()
 
-	// Detail panel should show the selected card's label
+	// Detail panel should show the selected card's labels (comma-separated).
 	selectedCard := b.Columns[b.ActiveTab].Cards[0]
-	if !strings.Contains(view, selectedCard.Label) {
-		t.Errorf("View() detail panel does not contain selected card label %q", selectedCard.Label)
+	labelsStr := strings.Join(selectedCard.Labels, ", ")
+	if !strings.Contains(view, labelsStr) {
+		t.Errorf("View() detail panel does not contain selected card labels %q", labelsStr)
 	}
 
-	// After navigating down, detail should update to the new card
+	// After navigating down, detail should update to the new card.
 	b = sendKey(t, b, keyMsg("j"))
 	view = b.View()
 	nextCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
-	if !strings.Contains(view, nextCard.Label) {
-		t.Errorf("View() detail panel does not contain card label %q after navigating", nextCard.Label)
+	nextLabelsStr := strings.Join(nextCard.Labels, ", ")
+	if !strings.Contains(view, nextLabelsStr) {
+		t.Errorf("View() detail panel does not contain card labels %q after navigating", nextLabelsStr)
 	}
 }
 
@@ -849,7 +866,7 @@ func TestSubmit_CreatesCardInNewColumn(t *testing.T) {
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
 	// Simulate async success.
-	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "My task", Label: ""}})
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "My task", Labels: nil}})
 	b = m.(Board)
 
 	// A new card should exist in the "New" column (index 0).
@@ -886,7 +903,7 @@ func TestSubmit_AutoNumbersCard(t *testing.T) {
 
 	// Simulate async success with expected auto-numbered card.
 	expectedNumber := maxNumber + 1
-	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: expectedNumber, Title: "Auto numbered", Label: ""}})
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: expectedNumber, Title: "Auto numbered", Labels: nil}})
 	b = m.(Board)
 
 	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
@@ -910,12 +927,12 @@ func TestSubmit_WithLabel(t *testing.T) {
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
 	// Simulate async success.
-	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Labeled task", Label: "bug"}})
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Labeled task", Labels: []string{"bug"}}})
 	b = m.(Board)
 
 	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
-	if newCard.Label != "bug" {
-		t.Errorf("new card Label = %q, want %q", newCard.Label, "bug")
+	if len(newCard.Labels) == 0 || newCard.Labels[0] != "bug" {
+		t.Errorf("new card Labels = %v, want [\"bug\"]", newCard.Labels)
 	}
 }
 
@@ -929,13 +946,13 @@ func TestSubmit_EmptyLabelAllowed(t *testing.T) {
 	}
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	// Simulate async success with empty label.
-	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "No label task", Label: ""}})
+	// Simulate async success with empty labels.
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "No label task", Labels: nil}})
 	b = m.(Board)
 
 	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
-	if newCard.Label != "" {
-		t.Errorf("new card Label = %q, want empty string (empty label is OK)", newCard.Label)
+	if len(newCard.Labels) != 0 {
+		t.Errorf("new card Labels = %v, want empty (empty label is OK)", newCard.Labels)
 	}
 }
 
@@ -987,7 +1004,7 @@ func TestSubmit_ReturnsToNormalMode(t *testing.T) {
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
 	// Simulate async success.
-	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Done task", Label: ""}})
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Done task", Labels: nil}})
 	b = m.(Board)
 
 	if b.mode != normalMode {
@@ -1010,7 +1027,7 @@ func TestSubmit_ResetsFieldsAfterCreation(t *testing.T) {
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
 	// Simulate async success.
-	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Some task", Label: "feature"}})
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Some task", Labels: []string{"feature"}}})
 	b = m.(Board)
 
 	if b.titleInput.Value() != "" {
@@ -1184,7 +1201,7 @@ func TestCreatingMode_Success_AppendsCardAndClosesModal(t *testing.T) {
 	b := newCreatingTestBoard(t)
 	originalCardCount := len(b.Columns[0].Cards)
 
-	msg := cardCreatedMsg{card: provider.Card{Number: 99, Title: "New task", Label: "feature"}}
+	msg := cardCreatedMsg{card: provider.Card{Number: 99, Title: "New task", Labels: []string{"feature"}}}
 	m, _ := b.Update(msg)
 	updated := m.(Board)
 
@@ -1204,8 +1221,8 @@ func TestCreatingMode_Success_AppendsCardAndClosesModal(t *testing.T) {
 	if newCard.Title != "New task" {
 		t.Errorf("new card Title = %q, want %q", newCard.Title, "New task")
 	}
-	if newCard.Label != "feature" {
-		t.Errorf("new card Label = %q, want %q", newCard.Label, "feature")
+	if len(newCard.Labels) == 0 || newCard.Labels[0] != "feature" {
+		t.Errorf("new card Labels = %v, want [\"feature\"]", newCard.Labels)
 	}
 
 	// Fields should be reset.
@@ -1272,7 +1289,7 @@ func TestCreatingMode_View_ShowsSpinner(t *testing.T) {
 func newBoardWithCards(t *testing.T, cardCount, height int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p)
+	b := NewBoard(p, nil, nil, "", "", "")
 
 	// Build provider cards.
 	providerCards := make([]provider.Card, cardCount)
@@ -1280,7 +1297,7 @@ func newBoardWithCards(t *testing.T, cardCount, height int) Board {
 		providerCards[i] = provider.Card{
 			Number: i + 1,
 			Title:  fmt.Sprintf("Card %d", i+1),
-			Label:  "test",
+			Labels: []string{"test"},
 		}
 	}
 
@@ -1288,7 +1305,7 @@ func newBoardWithCards(t *testing.T, cardCount, height int) Board {
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: providerCards},
 			{Title: "Column B", Cards: []provider.Card{
-				{Number: 100, Title: "Other card", Label: "test"},
+				{Number: 100, Title: "Other card", Labels: []string{"test"}},
 			}},
 		},
 	}}
@@ -1521,12 +1538,12 @@ func TestView_BothIndicators_WhenMiddle(t *testing.T) {
 func TestView_TruncatesLongTitle(t *testing.T) {
 	longTitle := "This is a very long title that should definitely be truncated in the card list panel"
 	p := provider.NewFakeProvider()
-	b := NewBoard(p)
+	b := NewBoard(p, nil, nil, "", "", "")
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: []provider.Card{
-				{Number: 1, Title: longTitle, Label: "test"},
+				{Number: 1, Title: longTitle, Labels: []string{"test"}},
 			}},
 		},
 	}}
@@ -1702,5 +1719,243 @@ func TestCreateMode_StatusBarShowsEscapeHint(t *testing.T) {
 
 	if !strings.Contains(view, "esc: Cancel") {
 		t.Errorf("View() in createMode should contain %q, got:\n%s", "esc: Cancel", view)
+	}
+}
+
+// --- Action Execution ---
+
+// newActionTestBoard creates a loaded Board with the given actions and a FakeExecutor.
+// It returns the board and the FakeExecutor for assertion.
+func newActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, *action.FakeExecutor) {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, fe, "matteobortolazzo", "lazyboards", "github")
+	// Load the board.
+	board, err := p.FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	loaded := m.(Board)
+	loaded.Width = 120
+	loaded.Height = 40
+	return loaded, fe
+}
+
+func TestAction_URLTriggersOpenURL(t *testing.T) {
+	actions := map[string]config.Action{
+		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+
+	// Get the selected card's number to verify expansion.
+	selectedCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	expectedURL := fmt.Sprintf("https://example.com/%d", selectedCard.Number)
+
+	// Press the action key in normalMode.
+	b = sendKey(t, b, keyMsg("o"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called, but no calls recorded")
+	}
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+func TestAction_ShellTriggersRunShell(t *testing.T) {
+	actions := map[string]config.Action{
+		"s": {Name: "Shell", Type: "shell", Command: "echo {title}"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+
+	// Get the selected card's title (slugified) to verify expansion.
+	selectedCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	expectedCmd := "echo " + action.ShellEscape(action.Slugify(selectedCard.Title))
+
+	// Press the action key in normalMode -- shell runs async via tea.Cmd.
+	m, cmd := b.Update(keyMsg("s"))
+	b = m.(Board)
+	_ = b
+
+	// Execute the returned cmd(s) to trigger RunShell.
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called, but no calls recorded")
+	}
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
+	}
+}
+
+func TestAction_IgnoredInCreateMode(t *testing.T) {
+	actions := map[string]config.Action{
+		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+
+	// Enter createMode, then press the action key.
+	b = sendKey(t, b, keyMsg("n"))
+	b = sendKey(t, b, keyMsg("o"))
+	_ = b
+
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("expected no OpenURL calls in createMode, got %d", len(fe.OpenURLCalls))
+	}
+}
+
+func TestAction_IgnoredInLoadingMode(t *testing.T) {
+	actions := map[string]config.Action{
+		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, fe, "", "", "")
+
+	// Board starts in loadingMode. Press the action key.
+	b = sendKey(t, b, keyMsg("o"))
+	_ = b
+
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("expected no OpenURL calls in loadingMode, got %d", len(fe.OpenURLCalls))
+	}
+}
+
+func TestAction_IgnoredWhenNoCards(t *testing.T) {
+	actions := map[string]config.Action{
+		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, fe, "", "", "")
+
+	// Load a board with an empty column.
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Empty", Cards: nil},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Press the action key with no cards in the column.
+	b = sendKey(t, b, keyMsg("o"))
+	_ = b
+
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("expected no OpenURL calls when no cards, got %d", len(fe.OpenURLCalls))
+	}
+}
+
+func TestAction_ShellSuccess_ShowsDone(t *testing.T) {
+	actions := map[string]config.Action{
+		"s": {Name: "Shell", Type: "shell", Command: "echo {title}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+
+	// Trigger the shell action.
+	b = sendKey(t, b, keyMsg("s"))
+
+	// Simulate the async result with success.
+	m, _ := b.Update(actionResultMsg{success: true, message: "Done"})
+	b = m.(Board)
+
+	view := b.View()
+	if !strings.Contains(view, "Done") {
+		t.Errorf("View() after successful shell action should contain %q", "Done")
+	}
+}
+
+func TestAction_ShellError_ShowsError(t *testing.T) {
+	actions := map[string]config.Action{
+		"s": {Name: "Shell", Type: "shell", Command: "failing-cmd"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+
+	// Trigger the shell action.
+	b = sendKey(t, b, keyMsg("s"))
+
+	// Simulate the async result with failure.
+	m, _ := b.Update(actionResultMsg{success: false, message: "Error: exit 1"})
+	b = m.(Board)
+
+	view := b.View()
+	if !strings.Contains(view, "Error:") {
+		t.Errorf("View() after failed shell action should contain %q", "Error:")
+	}
+}
+
+func TestAction_HintsShowInStatusBar(t *testing.T) {
+	actions := map[string]config.Action{
+		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+
+	view := b.View()
+	if !strings.Contains(view, "o: Open") {
+		t.Errorf("View() should contain action hint %q in the status bar", "o: Open")
+	}
+}
+
+func TestAction_URLError_ShowsErrorInStatusBar(t *testing.T) {
+	actions := map[string]config.Action{
+		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+	fe.OpenURLErr = errors.New("failed to open browser")
+
+	// Press the action key.
+	m, cmd := b.Update(keyMsg("o"))
+	b = m.(Board)
+
+	// Should return a cmd for the timed status message.
+	if cmd == nil {
+		t.Error("OpenURL error should return a non-nil cmd for status message")
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "Error:") {
+		t.Errorf("View() after OpenURL error should contain %q, got:\n%s", "Error:", view)
+	}
+}
+
+func TestAction_TemplateVarsExpanded(t *testing.T) {
+	actions := map[string]config.Action{
+		"o": {Name: "Open", Type: "url", URL: "https://gh.com/{repo_owner}/{repo_name}/issues/{number}"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, fe, "matteobortolazzo", "lazyboards", "github")
+
+	// Load a board with a specific card that has known labels.
+	cardNumber := 42
+	cardTitle := "Add custom actions"
+	cardLabels := []string{"bug", "enhancement"}
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "New", Cards: []provider.Card{
+				{Number: cardNumber, Title: cardTitle, Labels: cardLabels},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Press the action key.
+	b = sendKey(t, b, keyMsg("o"))
+	_ = b
+
+	expectedURL := fmt.Sprintf("https://gh.com/matteobortolazzo/lazyboards/issues/%d", cardNumber)
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called, but no calls recorded")
+	}
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
 	}
 }

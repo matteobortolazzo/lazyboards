@@ -58,8 +58,8 @@ func TestFetchBoard_AllCardsHaveRequiredFields(t *testing.T) {
 			if card.Title == "" {
 				t.Errorf("card #%d in column %q has empty Title", card.Number, col.Title)
 			}
-			if card.Label == "" {
-				t.Errorf("card #%d in column %q has empty Label", card.Number, col.Title)
+			if len(card.Labels) == 0 {
+				t.Errorf("card #%d in column %q has empty Labels", card.Number, col.Title)
 			}
 		}
 	}
@@ -111,7 +111,7 @@ func TestCreateCard_AppearsInSubsequentFetchBoard(t *testing.T) {
 	firstCol := board.Columns[0]
 	found := false
 	for _, card := range firstCol.Cards {
-		if card.Number == created.Number && card.Title == title && card.Label == label {
+		if card.Number == created.Number && card.Title == title && len(card.Labels) > 0 && card.Labels[0] == label {
 			found = true
 			break
 		}
@@ -147,8 +147,8 @@ func TestCreateCard_EmptyLabelIsAllowed(t *testing.T) {
 	if card.Title != "No label card" {
 		t.Errorf("card title = %q, want %q", card.Title, "No label card")
 	}
-	if card.Label != "" {
-		t.Errorf("card label = %q, want empty string", card.Label)
+	if len(card.Labels) != 0 {
+		t.Errorf("card labels = %v, want empty slice", card.Labels)
 	}
 }
 
