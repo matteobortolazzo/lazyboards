@@ -1,13 +1,8 @@
 # Lazyboards configuration
-# Copy this file to .lazyboards.yml and adjust values.
-#
-# Set GITHUB_TOKEN in your environment before running.
+# Provider and repo are auto-detected from git remote.
+# Set these to override auto-detection:
+# provider: github
+# repo: owner/repo
 
-provider: github
-repo: owner/repo
-columns:
-  - New
-  - Refined
-  - Implementing
-  - "PR Ready"
-  - Done
+# Project name (optional)
+# project: my-project
