@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1250,5 +1251,324 @@ func TestCreatingMode_View_ShowsSpinner(t *testing.T) {
 	view := b.View()
 	if !strings.Contains(view, "Creating card") {
 		t.Error("View() in creatingMode should contain 'Creating card'")
+	}
+}
+
+// --- Scroll Helper ---
+
+// newBoardWithCards creates a Board with a single column containing cardCount
+// cards, plus a second column with one card (for tab-switch tests).
+// Width is set to 120 and Height to the given height parameter.
+func newBoardWithCards(t *testing.T, cardCount, height int) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p)
+
+	// Build provider cards.
+	providerCards := make([]provider.Card, cardCount)
+	for i := range providerCards {
+		providerCards[i] = provider.Card{
+			Number: i + 1,
+			Title:  fmt.Sprintf("Card %d", i+1),
+			Label:  "test",
+		}
+	}
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: providerCards},
+			{Title: "Column B", Cards: []provider.Card{
+				{Number: 100, Title: "Other card", Label: "test"},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = height
+	return board
+}
+
+// --- truncateTitle Unit Tests ---
+
+func TestTruncateTitle_ShortTitleUnchanged(t *testing.T) {
+	title := "Short"
+	maxWidth := 20
+	got := truncateTitle(title, maxWidth)
+	if got != title {
+		t.Errorf("truncateTitle(%q, %d) = %q, want %q (unchanged)", title, maxWidth, got, title)
+	}
+}
+
+func TestTruncateTitle_ExactWidthUnchanged(t *testing.T) {
+	title := "Exactly ten"
+	maxWidth := len(title)
+	got := truncateTitle(title, maxWidth)
+	if got != title {
+		t.Errorf("truncateTitle(%q, %d) = %q, want %q (unchanged at exact width)", title, maxWidth, got, title)
+	}
+}
+
+func TestTruncateTitle_ExceedingWidthTruncated(t *testing.T) {
+	title := "This is a very long title that should be truncated"
+	maxWidth := 20
+	got := truncateTitle(title, maxWidth)
+
+	// Should end with "..."
+	if !strings.HasSuffix(got, "...") {
+		t.Errorf("truncateTitle(%q, %d) = %q, want suffix %q", title, maxWidth, got, "...")
+	}
+
+	// Total length should be exactly maxWidth runes.
+	if len([]rune(got)) != maxWidth {
+		t.Errorf("truncateTitle(%q, %d) has %d runes, want %d", title, maxWidth, len([]rune(got)), maxWidth)
+	}
+
+	// Prefix before "..." should be the first maxWidth-3 runes of the original.
+	expectedPrefix := string([]rune(title)[:maxWidth-3])
+	if !strings.HasPrefix(got, expectedPrefix) {
+		t.Errorf("truncateTitle(%q, %d) prefix = %q, want %q", title, maxWidth, got[:len(expectedPrefix)], expectedPrefix)
+	}
+}
+
+func TestTruncateTitle_MaxWidthThreeOrLess(t *testing.T) {
+	title := "Hello"
+
+	// maxWidth = 3: should return "..."
+	got := truncateTitle(title, 3)
+	if len([]rune(got)) > 3 {
+		t.Errorf("truncateTitle(%q, 3) = %q, want at most 3 runes", title, got)
+	}
+
+	// maxWidth = 1: should not panic and return something short.
+	got = truncateTitle(title, 1)
+	if len([]rune(got)) > 1 {
+		t.Errorf("truncateTitle(%q, 1) = %q, want at most 1 rune", title, got)
+	}
+}
+
+// --- Scroll Behavior Tests ---
+
+func TestScroll_AllCardsFit_NoScrollNeeded(t *testing.T) {
+	cardCount := 5
+	// Height large enough: panelHeight = Height - 6, each card ~1 line.
+	// Use a tall terminal so all cards fit.
+	height := cardCount + 6 + 10 // plenty of room
+	b := newBoardWithCards(t, cardCount, height)
+
+	// Navigate to the last card.
+	for i := 0; i < cardCount-1; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	col := b.Columns[b.ActiveTab]
+	if col.ScrollOffset != 0 {
+		t.Errorf("ScrollOffset = %d, want 0 when all cards fit in the viewport", col.ScrollOffset)
+	}
+}
+
+func TestScroll_CursorDownScrollsViewport(t *testing.T) {
+	cardCount := 30
+	height := 15 // panelHeight = 15 - 6 = 9, far fewer than 30 cards
+	b := newBoardWithCards(t, cardCount, height)
+
+	// Navigate cursor well past the visible area.
+	for i := 0; i < cardCount-1; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	col := b.Columns[b.ActiveTab]
+	if col.ScrollOffset <= 0 {
+		t.Errorf("ScrollOffset = %d after scrolling past visible area, want > 0", col.ScrollOffset)
+	}
+
+	// Cursor should be at the last card.
+	if col.Cursor != cardCount-1 {
+		t.Errorf("Cursor = %d, want %d (last card)", col.Cursor, cardCount-1)
+	}
+}
+
+func TestScroll_CursorUpScrollsViewport(t *testing.T) {
+	cardCount := 30
+	height := 15
+	b := newBoardWithCards(t, cardCount, height)
+
+	// Scroll all the way down.
+	for i := 0; i < cardCount-1; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	// Record the offset after scrolling down.
+	offsetAfterDown := b.Columns[b.ActiveTab].ScrollOffset
+	if offsetAfterDown <= 0 {
+		t.Fatalf("expected ScrollOffset > 0 after scrolling down, got %d", offsetAfterDown)
+	}
+
+	// Now scroll all the way back up.
+	for i := 0; i < cardCount-1; i++ {
+		b = sendKey(t, b, keyMsg("k"))
+	}
+
+	col := b.Columns[b.ActiveTab]
+	if col.ScrollOffset != 0 {
+		t.Errorf("ScrollOffset = %d after scrolling back to top, want 0", col.ScrollOffset)
+	}
+	if col.Cursor != 0 {
+		t.Errorf("Cursor = %d after scrolling back to top, want 0", col.Cursor)
+	}
+}
+
+func TestScroll_OffsetResetsOnTabSwitch(t *testing.T) {
+	cardCount := 30
+	height := 15
+	b := newBoardWithCards(t, cardCount, height)
+
+	// Scroll down in column A.
+	for i := 0; i < cardCount-1; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	// Switch to column B.
+	b = sendKey(t, b, keyMsg("l"))
+
+	// Column B should have ScrollOffset appropriate for its cursor position.
+	// Since Column B cursor starts at 0 and has only 1 card, offset should be 0.
+	col := b.Columns[b.ActiveTab]
+	if col.ScrollOffset != 0 {
+		t.Errorf("ScrollOffset = %d after tab switch, want 0 (Column B has only 1 card)", col.ScrollOffset)
+	}
+}
+
+// --- Scroll Indicator Rendering Tests ---
+
+func TestView_NoScrollIndicators_WhenAllCardsFit(t *testing.T) {
+	cardCount := 3
+	height := cardCount + 6 + 10 // plenty of room
+	b := newBoardWithCards(t, cardCount, height)
+
+	view := b.View()
+	if strings.Contains(view, "\u25b2") {
+		t.Error("View should not contain up arrow indicator when all cards fit")
+	}
+	if strings.Contains(view, "\u25bc") {
+		t.Error("View should not contain down arrow indicator when all cards fit")
+	}
+}
+
+func TestView_DownIndicator_WhenCardsBelow(t *testing.T) {
+	cardCount := 30
+	height := 15 // panelHeight = 9, far fewer than 30 cards
+	b := newBoardWithCards(t, cardCount, height)
+
+	// ScrollOffset starts at 0, so there are cards below.
+	view := b.View()
+	if !strings.Contains(view, "\u25bc") {
+		t.Error("View should contain down arrow indicator when more cards are below the viewport")
+	}
+	if strings.Contains(view, "\u25b2") {
+		t.Error("View should not contain up arrow indicator when at the top")
+	}
+}
+
+func TestView_UpIndicator_WhenCardsAbove(t *testing.T) {
+	cardCount := 30
+	height := 15
+	b := newBoardWithCards(t, cardCount, height)
+
+	// Scroll all the way down.
+	for i := 0; i < cardCount-1; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "\u25b2") {
+		t.Error("View should contain up arrow indicator when cards are above the viewport")
+	}
+}
+
+func TestView_BothIndicators_WhenMiddle(t *testing.T) {
+	cardCount := 30
+	height := 15
+	b := newBoardWithCards(t, cardCount, height)
+
+	// Navigate to somewhere in the middle.
+	panelHeight := height - 6
+	for i := 0; i < panelHeight+2; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "\u25b2") {
+		t.Error("View should contain up arrow indicator when scrolled to middle")
+	}
+	if !strings.Contains(view, "\u25bc") {
+		t.Error("View should contain down arrow indicator when scrolled to middle")
+	}
+}
+
+// --- Title Truncation in View ---
+
+func TestView_TruncatesLongTitle(t *testing.T) {
+	longTitle := "This is a very long title that should definitely be truncated in the card list panel"
+	p := provider.NewFakeProvider()
+	b := NewBoard(p)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: longTitle, Label: "test"},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 80
+	board.Height = 30
+
+	view := board.View()
+
+	// The full long title should NOT appear in the view.
+	if strings.Contains(view, longTitle) {
+		t.Error("View should not contain the full long title; it should be truncated")
+	}
+
+	// The truncation marker should appear.
+	if !strings.Contains(view, "...") {
+		t.Error("View should contain '...' for a truncated title")
+	}
+}
+
+// --- Resize Behavior ---
+
+func TestScroll_ResizeClampsOffset(t *testing.T) {
+	cardCount := 30
+	height := 15
+	b := newBoardWithCards(t, cardCount, height)
+
+	// Scroll down.
+	for i := 0; i < cardCount-1; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	offsetBefore := b.Columns[b.ActiveTab].ScrollOffset
+	if offsetBefore <= 0 {
+		t.Fatalf("expected ScrollOffset > 0 before resize, got %d", offsetBefore)
+	}
+
+	// Resize to a much larger height (all cards fit now).
+	largeHeight := cardCount + 6 + 10
+	m, _ := b.Update(tea.WindowSizeMsg{Width: 120, Height: largeHeight})
+	b = m.(Board)
+
+	col := b.Columns[b.ActiveTab]
+	// With all cards fitting, the scroll offset should be clamped so we don't
+	// have unnecessary blank space at the top.
+	newPanelHeight := largeHeight - 6
+	maxOffset := cardCount - newPanelHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if col.ScrollOffset > maxOffset {
+		t.Errorf("ScrollOffset = %d after resize to large height, want <= %d (clamped)", col.ScrollOffset, maxOffset)
 	}
 }
