@@ -44,9 +44,10 @@ type Card struct {
 
 // Column represents a Kanban column containing cards.
 type Column struct {
-	Title  string
-	Cards  []Card
-	Cursor int
+	Title        string
+	Cards        []Card
+	Cursor       int
+	ScrollOffset int
 }
 
 // boardFetchedMsg is sent when the provider successfully returns board data.
@@ -128,6 +129,65 @@ func createCardCmd(p provider.BoardProvider, title, label string) tea.Cmd {
 			return cardCreateErrorMsg{err: err}
 		}
 		return cardCreatedMsg{card: card}
+	}
+}
+
+func truncateTitle(s string, maxWidth int) string {
+	runes := []rune(s)
+	if len(runes) <= maxWidth {
+		return s
+	}
+	if maxWidth <= 3 {
+		return string(runes[:maxWidth])
+	}
+	return string(runes[:maxWidth-3]) + "..."
+}
+
+func (b *Board) clampScrollOffset() {
+	if len(b.Columns) == 0 {
+		return
+	}
+	col := &b.Columns[b.ActiveTab]
+	totalCards := len(col.Cards)
+	panelHeight := b.Height - 6
+	if panelHeight < 1 {
+		panelHeight = 1
+	}
+
+	if totalCards <= panelHeight {
+		col.ScrollOffset = 0
+		return
+	}
+
+	// Iterate to find stable scroll position (converges in <=3 iterations)
+	for i := 0; i < 3; i++ {
+		visible := panelHeight
+		if col.ScrollOffset > 0 {
+			visible-- // up indicator
+		}
+		if col.ScrollOffset+visible < totalCards {
+			visible-- // down indicator
+		}
+		if visible < 1 {
+			visible = 1
+		}
+
+		if col.Cursor < col.ScrollOffset {
+			col.ScrollOffset = col.Cursor
+		} else if col.Cursor >= col.ScrollOffset+visible {
+			col.ScrollOffset = col.Cursor - visible + 1
+		} else {
+			break
+		}
+	}
+
+	// Final bounds clamp
+	if col.ScrollOffset < 0 {
+		col.ScrollOffset = 0
+	}
+	maxOffset := totalCards - 1
+	if col.ScrollOffset > maxOffset {
+		col.ScrollOffset = maxOffset
 	}
 }
 
@@ -261,27 +321,36 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "h", "left":
 				if b.ActiveTab > 0 {
 					b.ActiveTab--
+					b.Columns[b.ActiveTab].ScrollOffset = 0
+					b.clampScrollOffset()
 				}
 			case "l", "right":
 				if b.ActiveTab < len(b.Columns)-1 {
 					b.ActiveTab++
+					b.Columns[b.ActiveTab].ScrollOffset = 0
+					b.clampScrollOffset()
 				}
 			case "j", "down":
 				col := &b.Columns[b.ActiveTab]
 				if col.Cursor < len(col.Cards)-1 {
 					col.Cursor++
 				}
+				b.clampScrollOffset()
 			case "k", "up":
 				col := &b.Columns[b.ActiveTab]
 				if col.Cursor > 0 {
 					col.Cursor--
 				}
+				b.clampScrollOffset()
 			}
 		}
 
 	case tea.WindowSizeMsg:
 		b.Width = msg.Width
 		b.Height = msg.Height
+		if len(b.Columns) > 0 {
+			b.clampScrollOffset()
+		}
 	}
 	return b, nil
 }
@@ -333,15 +402,55 @@ func (b Board) View() string {
 		panelHeight = 1
 	}
 
-	// Left panel: card list for active tab.
+	// Left panel: card list for active tab with scrolling.
 	col := b.Columns[b.ActiveTab]
 	var leftLines []string
-	for j, card := range col.Cards {
-		cardText := fmt.Sprintf("#%d %s", card.Number, card.Title)
-		if j == col.Cursor {
-			cardText = selectedCardStyle.Render(cardText)
+	totalCards := len(col.Cards)
+
+	if totalCards <= panelHeight {
+		// All cards fit — no scrolling needed
+		for j, card := range col.Cards {
+			cardText := fmt.Sprintf("#%d %s", card.Number, card.Title)
+			cardText = truncateTitle(cardText, leftContentWidth)
+			if j == col.Cursor {
+				cardText = selectedCardStyle.Render(cardText)
+			}
+			leftLines = append(leftLines, cardText)
 		}
-		leftLines = append(leftLines, cardText)
+	} else {
+		visible := panelHeight
+		showUp := col.ScrollOffset > 0
+		if showUp {
+			visible--
+		}
+		showDown := col.ScrollOffset+visible < totalCards
+		if showDown {
+			visible--
+		}
+		if visible < 1 {
+			visible = 1
+		}
+
+		endIdx := col.ScrollOffset + visible
+		if endIdx > totalCards {
+			endIdx = totalCards
+		}
+
+		if showUp {
+			leftLines = append(leftLines, "\u25b2")
+		}
+		for j := col.ScrollOffset; j < endIdx; j++ {
+			card := col.Cards[j]
+			cardText := fmt.Sprintf("#%d %s", card.Number, card.Title)
+			cardText = truncateTitle(cardText, leftContentWidth)
+			if j == col.Cursor {
+				cardText = selectedCardStyle.Render(cardText)
+			}
+			leftLines = append(leftLines, cardText)
+		}
+		if showDown {
+			leftLines = append(leftLines, "\u25bc")
+		}
 	}
 	leftContent := strings.Join(leftLines, "\n")
 	leftPanel := leftPanelStyle.
