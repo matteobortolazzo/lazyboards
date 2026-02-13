@@ -4,7 +4,16 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
+)
+
+// Package-level glamour renderer cache.
+// Safe because BubbleTea is single-threaded (all View/Update calls on main goroutine).
+var (
+	cachedGlamourRenderer      *glamour.TermRenderer
+	cachedGlamourRendererWidth int
 )
 
 func (b Board) View() string {
@@ -58,9 +67,19 @@ func (b Board) View() string {
 		panelHeight = 1
 	}
 
+	// Set panel border styles based on detail focus.
+	var leftStyle, rightStyle lipgloss.Style
+	if b.detailFocused {
+		leftStyle = leftPanelStyle.BorderForeground(lipgloss.Color("240"))
+		rightStyle = rightPanelStyle.BorderForeground(lipgloss.Color("15"))
+	} else {
+		leftStyle = leftPanelStyle
+		rightStyle = rightPanelStyle
+	}
+
 	col := b.Columns[b.ActiveTab]
-	leftPanel := b.viewCardList(col, panelHeight, leftContentWidth)
-	rightPanel := b.viewCardDetail(col, rightContentWidth, panelHeight)
+	leftPanel := b.viewCardList(col, panelHeight, leftContentWidth, leftStyle)
+	rightPanel := b.viewCardDetail(col, rightContentWidth, panelHeight, rightStyle)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
@@ -77,7 +96,7 @@ func (b Board) View() string {
 	return outerStyle.Width(innerWidth).Render(inner)
 }
 
-func (b Board) viewCardList(col Column, panelHeight, contentWidth int) string {
+func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lipgloss.Style) string {
 	var leftLines []string
 	totalCards := len(col.Cards)
 
@@ -127,23 +146,56 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int) string {
 	}
 
 	leftContent := strings.Join(leftLines, "\n")
-	return leftPanelStyle.
+	return style.
 		Width(contentWidth).
 		Height(panelHeight).
 		Render(leftContent)
 }
 
-func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int) string {
+func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style lipgloss.Style) string {
 	var rightContent string
 	if len(col.Cards) > 0 {
 		card := col.Cards[col.Cursor]
 		rightContent = detailTitleStyle.Render(fmt.Sprintf("#%d %s", card.Number, card.Title)) +
 			"\n" + fmt.Sprintf("Labels: %s", strings.Join(card.Labels, ", "))
 		if card.Body != "" {
-			rightContent += "\n\n" + card.Body
+			rendered := card.Body
+			if cachedGlamourRenderer == nil || cachedGlamourRendererWidth != contentWidth {
+				mdStyle := styles.DarkStyleConfig
+				mdStyle.Document.Color = nil
+				mdStyle.Document.BackgroundColor = nil
+				mdStyle.Paragraph.Color = nil
+				mdStyle.Paragraph.BackgroundColor = nil
+				mdStyle.Text.Color = nil
+				r, err := glamour.NewTermRenderer(
+					glamour.WithStyles(mdStyle),
+					glamour.WithWordWrap(contentWidth),
+				)
+				if err == nil {
+					cachedGlamourRenderer = r
+					cachedGlamourRendererWidth = contentWidth
+				}
+			}
+			if cachedGlamourRenderer != nil {
+				if out, renderErr := cachedGlamourRenderer.Render(card.Body); renderErr == nil {
+					rendered = strings.TrimRight(out, "\n ")
+				}
+			}
+
+			// Apply scroll offset.
+			lines := strings.Split(rendered, "\n")
+			startLine := b.detailScrollOffset
+			if startLine >= len(lines) {
+				startLine = len(lines) - 1
+			}
+			if startLine < 0 {
+				startLine = 0
+			}
+			visibleLines := lines[startLine:]
+			rightContent += "\n\n" + strings.Join(visibleLines, "\n")
 		}
 	}
-	return rightPanelStyle.
+	return style.
 		Width(contentWidth).
 		Height(panelHeight).
 		Render(rightContent)
