@@ -120,10 +120,13 @@ type Board struct {
 	repoInput       textinput.Model
 	configFocus     int
 	configLocalPath string
+	firstLaunch     bool
+	ConfigSaved     bool
 }
 
-// NewBoard creates a Board in loadingMode. Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, executor action.Executor, repoOwner, repoName, providerName string) Board {
+// NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
+// Call Init() to start fetching data.
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, executor action.Executor, repoOwner, repoName, providerName string, firstLaunch bool) Board {
 	ti := textinput.New()
 	ti.Placeholder = "Title"
 	ti.Focus()
@@ -152,7 +155,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, execut
 	ri.CharLimit = 100
 	ri.Width = 40
 
-	return Board{
+	b := Board{
 		mode:            loadingMode,
 		titleInput:      ti,
 		labelInput:      li,
@@ -169,6 +172,35 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, execut
 		providerIndex:   0,
 		repoInput:       ri,
 		configLocalPath: config.DefaultLocalPath,
+		firstLaunch:     firstLaunch,
+	}
+
+	if firstLaunch {
+		b.enterConfigMode()
+	}
+
+	return b
+}
+
+// enterConfigMode sets up configMode with pre-populated values from runtime.
+func (b *Board) enterConfigMode() {
+	b.mode = configMode
+	b.configFocus = 0
+	b.validationErr = ""
+	b.repoInput.Blur()
+
+	if b.repoOwner != "" && b.repoName != "" {
+		b.repoInput.SetValue(b.repoOwner + "/" + b.repoName)
+	} else {
+		b.repoInput.SetValue("")
+	}
+
+	b.providerIndex = 0
+	for i, opt := range b.providerOptions {
+		if opt == b.providerName {
+			b.providerIndex = i
+			break
+		}
 	}
 }
 
@@ -279,6 +311,9 @@ func (b *Board) clampScrollOffset() {
 }
 
 func (b Board) Init() tea.Cmd {
+	if b.firstLaunch {
+		return nil
+	}
 	return tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 }
 
@@ -337,6 +372,10 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, cmd
 
 	case configSavedMsg:
+		if b.firstLaunch {
+			b.ConfigSaved = true
+			return b, tea.Quit
+		}
 		b.mode = loadingMode
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 
@@ -425,6 +464,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case configMode:
 			switch msg.Type {
 			case tea.KeyEscape:
+				if b.firstLaunch {
+					return b, tea.Quit
+				}
 				b.mode = normalMode
 				return b, nil
 			case tea.KeyEnter:
@@ -476,12 +518,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				b.titleInput.Focus()
 				b.labelInput.Blur()
 			case "c":
-				b.mode = configMode
-				b.configFocus = 0
-				b.repoInput.SetValue("")
-				b.providerIndex = 0
-				b.repoInput.Blur()
-				b.validationErr = ""
+				b.enterConfigMode()
 			case "r":
 				b.mode = loadingMode
 				b.statusBar.ClearMessage()
@@ -560,6 +597,10 @@ func (b Board) View() string {
 	if b.mode == errorMode {
 		errorText := "Error: " + b.loadErr + "\n\n" + b.statusBar.View()
 		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, errorText)
+	}
+
+	if b.mode == configMode {
+		return b.viewConfigModal()
 	}
 
 	if len(b.Columns) == 0 {
@@ -702,37 +743,37 @@ func (b Board) View() string {
 		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
 	}
 
-	if b.mode == configMode {
-		modalWidth := 40
-		var errLine string
-		if b.validationErr != "" {
-			errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
-		}
+	return outerStyle.Width(innerWidth).Render(inner)
+}
 
-		providerDisplay := "< " + b.providerOptions[b.providerIndex] + " >"
-
-		configHints := NewStatusBar([]Hint{
-			{Key: "esc", Desc: "Cancel"},
-			{Key: "tab", Desc: "Next"},
-			{Key: "enter", Desc: "Save"},
-		})
-
-		repoView := b.repoInput.View()
-
-		modalContent := "Configuration\n\n" +
-			"Provider:\n" + providerDisplay + "\n\n" +
-			"Repo:\n" + repoView + errLine + "\n\n" +
-			helpStyle.Render(configHints.View())
-
-		modalStyle := lipgloss.NewStyle().
-			BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("205")).
-			Padding(1, 2).
-			Width(modalWidth)
-
-		modal := modalStyle.Render(modalContent)
-		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
+func (b Board) viewConfigModal() string {
+	modalWidth := 40
+	var errLine string
+	if b.validationErr != "" {
+		errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
 	}
 
-	return outerStyle.Width(innerWidth).Render(inner)
+	providerDisplay := "< " + b.providerOptions[b.providerIndex] + " >"
+
+	configHints := NewStatusBar([]Hint{
+		{Key: "esc", Desc: "Cancel"},
+		{Key: "tab", Desc: "Next"},
+		{Key: "enter", Desc: "Save"},
+	})
+
+	repoView := b.repoInput.View()
+
+	modalContent := "Configuration\n\n" +
+		"Provider:\n" + providerDisplay + "\n\n" +
+		"Repo:\n" + repoView + errLine + "\n\n" +
+		helpStyle.Render(configHints.View())
+
+	modalStyle := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("205")).
+		Padding(1, 2).
+		Width(modalWidth)
+
+	modal := modalStyle.Render(modalContent)
+	return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
 }

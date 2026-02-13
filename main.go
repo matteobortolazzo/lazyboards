@@ -41,6 +41,48 @@ func main() {
 		repo = gitInfo.Repo
 	}
 
+	// Split repo early for reuse
+	repoOwner, repoNameOnly := "", ""
+	if parts := strings.SplitN(repo, "/", 2); len(parts) == 2 {
+		repoOwner = parts[0]
+		repoNameOnly = parts[1]
+	}
+
+	// First-launch flow: show config popup before creating provider
+	if !config.LocalExists(config.DefaultLocalPath) {
+		board := NewBoard(nil, nil, nil, repoOwner, repoNameOnly, prov, true)
+		p := tea.NewProgram(board, tea.WithAltScreen())
+		m, err := p.Run()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		b := m.(Board)
+		if !b.ConfigSaved {
+			fmt.Fprintf(os.Stderr, "Configuration required. Exiting.\n")
+			os.Exit(1)
+		}
+		// Reload config with saved values
+		cfg, err = config.Load(globalPath, config.DefaultLocalPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			os.Exit(1)
+		}
+		prov = cfg.Provider
+		if prov == "" {
+			prov = gitInfo.Provider
+		}
+		repo = cfg.Repo
+		if repo == "" {
+			repo = gitInfo.Repo
+		}
+		repoOwner, repoNameOnly = "", ""
+		if parts := strings.SplitN(repo, "/", 2); len(parts) == 2 {
+			repoOwner = parts[0]
+			repoNameOnly = parts[1]
+		}
+	}
+
 	defaultColumns := []string{"New", "Refined", "In Progress", "PR Ready"}
 
 	var bp provider.BoardProvider
@@ -72,14 +114,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	repoOwner := ""
-	repoNameOnly := ""
-	if parts := strings.SplitN(repo, "/", 2); len(parts) == 2 {
-		repoOwner = parts[0]
-		repoNameOnly = parts[1]
-	}
-
-	board := NewBoard(bp, cfg.Actions, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov)
+	board := NewBoard(bp, cfg.Actions, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, false)
 
 	p := tea.NewProgram(board, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
