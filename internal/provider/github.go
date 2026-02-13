@@ -75,6 +75,7 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 			card := Card{
 				Number: issue.GetNumber(),
 				Title:  issue.GetTitle(),
+				Body:   issue.GetBody(),
 			}
 
 			// Collect all label names.
@@ -133,6 +134,7 @@ func (g *GitHubProvider) CreateCard(ctx context.Context, title string, label str
 	card := Card{
 		Number: issue.GetNumber(),
 		Title:  issue.GetTitle(),
+		Body:   issue.GetBody(),
 	}
 	if label != "" {
 		card.Labels = []string{label}
