@@ -29,7 +29,7 @@ type Config struct {
 // builtinKeys is the set of single-character keys reserved for built-in navigation.
 var builtinKeys = map[string]bool{
 	"h": true, "l": true, "j": true, "k": true,
-	"q": true, "r": true, "n": true,
+	"q": true, "r": true, "n": true, "c": true,
 }
 
 const DefaultLocalPath = ".lazyboards.yml"
@@ -90,6 +90,34 @@ func Load(globalPath, localPath string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// LocalExists returns true if the file at path exists.
+func LocalExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// Save writes provider and repo to the config file at path.
+// If the file already exists, it preserves existing fields (like actions).
+func Save(path, provider, repo string) error {
+	// Read existing config if file exists.
+	var cfg Config
+	data, err := os.ReadFile(path)
+	if err == nil {
+		yaml.Unmarshal(data, &cfg) // ignore error, start fresh if invalid
+	}
+
+	// Update provider and repo.
+	cfg.Provider = provider
+	cfg.Repo = repo
+
+	// Marshal and write.
+	out, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0600)
 }
 
 // validateActions checks that all action definitions are well-formed.
