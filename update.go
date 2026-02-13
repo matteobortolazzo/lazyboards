@@ -110,6 +110,8 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	}
 	b.Columns = cols
 	b.mode = normalMode
+	b.detailScrollOffset = 0
+	b.detailFocused = false
 	var cmd tea.Cmd
 	if b.loaded {
 		b.statusBar.SetActionHints(b.normalHints)
@@ -225,6 +227,10 @@ func (b Board) handleConfigModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if b.detailFocused {
+		return b.handleDetailFocusedKey(msg)
+	}
+
 	switch msg.String() {
 	case "q":
 		return b, tea.Quit
@@ -240,16 +246,21 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = loadingMode
 		b.statusBar.ClearMessage()
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+	case "l":
+		b.detailFocused = true
+		b.statusBar.SetActionHints(detailFocusHints)
 	case "shift+tab", "left":
 		if b.ActiveTab > 0 {
 			b.ActiveTab--
 			b.Columns[b.ActiveTab].ScrollOffset = 0
+			b.detailScrollOffset = 0
 			b.clampScrollOffset()
 		}
 	case "tab", "right":
 		if b.ActiveTab < len(b.Columns)-1 {
 			b.ActiveTab++
 			b.Columns[b.ActiveTab].ScrollOffset = 0
+			b.detailScrollOffset = 0
 			b.clampScrollOffset()
 		}
 	case "j", "down":
@@ -257,12 +268,14 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if col.Cursor < len(col.Cards)-1 {
 			col.Cursor++
 		}
+		b.detailScrollOffset = 0
 		b.clampScrollOffset()
 	case "k", "up":
 		col := &b.Columns[b.ActiveTab]
 		if col.Cursor > 0 {
 			col.Cursor--
 		}
+		b.detailScrollOffset = 0
 		b.clampScrollOffset()
 	default:
 		// Check if it's a custom action key.
@@ -287,6 +300,61 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				cmd := b.statusBar.SetTimedMessage("Running...", 30*time.Second)
 				return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
 			}
+		}
+	}
+	return b, nil
+}
+
+func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle Escape via msg.Type first.
+	if msg.Type == tea.KeyEsc {
+		b.detailFocused = false
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	}
+
+	switch msg.String() {
+	case "q":
+		return b, tea.Quit
+	case "r":
+		b.mode = loadingMode
+		b.statusBar.ClearMessage()
+		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+	case "h":
+		b.detailFocused = false
+		b.statusBar.SetActionHints(b.normalHints)
+	case "j", "down":
+		col := b.Columns[b.ActiveTab]
+		if len(col.Cards) > 0 {
+			card := col.Cards[col.Cursor]
+			if card.Body != "" {
+				maxLines := strings.Count(card.Body, "\n") + 1
+				if b.detailScrollOffset < maxLines {
+					b.detailScrollOffset++
+				}
+			}
+		}
+	case "k", "up":
+		if b.detailScrollOffset > 0 {
+			b.detailScrollOffset--
+		}
+	case "tab", "right":
+		if b.ActiveTab < len(b.Columns)-1 {
+			b.detailFocused = false
+			b.detailScrollOffset = 0
+			b.statusBar.SetActionHints(b.normalHints)
+			b.ActiveTab++
+			b.Columns[b.ActiveTab].ScrollOffset = 0
+			b.clampScrollOffset()
+		}
+	case "shift+tab", "left":
+		if b.ActiveTab > 0 {
+			b.detailFocused = false
+			b.detailScrollOffset = 0
+			b.statusBar.SetActionHints(b.normalHints)
+			b.ActiveTab--
+			b.Columns[b.ActiveTab].ScrollOffset = 0
+			b.clampScrollOffset()
 		}
 	}
 	return b, nil

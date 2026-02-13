@@ -30,6 +30,13 @@ var normalModeHints = []Hint{
 	{Key: "q", Desc: "Quit"},
 }
 
+// detailFocusHints are the status bar hints shown when the detail panel is focused.
+var detailFocusHints = []Hint{
+	{Key: "j/k", Desc: "Scroll"},
+	{Key: "h", Desc: "Back"},
+	{Key: "esc", Desc: "Back"},
+}
+
 // boardMode represents the current interaction mode of the board.
 type boardMode int
 
@@ -115,9 +122,11 @@ type Board struct {
 	providerIndex   int
 	repoInput       textinput.Model
 	configFocus     int
-	configLocalPath string
-	firstLaunch     bool
-	ConfigSaved     bool
+	configLocalPath    string
+	firstLaunch        bool
+	ConfigSaved        bool
+	detailFocused      bool
+	detailScrollOffset int
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
