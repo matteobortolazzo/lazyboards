@@ -12,11 +12,11 @@ import (
 
 // Package-level styles.
 var (
-	activeTabStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	activeTabStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	inactiveTabStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	selectedCardStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	selectedCardStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	detailTitleStyle  = lipgloss.NewStyle().Bold(true)
-	leftPanelStyle    = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("205"))
+	leftPanelStyle    = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("15"))
 	rightPanelStyle   = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	outerStyle        = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))

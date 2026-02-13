@@ -184,8 +184,8 @@ func TestErrorMode_Q_Quits(t *testing.T) {
 func TestLoadingMode_IgnoresNavigationKeys(t *testing.T) {
 	b := newTestBoard(t)
 	origTab := b.ActiveTab
-	b = sendKey(t, b, keyMsg("h"))
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("k"))
 	if b.ActiveTab != origTab {
@@ -305,7 +305,7 @@ func TestNewBoard_ColumnCursorsStartAtZero(t *testing.T) {
 
 func TestTabNavigation_L_MovesRight(t *testing.T) {
 	b := newLoadedTestBoard(t)
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	if b.ActiveTab != 1 {
 		t.Errorf("after 'l': ActiveTab = %d, want 1", b.ActiveTab)
 	}
@@ -314,8 +314,8 @@ func TestTabNavigation_L_MovesRight(t *testing.T) {
 func TestTabNavigation_H_MovesLeft(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	// Move right first so we can move left
-	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	if b.ActiveTab != 0 {
 		t.Errorf("after 'l' then 'h': ActiveTab = %d, want 0", b.ActiveTab)
 	}
@@ -341,7 +341,7 @@ func TestTabNavigation_LeftArrow_MovesLeft(t *testing.T) {
 func TestTabNavigation_H_ClampsAtStart(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	// Already at column 0, pressing h should stay at 0
-	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	if b.ActiveTab != 0 {
 		t.Errorf("'h' at column 0: ActiveTab = %d, want 0", b.ActiveTab)
 	}
@@ -355,7 +355,7 @@ func TestTabNavigation_L_ClampsAtEnd(t *testing.T) {
 	lastColumn := len(b.Columns) - 1
 	// Move to the last column and then one more
 	for i := 0; i < len(b.Columns); i++ {
-		b = sendKey(t, b, keyMsg("l"))
+		b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	}
 	if b.ActiveTab != lastColumn {
 		t.Errorf("pressing 'l' past end: ActiveTab = %d, want %d", b.ActiveTab, lastColumn)
@@ -371,7 +371,7 @@ func TestTabNavigation_FullTraversal(t *testing.T) {
 
 	// Move all the way right
 	for i := 0; i < lastColumn; i++ {
-		b = sendKey(t, b, keyMsg("l"))
+		b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	}
 	if b.ActiveTab != lastColumn {
 		t.Errorf("after traversing right: ActiveTab = %d, want %d", b.ActiveTab, lastColumn)
@@ -379,7 +379,7 @@ func TestTabNavigation_FullTraversal(t *testing.T) {
 
 	// Move all the way back left
 	for i := 0; i < lastColumn; i++ {
-		b = sendKey(t, b, keyMsg("h"))
+		b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	}
 	if b.ActiveTab != 0 {
 		t.Errorf("after traversing back left: ActiveTab = %d, want 0", b.ActiveTab)
@@ -469,7 +469,7 @@ func TestItemNavigation_CursorIsPerColumn(t *testing.T) {
 	// Move cursor down in column 0
 	b = sendKey(t, b, keyMsg("j"))
 	// Switch to column 1
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	// Column 1 cursor should still be at 0
 	cursor := b.Columns[b.ActiveTab].Cursor
 	if cursor != 0 {
@@ -571,7 +571,7 @@ func TestView_OnlyActiveTabCardsVisible(t *testing.T) {
 	b.Height = 40
 
 	// Switch to tab 1 (Refined)
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	view := b.View()
 
 	// Cards from tab 0 (New) should NOT be visible
@@ -653,11 +653,11 @@ func TestCreateMode_BlocksNavigation(t *testing.T) {
 	origCursor := b.Columns[b.ActiveTab].Cursor
 
 	// h, l should not change ActiveTab
-	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	if b.ActiveTab != origTab {
 		t.Errorf("'h' in createMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
 	}
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	if b.ActiveTab != origTab {
 		t.Errorf("'l' in createMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
 	}
@@ -1456,7 +1456,7 @@ func TestScroll_OffsetResetsOnTabSwitch(t *testing.T) {
 	}
 
 	// Switch to column B.
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 
 	// Column B should have ScrollOffset appropriate for its cursor position.
 	// Since Column B cursor starts at 0 and has only 1 card, offset should be 0.
@@ -2163,11 +2163,11 @@ func TestConfigMode_BlocksNavigation(t *testing.T) {
 	origCursor := b.Columns[b.ActiveTab].Cursor
 
 	// h, l should NOT navigate the board tabs.
-	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	if b.ActiveTab != origTab {
 		t.Errorf("'h' in configMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
 	}
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	if b.ActiveTab != origTab {
 		t.Errorf("'l' in configMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
 	}
