@@ -36,3 +36,19 @@ Claude reads this file automatically. Its rules are authoritative and override a
 - **Root cause**: The shell (zsh) needs to write heredoc content to a temp file before expansion. The sandbox blocks writes to the default temp directory, and setting `TMPDIR` in the same command doesn't affect the shell's heredoc processing.
 - **Fix**: Write the commit message to a file first with `printf ... > /tmp/claude/commit-msg.txt`, then use `git commit -F /tmp/claude/commit-msg.txt`.
 - **Rule**: Never use heredoc syntax for git commit messages in sandbox. Always use `git commit -F <file>` with a pre-written message file.
+
+### Testing async BubbleTea commands requires execCmds helper
+- **Date**: 2026-02-12
+- **Ticket**: #46
+- **What happened**: Test `TestAction_ShellTriggersRunShell` failed because the `sendKey` helper discarded the `tea.Cmd` returned from `Update()`. Shell actions return an async `tea.Cmd` (goroutine that executes and sends `actionResultMsg`), so the test never saw the result.
+- **Root cause**: BubbleTea async commands (returned from `Update()`) must be executed to get their messages. Test helpers that discard `tea.Cmd` cannot observe async behavior.
+- **Fix**: Capture `tea.Cmd` from `Update()` and use a recursive `execCmds()` helper to execute batch commands and collect all resulting messages. Pattern: `cmd := m.Update(msg); msgs := execCmds(cmd); for _, msg := range msgs { m.Update(msg) }`.
+- **Rule**: When testing BubbleTea features that use async commands (goroutines, timers, subscriptions), always capture and execute the `tea.Cmd` to observe the full behavior. Create an `execCmds()` helper for tests.
+
+### Shell command injection via template variables
+- **Date**: 2026-02-12
+- **Ticket**: #46
+- **What happened**: Card labels from GitHub API (untrusted user input) were interpolated into shell commands via `{tags}` template variable without escaping. A malicious label like `"; rm -rf /; "` would execute arbitrary commands.
+- **Root cause**: Template expansion directly substitutes user-controlled strings into shell commands without validation or escaping. Shell metacharacters (`;`, `|`, `&`, `$()`, etc.) in labels enable command injection.
+- **Fix**: Added `ShellEscape()` (POSIX single-quote wrapping: replace `'` with `'\''`, wrap in `'...'`) and `BuildShellSafeVars()` to escape all template variables before shell command expansion.
+- **Rule**: Always escape user-controlled input before interpolating into shell commands. Use POSIX single-quote wrapping for shell safety. Never trust data from external APIs (GitHub labels, issue titles, etc.) in shell contexts.
