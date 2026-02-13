@@ -97,48 +97,77 @@ func (b Board) View() string {
 }
 
 func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lipgloss.Style) string {
-	var leftLines []string
-	totalCards := len(col.Cards)
+	// Pre-compute wrapped lines for each card.
+	type wrappedCard struct {
+		lines    []string
+		selected bool
+	}
+	var allCards []wrappedCard
+	for j, card := range col.Cards {
+		prefix := fmt.Sprintf("#%d ", card.Number)
+		text := prefix + card.Title
+		lines := wrapTitle(text, contentWidth, len([]rune(prefix)))
+		allCards = append(allCards, wrappedCard{lines: lines, selected: j == col.Cursor})
+	}
 
-	if totalCards <= panelHeight {
-		for j, card := range col.Cards {
-			cardText := fmt.Sprintf("#%d %s", card.Number, card.Title)
-			cardText = truncateTitle(cardText, contentWidth)
-			if j == col.Cursor {
-				cardText = selectedCardStyle.Render(cardText)
+	// Compute total line count for all cards.
+	totalLines := 0
+	for _, wc := range allCards {
+		totalLines += len(wc.lines)
+	}
+
+	var leftLines []string
+
+	if totalLines <= panelHeight {
+		// All cards fit -- render everything.
+		for _, wc := range allCards {
+			for _, line := range wc.lines {
+				if wc.selected {
+					line = selectedCardStyle.Render(line)
+				}
+				leftLines = append(leftLines, line)
 			}
-			leftLines = append(leftLines, cardText)
 		}
 	} else {
-		visible := panelHeight
+		// Need scrolling -- determine which cards are visible.
 		showUp := col.ScrollOffset > 0
+
+		// Available lines for card content.
+		available := panelHeight
 		if showUp {
-			visible--
-		}
-		showDown := col.ScrollOffset+visible < totalCards
-		if showDown {
-			visible--
-		}
-		if visible < 1 {
-			visible = 1
+			available--
 		}
 
-		endIdx := col.ScrollOffset + visible
-		if endIdx > totalCards {
-			endIdx = totalCards
+		// Render cards starting from ScrollOffset, fitting within available lines.
+		linesUsed := 0
+		endIdx := col.ScrollOffset
+		for endIdx < len(allCards) {
+			cardLineCount := len(allCards[endIdx].lines)
+			// Reserve 1 line for down indicator if there are more cards after.
+			neededForDown := 0
+			if endIdx+1 < len(allCards) {
+				neededForDown = 1
+			}
+			if linesUsed+cardLineCount > available-neededForDown {
+				break
+			}
+			linesUsed += cardLineCount
+			endIdx++
 		}
+
+		showDown := endIdx < len(allCards)
 
 		if showUp {
 			leftLines = append(leftLines, "\u25b2")
 		}
 		for j := col.ScrollOffset; j < endIdx; j++ {
-			card := col.Cards[j]
-			cardText := fmt.Sprintf("#%d %s", card.Number, card.Title)
-			cardText = truncateTitle(cardText, contentWidth)
-			if j == col.Cursor {
-				cardText = selectedCardStyle.Render(cardText)
+			wc := allCards[j]
+			for _, line := range wc.lines {
+				if wc.selected {
+					line = selectedCardStyle.Render(line)
+				}
+				leftLines = append(leftLines, line)
 			}
-			leftLines = append(leftLines, cardText)
 		}
 		if showDown {
 			leftLines = append(leftLines, "\u25bc")
