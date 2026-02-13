@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
@@ -56,13 +57,111 @@ func saveConfigCmd(path, provider, repo string) tea.Cmd {
 	}
 }
 
-func truncateTitle(s string, maxWidth int) string {
-	runes := []rune(s)
+// wrapTitle wraps text at word boundaries to fit within maxWidth.
+// First line uses full maxWidth; continuation lines are indented by indentWidth spaces.
+// Falls back to character-break if a single word exceeds the available width.
+// Returns at least one line.
+func wrapTitle(text string, maxWidth int, indentWidth int) []string {
+	if maxWidth <= 0 {
+		return []string{text}
+	}
+
+	runes := []rune(text)
 	if len(runes) <= maxWidth {
-		return s
+		return []string{text}
 	}
-	if maxWidth <= 3 {
-		return string(runes[:maxWidth])
+
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{""}
 	}
-	return string(runes[:maxWidth-3]) + "..."
+
+	indent := strings.Repeat(" ", indentWidth)
+	var lines []string
+	isFirstLine := true
+
+	// capacity returns the available character width for the current line.
+	capacity := func() int {
+		if isFirstLine {
+			return maxWidth
+		}
+		cap := maxWidth - indentWidth
+		if cap < 1 {
+			cap = 1
+		}
+		return cap
+	}
+
+	// breakWord splits a word that exceeds cap into multiple lines.
+	breakWord := func(word string, cap int) {
+		wr := []rune(word)
+		for len(wr) > 0 {
+			take := cap
+			if take > len(wr) {
+				take = len(wr)
+			}
+			chunk := string(wr[:take])
+			if !isFirstLine {
+				chunk = indent + chunk
+			}
+			lines = append(lines, chunk)
+			wr = wr[take:]
+			isFirstLine = false
+		}
+	}
+
+	var currentLine string
+	currentLen := 0
+
+	for _, word := range words {
+		wordRunes := []rune(word)
+		cap := capacity()
+
+		if currentLen == 0 {
+			// Starting a new line.
+			if len(wordRunes) > cap {
+				// Word is too long for the line -- character-break it.
+				breakWord(word, cap)
+				continue
+			}
+			if isFirstLine {
+				currentLine = word
+			} else {
+				currentLine = indent + word
+			}
+			currentLen = len(wordRunes)
+			continue
+		}
+
+		// Check if word fits on current line (with a space separator).
+		if currentLen+1+len(wordRunes) <= cap {
+			currentLine += " " + word
+			currentLen += 1 + len(wordRunes)
+		} else {
+			// Flush current line.
+			lines = append(lines, currentLine)
+			isFirstLine = false
+			currentLine = ""
+			currentLen = 0
+
+			cap = capacity()
+			if len(wordRunes) > cap {
+				breakWord(word, cap)
+				continue
+			}
+			currentLine = indent + word
+			currentLen = len(wordRunes)
+		}
+	}
+
+	// Flush the last line.
+	if currentLen > 0 {
+		lines = append(lines, currentLine)
+	}
+
+	if len(lines) == 0 {
+		return []string{""}
+	}
+
+	return lines
 }

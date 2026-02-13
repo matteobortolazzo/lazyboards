@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -215,39 +217,93 @@ func (b *Board) clampScrollOffset() {
 	}
 	col := &b.Columns[b.ActiveTab]
 	totalCards := len(col.Cards)
+	if totalCards == 0 {
+		col.ScrollOffset = 0
+		return
+	}
+
 	panelHeight := b.Height - 6
 	if panelHeight < 1 {
 		panelHeight = 1
 	}
 
-	if totalCards <= panelHeight {
+	// Compute content width using the same formula as View().
+	innerWidth := b.Width - 2
+	leftTotal := innerWidth * 2 / 5
+	contentWidth := leftTotal - 2
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	// Helper: count how many lines a card occupies when wrapped.
+	cardLineCount := func(idx int) int {
+		card := col.Cards[idx]
+		prefix := fmt.Sprintf("#%d ", card.Number)
+		return len(wrapTitle(prefix+card.Title, contentWidth, len([]rune(prefix))))
+	}
+
+	// Compute total lines for all cards.
+	totalLines := 0
+	for i := 0; i < totalCards; i++ {
+		totalLines += cardLineCount(i)
+	}
+
+	if totalLines <= panelHeight {
 		col.ScrollOffset = 0
 		return
 	}
 
-	// Iterate to find stable scroll position (converges in <=3 iterations)
-	for i := 0; i < 3; i++ {
-		visible := panelHeight
+	// Iterate to find stable scroll position (converges in <=3 iterations).
+	for iter := 0; iter < 3; iter++ {
+		// Count lines visible from ScrollOffset.
+		available := panelHeight
 		if col.ScrollOffset > 0 {
-			visible-- // up indicator
+			available-- // up indicator
 		}
-		if col.ScrollOffset+visible < totalCards {
-			visible-- // down indicator
+
+		// Count how many cards fit from ScrollOffset.
+		linesUsed := 0
+		lastVisible := col.ScrollOffset
+		for lastVisible < totalCards {
+			cl := cardLineCount(lastVisible)
+			neededForDown := 0
+			if lastVisible+1 < totalCards {
+				neededForDown = 1
+			}
+			if linesUsed+cl > available-neededForDown {
+				break
+			}
+			linesUsed += cl
+			lastVisible++
 		}
-		if visible < 1 {
-			visible = 1
-		}
+		// lastVisible is now one past the last fully visible card index.
 
 		if col.Cursor < col.ScrollOffset {
 			col.ScrollOffset = col.Cursor
-		} else if col.Cursor >= col.ScrollOffset+visible {
-			col.ScrollOffset = col.Cursor - visible + 1
+		} else if col.Cursor >= lastVisible {
+			// Scroll down so cursor card is the last visible.
+			// Work backwards from cursor to find the ScrollOffset.
+			col.ScrollOffset = col.Cursor
+			linesFromCursor := cardLineCount(col.Cursor)
+			avail := panelHeight - 1 // reserve 1 for up indicator (since we're scrolling down)
+			for col.ScrollOffset > 0 {
+				prevLines := cardLineCount(col.ScrollOffset - 1)
+				neededForDown := 0
+				if col.Cursor+1 < totalCards {
+					neededForDown = 1
+				}
+				if linesFromCursor+prevLines > avail-neededForDown {
+					break
+				}
+				linesFromCursor += prevLines
+				col.ScrollOffset--
+			}
 		} else {
 			break
 		}
 	}
 
-	// Final bounds clamp
+	// Final bounds clamp.
 	if col.ScrollOffset < 0 {
 		col.ScrollOffset = 0
 	}

@@ -1316,61 +1316,154 @@ func newBoardWithCards(t *testing.T, cardCount, height int) Board {
 	return board
 }
 
-// --- truncateTitle Unit Tests ---
+// --- wrapTitle Unit Tests ---
 
-func TestTruncateTitle_ShortTitleUnchanged(t *testing.T) {
+func TestWrapTitle_ShortTitleSingleLine(t *testing.T) {
 	title := "Short"
 	maxWidth := 20
-	got := truncateTitle(title, maxWidth)
-	if got != title {
-		t.Errorf("truncateTitle(%q, %d) = %q, want %q (unchanged)", title, maxWidth, got, title)
+	got := wrapTitle(title, maxWidth, 0)
+	if len(got) != 1 {
+		t.Errorf("wrapTitle(%q, %d, 0) returned %d lines, want 1", title, maxWidth, len(got))
+	}
+	if got[0] != title {
+		t.Errorf("wrapTitle(%q, %d, 0)[0] = %q, want %q", title, maxWidth, got[0], title)
 	}
 }
 
-func TestTruncateTitle_ExactWidthUnchanged(t *testing.T) {
+func TestWrapTitle_ExactWidthSingleLine(t *testing.T) {
 	title := "Exactly ten"
 	maxWidth := len(title)
-	got := truncateTitle(title, maxWidth)
-	if got != title {
-		t.Errorf("truncateTitle(%q, %d) = %q, want %q (unchanged at exact width)", title, maxWidth, got, title)
+	got := wrapTitle(title, maxWidth, 0)
+	if len(got) != 1 {
+		t.Errorf("wrapTitle(%q, %d, 0) returned %d lines, want 1", title, maxWidth, len(got))
+	}
+	if got[0] != title {
+		t.Errorf("wrapTitle(%q, %d, 0)[0] = %q, want %q", title, maxWidth, got[0], title)
 	}
 }
 
-func TestTruncateTitle_ExceedingWidthTruncated(t *testing.T) {
-	title := "This is a very long title that should be truncated"
+func TestWrapTitle_WrapsAtWordBoundary(t *testing.T) {
+	title := "This is a very long title that should wrap"
 	maxWidth := 20
-	got := truncateTitle(title, maxWidth)
+	indentWidth := 2
+	got := wrapTitle(title, maxWidth, indentWidth)
 
-	// Should end with "..."
-	if !strings.HasSuffix(got, "...") {
-		t.Errorf("truncateTitle(%q, %d) = %q, want suffix %q", title, maxWidth, got, "...")
+	if len(got) < 2 {
+		t.Fatalf("wrapTitle(%q, %d, %d) returned %d lines, want >= 2", title, maxWidth, indentWidth, len(got))
 	}
 
-	// Total length should be exactly maxWidth runes.
-	if len([]rune(got)) != maxWidth {
-		t.Errorf("truncateTitle(%q, %d) has %d runes, want %d", title, maxWidth, len([]rune(got)), maxWidth)
+	// First line must fit within maxWidth.
+	if len([]rune(got[0])) > maxWidth {
+		t.Errorf("first line %q has %d runes, want <= %d", got[0], len([]rune(got[0])), maxWidth)
 	}
 
-	// Prefix before "..." should be the first maxWidth-3 runes of the original.
-	expectedPrefix := string([]rune(title)[:maxWidth-3])
-	if !strings.HasPrefix(got, expectedPrefix) {
-		t.Errorf("truncateTitle(%q, %d) prefix = %q, want %q", title, maxWidth, got[:len(expectedPrefix)], expectedPrefix)
+	// Continuation lines must be indented by indentWidth spaces.
+	indent := strings.Repeat(" ", indentWidth)
+	for i := 1; i < len(got); i++ {
+		if !strings.HasPrefix(got[i], indent) {
+			t.Errorf("continuation line %d = %q, want prefix %q", i, got[i], indent)
+		}
+		if len([]rune(got[i])) > maxWidth {
+			t.Errorf("continuation line %d = %q has %d runes, want <= %d", i, got[i], len([]rune(got[i])), maxWidth)
+		}
+	}
+
+	// All original words should be present across all lines.
+	joined := strings.Join(got, " ")
+	for _, word := range strings.Fields(title) {
+		if !strings.Contains(joined, word) {
+			t.Errorf("word %q missing from wrapped output: %v", word, got)
+		}
 	}
 }
 
-func TestTruncateTitle_MaxWidthThreeOrLess(t *testing.T) {
-	title := "Hello"
+func TestWrapTitle_LongWordCharacterBreak(t *testing.T) {
+	title := "abcdefghij"
+	maxWidth := 5
+	got := wrapTitle(title, maxWidth, 0)
 
-	// maxWidth = 3: should return "..."
-	got := truncateTitle(title, 3)
-	if len([]rune(got)) > 3 {
-		t.Errorf("truncateTitle(%q, 3) = %q, want at most 3 runes", title, got)
+	if len(got) < 2 {
+		t.Fatalf("wrapTitle(%q, %d, 0) returned %d lines, want >= 2", title, maxWidth, len(got))
 	}
 
-	// maxWidth = 1: should not panic and return something short.
-	got = truncateTitle(title, 1)
-	if len([]rune(got)) > 1 {
-		t.Errorf("truncateTitle(%q, 1) = %q, want at most 1 rune", title, got)
+	// Each line must not exceed maxWidth.
+	for i, line := range got {
+		if len([]rune(line)) > maxWidth {
+			t.Errorf("line %d = %q has %d runes, want <= %d", i, line, len([]rune(line)), maxWidth)
+		}
+	}
+
+	// All characters should be preserved.
+	joined := strings.Join(got, "")
+	joinedTrimmed := strings.ReplaceAll(joined, " ", "")
+	if joinedTrimmed != title {
+		t.Errorf("character-broken lines joined = %q, want %q", joinedTrimmed, title)
+	}
+}
+
+func TestWrapTitle_EmptyTitle(t *testing.T) {
+	got := wrapTitle("", 20, 0)
+	if len(got) < 1 {
+		t.Fatal("wrapTitle(\"\", 20, 0) returned empty slice, want at least one element")
+	}
+}
+
+func TestWrapTitle_VeryNarrowWidth(t *testing.T) {
+	// maxWidth of 1 should not panic and should produce output.
+	got := wrapTitle("Hello", 1, 0)
+	if len(got) < 1 {
+		t.Fatal("wrapTitle(\"Hello\", 1, 0) returned empty slice, want at least one element")
+	}
+	for i, line := range got {
+		if len([]rune(line)) > 1 {
+			t.Errorf("line %d = %q has %d runes, want <= 1", i, line, len([]rune(line)))
+		}
+	}
+
+	// maxWidth of 2 should also not panic.
+	got2 := wrapTitle("Hi there", 2, 0)
+	if len(got2) < 1 {
+		t.Fatal("wrapTitle(\"Hi there\", 2, 0) returned empty slice, want at least one element")
+	}
+	for i, line := range got2 {
+		if len([]rune(line)) > 2 {
+			t.Errorf("line %d = %q has %d runes, want <= 2", i, line, len([]rune(line)))
+		}
+	}
+}
+
+func TestWrapTitle_MultipleWraps(t *testing.T) {
+	title := "one two three four five six seven eight nine ten eleven twelve"
+	maxWidth := 15
+	indentWidth := 2
+	got := wrapTitle(title, maxWidth, indentWidth)
+
+	if len(got) < 3 {
+		t.Fatalf("wrapTitle(%q, %d, %d) returned %d lines, want >= 3", title, maxWidth, indentWidth, len(got))
+	}
+
+	// First line fits within maxWidth.
+	if len([]rune(got[0])) > maxWidth {
+		t.Errorf("first line %q has %d runes, want <= %d", got[0], len([]rune(got[0])), maxWidth)
+	}
+
+	// All continuation lines are indented and fit within maxWidth.
+	indent := strings.Repeat(" ", indentWidth)
+	for i := 1; i < len(got); i++ {
+		if !strings.HasPrefix(got[i], indent) {
+			t.Errorf("continuation line %d = %q, want prefix %q", i, got[i], indent)
+		}
+		if len([]rune(got[i])) > maxWidth {
+			t.Errorf("continuation line %d = %q has %d runes, want <= %d", i, got[i], len([]rune(got[i])), maxWidth)
+		}
+	}
+
+	// All original words should be present.
+	joined := strings.Join(got, " ")
+	for _, word := range strings.Fields(title) {
+		if !strings.Contains(joined, word) {
+			t.Errorf("word %q missing from wrapped output: %v", word, got)
+		}
 	}
 }
 
@@ -1533,10 +1626,10 @@ func TestView_BothIndicators_WhenMiddle(t *testing.T) {
 	}
 }
 
-// --- Title Truncation in View ---
+// --- Title Wrapping in View ---
 
-func TestView_TruncatesLongTitle(t *testing.T) {
-	longTitle := "This is a very long title that should definitely be truncated in the card list panel"
+func TestView_WrapsLongTitle(t *testing.T) {
+	longTitle := "This is a very long title that should definitely be wrapped in the card list panel"
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, "", "", "", false)
 
@@ -1554,14 +1647,128 @@ func TestView_TruncatesLongTitle(t *testing.T) {
 
 	view := board.View()
 
-	// The full long title should NOT appear in the view.
-	if strings.Contains(view, longTitle) {
-		t.Error("View should not contain the full long title; it should be truncated")
+	// The full long title text should appear in the view (wrapped, not truncated).
+	// Check that all words from the title are present somewhere in the view.
+	for _, word := range strings.Fields(longTitle) {
+		if !strings.Contains(view, word) {
+			t.Errorf("View should contain word %q from the long title, but it does not", word)
+		}
 	}
 
-	// The truncation marker should appear.
-	if !strings.Contains(view, "...") {
-		t.Error("View should contain '...' for a truncated title")
+	// There should be no truncation marker.
+	if strings.Contains(view, "...") {
+		t.Error("View should NOT contain '...' — titles should be wrapped, not truncated")
+	}
+}
+
+func TestView_WrappedTitles_SelectedCardAllLinesStyled(t *testing.T) {
+	longTitle := "This is a card title that is long enough to require wrapping across lines"
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, "", "", "", false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: longTitle, Labels: []string{"test"}},
+				{Number: 2, Title: "Short", Labels: []string{"test"}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 80
+	board.Height = 30
+
+	view := board.View()
+
+	// All words from the wrapped title of the selected card should appear in the view.
+	for _, word := range strings.Fields(longTitle) {
+		if !strings.Contains(view, word) {
+			t.Errorf("View should contain word %q from the selected card's wrapped title", word)
+		}
+	}
+}
+
+func TestScroll_WrappedTitles_CursorCardFullyVisible(t *testing.T) {
+	// Create cards with long titles that will wrap, filling more visual lines.
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, "", "", "", false)
+
+	var cards []provider.Card
+	for i := 0; i < 15; i++ {
+		cards = append(cards, provider.Card{
+			Number: i + 1,
+			Title:  fmt.Sprintf("Card %d with a long title that should wrap to multiple lines in the panel", i+1),
+			Labels: []string{"test"},
+		})
+	}
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: cards},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 80
+	board.Height = 20
+
+	// Navigate down to a card near the bottom.
+	for i := 0; i < 10; i++ {
+		board = sendKey(t, board, keyMsg("j"))
+	}
+
+	col := board.Columns[board.ActiveTab]
+	// Cursor should be at the card we navigated to.
+	if col.Cursor != 10 {
+		t.Errorf("Cursor = %d, want 10", col.Cursor)
+	}
+
+	// ScrollOffset should have adjusted (non-zero, since wrapped titles take more space).
+	if col.ScrollOffset <= 0 {
+		t.Errorf("ScrollOffset = %d, want > 0 when navigating to card 10 with wrapped titles", col.ScrollOffset)
+	}
+}
+
+func TestView_WrappedTitles_PartialCardHidden(t *testing.T) {
+	// Create a board where cards have titles long enough to wrap.
+	// With limited height, the last card that would only partially fit should be hidden.
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, "", "", "", false)
+
+	var cards []provider.Card
+	for i := 0; i < 10; i++ {
+		cards = append(cards, provider.Card{
+			Number: i + 1,
+			Title:  fmt.Sprintf("Card %d with a very long title that wraps to take more vertical space", i+1),
+			Labels: []string{"test"},
+		})
+	}
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: cards},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 60  // narrow width to force wrapping
+	board.Height = 15 // short height to force some cards off-screen
+
+	view := board.View()
+
+	// With wrapping enabled and limited height, not all 10 cards should be fully visible.
+	// Count how many card numbers appear in the view.
+	visibleCount := 0
+	for i := 0; i < 10; i++ {
+		marker := fmt.Sprintf("#%d ", i+1)
+		if strings.Contains(view, marker) {
+			visibleCount++
+		}
+	}
+
+	if visibleCount >= 10 {
+		t.Errorf("expected fewer than 10 cards visible with wrapped titles in limited height, got %d", visibleCount)
 	}
 }
 
