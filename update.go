@@ -246,17 +246,17 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = loadingMode
 		b.statusBar.ClearMessage()
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
-	case "l":
+	case "l", "right":
 		b.detailFocused = true
 		b.statusBar.SetActionHints(detailFocusHints)
-	case "shift+tab", "left":
+	case "shift+tab":
 		if b.ActiveTab > 0 {
 			b.ActiveTab--
 			b.Columns[b.ActiveTab].ScrollOffset = 0
 			b.detailScrollOffset = 0
 			b.clampScrollOffset()
 		}
-	case "tab", "right":
+	case "tab":
 		if b.ActiveTab < len(b.Columns)-1 {
 			b.ActiveTab++
 			b.Columns[b.ActiveTab].ScrollOffset = 0
@@ -320,7 +320,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = loadingMode
 		b.statusBar.ClearMessage()
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
-	case "h":
+	case "h", "left":
 		b.detailFocused = false
 		b.statusBar.SetActionHints(b.normalHints)
 	case "j", "down":
@@ -351,7 +351,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.detailScrollOffset > 0 {
 			b.detailScrollOffset--
 		}
-	case "tab", "right":
+	case "tab":
 		if b.ActiveTab < len(b.Columns)-1 {
 			b.detailFocused = false
 			b.detailScrollOffset = 0
@@ -360,7 +360,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.Columns[b.ActiveTab].ScrollOffset = 0
 			b.clampScrollOffset()
 		}
-	case "shift+tab", "left":
+	case "shift+tab":
 		if b.ActiveTab > 0 {
 			b.detailFocused = false
 			b.detailScrollOffset = 0
