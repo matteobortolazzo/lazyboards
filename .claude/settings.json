@@ -37,8 +37,8 @@
       "mcp__github__get_pull_request_reviews",
       "mcp__github__search_code",
       "mcp__github__search_issues",
-      "mcp__context7__resolve-library-id",
-      "mcp__context7__get-library-docs",
+      "mcp__plugin_ccflow_context7__resolve-library-id",
+      "mcp__plugin_ccflow_context7__query-docs",
       "Bash(gh *)"
     ],
     "deny": [
