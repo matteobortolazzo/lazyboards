@@ -2360,3 +2360,85 @@ func TestConfigMode_PrePopulatesRepoFromRuntime(t *testing.T) {
 		t.Errorf("repoInput.Value() = %q after 'c', want %q", b.repoInput.Value(), "myowner/myrepo")
 	}
 }
+
+// --- Detail Panel: Card Body ---
+
+// newBoardWithBody creates a Board with one column containing two cards.
+// The first card has body1 as its body text; the second card has body2.
+func newBoardWithBody(t *testing.T, body1, body2 string) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, "", "", "", false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: "Card One", Labels: []string{"bug"}, Body: body1},
+				{Number: 2, Title: "Card Two", Labels: []string{"feature"}, Body: body2},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
+func TestView_DetailPanelShowsCardBody(t *testing.T) {
+	bodyText := "This is the card description with important details."
+	b := newBoardWithBody(t, bodyText, "other body")
+
+	view := b.View()
+
+	// The detail panel should display the body text of the selected card.
+	if !strings.Contains(view, bodyText) {
+		t.Errorf("View() detail panel does not contain card body %q", bodyText)
+	}
+}
+
+func TestView_DetailPanelEmptyBody_NoExtraSpace(t *testing.T) {
+	b := newBoardWithBody(t, "", "")
+
+	view := b.View()
+
+	// With an empty body, the view should still render without errors.
+	// The detail panel should show the card title and labels but no body content.
+	selectedCard := b.Columns[b.ActiveTab].Cards[0]
+	titleStr := fmt.Sprintf("#%d %s", selectedCard.Number, selectedCard.Title)
+	if !strings.Contains(view, titleStr) {
+		t.Errorf("View() detail panel does not contain card title %q", titleStr)
+	}
+
+	// Count occurrences of consecutive newlines in the detail area.
+	// An empty body should not produce extra blank lines (e.g., "\n\n\n").
+	if strings.Contains(view, "\n\n\n") {
+		t.Error("View() detail panel has excessive blank lines when body is empty")
+	}
+}
+
+func TestView_DetailPanelBodyUpdatesOnNavigation(t *testing.T) {
+	firstBody := "Description of the first card."
+	secondBody := "Description of the second card."
+	b := newBoardWithBody(t, firstBody, secondBody)
+
+	// Initially, the first card is selected.
+	view := b.View()
+	if !strings.Contains(view, firstBody) {
+		t.Errorf("View() detail panel does not contain first card body %q", firstBody)
+	}
+
+	// Navigate down to the second card.
+	b = sendKey(t, b, keyMsg("j"))
+	view = b.View()
+
+	// The second card's body should now appear.
+	if !strings.Contains(view, secondBody) {
+		t.Errorf("View() detail panel does not contain second card body %q after navigation", secondBody)
+	}
+
+	// The first card's body should no longer be visible (it's unique text).
+	if strings.Contains(view, firstBody) {
+		t.Errorf("View() detail panel still contains first card body %q after navigating away", firstBody)
+	}
+}

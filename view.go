@@ -139,6 +139,9 @@ func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int) string 
 		card := col.Cards[col.Cursor]
 		rightContent = detailTitleStyle.Render(fmt.Sprintf("#%d %s", card.Number, card.Title)) +
 			"\n" + fmt.Sprintf("Labels: %s", strings.Join(card.Labels, ", "))
+		if card.Body != "" {
+			rightContent += "\n\n" + card.Body
+		}
 	}
 	return rightPanelStyle.
 		Width(contentWidth).

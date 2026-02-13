@@ -493,3 +493,52 @@ func TestGitHubCreateCard_GenericAPIError_PassesThrough(t *testing.T) {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
 	}
 }
+
+// --- Card Body from GitHub Issue Body ---
+
+func TestGitHubFetchBoard_CardBodyPopulatedFromIssueBody(t *testing.T) {
+	columns := []string{"Todo"}
+	issueBody := "This is the issue description.\nIt has multiple lines."
+	issue := makeIssue(1, "Issue with body", "Todo")
+	issue.Body = github.Ptr(issueBody)
+
+	client := &mockIssuesClient{issues: []*github.Issue{issue}}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if card.Body != issueBody {
+		t.Errorf("card.Body = %q, want %q", card.Body, issueBody)
+	}
+}
+
+func TestGitHubFetchBoard_NilIssueBody_ResultsInEmptyCardBody(t *testing.T) {
+	columns := []string{"Todo"}
+	// makeIssue does not set Body, so issue.Body is nil.
+	issue := makeIssue(1, "Issue without body", "Todo")
+
+	client := &mockIssuesClient{issues: []*github.Issue{issue}}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if card.Body != "" {
+		t.Errorf("card.Body = %q, want empty string for nil issue body", card.Body)
+	}
+}
