@@ -24,7 +24,11 @@ type Config struct {
 	Repo     string            `yaml:"repo"`
 	Project  string            `yaml:"project"`
 	Actions  map[string]Action `yaml:"actions"`
+	Columns  []string          `yaml:"columns"`
 }
+
+// DefaultColumns is the default set of column names when none are configured.
+var DefaultColumns = []string{"New", "Refined", "Implementing", "Implemented"}
 
 // builtinKeys is the set of single-character keys reserved for built-in navigation.
 var builtinKeys = map[string]bool{
@@ -59,8 +63,9 @@ func Load(globalPath, localPath string) (Config, error) {
 		}
 	}
 
-	// Save global actions before local override.
+	// Save global actions and columns before local override.
 	globalActions := cfg.Actions
+	globalColumns := cfg.Columns
 
 	// Read local config file, unmarshal into the same struct.
 	localData, err := os.ReadFile(localPath)
@@ -83,6 +88,15 @@ func Load(globalPath, localPath string) (Config, error) {
 				cfg.Actions[k] = v
 			}
 		}
+	}
+
+	// Columns: local replaces global entirely. If local had no columns, keep global.
+	if cfg.Columns == nil {
+		cfg.Columns = globalColumns
+	}
+
+	if err := validateColumns(&cfg); err != nil {
+		return Config{}, err
 	}
 
 	if err := validateActions(cfg.Actions); err != nil {
@@ -118,6 +132,31 @@ func Save(path, provider, repo string) error {
 		return err
 	}
 	return os.WriteFile(path, out, 0600)
+}
+
+// validateColumns checks that columns are valid and applies defaults if empty.
+func validateColumns(cfg *Config) error {
+	if len(cfg.Columns) == 0 {
+		cfg.Columns = make([]string, len(DefaultColumns))
+		copy(cfg.Columns, DefaultColumns)
+		return nil
+	}
+
+	// Validate column names and check for case-insensitive duplicates.
+	seen := make(map[string]bool, len(cfg.Columns))
+	for i, col := range cfg.Columns {
+		trimmed := strings.TrimSpace(col)
+		if trimmed == "" {
+			return fmt.Errorf("column %d: name cannot be empty or whitespace-only", i+1)
+		}
+		cfg.Columns[i] = trimmed
+		lower := strings.ToLower(trimmed)
+		if seen[lower] {
+			return fmt.Errorf("duplicate column %q (case-insensitive)", trimmed)
+		}
+		seen[lower] = true
+	}
+	return nil
 }
 
 // validateActions checks that all action definitions are well-formed.
