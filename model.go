@@ -14,8 +14,8 @@ import (
 
 // Package-level styles.
 var (
-	activeTabStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-	inactiveTabStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	activeBorderTitleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
+	inactiveBorderTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	selectedCardStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	detailTitleStyle  = lipgloss.NewStyle().Bold(true)
 	leftPanelStyle    = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("15"))
@@ -222,7 +222,7 @@ func (b *Board) clampScrollOffset() {
 		return
 	}
 
-	panelHeight := b.Height - 6
+	panelHeight := b.Height - 5
 	if panelHeight < 1 {
 		panelHeight = 1
 	}
