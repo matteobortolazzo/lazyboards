@@ -3193,3 +3193,119 @@ func TestDetailFocus_JKey_ScrollsWhenRenderedLinesExceedRaw(t *testing.T) {
 			"renders to many more lines than raw — scrolling should work")
 	}
 }
+
+// --- Detail Panel Border Alignment & Up-Arrow (#65) ---
+
+// newBoardWithCustomCard creates a board with a single card using the given title, labels, and body.
+func newBoardWithCustomCard(t *testing.T, title string, labels []string, body string) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, "", "", "", false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: title, Labels: labels, Body: body},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 80
+	board.Height = 20
+	return board
+}
+
+func TestDetailFocus_BorderAlignment_LongTitle(t *testing.T) {
+	// A title long enough to wrap at the right panel's content width.
+	// Width=80: innerWidth=78, leftTotal=78*2/5=31, rightTotal=78-31=47, rightContentWidth=45.
+	// Title "#1 " + 80 chars ≈ 83 chars → wraps to ~2 lines at width 45.
+	longTitle := strings.Repeat("A very long title word ", 5) // ~115 chars
+	var lines []string
+	for i := 1; i <= 30; i++ {
+		lines = append(lines, fmt.Sprintf("body line %d", i))
+	}
+	body := strings.Join(lines, "\n\n")
+	b := newBoardWithCustomCard(t, longTitle, []string{"bug"}, body)
+
+	view := b.View()
+
+	// The rendered view should not exceed terminal height.
+	outputLines := strings.Split(view, "\n")
+	if len(outputLines) > b.Height {
+		t.Errorf("View() has %d lines, want <= %d (terminal height); "+
+			"long title wrapping causes border misalignment", len(outputLines), b.Height)
+	}
+}
+
+func TestDetailFocus_ScrollUpArrow(t *testing.T) {
+	// Scroll down in detail panel; up-arrow (▲) should appear.
+	b := newBoardWithLongBody(t, 50)
+
+	// Initialize glamour renderer via View().
+	b.View()
+
+	// Enter detail focus, scroll down.
+	b = sendKey(t, b, keyMsg("l"))
+	for i := 0; i < 5; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	view := b.View()
+	upArrow := "\u25b2"
+	if !strings.Contains(view, upArrow) {
+		t.Error("View() should contain up-arrow indicator ▲ when detail panel is scrolled past top")
+	}
+}
+
+func TestDetailFocus_ScrollUpArrow_NotShownAtTop(t *testing.T) {
+	// At scroll offset 0, no up-arrow should appear in the detail panel.
+	b := newBoardWithLongBody(t, 50)
+
+	// Enter detail focus but don't scroll.
+	b = sendKey(t, b, keyMsg("l"))
+
+	view := b.View()
+	upArrow := "\u25b2"
+
+	// The left panel may show ▲ for the card list, but with 2 cards in
+	// Height=40 they fit without scrolling. So no ▲ should appear anywhere.
+	if strings.Contains(view, upArrow) {
+		t.Error("View() should not contain up-arrow indicator ▲ when detail panel is at top (offset=0)")
+	}
+}
+
+func TestDetailFocus_DynamicHeaderLines(t *testing.T) {
+	// With a wrapping title, the max scroll offset should account for
+	// extra header lines. Verify j doesn't scroll past the content.
+	longTitle := strings.Repeat("A very long title word ", 5)
+	var lines []string
+	for i := 1; i <= 30; i++ {
+		lines = append(lines, fmt.Sprintf("body line %d", i))
+	}
+	body := strings.Join(lines, "\n\n")
+	b := newBoardWithCustomCard(t, longTitle, []string{"bug"}, body)
+
+	// Initialize glamour renderer.
+	b.View()
+
+	// Enter detail focus, scroll down many times.
+	b = sendKey(t, b, keyMsg("l"))
+	for i := 0; i < 200; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+	maxOffset := b.detailScrollOffset
+
+	// Scrolling one more time should not increase the offset.
+	b = sendKey(t, b, keyMsg("j"))
+	if b.detailScrollOffset > maxOffset {
+		t.Errorf("detailScrollOffset increased past max: got %d, previous max %d", b.detailScrollOffset, maxOffset)
+	}
+
+	// Verify the view still renders within terminal bounds.
+	view := b.View()
+	outputLines := strings.Split(view, "\n")
+	if len(outputLines) > b.Height {
+		t.Errorf("View() has %d lines at max scroll, want <= %d", len(outputLines), b.Height)
+	}
+}
