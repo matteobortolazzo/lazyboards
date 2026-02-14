@@ -334,10 +334,20 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if panelHeight < 1 {
 					panelHeight = 1
 				}
-				headerLines := 3
+				innerWidth := b.Width - 2
+				leftTotal := innerWidth * 2 / 5
+				rightContentWidth := innerWidth - leftTotal - 2
+				headerLines := detailHeaderLineCount(card, rightContentWidth)
 				availableBodyLines := panelHeight - headerLines
 				if availableBodyLines < 1 {
 					availableBodyLines = 1
+				}
+				// Account for up-arrow indicator when scrolled.
+				if b.detailScrollOffset > 0 {
+					availableBodyLines--
+					if availableBodyLines < 1 {
+						availableBodyLines = 1
+					}
 				}
 				maxOffset := maxLines - availableBodyLines
 				if maxOffset < 0 {
