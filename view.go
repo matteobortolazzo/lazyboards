@@ -181,6 +181,15 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		Render(leftContent)
 }
 
+func renderBody(body string) string {
+	if cachedGlamourRenderer != nil {
+		if out, err := cachedGlamourRenderer.Render(body); err == nil {
+			return strings.TrimSpace(out)
+		}
+	}
+	return body
+}
+
 func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style lipgloss.Style) string {
 	var rightContent string
 	if len(col.Cards) > 0 {
@@ -188,7 +197,6 @@ func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style l
 		rightContent = detailTitleStyle.Render(fmt.Sprintf("#%d %s", card.Number, card.Title)) +
 			"\n" + fmt.Sprintf("Labels: %s", strings.Join(card.Labels, ", "))
 		if card.Body != "" {
-			rendered := card.Body
 			if cachedGlamourRenderer == nil || cachedGlamourRendererWidth != contentWidth {
 				mdStyle := styles.DarkStyleConfig
 				mdStyle.Document.Color = nil
@@ -205,11 +213,7 @@ func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style l
 					cachedGlamourRendererWidth = contentWidth
 				}
 			}
-			if cachedGlamourRenderer != nil {
-				if out, renderErr := cachedGlamourRenderer.Render(card.Body); renderErr == nil {
-					rendered = strings.TrimSpace(out)
-				}
-			}
+			rendered := renderBody(card.Body)
 
 			// Apply scroll offset and truncate to available panel height.
 			lines := strings.Split(rendered, "\n")

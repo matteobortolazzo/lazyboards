@@ -2761,15 +2761,16 @@ func TestDetailFocus_ShiftTab_ReturnsFocusAndSwitchesColumn(t *testing.T) {
 // --- Detail Panel Focus: Scroll ---
 
 // newBoardWithLongBody creates a board where the first card has a body with
-// lineCount lines (e.g., 50), which exceeds the visible panel area at Height=40,
-// enabling scroll testing.
+// lineCount paragraphs (e.g., 50), which exceeds the visible panel area at Height=40,
+// enabling scroll testing. Uses \n\n paragraph separators so glamour renders
+// each as a distinct paragraph (single \n are soft breaks that glamour may collapse).
 func newBoardWithLongBody(t *testing.T, lineCount int) Board {
 	t.Helper()
 	var lines []string
 	for i := 1; i <= lineCount; i++ {
 		lines = append(lines, fmt.Sprintf("scroll line %d", i))
 	}
-	longBody := strings.Join(lines, "\n")
+	longBody := strings.Join(lines, "\n\n")
 	return newBoardWithBody(t, longBody, "Other body")
 }
 
@@ -3145,5 +3146,50 @@ func TestDetailFocus_JKey_ClampsAtMaxLines_TightBound(t *testing.T) {
 	if b.detailScrollOffset != 0 {
 		t.Errorf("detailScrollOffset = %d after 100 'j' presses on 2-line body, want 0 "+
 			"(body fits entirely in panel, nothing to scroll)", b.detailScrollOffset)
+	}
+}
+
+func TestDetailFocus_JKey_ScrollsWhenRenderedLinesExceedRaw(t *testing.T) {
+	// Bug: handler uses raw line count (strings.Count(body, "\n") + 1) to
+	// compute maxOffset, but glamour word-wraps long paragraphs into many
+	// more rendered lines. This makes maxOffset = 0 even though the view
+	// shows overflow. Result: j/k scrolling is blocked.
+	//
+	// Build a body with few raw lines but many rendered lines.
+	// Width=120 → right panel content width ≈ 69 chars.
+	// Each ~500-char paragraph wraps to ~8+ rendered lines.
+	var paragraphs []string
+	for i := 0; i < 10; i++ {
+		paragraphs = append(paragraphs, strings.Repeat("word ", 100))
+	}
+	// Use \n\n to ensure glamour treats them as separate paragraphs.
+	longBody := strings.Join(paragraphs, "\n\n")
+
+	// Raw line count is small: 10 paragraphs + 9 separators = 19 raw lines.
+	rawLines := strings.Count(longBody, "\n") + 1
+	if rawLines > 30 {
+		t.Fatalf("precondition: raw line count = %d, want <= 30 (few raw lines)", rawLines)
+	}
+
+	b := newBoardWithBody(t, longBody, "")
+
+	// Call View() to initialize the glamour renderer, matching the real
+	// BubbleTea lifecycle (View runs before every Update).
+	b.View()
+
+	// Enter detail focus.
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true")
+	}
+
+	// Press 'j' several times — should actually scroll.
+	for i := 0; i < 10; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	if b.detailScrollOffset == 0 {
+		t.Error("detailScrollOffset = 0 after pressing 'j' 10 times on a body that " +
+			"renders to many more lines than raw — scrolling should work")
 	}
 }
