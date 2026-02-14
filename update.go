@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -113,8 +114,16 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.detailScrollOffset = 0
 	b.detailFocused = false
 	var cmd tea.Cmd
+	// Always update number navigation hint based on current column count.
+	numberHint := Hint{Key: fmt.Sprintf("1-%d", len(cols)), Desc: "Column"}
+	if !b.loaded {
+		b.normalHints = append([]Hint{numberHint}, b.normalHints...)
+	} else {
+		// Replace existing number hint (always first element).
+		b.normalHints[0] = numberHint
+	}
+	b.statusBar.SetActionHints(b.normalHints)
 	if b.loaded {
-		b.statusBar.SetActionHints(b.normalHints)
 		cmd = b.statusBar.SetTimedMessage("Board refreshed", 3*time.Second)
 	}
 	b.loaded = true
@@ -278,6 +287,18 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.detailScrollOffset = 0
 		b.clampScrollOffset()
 	default:
+		// Check for number key navigation (1-9).
+		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
+			idx := int(msg.Runes[0] - '1')
+			if idx < len(b.Columns) {
+				b.ActiveTab = idx
+				b.Columns[b.ActiveTab].Cursor = 0
+				b.Columns[b.ActiveTab].ScrollOffset = 0
+				b.detailScrollOffset = 0
+				b.clampScrollOffset()
+			}
+			return b, nil
+		}
 		// Check if it's a custom action key.
 		if act, ok := b.actions[msg.String()]; ok {
 			col := b.Columns[b.ActiveTab]
@@ -313,6 +334,21 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
+	// Check for number key navigation (1-9).
+	if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
+		idx := int(msg.Runes[0] - '1')
+		if idx < len(b.Columns) {
+			b.detailFocused = false
+			b.detailScrollOffset = 0
+			b.statusBar.SetActionHints(b.normalHints)
+			b.ActiveTab = idx
+			b.Columns[b.ActiveTab].Cursor = 0
+			b.Columns[b.ActiveTab].ScrollOffset = 0
+			b.clampScrollOffset()
+		}
+		return b, nil
+	}
+
 	switch msg.String() {
 	case "q":
 		return b, tea.Quit
@@ -330,7 +366,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if card.Body != "" {
 				rendered := renderBody(card.Body)
 				maxLines := len(strings.Split(rendered, "\n"))
-				panelHeight := b.Height - 6
+				panelHeight := b.Height - 5
 				if panelHeight < 1 {
 					panelHeight = 1
 				}
