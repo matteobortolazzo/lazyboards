@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -114,14 +113,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.detailScrollOffset = 0
 	b.detailFocused = false
 	var cmd tea.Cmd
-	// Always update number navigation hint based on current column count.
-	numberHint := Hint{Key: fmt.Sprintf("1-%d", len(cols)), Desc: "Column"}
-	if !b.loaded {
-		b.normalHints = append([]Hint{numberHint}, b.normalHints...)
-	} else {
-		// Replace existing number hint (always first element).
-		b.normalHints[0] = numberHint
-	}
+	b.rebuildNormalHints()
 	b.statusBar.SetActionHints(b.normalHints)
 	if b.loaded {
 		cmd = b.statusBar.SetTimedMessage("Board refreshed", 3*time.Second)
@@ -264,6 +256,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.Columns[b.ActiveTab].ScrollOffset = 0
 			b.detailScrollOffset = 0
 			b.clampScrollOffset()
+			b.rebuildNormalHints()
+			b.statusBar.SetActionHints(b.normalHints)
 		}
 	case "tab":
 		if b.ActiveTab < len(b.Columns)-1 {
@@ -271,6 +265,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.Columns[b.ActiveTab].ScrollOffset = 0
 			b.detailScrollOffset = 0
 			b.clampScrollOffset()
+			b.rebuildNormalHints()
+			b.statusBar.SetActionHints(b.normalHints)
 		}
 	case "j", "down":
 		col := &b.Columns[b.ActiveTab]
@@ -296,11 +292,13 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				b.Columns[b.ActiveTab].ScrollOffset = 0
 				b.detailScrollOffset = 0
 				b.clampScrollOffset()
+				b.rebuildNormalHints()
+				b.statusBar.SetActionHints(b.normalHints)
 			}
 			return b, nil
 		}
 		// Check if it's a custom action key.
-		if act, ok := b.actions[msg.String()]; ok {
+		if act, ok := b.resolveAction(msg.String()); ok {
 			col := b.Columns[b.ActiveTab]
 			if len(col.Cards) == 0 {
 				return b, nil
@@ -340,11 +338,12 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if idx < len(b.Columns) {
 			b.detailFocused = false
 			b.detailScrollOffset = 0
-			b.statusBar.SetActionHints(b.normalHints)
 			b.ActiveTab = idx
 			b.Columns[b.ActiveTab].Cursor = 0
 			b.Columns[b.ActiveTab].ScrollOffset = 0
 			b.clampScrollOffset()
+			b.rebuildNormalHints()
+			b.statusBar.SetActionHints(b.normalHints)
 		}
 		return b, nil
 	}
@@ -402,19 +401,21 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.ActiveTab < len(b.Columns)-1 {
 			b.detailFocused = false
 			b.detailScrollOffset = 0
-			b.statusBar.SetActionHints(b.normalHints)
 			b.ActiveTab++
 			b.Columns[b.ActiveTab].ScrollOffset = 0
 			b.clampScrollOffset()
+			b.rebuildNormalHints()
+			b.statusBar.SetActionHints(b.normalHints)
 		}
 	case "shift+tab":
 		if b.ActiveTab > 0 {
 			b.detailFocused = false
 			b.detailScrollOffset = 0
-			b.statusBar.SetActionHints(b.normalHints)
 			b.ActiveTab--
 			b.Columns[b.ActiveTab].ScrollOffset = 0
 			b.clampScrollOffset()
+			b.rebuildNormalHints()
+			b.statusBar.SetActionHints(b.normalHints)
 		}
 	}
 	return b, nil
