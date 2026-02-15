@@ -3542,15 +3542,15 @@ func TestBuildBorderTitle_NarrowTerm_TruncatesTitles(t *testing.T) {
 		{Title: "Implemented"},
 	}
 	// Width too narrow for all full titles but enough for truncated ones.
-	// Full labels: "[1] New ─ [2] Refined ─ [3] Implementing ─ [4] Implemented"
-	// That's ~58 chars of labels alone, plus prefix/suffix/fill.
-	// At width 40, titles must be truncated.
-	title := buildBorderTitle(columns, 0, 40)
+	// Full labels with card counts: "[1] New (0) ─ [2] Refined (0) ─ [3] Implementing (0) ─ [4] Implemented (0)"
+	// That's ~74 chars of labels alone, plus prefix/suffix/fill.
+	// At width 56, titles must be truncated.
+	title := buildBorderTitle(columns, 0, 56)
 	titleWidth := lipgloss.Width(title)
 
 	// Total rendered width must not exceed the requested width.
-	if titleWidth > 40 {
-		t.Errorf("buildBorderTitle() width = %d, want <= 40", titleWidth)
+	if titleWidth > 56 {
+		t.Errorf("buildBorderTitle() width = %d, want <= 56", titleWidth)
 	}
 
 	// Number prefixes should still be present.
@@ -3570,14 +3570,14 @@ func TestBuildBorderTitle_VeryNarrowTerm_FallsBackToNumbersOnly(t *testing.T) {
 		{Title: "Implemented"},
 	}
 	// Use a width where numbers-only fits but truncated titles do not.
-	// Numbers-only: "[1] ─ [2] ─ [3] ─ [4]" + prefix (3) + suffix (1) + fill (2) ~ 28.
-	// So width 30 should trigger numbers-only mode.
-	title := buildBorderTitle(columns, 0, 30)
+	// Numbers-only with card counts: "[1] (0) ─ [2] (0) ─ [3] (0) ─ [4] (0)" + prefix (3) + suffix (1) + fill (2) ~ 44.
+	// So width 45 should trigger numbers-only mode.
+	title := buildBorderTitle(columns, 0, 45)
 	titleWidth := lipgloss.Width(title)
 
 	// Total rendered width must not exceed the requested width.
-	if titleWidth > 30 {
-		t.Errorf("buildBorderTitle() width = %d, want <= 30", titleWidth)
+	if titleWidth > 45 {
+		t.Errorf("buildBorderTitle() width = %d, want <= 45", titleWidth)
 	}
 
 	// Number prefixes should still be present in numbers-only mode.
@@ -3867,5 +3867,147 @@ func TestAction_ColumnShellUsesShellEscape(t *testing.T) {
 	}
 	if fe.RunShellCalls[0] != expectedCmd {
 		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
+	}
+}
+
+// --- Card count in border title (#75) ---
+
+func TestBuildBorderTitle_WideTerm_ShowsCardCounts(t *testing.T) {
+	columns := []Column{
+		{Title: "New", Cards: []Card{{Number: 1, Title: "A"}, {Number: 2, Title: "B"}, {Number: 3, Title: "C"}}},
+		{Title: "Refined", Cards: []Card{{Number: 4, Title: "D"}, {Number: 5, Title: "E"}, {Number: 6, Title: "F"}, {Number: 7, Title: "G"}}},
+		{Title: "Implementing", Cards: []Card{{Number: 8, Title: "H"}, {Number: 9, Title: "I"}, {Number: 10, Title: "J"}, {Number: 11, Title: "K"}, {Number: 12, Title: "L"}}},
+		{Title: "Implemented", Cards: []Card{{Number: 13, Title: "M"}, {Number: 14, Title: "N"}, {Number: 15, Title: "O"}, {Number: 16, Title: "P"}}},
+	}
+
+	title := buildBorderTitle(columns, 0, 120)
+
+	expectedCounts := []struct {
+		colTitle string
+		count    string
+	}{
+		{"New", "(3)"},
+		{"Refined", "(4)"},
+		{"Implementing", "(5)"},
+		{"Implemented", "(4)"},
+	}
+	for _, ec := range expectedCounts {
+		if !strings.Contains(title, ec.count) {
+			t.Errorf("buildBorderTitle() missing card count %s for column %q", ec.count, ec.colTitle)
+		}
+	}
+}
+
+func TestBuildBorderTitle_NumbersOnly_ShowsCardCounts(t *testing.T) {
+	columns := []Column{
+		{Title: "New", Cards: []Card{{Number: 1, Title: "A"}, {Number: 2, Title: "B"}, {Number: 3, Title: "C"}}},
+		{Title: "Refined", Cards: []Card{{Number: 4, Title: "D"}, {Number: 5, Title: "E"}, {Number: 6, Title: "F"}, {Number: 7, Title: "G"}}},
+		{Title: "Implementing", Cards: []Card{{Number: 8, Title: "H"}, {Number: 9, Title: "I"}, {Number: 10, Title: "J"}, {Number: 11, Title: "K"}, {Number: 12, Title: "L"}}},
+		{Title: "Implemented", Cards: []Card{{Number: 13, Title: "M"}, {Number: 14, Title: "N"}, {Number: 15, Title: "O"}, {Number: 16, Title: "P"}}},
+	}
+
+	// Width ~45 should trigger numbers-only mode (accounting for card count suffixes).
+	title := buildBorderTitle(columns, 0, 45)
+
+	expectedCounts := []struct {
+		colTitle string
+		count    string
+	}{
+		{"New", "(3)"},
+		{"Refined", "(4)"},
+		{"Implementing", "(5)"},
+		{"Implemented", "(4)"},
+	}
+	for _, ec := range expectedCounts {
+		if !strings.Contains(title, ec.count) {
+			t.Errorf("buildBorderTitle() at width 45, missing card count %s for column %q", ec.count, ec.colTitle)
+		}
+	}
+}
+
+func TestBuildBorderTitle_NoLabels_HidesCardCounts(t *testing.T) {
+	columns := []Column{
+		{Title: "New", Cards: []Card{{Number: 1, Title: "A"}, {Number: 2, Title: "B"}, {Number: 3, Title: "C"}}},
+		{Title: "Refined", Cards: []Card{{Number: 4, Title: "D"}, {Number: 5, Title: "E"}, {Number: 6, Title: "F"}, {Number: 7, Title: "G"}}},
+		{Title: "Implementing", Cards: []Card{{Number: 8, Title: "H"}, {Number: 9, Title: "I"}, {Number: 10, Title: "J"}, {Number: 11, Title: "K"}, {Number: 12, Title: "L"}}},
+		{Title: "Implemented", Cards: []Card{{Number: 13, Title: "M"}, {Number: 14, Title: "N"}, {Number: 15, Title: "O"}, {Number: 16, Title: "P"}}},
+	}
+
+	// Extremely narrow: no labels should appear, and no card counts either.
+	title := buildBorderTitle(columns, 0, 15)
+
+	absentCounts := []string{"(3)", "(4)", "(5)"}
+	for _, count := range absentCounts {
+		if strings.Contains(title, count) {
+			t.Errorf("buildBorderTitle() at width 15 should not contain card count %s, but it does", count)
+		}
+	}
+}
+
+func TestBuildBorderTitle_ZeroCards_ShowsZero(t *testing.T) {
+	columns := []Column{
+		{Title: "New", Cards: []Card{{Number: 1, Title: "A"}, {Number: 2, Title: "B"}, {Number: 3, Title: "C"}}},
+		{Title: "Refined", Cards: nil},
+		{Title: "Implementing", Cards: []Card{{Number: 8, Title: "H"}}},
+		{Title: "Implemented", Cards: []Card{{Number: 13, Title: "M"}, {Number: 14, Title: "N"}}},
+	}
+
+	title := buildBorderTitle(columns, 0, 120)
+
+	// Column with zero cards should show (0).
+	if !strings.Contains(title, "(0)") {
+		t.Errorf("buildBorderTitle() missing card count (0) for empty column %q", "Refined")
+	}
+
+	// Other counts should also be present.
+	if !strings.Contains(title, "(3)") {
+		t.Errorf("buildBorderTitle() missing card count (3) for column %q", "New")
+	}
+	if !strings.Contains(title, "(1)") {
+		t.Errorf("buildBorderTitle() missing card count (1) for column %q", "Implementing")
+	}
+	if !strings.Contains(title, "(2)") {
+		t.Errorf("buildBorderTitle() missing card count (2) for column %q", "Implemented")
+	}
+}
+
+func TestBuildBorderTitle_CardCountUpdatesAfterChange(t *testing.T) {
+	columns := []Column{
+		{Title: "New", Cards: []Card{{Number: 1, Title: "A"}}},
+		{Title: "Done", Cards: []Card{{Number: 2, Title: "B"}}},
+	}
+
+	titleBefore := buildBorderTitle(columns, 0, 120)
+	if !strings.Contains(titleBefore, "(1)") {
+		t.Fatalf("buildBorderTitle() before adding card: expected (1) to appear")
+	}
+
+	// Add a card to the first column.
+	columns[0].Cards = append(columns[0].Cards, Card{Number: 3, Title: "C"})
+	titleAfter := buildBorderTitle(columns, 0, 120)
+
+	if !strings.Contains(titleAfter, "(2)") {
+		t.Errorf("buildBorderTitle() after adding card: expected (2) to appear for column %q", "New")
+	}
+	// Column "Done" still has 1 card, so (1) should still appear.
+	if !strings.Contains(titleAfter, "(1)") {
+		t.Errorf("buildBorderTitle() after adding card: expected (1) to still appear for column %q", "Done")
+	}
+}
+
+func TestBuildBorderTitle_AlwaysWithinTotalWidth_WithCards(t *testing.T) {
+	columns := []Column{
+		{Title: "New", Cards: []Card{{Number: 1, Title: "A"}, {Number: 2, Title: "B"}, {Number: 3, Title: "C"}}},
+		{Title: "Refined", Cards: []Card{{Number: 4, Title: "D"}, {Number: 5, Title: "E"}, {Number: 6, Title: "F"}, {Number: 7, Title: "G"}}},
+		{Title: "Implementing", Cards: []Card{{Number: 8, Title: "H"}, {Number: 9, Title: "I"}, {Number: 10, Title: "J"}, {Number: 11, Title: "K"}, {Number: 12, Title: "L"}}},
+		{Title: "Implemented", Cards: []Card{{Number: 13, Title: "M"}, {Number: 14, Title: "N"}, {Number: 15, Title: "O"}, {Number: 16, Title: "P"}}},
+	}
+
+	for width := 15; width <= 150; width++ {
+		title := buildBorderTitle(columns, 0, width)
+		titleWidth := lipgloss.Width(title)
+		if titleWidth > width {
+			t.Errorf("buildBorderTitle() with cards at totalWidth=%d: rendered width = %d, exceeds limit", width, titleWidth)
+		}
 	}
 }
