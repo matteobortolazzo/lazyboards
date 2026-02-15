@@ -106,7 +106,7 @@ func main() {
 		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 		tc := oauth2.NewClient(context.Background(), ts)
 		ghClient := github.NewClient(tc)
-		bp = provider.NewGitHubProvider(ghClient.Issues, parts[0], parts[1], cfg.Columns)
+		bp = provider.NewGitHubProvider(ghClient.Issues, parts[0], parts[1], cfg.ColumnNames())
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown provider: %q\n", prov)
 		os.Exit(1)
