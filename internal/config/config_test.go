@@ -1374,3 +1374,398 @@ actions:
 		t.Errorf("error = %q, want it to contain 'conflict' or 'built-in'", err.Error())
 	}
 }
+
+// --- Per-column action merging tests (#71) ---
+
+func TestLoad_ColumnActionsMerge_LocalOverridesGlobal(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	globalYAML := `provider: github
+columns:
+  - name: Implementing
+    actions:
+      b:
+        name: Create branch
+        type: shell
+        command: "git checkout -b {title}"
+`
+	localYAML := `columns:
+  - name: Implementing
+    actions:
+      b:
+        name: Local branch
+        type: shell
+        command: "git switch -c {title}"
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Columns) != 1 {
+		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
+	}
+
+	col := result.Columns[0]
+	if len(col.Actions) != 1 {
+		t.Fatalf("Implementing actions count = %d, want 1", len(col.Actions))
+	}
+	act, ok := col.Actions["b"]
+	if !ok {
+		t.Fatal("Implementing actions missing key 'b'")
+	}
+	// Local "b" should win over global "b".
+	if act.Name != "Local branch" {
+		t.Errorf("Actions[b].Name = %q, want %q (local should override global)", act.Name, "Local branch")
+	}
+	if act.Command != "git switch -c {title}" {
+		t.Errorf("Actions[b].Command = %q, want %q (local should override global)", act.Command, "git switch -c {title}")
+	}
+}
+
+func TestLoad_ColumnActionsMerge_GlobalOnlyKeysPreserved(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	globalYAML := `provider: github
+columns:
+  - name: Implementing
+    actions:
+      b:
+        name: Create branch
+        type: shell
+        command: "git checkout -b {title}"
+      d:
+        name: Delete branch
+        type: shell
+        command: "git branch -d {title}"
+`
+	localYAML := `columns:
+  - name: Implementing
+    actions:
+      b:
+        name: Local branch
+        type: shell
+        command: "git switch -c {title}"
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Columns) != 1 {
+		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
+	}
+
+	col := result.Columns[0]
+	if len(col.Actions) != 2 {
+		t.Fatalf("Implementing actions count = %d, want 2 (local 'b' + global 'd')", len(col.Actions))
+	}
+
+	// "b" from local should win.
+	actB, ok := col.Actions["b"]
+	if !ok {
+		t.Fatal("Implementing actions missing key 'b'")
+	}
+	if actB.Name != "Local branch" {
+		t.Errorf("Actions[b].Name = %q, want %q (local should override)", actB.Name, "Local branch")
+	}
+
+	// "d" from global should be preserved.
+	actD, ok := col.Actions["d"]
+	if !ok {
+		t.Fatal("Implementing actions missing key 'd' (global-only key should be preserved)")
+	}
+	if actD.Name != "Delete branch" {
+		t.Errorf("Actions[d].Name = %q, want %q (global-only key should be preserved)", actD.Name, "Delete branch")
+	}
+}
+
+func TestLoad_ColumnActionsMerge_NilActionsInheritsGlobal(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	globalYAML := `provider: github
+columns:
+  - name: Implementing
+    actions:
+      b:
+        name: Create branch
+        type: shell
+        command: "git checkout -b {title}"
+      d:
+        name: Delete branch
+        type: shell
+        command: "git branch -d {title}"
+`
+	// Local column "Implementing" omits the actions field entirely (nil).
+	localYAML := `columns:
+  - name: Implementing
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Columns) != 1 {
+		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
+	}
+
+	col := result.Columns[0]
+	// Nil actions in local should inherit all global actions.
+	if len(col.Actions) != 2 {
+		t.Fatalf("Implementing actions count = %d, want 2 (should inherit both global actions)", len(col.Actions))
+	}
+	if _, ok := col.Actions["b"]; !ok {
+		t.Error("Implementing actions missing key 'b' (should be inherited from global)")
+	}
+	if _, ok := col.Actions["d"]; !ok {
+		t.Error("Implementing actions missing key 'd' (should be inherited from global)")
+	}
+}
+
+func TestLoad_ColumnActionsMerge_EmptyActionsGetsNone(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	globalYAML := `provider: github
+columns:
+  - name: Implementing
+    actions:
+      b:
+        name: Create branch
+        type: shell
+        command: "git checkout -b {title}"
+`
+	// Local column "Implementing" has explicit empty actions map (not nil).
+	localYAML := `columns:
+  - name: Implementing
+    actions: {}
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Columns) != 1 {
+		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
+	}
+
+	col := result.Columns[0]
+	// Empty map (not nil) means the local explicitly cleared actions.
+	if len(col.Actions) != 0 {
+		t.Errorf("Implementing actions count = %d, want 0 (explicit empty map should not inherit global)", len(col.Actions))
+	}
+}
+
+func TestLoad_ColumnActionsMerge_NoGlobalMatch(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	globalYAML := `provider: github
+columns:
+  - name: Backlog
+    actions:
+      b:
+        name: Global backlog action
+        type: shell
+        command: "echo backlog"
+`
+	// Local has a different column name; no match with global "Backlog".
+	localYAML := `columns:
+  - name: Custom
+    actions:
+      x:
+        name: Custom action
+        type: shell
+        command: "echo custom"
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	// Local columns replace global entirely, so only "Custom" should exist.
+	if len(result.Columns) != 1 {
+		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
+	}
+
+	col := result.Columns[0]
+	if col.Name != "Custom" {
+		t.Errorf("Columns[0].Name = %q, want %q", col.Name, "Custom")
+	}
+	// "Custom" keeps only its own action, no merge from global "Backlog".
+	if len(col.Actions) != 1 {
+		t.Fatalf("Custom actions count = %d, want 1", len(col.Actions))
+	}
+	if _, ok := col.Actions["x"]; !ok {
+		t.Error("Custom actions missing key 'x'")
+	}
+	if _, ok := col.Actions["b"]; ok {
+		t.Error("Custom actions should not have key 'b' from unmatched global column")
+	}
+}
+
+func TestLoad_ColumnActionsMerge_CaseInsensitiveMatch(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	// Global uses lowercase "implementing".
+	globalYAML := `provider: github
+columns:
+  - name: implementing
+    actions:
+      b:
+        name: Global branch
+        type: shell
+        command: "git checkout -b {title}"
+      d:
+        name: Delete branch
+        type: shell
+        command: "git branch -d {title}"
+`
+	// Local uses title case "Implementing".
+	localYAML := `columns:
+  - name: Implementing
+    actions:
+      b:
+        name: Local branch
+        type: shell
+        command: "git switch -c {title}"
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Columns) != 1 {
+		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
+	}
+
+	col := result.Columns[0]
+	// Should match case-insensitively and merge actions.
+	if len(col.Actions) != 2 {
+		t.Fatalf("Implementing actions count = %d, want 2 (local 'b' + global 'd' via case-insensitive match)", len(col.Actions))
+	}
+
+	actB, ok := col.Actions["b"]
+	if !ok {
+		t.Fatal("Implementing actions missing key 'b'")
+	}
+	if actB.Name != "Local branch" {
+		t.Errorf("Actions[b].Name = %q, want %q (local should override)", actB.Name, "Local branch")
+	}
+
+	actD, ok := col.Actions["d"]
+	if !ok {
+		t.Fatal("Implementing actions missing key 'd' (global-only key should be preserved via case-insensitive match)")
+	}
+	if actD.Name != "Delete branch" {
+		t.Errorf("Actions[d].Name = %q, want %q (global-only key should be preserved)", actD.Name, "Delete branch")
+	}
+}
+
+func TestLoad_ColumnActionsMerge_GlobalColumnsWithActionsNoLocal(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	globalYAML := `provider: github
+columns:
+  - name: Implementing
+    actions:
+      b:
+        name: Create branch
+        type: shell
+        command: "git checkout -b {title}"
+  - name: Done
+`
+	// Local has no columns field at all.
+	localYAML := `repo: local-owner/local-repo
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	// Global columns should be preserved when local has no columns.
+	if len(result.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2 (global columns should be preserved)", len(result.Columns))
+	}
+
+	if result.Columns[0].Name != "Implementing" {
+		t.Errorf("Columns[0].Name = %q, want %q", result.Columns[0].Name, "Implementing")
+	}
+
+	// Global column actions should be preserved as-is.
+	if len(result.Columns[0].Actions) != 1 {
+		t.Fatalf("Implementing actions count = %d, want 1 (global actions should be preserved)", len(result.Columns[0].Actions))
+	}
+	act, ok := result.Columns[0].Actions["b"]
+	if !ok {
+		t.Fatal("Implementing actions missing key 'b' (global actions should be preserved)")
+	}
+	if act.Name != "Create branch" {
+		t.Errorf("Actions[b].Name = %q, want %q (global actions should be preserved)", act.Name, "Create branch")
+	}
+
+	if result.Columns[1].Name != "Done" {
+		t.Errorf("Columns[1].Name = %q, want %q", result.Columns[1].Name, "Done")
+	}
+}
