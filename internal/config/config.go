@@ -10,10 +10,9 @@ import (
 
 // Config holds the application configuration.
 type Config struct {
-	Provider string   `yaml:"provider"`
-	Repo     string   `yaml:"repo"`
-	Project  string   `yaml:"project"`
-	Columns  []string `yaml:"columns"`
+	Provider string `yaml:"provider"`
+	Repo     string `yaml:"repo"`
+	Project  string `yaml:"project"`
 }
 
 const DefaultLocalPath = ".lazyboards.yml"
