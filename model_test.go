@@ -580,10 +580,20 @@ func TestView_ContainsHelpBar(t *testing.T) {
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
-	helpKeywords := []string{"h/l", "j/k", "q"}
-	for _, kw := range helpKeywords {
-		if !strings.Contains(view, kw) {
-			t.Errorf("View() does not contain help text %q", kw)
+
+	// Status bar should show contextual hints for normalMode.
+	expectedHints := []string{"n: New", "r: Refresh", "q: Quit"}
+	for _, hint := range expectedHints {
+		if !strings.Contains(view, hint) {
+			t.Errorf("View() does not contain status bar hint %q", hint)
+		}
+	}
+
+	// Old-style combined key hints should NOT appear.
+	oldHints := []string{"h/l", "j/k"}
+	for _, old := range oldHints {
+		if strings.Contains(view, old) {
+			t.Errorf("View() still contains old help text %q, want new status bar format", old)
 		}
 	}
 }
@@ -1017,8 +1027,8 @@ func TestView_HelpBarShowsNewHint(t *testing.T) {
 	b.Height = 40
 	view := b.View()
 
-	if !strings.Contains(view, "n: new") {
-		t.Errorf("View() help bar does not contain %q", "n: new")
+	if !strings.Contains(view, "n: New") {
+		t.Errorf("View() status bar does not contain %q", "n: New")
 	}
 }
 
@@ -1570,5 +1580,127 @@ func TestScroll_ResizeClampsOffset(t *testing.T) {
 	}
 	if col.ScrollOffset > maxOffset {
 		t.Errorf("ScrollOffset = %d after resize to large height, want <= %d (clamped)", col.ScrollOffset, maxOffset)
+	}
+}
+
+// --- Status Bar: Refresh ---
+
+func TestNormalMode_R_RefreshesBoard(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	// Press 'r' in normalMode to trigger a refresh.
+	m, cmd := b.Update(keyMsg("r"))
+	updated := m.(Board)
+
+	// Should transition to loadingMode.
+	if updated.mode != loadingMode {
+		t.Errorf("mode = %d after 'r' in normalMode, want %d (loadingMode)", updated.mode, loadingMode)
+	}
+
+	// Should return a non-nil cmd (spinner tick + fetch).
+	if cmd == nil {
+		t.Error("'r' in normalMode should return a non-nil cmd for refresh")
+	}
+}
+
+func TestBoardFetched_AfterRefresh_ShowsMessage(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Press 'r' to trigger refresh (transitions to loadingMode).
+	m, _ := b.Update(keyMsg("r"))
+	b = m.(Board)
+
+	// Simulate the board being fetched again (this is a refresh, not first load).
+	board, err := provider.NewFakeProvider().FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ = b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+
+	view := b.View()
+	if !strings.Contains(view, "Board refreshed") {
+		t.Errorf("View() after refresh should contain %q, got:\n%s", "Board refreshed", view)
+	}
+}
+
+func TestClearStatusMsg_ClearsTimedMessage(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Press 'r' to trigger refresh.
+	m, _ := b.Update(keyMsg("r"))
+	b = m.(Board)
+
+	// Simulate board fetched (triggers "Board refreshed" message).
+	board, err := provider.NewFakeProvider().FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ = b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+
+	// Verify "Board refreshed" is visible before clearing (precondition).
+	viewBefore := b.View()
+	if !strings.Contains(viewBefore, "Board refreshed") {
+		t.Fatalf("precondition: View() should contain %q before clearStatusMsg", "Board refreshed")
+	}
+
+	// Send clearStatusMsg to clear the timed message.
+	m, _ = b.Update(clearStatusMsg{})
+	b = m.(Board)
+
+	view := b.View()
+	if strings.Contains(view, "Board refreshed") {
+		t.Errorf("View() after clearStatusMsg should NOT contain %q", "Board refreshed")
+	}
+
+	// Normal hints should be restored.
+	if !strings.Contains(view, "n: New") {
+		t.Errorf("View() after clearStatusMsg should contain %q (hints restored)", "n: New")
+	}
+}
+
+// --- Status Bar: Mode-Specific Hints ---
+
+func TestErrorMode_StatusBarShowsRetryAndQuit(t *testing.T) {
+	b := newTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Transition to errorMode.
+	m, _ := b.Update(boardFetchErrorMsg{err: fmt.Errorf("connection failed")})
+	b = m.(Board)
+
+	view := b.View()
+
+	// Should show retry and quit hints.
+	if !strings.Contains(view, "r: Retry") {
+		t.Errorf("View() in errorMode should contain %q", "r: Retry")
+	}
+	if !strings.Contains(view, "q: Quit") {
+		t.Errorf("View() in errorMode should contain %q", "q: Quit")
+	}
+
+	// Should NOT show normalMode hints.
+	if strings.Contains(view, "n: New") {
+		t.Errorf("View() in errorMode should NOT contain %q", "n: New")
+	}
+}
+
+func TestCreateMode_StatusBarShowsEscapeHint(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Enter createMode.
+	b = sendKey(t, b, keyMsg("n"))
+	view := b.View()
+
+	if !strings.Contains(view, "esc: Cancel") {
+		t.Errorf("View() in createMode should contain %q, got:\n%s", "esc: Cancel", view)
 	}
 }

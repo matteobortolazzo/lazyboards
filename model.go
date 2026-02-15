@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -23,6 +24,13 @@ var (
 	outerStyle        = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
+
+// normalModeHints are the default status bar hints shown in normal mode.
+var normalModeHints = []Hint{
+	{Key: "n", Desc: "New"},
+	{Key: "r", Desc: "Refresh"},
+	{Key: "q", Desc: "Quit"},
+}
 
 // boardMode represents the current interaction mode of the board.
 type boardMode int
@@ -83,6 +91,8 @@ type Board struct {
 	provider      provider.BoardProvider
 	spinner       spinner.Model
 	loadErr       string
+	statusBar     StatusBar
+	loaded        bool
 }
 
 // NewBoard creates a Board in loadingMode. Call Init() to start fetching data.
@@ -101,12 +111,15 @@ func NewBoard(p provider.BoardProvider) Board {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 
+	sb := NewStatusBar(normalModeHints)
+
 	return Board{
 		mode:       loadingMode,
 		titleInput: ti,
 		labelInput: li,
 		provider:   p,
 		spinner:    s,
+		statusBar:  sb,
 	}
 }
 
@@ -197,6 +210,10 @@ func (b Board) Init() tea.Cmd {
 
 func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case clearStatusMsg:
+		b.statusBar.ClearMessage()
+		return b, nil
+
 	case boardFetchedMsg:
 		cols := make([]Column, len(msg.board.Columns))
 		for i, pc := range msg.board.Columns {
@@ -208,11 +225,21 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		b.Columns = cols
 		b.mode = normalMode
-		return b, nil
+		var cmd tea.Cmd
+		if b.loaded {
+			b.statusBar.SetActionHints(normalModeHints)
+			cmd = b.statusBar.SetTimedMessage("Board refreshed", 3*time.Second)
+		}
+		b.loaded = true
+		return b, cmd
 
 	case boardFetchErrorMsg:
 		b.mode = errorMode
 		b.loadErr = msg.err.Error()
+		b.statusBar.SetActionHints([]Hint{
+			{Key: "r", Desc: "Retry"},
+			{Key: "q", Desc: "Quit"},
+		})
 		return b, nil
 
 	case cardCreatedMsg:
@@ -318,6 +345,10 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				b.labelInput.SetValue("")
 				b.titleInput.Focus()
 				b.labelInput.Blur()
+			case "r":
+				b.mode = loadingMode
+				b.statusBar.ClearMessage()
+				return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 			case "h", "left":
 				if b.ActiveTab > 0 {
 					b.ActiveTab--
@@ -366,7 +397,7 @@ func (b Board) View() string {
 	}
 
 	if b.mode == errorMode {
-		errorText := "Error: " + b.loadErr + "\n\nPress r to retry | q to quit"
+		errorText := "Error: " + b.loadErr + "\n\n" + b.statusBar.View()
 		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, errorText)
 	}
 
@@ -473,7 +504,7 @@ func (b Board) View() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
 	// Help bar.
-	helpBar := helpStyle.Render("h/l: switch tab  j/k: navigate  n: new  q: quit")
+	helpBar := helpStyle.Render(b.statusBar.View())
 
 	// Assemble inner content.
 	inner := lipgloss.JoinVertical(lipgloss.Left, tabBar, panels, helpBar)
@@ -488,9 +519,15 @@ func (b Board) View() string {
 			if b.validationErr != "" {
 				errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
 			}
+			createHints := NewStatusBar([]Hint{
+				{Key: "esc", Desc: "Cancel"},
+				{Key: "tab", Desc: "Next"},
+				{Key: "enter", Desc: "Submit"},
+			})
 			modalContent = "New Card\n\n" +
 				"Title:\n" + b.titleInput.View() + errLine + "\n\n" +
-				"Label:\n" + b.labelInput.View()
+				"Label:\n" + b.labelInput.View() + "\n\n" +
+				helpStyle.Render(createHints.View())
 		}
 
 		modalStyle := lipgloss.NewStyle().
