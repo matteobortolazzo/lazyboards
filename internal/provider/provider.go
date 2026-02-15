@@ -6,7 +6,7 @@ import "context"
 type Card struct {
 	Number int
 	Title  string
-	Label  string
+	Labels []string
 }
 
 // Column represents a Kanban column containing cards.
