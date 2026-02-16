@@ -24,7 +24,7 @@ var expectedColumnTitles = []string{"New", "Refined", "Implementing", "PR Ready"
 func newTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	return NewBoard(p, nil, nil, "", "", "")
+	return NewBoard(p, nil, nil, "", "", "", false)
 }
 
 // newLoadedTestBoard creates a Board and sends a boardFetchedMsg to transition
@@ -32,7 +32,7 @@ func newTestBoard(t *testing.T) Board {
 func newLoadedTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "")
+	b := NewBoard(p, nil, nil, "", "", "", false)
 	// Simulate the provider returning board data.
 	board, err := p.FetchBoard(nil)
 	if err != nil {
@@ -1289,7 +1289,7 @@ func TestCreatingMode_View_ShowsSpinner(t *testing.T) {
 func newBoardWithCards(t *testing.T, cardCount, height int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "")
+	b := NewBoard(p, nil, nil, "", "", "", false)
 
 	// Build provider cards.
 	providerCards := make([]provider.Card, cardCount)
@@ -1538,7 +1538,7 @@ func TestView_BothIndicators_WhenMiddle(t *testing.T) {
 func TestView_TruncatesLongTitle(t *testing.T) {
 	longTitle := "This is a very long title that should definitely be truncated in the card list panel"
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "")
+	b := NewBoard(p, nil, nil, "", "", "", false)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -1730,7 +1730,7 @@ func newActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, 
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, fe, "matteobortolazzo", "lazyboards", "github")
+	b := NewBoard(p, actions, fe, "matteobortolazzo", "lazyboards", "github", false)
 	// Load the board.
 	board, err := p.FetchBoard(nil)
 	if err != nil {
@@ -1812,7 +1812,7 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, fe, "", "", "")
+	b := NewBoard(p, actions, fe, "", "", "", false)
 
 	// Board starts in loadingMode. Press the action key.
 	b = sendKey(t, b, keyMsg("o"))
@@ -1829,7 +1829,7 @@ func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, fe, "", "", "")
+	b := NewBoard(p, actions, fe, "", "", "", false)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -1929,7 +1929,7 @@ func TestAction_TemplateVarsExpanded(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, fe, "matteobortolazzo", "lazyboards", "github")
+	b := NewBoard(p, actions, fe, "matteobortolazzo", "lazyboards", "github", false)
 
 	// Load a board with a specific card that has known labels.
 	cardNumber := 42
@@ -2244,5 +2244,119 @@ func TestNormalMode_StatusBarShowsConfigHint(t *testing.T) {
 	view := b.View()
 	if !strings.Contains(view, "c: Config") {
 		t.Errorf("View() status bar does not contain %q", "c: Config")
+	}
+}
+
+// --- First-Launch Flow ---
+
+func TestFirstLaunch_StartsInConfigMode(t *testing.T) {
+	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	if b.mode != configMode {
+		t.Errorf("mode = %d, want %d (configMode) for firstLaunch board", b.mode, configMode)
+	}
+}
+
+func TestFirstLaunch_PrePopulatesProvider(t *testing.T) {
+	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	if b.providerOptions[b.providerIndex] != "github" {
+		t.Errorf("providerOptions[providerIndex] = %q, want %q", b.providerOptions[b.providerIndex], "github")
+	}
+}
+
+func TestFirstLaunch_PrePopulatesProviderAzure(t *testing.T) {
+	b := NewBoard(nil, nil, nil, "owner", "repo", "azure-devops", true)
+	if b.providerOptions[b.providerIndex] != "azure-devops" {
+		t.Errorf("providerOptions[providerIndex] = %q, want %q", b.providerOptions[b.providerIndex], "azure-devops")
+	}
+}
+
+func TestFirstLaunch_PrePopulatesRepo(t *testing.T) {
+	b := NewBoard(nil, nil, nil, "myowner", "myrepo", "github", true)
+	if b.repoInput.Value() != "myowner/myrepo" {
+		t.Errorf("repoInput.Value() = %q, want %q", b.repoInput.Value(), "myowner/myrepo")
+	}
+}
+
+func TestFirstLaunch_EmptyRepoNotPrePopulated(t *testing.T) {
+	b := NewBoard(nil, nil, nil, "", "", "github", true)
+	if b.repoInput.Value() != "" {
+		t.Errorf("repoInput.Value() = %q, want empty when no repo detected", b.repoInput.Value())
+	}
+}
+
+func TestFirstLaunch_Init_ReturnsNil(t *testing.T) {
+	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	cmd := b.Init()
+	if cmd != nil {
+		t.Error("Init() should return nil for firstLaunch board (no fetch)")
+	}
+}
+
+func TestFirstLaunch_Escape_Quits(t *testing.T) {
+	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	_, cmd := b.Update(arrowMsg(tea.KeyEsc))
+	if cmd == nil {
+		t.Error("Escape in firstLaunch configMode should return a quit cmd")
+	}
+}
+
+func TestFirstLaunch_Escape_ConfigSavedIsFalse(t *testing.T) {
+	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	m, _ := b.Update(arrowMsg(tea.KeyEsc))
+	updated := m.(Board)
+	if updated.ConfigSaved {
+		t.Error("ConfigSaved should be false after Escape in firstLaunch")
+	}
+}
+
+func TestFirstLaunch_ConfigSaved_SetsConfigSavedAndQuits(t *testing.T) {
+	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	m, cmd := b.Update(configSavedMsg{})
+	updated := m.(Board)
+	if !updated.ConfigSaved {
+		t.Error("ConfigSaved should be true after configSavedMsg in firstLaunch")
+	}
+	if cmd == nil {
+		t.Error("configSavedMsg in firstLaunch should return a quit cmd")
+	}
+}
+
+func TestFirstLaunch_ViewShowsConfigModal(t *testing.T) {
+	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	b.Width = 120
+	b.Height = 40
+	view := b.View()
+	if !strings.Contains(view, "Configuration") {
+		t.Error("View() in firstLaunch should show Configuration modal")
+	}
+}
+
+// --- Config Mode: Pre-populate from runtime (normal "c" key) ---
+
+func TestConfigMode_PrePopulatesProviderFromRuntime(t *testing.T) {
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, "owner", "repo", "github", false)
+	board, _ := p.FetchBoard(nil)
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+
+	// Press "c" to enter configMode.
+	b = sendKey(t, b, keyMsg("c"))
+	if b.providerOptions[b.providerIndex] != "github" {
+		t.Errorf("providerOptions[providerIndex] = %q after 'c', want %q", b.providerOptions[b.providerIndex], "github")
+	}
+}
+
+func TestConfigMode_PrePopulatesRepoFromRuntime(t *testing.T) {
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, "myowner", "myrepo", "github", false)
+	board, _ := p.FetchBoard(nil)
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+
+	// Press "c" to enter configMode.
+	b = sendKey(t, b, keyMsg("c"))
+	if b.repoInput.Value() != "myowner/myrepo" {
+		t.Errorf("repoInput.Value() = %q after 'c', want %q", b.repoInput.Value(), "myowner/myrepo")
 	}
 }
