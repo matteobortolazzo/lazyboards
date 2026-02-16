@@ -388,7 +388,7 @@ func TestDetailFocus_JKey_ClampsAtMaxLines(t *testing.T) {
 
 // --- Fix: Tab/Shift+Tab at column boundaries ---
 
-func TestDetailFocus_Tab_AtLastColumn_StaysFocused(t *testing.T) {
+func TestDetailFocus_Tab_AtLastColumn_WrapsToFirst(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
@@ -408,22 +408,22 @@ func TestDetailFocus_Tab_AtLastColumn_StaysFocused(t *testing.T) {
 		t.Fatal("precondition: detailFocused should be true")
 	}
 
-	// Press Tab at the last column boundary.
+	// Press Tab at the last column boundary — should wrap to first column.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 
-	// Should stay on last column and remain in detail focus.
-	if b.ActiveTab != lastCol {
-		t.Errorf("after Tab at last column: ActiveTab = %d, want %d (should not change)", b.ActiveTab, lastCol)
+	if b.ActiveTab != 0 {
+		t.Errorf("after Tab at last column: ActiveTab = %d, want 0 (should wrap to first)", b.ActiveTab)
 	}
-	if !b.detailFocused {
-		t.Error("after Tab at last column: detailFocused should remain true (no column to switch to)")
+	if b.detailFocused {
+		t.Error("after Tab at last column: detailFocused should be false (column switched)")
 	}
 }
 
-func TestDetailFocus_ShiftTab_AtFirstColumn_StaysFocused(t *testing.T) {
+func TestDetailFocus_ShiftTab_AtFirstColumn_WrapsToLast(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
+	lastCol := len(b.Columns) - 1
 
 	if b.ActiveTab != 0 {
 		t.Fatalf("precondition: ActiveTab = %d, want 0 (first column)", b.ActiveTab)
@@ -435,15 +435,14 @@ func TestDetailFocus_ShiftTab_AtFirstColumn_StaysFocused(t *testing.T) {
 		t.Fatal("precondition: detailFocused should be true")
 	}
 
-	// Press Shift+Tab at the first column boundary.
+	// Press Shift+Tab at the first column boundary — should wrap to last column.
 	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 
-	// Should stay on first column and remain in detail focus.
-	if b.ActiveTab != 0 {
-		t.Errorf("after Shift+Tab at first column: ActiveTab = %d, want 0 (should not change)", b.ActiveTab)
+	if b.ActiveTab != lastCol {
+		t.Errorf("after Shift+Tab at first column: ActiveTab = %d, want %d (should wrap to last)", b.ActiveTab, lastCol)
 	}
-	if !b.detailFocused {
-		t.Error("after Shift+Tab at first column: detailFocused should remain true (no column to switch to)")
+	if b.detailFocused {
+		t.Error("after Shift+Tab at first column: detailFocused should be false (column switched)")
 	}
 }
 
