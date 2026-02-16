@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -121,5 +122,93 @@ func TestPRReview_BlocksCreateAndConfig(t *testing.T) {
 		if b.mode != prReviewMode {
 			t.Errorf("after %q: mode = %d, want prReviewMode (%d)", bk.name, b.mode, prReviewMode)
 		}
+	}
+}
+
+// --- PR Review View Rendering Tests ---
+
+func TestPRReview_ViewShowsPRNumber(t *testing.T) {
+	b := enterPRReview(t)
+
+	output := b.View()
+
+	if !strings.Contains(output, "#10") {
+		t.Error("PR review view should contain the PR number #10")
+	}
+}
+
+func TestPRReview_ViewShowsPRTitle(t *testing.T) {
+	b := enterPRReview(t)
+
+	output := b.View()
+
+	if !strings.Contains(output, "feat: one PR") {
+		t.Error("PR review view should contain the PR title 'feat: one PR'")
+	}
+}
+
+func TestPRReview_ViewShowsPlaceholder(t *testing.T) {
+	b := enterPRReview(t)
+
+	output := b.View()
+
+	// The right panel should contain placeholder text indicating diff is not yet available.
+	hasPlaceholder := strings.Contains(output, "coming soon") ||
+		strings.Contains(output, "Diff") ||
+		strings.Contains(output, "Coming soon")
+	if !hasPlaceholder {
+		t.Error("PR review view should contain placeholder text in the right panel (e.g., 'coming soon' or 'Diff')")
+	}
+}
+
+func TestPRReview_ViewFocusBorderHighlight(t *testing.T) {
+	b := enterPRReview(t)
+
+	// Default focus: left panel (prFocusRight = false).
+	if b.prFocusRight {
+		t.Fatal("expected prFocusRight=false by default")
+	}
+	outputLeft := b.View()
+	if strings.TrimSpace(outputLeft) == "" {
+		t.Error("view should be non-empty with left focus")
+	}
+
+	// Toggle focus to right panel.
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.prFocusRight {
+		t.Fatal("expected prFocusRight=true after 'l'")
+	}
+	outputRight := b.View()
+	if strings.TrimSpace(outputRight) == "" {
+		t.Error("view should be non-empty with right focus")
+	}
+
+	// Both focus states should still show PR metadata.
+	if !strings.Contains(outputRight, "#10") {
+		t.Error("PR number should be visible regardless of focus state")
+	}
+}
+
+func TestPRReview_ViewBorderTitleShowsPR(t *testing.T) {
+	b := enterPRReview(t)
+
+	output := b.View()
+
+	if !strings.Contains(output, "PR #10") {
+		t.Error("PR review view border title should contain 'PR #10'")
+	}
+}
+
+func TestPRReview_ViewResizeHandled(t *testing.T) {
+	b := enterPRReview(t)
+
+	// Resize to a smaller terminal.
+	b.Width = 60
+	b.Height = 20
+
+	output := b.View()
+
+	if strings.TrimSpace(output) == "" {
+		t.Error("PR review view should produce non-empty output at smaller terminal size (60x20)")
 	}
 }
