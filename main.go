@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v68/github"
+	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -71,7 +72,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	board := NewBoard(bp)
+	repoOwner := ""
+	repoNameOnly := ""
+	if parts := strings.SplitN(repo, "/", 2); len(parts) == 2 {
+		repoOwner = parts[0]
+		repoNameOnly = parts[1]
+	}
+
+	board := NewBoard(bp, cfg.Actions, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov)
 
 	p := tea.NewProgram(board, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

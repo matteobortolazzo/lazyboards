@@ -77,19 +77,27 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 				Title:  issue.GetTitle(),
 			}
 
-			// Find the first label that matches a column.
+			// Collect all label names.
+			allLabels := make([]string, 0, len(issue.Labels))
+			for _, label := range issue.Labels {
+				allLabels = append(allLabels, label.GetName())
+			}
+			if len(allLabels) > 0 {
+				card.Labels = allLabels
+			}
+
+			// Find the first label that matches a column for placement.
 			matched := false
 			for _, label := range issue.Labels {
 				labelName := label.GetName()
 				if idx, ok := colIndex[strings.ToLower(labelName)]; ok {
-					card.Label = labelName
 					columns[idx].Cards = append(columns[idx].Cards, card)
 					matched = true
 					break
 				}
 			}
 
-			// No matching label: place in first column with empty label.
+			// No matching label: place in first column.
 			if !matched {
 				columns[0].Cards = append(columns[0].Cards, card)
 			}
@@ -127,7 +135,7 @@ func (g *GitHubProvider) CreateCard(ctx context.Context, title string, label str
 		Title:  issue.GetTitle(),
 	}
 	if label != "" {
-		card.Label = label
+		card.Labels = []string{label}
 	}
 
 	return card, nil
