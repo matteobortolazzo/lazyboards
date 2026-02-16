@@ -65,7 +65,7 @@ func TestSlugify_AlreadySlugified(t *testing.T) {
 // --- ExpandTemplate ---
 
 func TestExpandTemplate_AllVariablesExpanded(t *testing.T) {
-	template := "{number}-{title}-{tags}-{repo_owner}-{repo_name}-{provider}"
+	template := "{number}-{title}-{tags}-{repo_owner}-{repo_name}-{provider}-{session}"
 	vars := map[string]string{
 		"number":     "42",
 		"title":      "add-actions",
@@ -73,9 +73,10 @@ func TestExpandTemplate_AllVariablesExpanded(t *testing.T) {
 		"repo_owner": "matteobortolazzo",
 		"repo_name":  "lazyboards",
 		"provider":   "github",
+		"session":    "42-add-actions",
 	}
 	got := ExpandTemplate(template, vars)
-	want := "42-add-actions-bug,feature-matteobortolazzo-lazyboards-github"
+	want := "42-add-actions-bug,feature-matteobortolazzo-lazyboards-github-42-add-actions"
 	if got != want {
 		t.Errorf("ExpandTemplate() = %q, want %q", got, want)
 	}
@@ -172,5 +173,66 @@ func TestBuildShellSafeVars_EscapesAllValues(t *testing.T) {
 	}
 	if safe["tags"] != "'bug,feature'" {
 		t.Errorf("tags = %q, want %q", safe["tags"], "'bug,feature'")
+	}
+}
+
+// --- BuildSessionName ---
+
+func TestBuildSessionName_NoTruncation(t *testing.T) {
+	got := BuildSessionName(80, "New parameter to pass", 32)
+	want := "80-new-parameter-to-pass"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildSessionName_TruncatesAtWordBoundary(t *testing.T) {
+	got := BuildSessionName(99, "Implement user authentication flow for OAuth", 32)
+	want := "99-implement-user-authentication"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildSessionName_EmptyTitle(t *testing.T) {
+	got := BuildSessionName(42, "", 32)
+	want := "42"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildSessionName_TitleSlugsToEmpty(t *testing.T) {
+	got := BuildSessionName(42, "!!!", 32)
+	want := "42"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildSessionName_LongNumber(t *testing.T) {
+	// Number + hyphen already exceeds maxLen — return number only.
+	got := BuildSessionName(123456789012345678, "title", 20)
+	want := "123456789012345678"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildSessionName_SingleLongWord(t *testing.T) {
+	// Title is a single word that can't be split at hyphens after number prefix.
+	got := BuildSessionName(99, "superlongwordwithnobreakpoints", 32)
+	want := "99"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q", got, want)
+	}
+}
+
+func TestBuildSessionName_CustomMaxLen(t *testing.T) {
+	// "1-short-title" is 13 chars; with maxLen=10, should truncate to "1-short"
+	got := BuildSessionName(1, "short title", 10)
+	want := "1-short"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q", got, want)
 	}
 }

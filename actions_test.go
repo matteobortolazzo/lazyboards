@@ -81,7 +81,7 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "", "", "", false)
+	b := NewBoard(p, actions, nil, fe, "", "", "", 0, false)
 
 	// Board starts in loadingMode. Press the action key.
 	b = sendKey(t, b, keyMsg("o"))
@@ -98,7 +98,7 @@ func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "", "", "", false)
+	b := NewBoard(p, actions, nil, fe, "", "", "", 0, false)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -198,7 +198,7 @@ func TestAction_TemplateVarsExpanded(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", false)
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, false)
 
 	// Load a board with a specific card that has known labels.
 	cardNumber := 42

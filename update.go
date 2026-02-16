@@ -332,7 +332,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return b, nil
 			}
 			card := col.Cards[col.Cursor]
-			vars := action.BuildTemplateVars(card.Number, card.Title, card.Labels, b.repoOwner, b.repoName, b.providerName)
+			vars := action.BuildTemplateVars(card.Number, card.Title, card.Labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
 
 			switch act.Type {
 			case "url":

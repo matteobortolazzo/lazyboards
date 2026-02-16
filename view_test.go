@@ -164,7 +164,7 @@ func TestView_BothIndicators_WhenMiddle(t *testing.T) {
 func TestView_WrapsLongTitle(t *testing.T) {
 	longTitle := "This is a very long title that should definitely be wrapped in the card list panel"
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -197,7 +197,7 @@ func TestView_WrapsLongTitle(t *testing.T) {
 func TestView_WrappedTitles_SelectedCardAllLinesStyled(t *testing.T) {
 	longTitle := "This is a card title that is long enough to require wrapping across lines"
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -226,7 +226,7 @@ func TestView_WrappedTitles_PartialCardHidden(t *testing.T) {
 	// Create a board where cards have titles long enough to wrap.
 	// With limited height, the last card that would only partially fit should be hidden.
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
 
 	var cards []provider.Card
 	for i := 0; i < 10; i++ {
