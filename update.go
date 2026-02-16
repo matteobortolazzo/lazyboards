@@ -283,23 +283,19 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.detailFocused = true
 		b.statusBar.SetActionHints(detailFocusHints)
 	case "shift+tab":
-		if b.ActiveTab > 0 {
-			b.ActiveTab--
-			b.Columns[b.ActiveTab].ScrollOffset = 0
-			b.detailScrollOffset = 0
-			b.clampScrollOffset()
-			b.rebuildNormalHints()
-			b.statusBar.SetActionHints(b.normalHints)
-		}
+		b.ActiveTab = (b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns)
+		b.Columns[b.ActiveTab].ScrollOffset = 0
+		b.detailScrollOffset = 0
+		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
 	case "tab":
-		if b.ActiveTab < len(b.Columns)-1 {
-			b.ActiveTab++
-			b.Columns[b.ActiveTab].ScrollOffset = 0
-			b.detailScrollOffset = 0
-			b.clampScrollOffset()
-			b.rebuildNormalHints()
-			b.statusBar.SetActionHints(b.normalHints)
-		}
+		b.ActiveTab = (b.ActiveTab + 1) % len(b.Columns)
+		b.Columns[b.ActiveTab].ScrollOffset = 0
+		b.detailScrollOffset = 0
+		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
 	case "j", "down":
 		col := &b.Columns[b.ActiveTab]
 		if col.Cursor < len(col.Cards)-1 {
@@ -430,25 +426,21 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.detailScrollOffset--
 		}
 	case "tab":
-		if b.ActiveTab < len(b.Columns)-1 {
-			b.detailFocused = false
-			b.detailScrollOffset = 0
-			b.ActiveTab++
-			b.Columns[b.ActiveTab].ScrollOffset = 0
-			b.clampScrollOffset()
-			b.rebuildNormalHints()
-			b.statusBar.SetActionHints(b.normalHints)
-		}
+		b.detailFocused = false
+		b.detailScrollOffset = 0
+		b.ActiveTab = (b.ActiveTab + 1) % len(b.Columns)
+		b.Columns[b.ActiveTab].ScrollOffset = 0
+		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
 	case "shift+tab":
-		if b.ActiveTab > 0 {
-			b.detailFocused = false
-			b.detailScrollOffset = 0
-			b.ActiveTab--
-			b.Columns[b.ActiveTab].ScrollOffset = 0
-			b.clampScrollOffset()
-			b.rebuildNormalHints()
-			b.statusBar.SetActionHints(b.normalHints)
-		}
+		b.detailFocused = false
+		b.detailScrollOffset = 0
+		b.ActiveTab = (b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns)
+		b.Columns[b.ActiveTab].ScrollOffset = 0
+		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
 	}
 	return b, nil
 }
