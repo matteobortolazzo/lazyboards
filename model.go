@@ -52,12 +52,20 @@ const (
 	configMode
 )
 
-// Card represents a single Kanban card (e.g., a GitHub issue).
-type Card struct {
+// LinkedPR represents a pull request linked to a card.
+type LinkedPR struct {
 	Number int
 	Title  string
-	Labels []string
-	Body   string
+	URL    string
+}
+
+// Card represents a single Kanban card (e.g., a GitHub issue).
+type Card struct {
+	Number    int
+	Title     string
+	Labels    []string
+	Body      string
+	LinkedPRs []LinkedPR
 }
 
 // actionResultMsg is sent when an async shell action completes.
@@ -242,7 +250,11 @@ func (b *Board) clampScrollOffset() {
 	cardLineCount := func(idx int) int {
 		card := col.Cards[idx]
 		prefix := fmt.Sprintf("#%d ", card.Number)
-		return len(wrapTitle(prefix+card.Title, contentWidth, len([]rune(prefix))))
+		text := prefix + card.Title
+		if len(card.LinkedPRs) > 0 {
+			text += " \u23c7"
+		}
+		return len(wrapTitle(text, contentWidth, len([]rune(prefix))))
 	}
 
 	// Compute total lines for all cards.
@@ -371,6 +383,17 @@ func (b *Board) rebuildNormalHints() {
 	}
 
 	b.normalHints = hints
+}
+
+func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
+	if len(prs) == 0 {
+		return nil
+	}
+	result := make([]LinkedPR, len(prs))
+	for i, pr := range prs {
+		result[i] = LinkedPR{Number: pr.Number, Title: pr.Title, URL: pr.URL}
+	}
+	return result
 }
 
 func (b Board) Init() tea.Cmd {

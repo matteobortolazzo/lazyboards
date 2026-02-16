@@ -943,7 +943,7 @@ actions:
 }
 
 func TestLoad_ActionConflictsWithBuiltinKey_ReturnsError(t *testing.T) {
-	builtinKeys := []string{"j", "k", "q", "r", "n"}
+	builtinKeys := []string{"j", "k", "q", "r", "n", "p"}
 
 	for _, key := range builtinKeys {
 		t.Run("key_"+key, func(t *testing.T) {
