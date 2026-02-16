@@ -35,6 +35,10 @@ func (b Board) View() string {
 		return b.viewConfigModal()
 	}
 
+	if b.mode == prReviewMode {
+		return b.viewPRReview()
+	}
+
 	if len(b.Columns) == 0 {
 		return ""
 	}
@@ -193,6 +197,87 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
 	fill := borderStyle.Render(" " + strings.Repeat("─", fillWidth))
 
 	return prefixStr + joined + fill + suffixChar
+}
+
+// buildPRBorderTitle constructs the top border line for PR review mode.
+// Format: ╭─ PR #N ──...──╮
+func buildPRBorderTitle(pr LinkedPR, totalWidth int) string {
+	borderFg := lipgloss.Color("240")
+	borderStyle := lipgloss.NewStyle().Foreground(borderFg)
+
+	prefixStr := borderStyle.Render("╭─ ")
+	suffixChar := borderStyle.Render("╮")
+	prefixWidth := lipgloss.Width(prefixStr)
+	suffixWidth := lipgloss.Width(suffixChar)
+
+	label := activeBorderTitleStyle.Render(fmt.Sprintf("PR #%d", pr.Number))
+	labelWidth := lipgloss.Width(label)
+
+	fillWidth := totalWidth - prefixWidth - labelWidth - suffixWidth - 1
+	if fillWidth < 1 {
+		fillWidth = 1
+	}
+	fill := borderStyle.Render(" " + strings.Repeat("─", fillWidth))
+
+	return prefixStr + label + fill + suffixChar
+}
+
+func (b Board) viewPRReview() string {
+	innerWidth := b.Width - 2
+
+	leftTotal := innerWidth * 2 / 5
+	leftContentWidth := leftTotal - 2
+	rightTotal := innerWidth - leftTotal
+	rightContentWidth := rightTotal - 2
+
+	panelHeight := b.Height - 5
+	if panelHeight < 1 {
+		panelHeight = 1
+	}
+
+	// Focus styling: left bright by default, right bright when prFocusRight.
+	var leftStyle, rightStyle lipgloss.Style
+	if b.prFocusRight {
+		leftStyle = leftPanelStyle.BorderForeground(lipgloss.Color("240"))
+		rightStyle = rightPanelStyle.BorderForeground(lipgloss.Color("15"))
+	} else {
+		leftStyle = leftPanelStyle.BorderForeground(lipgloss.Color("15"))
+		rightStyle = rightPanelStyle.BorderForeground(lipgloss.Color("240"))
+	}
+
+	// Left panel: PR info.
+	pr := b.selectedPR
+	leftContent := detailTitleStyle.Render(fmt.Sprintf("PR #%d", pr.Number)) +
+		"\n" + pr.Title +
+		"\n\n" + pr.URL +
+		"\n\nState: open" +
+		"\nAuthor: —"
+
+	leftPanel := leftStyle.
+		Width(leftContentWidth).
+		Height(panelHeight).
+		Render(leftContent)
+
+	// Right panel: placeholder.
+	rightContent := "Diff and comments coming soon"
+	rightPanel := rightStyle.
+		Width(rightContentWidth).
+		Height(panelHeight).
+		Render(rightContent)
+
+	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
+
+	helpBar := helpStyle.Render(NewStatusBar(prReviewHints).View())
+
+	inner := lipgloss.JoinVertical(lipgloss.Left, panels, helpBar)
+
+	rendered := outerStyle.Width(innerWidth).Render(inner)
+	borderTitle := buildPRBorderTitle(b.selectedPR, b.Width)
+	lines := strings.SplitN(rendered, "\n", 2)
+	if len(lines) == 2 {
+		return borderTitle + "\n" + lines[1]
+	}
+	return rendered
 }
 
 func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lipgloss.Style) string {
