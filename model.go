@@ -28,7 +28,7 @@ var (
 
 // normalModeHints are the default status bar hints shown in normal mode.
 var normalModeHints = []Hint{
-	{Key: "p", Desc: "PRs"},
+	{Key: "p", Desc: "Open PR"},
 	{Key: "n", Desc: "New"},
 	{Key: "c", Desc: "Config"},
 	{Key: "r", Desc: "Refresh"},
@@ -49,14 +49,6 @@ var prPickerHints = []Hint{
 	{Key: "esc", Desc: "Cancel"},
 }
 
-// prReviewHints are the status bar hints shown when the PR review panel is focused.
-var prReviewHints = []Hint{
-	{Key: "j/k", Desc: "Scroll"},
-	{Key: "h/l", Desc: "Focus"},
-	{Key: "esc", Desc: "Back"},
-	{Key: "q", Desc: "Quit"},
-}
-
 // boardMode represents the current interaction mode of the board.
 type boardMode int
 
@@ -68,7 +60,6 @@ const (
 	errorMode
 	configMode
 	prPickerMode
-	prReviewMode
 )
 
 // LinkedPR represents a pull request linked to a card.
@@ -160,9 +151,6 @@ type Board struct {
 	detailFocused      bool
 	detailScrollOffset int
 	prPickerIndex      int
-	selectedPR         LinkedPR
-	prScrollOffset     int
-	prFocusRight       bool
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
