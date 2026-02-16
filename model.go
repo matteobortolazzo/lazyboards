@@ -30,6 +30,7 @@ var (
 // normalModeHints are the default status bar hints shown in normal mode.
 var normalModeHints = []Hint{
 	{Key: "n", Desc: "New"},
+	{Key: "c", Desc: "Config"},
 	{Key: "r", Desc: "Refresh"},
 	{Key: "q", Desc: "Quit"},
 }
@@ -43,6 +44,7 @@ const (
 	creatingMode
 	loadingMode
 	errorMode
+	configMode
 )
 
 // Card represents a single Kanban card (e.g., a GitHub issue).
@@ -57,6 +59,12 @@ type actionResultMsg struct {
 	success bool
 	message string
 }
+
+// configSavedMsg is sent when a config file has been saved successfully.
+type configSavedMsg struct{}
+
+// configSaveErrorMsg is sent when saving a config file fails.
+type configSaveErrorMsg struct{ err error }
 
 // Column represents a Kanban column containing cards.
 type Column struct {
@@ -103,10 +111,15 @@ type Board struct {
 	loaded        bool
 	actions       map[string]config.Action
 	executor      action.Executor
-	repoOwner     string
-	repoName      string
-	providerName  string
-	normalHints   []Hint
+	repoOwner       string
+	repoName        string
+	providerName    string
+	normalHints     []Hint
+	providerOptions []string
+	providerIndex   int
+	repoInput       textinput.Model
+	configFocus     int
+	configLocalPath string
 }
 
 // NewBoard creates a Board in loadingMode. Call Init() to start fetching data.
@@ -134,19 +147,28 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, execut
 
 	sb := NewStatusBar(hints)
 
+	ri := textinput.New()
+	ri.Placeholder = "owner/repo"
+	ri.CharLimit = 100
+	ri.Width = 40
+
 	return Board{
-		mode:         loadingMode,
-		titleInput:   ti,
-		labelInput:   li,
-		provider:     p,
-		spinner:      s,
-		statusBar:    sb,
-		actions:      actions,
-		executor:     executor,
-		repoOwner:    repoOwner,
-		repoName:     repoName,
-		providerName: providerName,
-		normalHints:  hints,
+		mode:            loadingMode,
+		titleInput:      ti,
+		labelInput:      li,
+		provider:        p,
+		spinner:         s,
+		statusBar:       sb,
+		actions:         actions,
+		executor:        executor,
+		repoOwner:       repoOwner,
+		repoName:        repoName,
+		providerName:    providerName,
+		normalHints:     hints,
+		providerOptions: []string{"github", "azure-devops"},
+		providerIndex:   0,
+		repoInput:       ri,
+		configLocalPath: config.DefaultLocalPath,
 	}
 }
 
@@ -184,6 +206,16 @@ func runShellCmd(executor action.Executor, command string) tea.Cmd {
 			return actionResultMsg{success: false, message: msg}
 		}
 		return actionResultMsg{success: true, message: "Done"}
+	}
+}
+
+// saveConfigCmd returns a tea.Cmd that saves the config file.
+func saveConfigCmd(path, provider, repo string) tea.Cmd {
+	return func() tea.Msg {
+		if err := config.Save(path, provider, repo); err != nil {
+			return configSaveErrorMsg{err: err}
+		}
+		return configSavedMsg{}
 	}
 }
 
@@ -304,6 +336,15 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.labelInput.Blur()
 		return b, cmd
 
+	case configSavedMsg:
+		b.mode = loadingMode
+		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+
+	case configSaveErrorMsg:
+		b.validationErr = msg.err.Error()
+		b.mode = configMode
+		return b, nil
+
 	case actionResultMsg:
 		cmd := b.statusBar.SetTimedMessage(msg.message, 3*time.Second)
 		return b, cmd
@@ -381,6 +422,49 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return b, cmd
 			}
 
+		case configMode:
+			switch msg.Type {
+			case tea.KeyEscape:
+				b.mode = normalMode
+				return b, nil
+			case tea.KeyEnter:
+				provider := b.providerOptions[b.providerIndex]
+				repo := strings.TrimSpace(b.repoInput.Value())
+				if repo == "" {
+					b.validationErr = "Repository is required"
+					return b, nil
+				}
+				b.validationErr = ""
+				return b, saveConfigCmd(b.configLocalPath, provider, repo)
+			case tea.KeyTab:
+				if b.configFocus == 0 {
+					b.configFocus = 1
+					cmd := b.repoInput.Focus()
+					return b, cmd
+				} else {
+					b.configFocus = 0
+					b.repoInput.Blur()
+					return b, nil
+				}
+			case tea.KeyRight:
+				if b.configFocus == 0 {
+					b.providerIndex = (b.providerIndex + 1) % len(b.providerOptions)
+				}
+				return b, nil
+			case tea.KeyLeft:
+				if b.configFocus == 0 {
+					b.providerIndex = (b.providerIndex - 1 + len(b.providerOptions)) % len(b.providerOptions)
+				}
+				return b, nil
+			default:
+				if b.configFocus == 1 {
+					var cmd tea.Cmd
+					b.repoInput, cmd = b.repoInput.Update(msg)
+					return b, cmd
+				}
+				return b, nil
+			}
+
 		default: // normalMode
 			switch msg.String() {
 			case "q":
@@ -391,6 +475,13 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				b.labelInput.SetValue("")
 				b.titleInput.Focus()
 				b.labelInput.Blur()
+			case "c":
+				b.mode = configMode
+				b.configFocus = 0
+				b.repoInput.SetValue("")
+				b.providerIndex = 0
+				b.repoInput.Blur()
+				b.validationErr = ""
 			case "r":
 				b.mode = loadingMode
 				b.statusBar.ClearMessage()
@@ -608,6 +699,38 @@ func (b Board) View() string {
 
 		modal := modalStyle.Render(modalContent)
 
+		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
+	}
+
+	if b.mode == configMode {
+		modalWidth := 40
+		var errLine string
+		if b.validationErr != "" {
+			errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
+		}
+
+		providerDisplay := "< " + b.providerOptions[b.providerIndex] + " >"
+
+		configHints := NewStatusBar([]Hint{
+			{Key: "esc", Desc: "Cancel"},
+			{Key: "tab", Desc: "Next"},
+			{Key: "enter", Desc: "Save"},
+		})
+
+		repoView := b.repoInput.View()
+
+		modalContent := "Configuration\n\n" +
+			"Provider:\n" + providerDisplay + "\n\n" +
+			"Repo:\n" + repoView + errLine + "\n\n" +
+			helpStyle.Render(configHints.View())
+
+		modalStyle := lipgloss.NewStyle().
+			BorderStyle(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("205")).
+			Padding(1, 2).
+			Width(modalWidth)
+
+		modal := modalStyle.Render(modalContent)
 		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
 	}
 
