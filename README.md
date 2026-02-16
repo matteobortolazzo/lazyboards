@@ -8,15 +8,28 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 
 - Vim-style navigation across columns and cards
 - Split-pane layout: card list + detail view
+- Scrollable card lists with overflow indicators
 - Card creation via modal form with validation
+- Custom actions: open URLs or run shell commands bound to any key
+- Auto-detection of provider and repo from git remote
+- In-app configuration UI (first-launch flow or press `c`)
+- Board refresh without restarting
+- Error screen with retry support
 - Responsive terminal resizing
+
+## Install
+
+```
+go install github.com/matteobortolazzo/lazyboards@latest
+```
 
 ## Configuration
 
-Copy the example config and adjust values:
+Lazyboards auto-detects the provider and repository from your git remote. To override, create a `.lazyboards.yml` in your project root:
 
-```
-cp .lazyboards.yml.example .lazyboards.yml
+```yaml
+provider: github
+repo: owner/repo
 ```
 
 Set your GitHub token:
@@ -25,13 +38,33 @@ Set your GitHub token:
 export GITHUB_TOKEN=your_token_here
 ```
 
-See `.lazyboards.yml.example` for all available options.
+On first launch without a local config, an interactive configuration popup guides you through setup.
 
-## Install
+### Global Config
 
+Place shared settings (like custom actions) in `~/.config/lazyboards/config.yml`. Local config merges on top, with local values taking priority.
+
+### Custom Actions
+
+Bind single-character keys to URL or shell actions in your config:
+
+```yaml
+actions:
+  o:
+    name: Open
+    type: url
+    url: "https://github.com/{repo_owner}/{repo_name}/issues/{number}"
+  b:
+    name: Branch
+    type: shell
+    command: "git checkout -b {number}-{title}"
 ```
-go install github.com/matteobortolazzo/lazyboards@latest
-```
+
+**Template variables:** `{number}`, `{title}` (slugified), `{tags}`, `{repo_owner}`, `{repo_name}`, `{provider}`
+
+Shell commands automatically escape template variables to prevent injection.
+
+Keys reserved for built-in navigation (`h`, `l`, `j`, `k`, `q`, `r`, `n`, `c`) cannot be used for actions.
 
 ## Keybindings
 
@@ -44,6 +77,8 @@ go install github.com/matteobortolazzo/lazyboards@latest
 | `k` / `↑` | Previous card |
 | `j` / `↓` | Next card |
 | `n` | Create new card |
+| `c` | Open configuration |
+| `r` | Refresh board |
 | `q` | Quit |
 | `Ctrl+C` | Force quit |
 
@@ -54,6 +89,22 @@ go install github.com/matteobortolazzo/lazyboards@latest
 | `Tab` | Switch between Title and Label fields |
 | `Enter` | Submit card |
 | `Esc` | Cancel |
+
+### Config Mode
+
+| Key | Action |
+|-----|--------|
+| `←` / `→` | Cycle provider |
+| `Tab` | Switch between Provider and Repo fields |
+| `Enter` | Save configuration |
+| `Esc` | Cancel (quit on first launch) |
+
+### Error Mode
+
+| Key | Action |
+|-----|--------|
+| `r` | Retry loading |
+| `q` | Quit |
 
 ## Build from Source
 
