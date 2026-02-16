@@ -87,6 +87,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleConfigModeKey(msg)
 		case prPickerMode:
 			return b.handlePRPickerModeKey(msg)
+		case prReviewMode:
+			return b.handlePRReviewModeKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -264,8 +266,12 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd := b.statusBar.SetTimedMessage("No linked PRs", 3*time.Second)
 			return b, cmd
 		case 1:
+			b.selectedPR = card.LinkedPRs[0]
+			b.prScrollOffset = 0
+			b.prFocusRight = false
 			b.prPickerIndex = 0
 			b.mode = prReviewMode
+			b.statusBar.SetActionHints(prReviewHints)
 			return b, nil
 		default:
 			b.prPickerIndex = 0
@@ -464,8 +470,38 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.prPickerIndex = (b.prPickerIndex + 1) % prCount
 		return b, nil
 	case tea.KeyEnter:
+		b.selectedPR = card.LinkedPRs[b.prPickerIndex]
+		b.prScrollOffset = 0
+		b.prFocusRight = false
 		b.mode = prReviewMode
+		b.statusBar.SetActionHints(prReviewHints)
+		return b, nil
+	}
+	return b, nil
+}
+
+func (b Board) handlePRReviewModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		b.mode = normalMode
 		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	}
+	switch msg.String() {
+	case "q":
+		return b, tea.Quit
+	case "j":
+		b.prScrollOffset++
+		return b, nil
+	case "k":
+		if b.prScrollOffset > 0 {
+			b.prScrollOffset--
+		}
+		return b, nil
+	case "h":
+		b.prFocusRight = false
+		return b, nil
+	case "l":
+		b.prFocusRight = true
 		return b, nil
 	}
 	return b, nil
