@@ -104,7 +104,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	for i, pc := range msg.board.Columns {
 		cards := make([]Card, len(pc.Cards))
 		for j, c := range pc.Cards {
-			cards[j] = Card{Number: c.Number, Title: c.Title, Labels: c.Labels, Body: c.Body}
+			cards[j] = Card{Number: c.Number, Title: c.Title, Labels: c.Labels, Body: c.Body, LinkedPRs: mapLinkedPRs(c.LinkedPRs)}
 		}
 		cols[i] = Column{Title: pc.Title, Cards: cards}
 	}
@@ -124,10 +124,11 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 
 func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 	newCard := Card{
-		Number: msg.card.Number,
-		Title:  msg.card.Title,
-		Labels: msg.card.Labels,
-		Body:   msg.card.Body,
+		Number:    msg.card.Number,
+		Title:     msg.card.Title,
+		Labels:    msg.card.Labels,
+		Body:      msg.card.Body,
+		LinkedPRs: mapLinkedPRs(msg.card.LinkedPRs),
 	}
 	b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
 	b.titleInput.SetValue("")

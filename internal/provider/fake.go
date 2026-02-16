@@ -23,8 +23,13 @@ func NewFakeProvider() *FakeProvider {
 				Title: "New",
 				Cards: []Card{
 					{Number: 1, Title: "Setup CI", Labels: []string{"infra"}, Body: "Configure GitHub Actions for CI pipeline."},
-					{Number: 2, Title: "Data model", Labels: []string{"design"}, Body: "Design the core data model for boards and cards."},
-					{Number: 3, Title: "Add README", Labels: []string{"docs"}},
+					{Number: 2, Title: "Data model", Labels: []string{"design"}, Body: "Design the core data model for boards and cards.", LinkedPRs: []LinkedPR{
+						{Number: 20, Title: "feat: add data model", URL: "https://github.com/owner/repo/pull/20"},
+					}},
+					{Number: 3, Title: "Add README", Labels: []string{"docs"}, LinkedPRs: []LinkedPR{
+						{Number: 30, Title: "docs: add README", URL: "https://github.com/owner/repo/pull/30"},
+						{Number: 31, Title: "docs: improve README", URL: "https://github.com/owner/repo/pull/31"},
+					}},
 				},
 			},
 			{
