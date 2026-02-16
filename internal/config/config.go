@@ -28,7 +28,7 @@ type Config struct {
 
 // builtinKeys is the set of single-character keys reserved for built-in navigation.
 var builtinKeys = map[string]bool{
-	"h": true, "l": true, "j": true, "k": true,
+	"j": true, "k": true,
 	"q": true, "r": true, "n": true, "c": true,
 }
 

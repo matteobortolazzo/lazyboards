@@ -239,13 +239,13 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = loadingMode
 		b.statusBar.ClearMessage()
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
-	case "h", "left":
+	case "shift+tab", "left":
 		if b.ActiveTab > 0 {
 			b.ActiveTab--
 			b.Columns[b.ActiveTab].ScrollOffset = 0
 			b.clampScrollOffset()
 		}
-	case "l", "right":
+	case "tab", "right":
 		if b.ActiveTab < len(b.Columns)-1 {
 			b.ActiveTab++
 			b.Columns[b.ActiveTab].ScrollOffset = 0

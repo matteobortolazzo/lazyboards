@@ -169,7 +169,7 @@ func (b Board) viewCreateModal() string {
 
 	modalStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("205")).
+		BorderForeground(lipgloss.Color("15")).
 		Padding(1, 2).
 		Width(modalWidth)
 
@@ -201,7 +201,7 @@ func (b Board) viewConfigModal() string {
 
 	modalStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("205")).
+		BorderForeground(lipgloss.Color("15")).
 		Padding(1, 2).
 		Width(modalWidth)
 
