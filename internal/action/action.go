@@ -51,8 +51,33 @@ func ExpandTemplate(template string, vars map[string]string) string {
 	return result
 }
 
+// BuildSessionName creates a session identifier from a card number and title.
+// Format: {number}-{slugified-title}, capped at maxLen characters.
+// Truncation snaps to the last complete hyphen-delimited segment.
+func BuildSessionName(number int, title string, maxLen int) string {
+	prefix := fmt.Sprintf("%d", number)
+	slug := Slugify(title)
+	if slug == "" {
+		return prefix
+	}
+	full := prefix + "-" + slug
+	if len(full) <= maxLen {
+		return full
+	}
+	// If truncation lands exactly on a segment boundary, keep it.
+	if full[maxLen] == '-' {
+		return full[:maxLen]
+	}
+	truncated := full[:maxLen]
+	lastHyphen := strings.LastIndex(truncated, "-")
+	if lastHyphen <= len(prefix) {
+		return prefix
+	}
+	return strings.TrimRight(truncated[:lastHyphen], "-")
+}
+
 // BuildTemplateVars creates the variable map for template expansion.
-func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, repoOwner, repoName, providerName string) map[string]string {
+func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, repoOwner, repoName, providerName string, sessionMaxLen int) map[string]string {
 	return map[string]string{
 		"number":     fmt.Sprintf("%d", cardNumber),
 		"title":      Slugify(cardTitle),
@@ -60,5 +85,6 @@ func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, re
 		"repo_owner": repoOwner,
 		"repo_name":  repoName,
 		"provider":   providerName,
+		"session":    BuildSessionName(cardNumber, cardTitle, sessionMaxLen),
 	}
 }
