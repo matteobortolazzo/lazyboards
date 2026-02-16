@@ -16,6 +16,7 @@ var _ BoardProvider = (*GitHubProvider)(nil)
 type GitHubIssuesClient interface {
 	ListByRepo(ctx context.Context, owner string, repo string, opts *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error)
 	Create(ctx context.Context, owner string, repo string, issue *github.IssueRequest) (*github.Issue, *github.Response, error)
+	ListIssueTimeline(ctx context.Context, owner string, repo string, number int, opts *github.ListOptions) ([]*github.Timeline, *github.Response, error)
 }
 
 // GitHubProvider fetches board data from GitHub Issues.
@@ -87,6 +88,13 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 				card.Labels = allLabels
 			}
 
+			// Fetch timeline events to find linked PRs.
+			linkedPRs, err := g.fetchLinkedPRs(ctx, issue.GetNumber())
+			if err != nil {
+				return Board{}, err
+			}
+			card.LinkedPRs = linkedPRs
+
 			// Find the first label that matches a column for placement.
 			matched := false
 			for _, label := range issue.Labels {
@@ -111,6 +119,46 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 	}
 
 	return Board{Columns: columns}, nil
+}
+
+// fetchLinkedPRs retrieves cross-referenced pull requests from the issue timeline.
+func (g *GitHubProvider) fetchLinkedPRs(ctx context.Context, issueNumber int) ([]LinkedPR, error) {
+	opts := &github.ListOptions{PerPage: 100}
+	seen := make(map[int]bool)
+	var linkedPRs []LinkedPR
+
+	for {
+		events, resp, err := g.client.ListIssueTimeline(ctx, g.owner, g.repo, issueNumber, opts)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, event := range events {
+			if event.GetEvent() != "cross-referenced" {
+				continue
+			}
+			if event.Source == nil || event.Source.Issue == nil || event.Source.Issue.PullRequestLinks == nil {
+				continue
+			}
+			prNumber := event.Source.Issue.GetNumber()
+			if seen[prNumber] {
+				continue
+			}
+			seen[prNumber] = true
+			linkedPRs = append(linkedPRs, LinkedPR{
+				Number: prNumber,
+				Title:  event.Source.Issue.GetTitle(),
+				URL:    event.Source.Issue.GetHTMLURL(),
+			})
+		}
+
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	return linkedPRs, nil
 }
 
 // CreateCard creates a GitHub issue with the given title and optional label.
