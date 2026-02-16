@@ -104,7 +104,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	for i, pc := range msg.board.Columns {
 		cards := make([]Card, len(pc.Cards))
 		for j, c := range pc.Cards {
-			cards[j] = Card{Number: c.Number, Title: c.Title, Labels: c.Labels}
+			cards[j] = Card{Number: c.Number, Title: c.Title, Labels: c.Labels, Body: c.Body}
 		}
 		cols[i] = Column{Title: pc.Title, Cards: cards}
 	}
@@ -124,6 +124,7 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 		Number: msg.card.Number,
 		Title:  msg.card.Title,
 		Labels: msg.card.Labels,
+		Body:   msg.card.Body,
 	}
 	b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
 	b.titleInput.SetValue("")

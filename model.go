@@ -47,6 +47,7 @@ type Card struct {
 	Number int
 	Title  string
 	Labels []string
+	Body   string
 }
 
 // actionResultMsg is sent when an async shell action completes.
