@@ -303,38 +303,67 @@ func TestNewBoard_ColumnCursorsStartAtZero(t *testing.T) {
 
 // --- Tab Navigation ---
 
-func TestTabNavigation_L_MovesRight(t *testing.T) {
+func TestTabNavigation_Tab_MovesRight(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	if b.ActiveTab != 1 {
-		t.Errorf("after 'l': ActiveTab = %d, want 1", b.ActiveTab)
+		t.Errorf("after Tab: ActiveTab = %d, want 1", b.ActiveTab)
 	}
 }
 
-func TestTabNavigation_H_MovesLeft(t *testing.T) {
+func TestTabNavigation_ShiftTab_MovesLeft(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	// Move right first so we can move left
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	if b.ActiveTab != 0 {
-		t.Errorf("after 'l' then 'h': ActiveTab = %d, want 0", b.ActiveTab)
+		t.Errorf("after Tab then Shift+Tab: ActiveTab = %d, want 0", b.ActiveTab)
 	}
 }
 
-func TestTabNavigation_RightArrow_MovesRight(t *testing.T) {
+func TestNormalMode_LKey_DoesNotChangeTab(t *testing.T) {
 	b := newLoadedTestBoard(t)
-	b = sendKey(t, b, arrowMsg(tea.KeyRight))
-	if b.ActiveTab != 1 {
-		t.Errorf("after Right arrow: ActiveTab = %d, want 1", b.ActiveTab)
+	tabBefore := b.ActiveTab
+	b = sendKey(t, b, keyMsg("l"))
+	if b.ActiveTab != tabBefore {
+		t.Errorf("after 'l': ActiveTab = %d, want %d (l should not change tab)", b.ActiveTab, tabBefore)
+	}
+	if !b.detailFocused {
+		t.Error("after 'l': detailFocused should be true")
 	}
 }
 
-func TestTabNavigation_LeftArrow_MovesLeft(t *testing.T) {
+func TestNormalMode_RightArrow_FocusesDetail(t *testing.T) {
 	b := newLoadedTestBoard(t)
+	tabBefore := b.ActiveTab
 	b = sendKey(t, b, arrowMsg(tea.KeyRight))
+	if b.ActiveTab != tabBefore {
+		t.Errorf("after Right arrow: ActiveTab = %d, want %d (right should not change tab)", b.ActiveTab, tabBefore)
+	}
+	if !b.detailFocused {
+		t.Error("after Right arrow: detailFocused should be true")
+	}
+}
+
+func TestNormalMode_LeftArrow_DoesNotChangeTab(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, arrowMsg(tea.KeyTab)) // move to column 1
+	tabBefore := b.ActiveTab
 	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
-	if b.ActiveTab != 0 {
-		t.Errorf("after Right then Left arrow: ActiveTab = %d, want 0", b.ActiveTab)
+	if b.ActiveTab != tabBefore {
+		t.Errorf("after Left arrow: ActiveTab = %d, want %d (left should not change tab)", b.ActiveTab, tabBefore)
+	}
+}
+
+func TestDetailFocus_LeftArrow_ReturnsFocusToCardList(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Enter detail focus with 'l', then exit with left arrow.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
+
+	if b.detailFocused {
+		t.Error("after 'l' then Left arrow: detailFocused should be false")
 	}
 }
 
