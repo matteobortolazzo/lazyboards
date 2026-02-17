@@ -18,7 +18,7 @@ The main BubbleTea model is split by responsibility:
 | `model.go` | Board struct, types, constants, styles, `NewBoard()`, `Init()`, `enterConfigMode()`, `clampScrollOffset()` |
 | `update.go` | `Update()` dispatcher + key/message handler methods |
 | `view.go` | `View()` dispatcher + rendering helpers (card list, detail, modals) |
-| `commands.go` | Async `tea.Cmd` builders (`fetchBoardCmd`, `createCardCmd`, `runShellCmd`, `saveConfigCmd`) + `truncateTitle` |
+| `commands.go` | Async `tea.Cmd` builders (`fetchBoardCmd`, `createCardCmd`, `runShellCmd`, `saveConfigCmd`) + `wrapTitle` |
 | `statusbar.go` | `StatusBar` component (hints, timed messages) |
 | `main.go` | Entry point, config loading, provider setup |
 
