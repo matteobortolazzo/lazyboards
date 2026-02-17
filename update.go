@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -87,8 +88,6 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleConfigModeKey(msg)
 		case prPickerMode:
 			return b.handlePRPickerModeKey(msg)
-		case prReviewMode:
-			return b.handlePRReviewModeKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -266,13 +265,13 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd := b.statusBar.SetTimedMessage("No linked PRs", 3*time.Second)
 			return b, cmd
 		case 1:
-			b.selectedPR = card.LinkedPRs[0]
-			b.prScrollOffset = 0
-			b.prFocusRight = false
-			b.prPickerIndex = 0
-			b.mode = prReviewMode
-			b.statusBar.SetActionHints(prReviewHints)
-			return b, nil
+			pr := card.LinkedPRs[0]
+			if err := b.executor.OpenURL(pr.URL); err != nil {
+				cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), 3*time.Second)
+				return b, cmd
+			}
+			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), 3*time.Second)
+			return b, cmd
 		default:
 			b.prPickerIndex = 0
 			b.mode = prPickerMode
@@ -303,6 +302,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		b.detailScrollOffset = 0
 		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
 	case "k", "up":
 		col := &b.Columns[b.ActiveTab]
 		if col.Cursor > 0 {
@@ -310,6 +311,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		b.detailScrollOffset = 0
 		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
 	default:
 		// Check for number key navigation (1-9).
 		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
@@ -462,39 +465,16 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.prPickerIndex = (b.prPickerIndex + 1) % prCount
 		return b, nil
 	case tea.KeyEnter:
-		b.selectedPR = card.LinkedPRs[b.prPickerIndex]
-		b.prScrollOffset = 0
-		b.prFocusRight = false
-		b.mode = prReviewMode
-		b.statusBar.SetActionHints(prReviewHints)
-		return b, nil
+		pr := card.LinkedPRs[b.prPickerIndex]
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		if err := b.executor.OpenURL(pr.URL); err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), 3*time.Second)
+			return b, cmd
+		}
+		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), 3*time.Second)
+		return b, cmd
 	}
 	return b, nil
 }
 
-func (b Board) handlePRReviewModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
-		return b, nil
-	}
-	switch msg.String() {
-	case "q":
-		return b, tea.Quit
-	case "j":
-		b.prScrollOffset++
-		return b, nil
-	case "k":
-		if b.prScrollOffset > 0 {
-			b.prScrollOffset--
-		}
-		return b, nil
-	case "h":
-		b.prFocusRight = false
-		return b, nil
-	case "l":
-		b.prFocusRight = true
-		return b, nil
-	}
-	return b, nil
-}

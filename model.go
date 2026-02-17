@@ -28,7 +28,6 @@ var (
 
 // normalModeHints are the default status bar hints shown in normal mode.
 var normalModeHints = []Hint{
-	{Key: "p", Desc: "PRs"},
 	{Key: "n", Desc: "New"},
 	{Key: "c", Desc: "Config"},
 	{Key: "r", Desc: "Refresh"},
@@ -49,14 +48,6 @@ var prPickerHints = []Hint{
 	{Key: "esc", Desc: "Cancel"},
 }
 
-// prReviewHints are the status bar hints shown when the PR review panel is focused.
-var prReviewHints = []Hint{
-	{Key: "j/k", Desc: "Scroll"},
-	{Key: "h/l", Desc: "Focus"},
-	{Key: "esc", Desc: "Back"},
-	{Key: "q", Desc: "Quit"},
-}
-
 // boardMode represents the current interaction mode of the board.
 type boardMode int
 
@@ -68,7 +59,6 @@ const (
 	errorMode
 	configMode
 	prPickerMode
-	prReviewMode
 )
 
 // LinkedPR represents a pull request linked to a card.
@@ -160,9 +150,6 @@ type Board struct {
 	detailFocused      bool
 	detailScrollOffset int
 	prPickerIndex      int
-	selectedPR         LinkedPR
-	prScrollOffset     int
-	prFocusRight       bool
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
@@ -379,6 +366,14 @@ func (b *Board) rebuildNormalHints() {
 	// Number navigation hint (if columns loaded).
 	if len(b.Columns) > 0 {
 		hints = append(hints, Hint{Key: fmt.Sprintf("1-%d", len(b.Columns)), Desc: "Column"})
+	}
+
+	// Conditional PR hint: only show when the selected card has linked PRs.
+	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
+		col := b.Columns[b.ActiveTab]
+		if len(col.Cards) > 0 && col.Cursor < len(col.Cards) && len(col.Cards[col.Cursor].LinkedPRs) > 0 {
+			hints = append(hints, Hint{Key: "p", Desc: "Open PR"})
+		}
 	}
 
 	// Default mode hints.
