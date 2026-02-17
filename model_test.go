@@ -2524,8 +2524,23 @@ func TestDetailFocus_ShiftTab_ReturnsFocusAndSwitchesColumn(t *testing.T) {
 
 // --- Detail Panel Focus: Scroll ---
 
+// newBoardWithLongBody creates a board where the first card has a body with
+// lineCount lines (e.g., 50), which exceeds the visible panel area at Height=40,
+// enabling scroll testing.
+func newBoardWithLongBody(t *testing.T, lineCount int) Board {
+	t.Helper()
+	var lines []string
+	for i := 1; i <= lineCount; i++ {
+		lines = append(lines, fmt.Sprintf("scroll line %d", i))
+	}
+	longBody := strings.Join(lines, "\n")
+	return newBoardWithBody(t, longBody, "Other body")
+}
+
 func TestDetailFocus_JKey_ScrollsDown(t *testing.T) {
-	b := newBoardWithBody(t, "Some body", "Other body")
+	// With Height=40: panelHeight=34, headerLines=3, availableBodyLines=31.
+	// Need more than 31 raw lines so maxOffset > 0.
+	b := newBoardWithLongBody(t, 50)
 
 	// Record the card cursor before entering detail focus.
 	cursorBefore := b.Columns[b.ActiveTab].Cursor
@@ -2547,7 +2562,7 @@ func TestDetailFocus_JKey_ScrollsDown(t *testing.T) {
 }
 
 func TestDetailFocus_KKey_ScrollsUp(t *testing.T) {
-	b := newBoardWithBody(t, "Some body", "Other body")
+	b := newBoardWithLongBody(t, 50)
 
 	// Enter detail focus, scroll down twice, then scroll up once.
 	b = sendKey(t, b, keyMsg("l"))
@@ -2575,7 +2590,7 @@ func TestDetailFocus_KKey_ClampsAtZero(t *testing.T) {
 }
 
 func TestDetailFocus_ScrollOffsetResetsOnCardChange(t *testing.T) {
-	b := newBoardWithBody(t, "Some body", "Other body")
+	b := newBoardWithLongBody(t, 50)
 
 	// Enter detail focus, scroll down.
 	b = sendKey(t, b, keyMsg("l"))
@@ -2596,7 +2611,7 @@ func TestDetailFocus_ScrollOffsetResetsOnCardChange(t *testing.T) {
 }
 
 func TestDetailFocus_ScrollOffsetResetsOnRefresh(t *testing.T) {
-	b := newBoardWithBody(t, "Some body", "Other body")
+	b := newBoardWithLongBody(t, 50)
 
 	// Enter detail focus, scroll down.
 	b = sendKey(t, b, keyMsg("l"))
@@ -2783,5 +2798,116 @@ func TestDetailFocus_ShiftTab_AtFirstColumn_StaysFocused(t *testing.T) {
 	}
 	if !b.detailFocused {
 		t.Error("after Shift+Tab at first column: detailFocused should remain true (no column to switch to)")
+	}
+}
+
+// --- Detail Panel Scroll Fix (#61) ---
+
+func TestView_DetailPanel_LongBodyTruncated(t *testing.T) {
+	// Build a body with 50 paragraphs (double-newline separated), which
+	// glamour renders as ~100 lines — well exceeding the available body area.
+	// With Height=40: panelHeight = 40 - 6 = 34
+	// headerLines = 3 (title + labels + blank separator)
+	// availableBodyLines = 34 - 3 = 31
+	// So only ~31 lines of the ~100 rendered lines should be visible.
+	var lines []string
+	totalBodyLines := 50
+	for i := 1; i <= totalBodyLines; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	longBody := strings.Join(lines, "\n\n")
+	b := newBoardWithBody(t, longBody, "")
+
+	view := b.View()
+
+	// The total rendered output must not exceed the terminal height.
+	outputLines := strings.Split(view, "\n")
+	if len(outputLines) > b.Height {
+		t.Errorf("View() output has %d lines, want <= %d (terminal height)", len(outputLines), b.Height)
+	}
+
+	// Not all 50 body lines should appear in the output, since only ~31 fit.
+	// The last line ("line 50") should NOT be visible at scroll offset 0.
+	lastLine := fmt.Sprintf("line %d", totalBodyLines)
+	if strings.Contains(view, lastLine) {
+		t.Errorf("View() should not contain %q — body should be truncated to fit panel height", lastLine)
+	}
+}
+
+func TestView_DetailPanel_ScrollIndicatorShown(t *testing.T) {
+	// When there is more body content below the visible area,
+	// the detail panel should show a down-arrow indicator.
+	// Use double-newline separated paragraphs so glamour renders
+	// each as a separate line (~100 rendered lines for 50 paragraphs).
+	var lines []string
+	for i := 1; i <= 50; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	longBody := strings.Join(lines, "\n\n")
+	b := newBoardWithBody(t, longBody, "")
+
+	view := b.View()
+
+	// The down-arrow indicator should appear because the body is longer
+	// than the available display area.
+	downArrow := "\u25bc"
+	if !strings.Contains(view, downArrow) {
+		t.Errorf("View() should contain scroll indicator %q when body content overflows panel", downArrow)
+	}
+}
+
+func TestView_DetailPanel_ScrollIndicatorHiddenAtBottom(t *testing.T) {
+	// When scrolled to the very bottom of the body content,
+	// the down-arrow indicator should no longer appear in the detail panel.
+	// Use double-newline separated paragraphs so glamour renders enough lines.
+	var lines []string
+	for i := 1; i <= 50; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	longBody := strings.Join(lines, "\n\n")
+	b := newBoardWithBody(t, longBody, "")
+
+	// Enter detail focus and scroll to the bottom.
+	b = sendKey(t, b, keyMsg("l"))
+	for i := 0; i < 100; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	view := b.View()
+
+	// Count occurrences of the down-arrow indicator in the full view.
+	// The left panel may show its own scroll indicator for the card list,
+	// but with only 2 cards in the column (from newBoardWithBody) and
+	// Height=40 (panelHeight=34), 2 cards fit without scrolling, so the
+	// left panel should show zero down-arrows.
+	downArrow := "\u25bc"
+	count := strings.Count(view, downArrow)
+	if count > 0 {
+		t.Errorf("View() contains %d scroll indicators %q after scrolling to bottom, want 0 — "+
+			"detail panel should hide indicator when fully scrolled", count, downArrow)
+	}
+}
+
+func TestDetailFocus_JKey_ClampsAtMaxLines_TightBound(t *testing.T) {
+	// With a short 2-line body and Height=40:
+	// panelHeight = 34, headerLines = 3, availableBodyLines = 31
+	// The body has 2 lines, so maxOffset = max(0, 2 - 31) = 0
+	// Scrolling should have no effect — offset must stay at 0.
+	shortBody := "line one\nline two"
+	b := newBoardWithBody(t, shortBody, "")
+
+	// Enter detail focus.
+	b = sendKey(t, b, keyMsg("l"))
+
+	// Press 'j' many times.
+	for i := 0; i < 100; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	// A 2-line body fits entirely within the visible panel area
+	// (Height=40 gives 31 available body lines), so there is nothing to scroll.
+	if b.detailScrollOffset != 0 {
+		t.Errorf("detailScrollOffset = %d after 100 'j' presses on 2-line body, want 0 "+
+			"(body fits entirely in panel, nothing to scroll)", b.detailScrollOffset)
 	}
 }

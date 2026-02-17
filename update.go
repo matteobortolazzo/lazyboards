@@ -329,7 +329,20 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			card := col.Cards[col.Cursor]
 			if card.Body != "" {
 				maxLines := strings.Count(card.Body, "\n") + 1
-				if b.detailScrollOffset < maxLines {
+				panelHeight := b.Height - 6
+				if panelHeight < 1 {
+					panelHeight = 1
+				}
+				headerLines := 3
+				availableBodyLines := panelHeight - headerLines
+				if availableBodyLines < 1 {
+					availableBodyLines = 1
+				}
+				maxOffset := maxLines - availableBodyLines
+				if maxOffset < 0 {
+					maxOffset = 0
+				}
+				if b.detailScrollOffset < maxOffset {
 					b.detailScrollOffset++
 				}
 			}
