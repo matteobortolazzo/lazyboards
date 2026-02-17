@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -225,17 +226,17 @@ func TestErrorMode_StatusBarShowsRetryAndQuit(t *testing.T) {
 
 	view := b.View()
 
-	// Should show retry and quit hints.
-	if !strings.Contains(view, "r: Retry") {
-		t.Errorf("View() in errorMode should contain %q", "r: Retry")
+	// Should show retry and quit hint keys and descriptions.
+	if !strings.Contains(view, "Retry") {
+		t.Errorf("View() in errorMode should contain desc %q", "Retry")
 	}
-	if !strings.Contains(view, "q: Quit") {
-		t.Errorf("View() in errorMode should contain %q", "q: Quit")
+	if !strings.Contains(view, "Quit") {
+		t.Errorf("View() in errorMode should contain desc %q", "Quit")
 	}
 
-	// Should NOT show normalMode hints.
-	if strings.Contains(view, "n: New") {
-		t.Errorf("View() in errorMode should NOT contain %q", "n: New")
+	// Should NOT show normalMode hint descriptions.
+	if strings.Contains(view, "New") {
+		t.Errorf("View() in errorMode should NOT contain %q", "New")
 	}
 }
 
@@ -295,5 +296,57 @@ func TestBoardFetched_MapsLinkedPRs(t *testing.T) {
 	}
 	if pr2b.URL != "https://github.com/owner/repo/pull/21" {
 		t.Errorf("card 2 LinkedPRs[1].URL = %q, want %q", pr2b.URL, "https://github.com/owner/repo/pull/21")
+	}
+}
+
+// --- Label Color ---
+
+func TestLabelColor_SemanticLabelsGetFixedColors(t *testing.T) {
+	// Semantic labels should return their assigned color.
+	bugColor := labelColor("bug")
+	featureColor := labelColor("feature")
+
+	if bugColor == featureColor {
+		t.Error("bug and feature should have different colors")
+	}
+
+	// bug and critical share the same color (rose).
+	criticalColor := labelColor("critical")
+	if bugColor != criticalColor {
+		t.Errorf("bug (%s) and critical (%s) should share the same color", bugColor, criticalColor)
+	}
+}
+
+func TestLabelColor_CaseInsensitive(t *testing.T) {
+	lower := labelColor("bug")
+	upper := labelColor("BUG")
+	mixed := labelColor("Bug")
+
+	if lower != upper || lower != mixed {
+		t.Errorf("labelColor should be case-insensitive: bug=%s, BUG=%s, Bug=%s", lower, upper, mixed)
+	}
+}
+
+func TestLabelColor_Deterministic(t *testing.T) {
+	// Same label always produces the same color.
+	c1 := labelColor("custom-label")
+	c2 := labelColor("custom-label")
+	if c1 != c2 {
+		t.Errorf("labelColor should be deterministic: got %s then %s for same input", c1, c2)
+	}
+}
+
+func TestLabelColor_UnknownLabelsUseValidPaletteColor(t *testing.T) {
+	color := labelColor("some-unknown-label-xyz")
+
+	found := false
+	for _, pc := range labelPalette {
+		if lipgloss.Color(color) == pc {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("unknown label color %s should be from labelPalette", color)
 	}
 }
