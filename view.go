@@ -207,21 +207,44 @@ func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style l
 			}
 			if cachedGlamourRenderer != nil {
 				if out, renderErr := cachedGlamourRenderer.Render(card.Body); renderErr == nil {
-					rendered = strings.TrimRight(out, "\n ")
+					rendered = strings.TrimSpace(out)
 				}
 			}
 
-			// Apply scroll offset.
+			// Apply scroll offset and truncate to available panel height.
 			lines := strings.Split(rendered, "\n")
+			headerLines := 3 // title + labels + blank separator
+			availableBodyLines := panelHeight - headerLines
+			if availableBodyLines < 1 {
+				availableBodyLines = 1
+			}
+
 			startLine := b.detailScrollOffset
-			if startLine >= len(lines) {
-				startLine = len(lines) - 1
+			maxOffset := len(lines) - availableBodyLines
+			if maxOffset < 0 {
+				maxOffset = 0
+			}
+			if startLine > maxOffset {
+				startLine = maxOffset
 			}
 			if startLine < 0 {
 				startLine = 0
 			}
-			visibleLines := lines[startLine:]
+
+			endLine := startLine + availableBodyLines
+			hasMore := endLine < len(lines)
+			if hasMore {
+				endLine = endLine - 1 // leave room for scroll indicator
+			}
+			if endLine > len(lines) {
+				endLine = len(lines)
+			}
+
+			visibleLines := lines[startLine:endLine]
 			rightContent += "\n\n" + strings.Join(visibleLines, "\n")
+			if hasMore {
+				rightContent += "\n" + helpStyle.Render("\u25bc")
+			}
 		}
 	}
 	return style.

@@ -52,3 +52,19 @@ Claude reads this file automatically. Its rules are authoritative and override a
 - **Root cause**: Template expansion directly substitutes user-controlled strings into shell commands without validation or escaping. Shell metacharacters (`;`, `|`, `&`, `$()`, etc.) in labels enable command injection.
 - **Fix**: Added `ShellEscape()` (POSIX single-quote wrapping: replace `'` with `'\''`, wrap in `'...'`) and `BuildShellSafeVars()` to escape all template variables before shell command expansion.
 - **Rule**: Always escape user-controlled input before interpolating into shell commands. Use POSIX single-quote wrapping for shell safety. Never trust data from external APIs (GitHub labels, issue titles, etc.) in shell contexts.
+
+### Glamour adds leading blank line — use TrimSpace not TrimRight
+- **Date**: 2026-02-13
+- **Ticket**: #61
+- **What happened**: Detail panel scroll tests failed because glamour's markdown rendering added a leading blank line to its output. When calculating rendered line count (to determine max scroll offset), the leading blank line inflated the count incorrectly, breaking scroll tests that needed the rendered content to exceed the visible area.
+- **Root cause**: `strings.TrimRight(out, "\n ")` only removes trailing whitespace, leaving the leading blank line intact. Glamour always outputs a leading newline character as part of its rendering format.
+- **Fix**: Changed to `strings.TrimSpace(out)` in `view.go` line 181, which removes both leading and trailing whitespace. This gives the accurate rendered line count needed for proper scroll offset calculation.
+- **Rule**: When working with glamour-rendered markdown in scrollable panels, always use `strings.TrimSpace()` on the rendered output to normalize it for line counting. Never assume markdown renderers produce zero leading whitespace.
+
+### Glamour collapse consecutive newlines in markdown — use paragraph separators in tests
+- **Date**: 2026-02-13
+- **Ticket**: #61
+- **What happened**: Initial scroll tests in detail panel used single-line markdown bodies separated by `\n`, expecting each line to render as a distinct line. However, glamour sometimes collapses consecutive single lines (without paragraph breaks) into fewer rendered lines, causing tests to fail when the rendered body didn't exceed the visible panel area and thus didn't allow scrolling.
+- **Root cause**: Markdown rendering treats single newlines as soft breaks within a paragraph; only double newlines (`\n\n`) create hard paragraph breaks. Glamour's rendering engine may collapse soft breaks depending on context.
+- **Fix**: Test data for glamour rendering should use `\n\n` (paragraph separators) instead of `\n` (line breaks) when the test needs to ensure a specific number of rendered lines. For example: `strings.Join(lines, "\n\n")` instead of `strings.Join(lines, "\n")`.
+- **Rule**: When writing tests for glamour-rendered content, use double newlines (`\n\n`) between lines to ensure consistent rendering and predictable line counts. Single newlines are unreliable because markdown treats them as soft breaks that may be collapsed.

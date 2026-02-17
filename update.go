@@ -246,17 +246,17 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = loadingMode
 		b.statusBar.ClearMessage()
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
-	case "l":
+	case "l", "right":
 		b.detailFocused = true
 		b.statusBar.SetActionHints(detailFocusHints)
-	case "shift+tab", "left":
+	case "shift+tab":
 		if b.ActiveTab > 0 {
 			b.ActiveTab--
 			b.Columns[b.ActiveTab].ScrollOffset = 0
 			b.detailScrollOffset = 0
 			b.clampScrollOffset()
 		}
-	case "tab", "right":
+	case "tab":
 		if b.ActiveTab < len(b.Columns)-1 {
 			b.ActiveTab++
 			b.Columns[b.ActiveTab].ScrollOffset = 0
@@ -320,7 +320,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = loadingMode
 		b.statusBar.ClearMessage()
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
-	case "h":
+	case "h", "left":
 		b.detailFocused = false
 		b.statusBar.SetActionHints(b.normalHints)
 	case "j", "down":
@@ -329,7 +329,20 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			card := col.Cards[col.Cursor]
 			if card.Body != "" {
 				maxLines := strings.Count(card.Body, "\n") + 1
-				if b.detailScrollOffset < maxLines {
+				panelHeight := b.Height - 6
+				if panelHeight < 1 {
+					panelHeight = 1
+				}
+				headerLines := 3
+				availableBodyLines := panelHeight - headerLines
+				if availableBodyLines < 1 {
+					availableBodyLines = 1
+				}
+				maxOffset := maxLines - availableBodyLines
+				if maxOffset < 0 {
+					maxOffset = 0
+				}
+				if b.detailScrollOffset < maxOffset {
 					b.detailScrollOffset++
 				}
 			}
@@ -338,7 +351,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.detailScrollOffset > 0 {
 			b.detailScrollOffset--
 		}
-	case "tab", "right":
+	case "tab":
 		if b.ActiveTab < len(b.Columns)-1 {
 			b.detailFocused = false
 			b.detailScrollOffset = 0
@@ -347,7 +360,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.Columns[b.ActiveTab].ScrollOffset = 0
 			b.clampScrollOffset()
 		}
-	case "shift+tab", "left":
+	case "shift+tab":
 		if b.ActiveTab > 0 {
 			b.detailFocused = false
 			b.detailScrollOffset = 0
