@@ -12,11 +12,11 @@ import (
 
 // Package-level styles.
 var (
-	activeTabStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	activeTabStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	inactiveTabStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	selectedCardStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	selectedCardStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	detailTitleStyle  = lipgloss.NewStyle().Bold(true)
-	leftPanelStyle    = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("205"))
+	leftPanelStyle    = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("15"))
 	rightPanelStyle   = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	outerStyle        = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
@@ -28,6 +28,13 @@ var normalModeHints = []Hint{
 	{Key: "c", Desc: "Config"},
 	{Key: "r", Desc: "Refresh"},
 	{Key: "q", Desc: "Quit"},
+}
+
+// detailFocusHints are the status bar hints shown when the detail panel is focused.
+var detailFocusHints = []Hint{
+	{Key: "j/k", Desc: "Scroll"},
+	{Key: "h", Desc: "Back"},
+	{Key: "esc", Desc: "Back"},
 }
 
 // boardMode represents the current interaction mode of the board.
@@ -47,6 +54,7 @@ type Card struct {
 	Number int
 	Title  string
 	Labels []string
+	Body   string
 }
 
 // actionResultMsg is sent when an async shell action completes.
@@ -114,9 +122,11 @@ type Board struct {
 	providerIndex   int
 	repoInput       textinput.Model
 	configFocus     int
-	configLocalPath string
-	firstLaunch     bool
-	ConfigSaved     bool
+	configLocalPath    string
+	firstLaunch        bool
+	ConfigSaved        bool
+	detailFocused      bool
+	detailScrollOffset int
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).

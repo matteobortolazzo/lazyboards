@@ -22,8 +22,8 @@ func NewFakeProvider() *FakeProvider {
 			{
 				Title: "New",
 				Cards: []Card{
-					{Number: 1, Title: "Setup CI", Labels: []string{"infra"}},
-					{Number: 2, Title: "Data model", Labels: []string{"design"}},
+					{Number: 1, Title: "Setup CI", Labels: []string{"infra"}, Body: "Configure GitHub Actions for CI pipeline."},
+					{Number: 2, Title: "Data model", Labels: []string{"design"}, Body: "Design the core data model for boards and cards."},
 					{Number: 3, Title: "Add README", Labels: []string{"docs"}},
 				},
 			},

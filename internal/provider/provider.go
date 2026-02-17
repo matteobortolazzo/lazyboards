@@ -7,6 +7,7 @@ type Card struct {
 	Number int
 	Title  string
 	Labels []string
+	Body   string
 }
 
 // Column represents a Kanban column containing cards.

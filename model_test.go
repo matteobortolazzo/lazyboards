@@ -184,8 +184,8 @@ func TestErrorMode_Q_Quits(t *testing.T) {
 func TestLoadingMode_IgnoresNavigationKeys(t *testing.T) {
 	b := newTestBoard(t)
 	origTab := b.ActiveTab
-	b = sendKey(t, b, keyMsg("h"))
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("k"))
 	if b.ActiveTab != origTab {
@@ -305,7 +305,7 @@ func TestNewBoard_ColumnCursorsStartAtZero(t *testing.T) {
 
 func TestTabNavigation_L_MovesRight(t *testing.T) {
 	b := newLoadedTestBoard(t)
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	if b.ActiveTab != 1 {
 		t.Errorf("after 'l': ActiveTab = %d, want 1", b.ActiveTab)
 	}
@@ -314,8 +314,8 @@ func TestTabNavigation_L_MovesRight(t *testing.T) {
 func TestTabNavigation_H_MovesLeft(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	// Move right first so we can move left
-	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	if b.ActiveTab != 0 {
 		t.Errorf("after 'l' then 'h': ActiveTab = %d, want 0", b.ActiveTab)
 	}
@@ -341,7 +341,7 @@ func TestTabNavigation_LeftArrow_MovesLeft(t *testing.T) {
 func TestTabNavigation_H_ClampsAtStart(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	// Already at column 0, pressing h should stay at 0
-	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	if b.ActiveTab != 0 {
 		t.Errorf("'h' at column 0: ActiveTab = %d, want 0", b.ActiveTab)
 	}
@@ -355,7 +355,7 @@ func TestTabNavigation_L_ClampsAtEnd(t *testing.T) {
 	lastColumn := len(b.Columns) - 1
 	// Move to the last column and then one more
 	for i := 0; i < len(b.Columns); i++ {
-		b = sendKey(t, b, keyMsg("l"))
+		b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	}
 	if b.ActiveTab != lastColumn {
 		t.Errorf("pressing 'l' past end: ActiveTab = %d, want %d", b.ActiveTab, lastColumn)
@@ -371,7 +371,7 @@ func TestTabNavigation_FullTraversal(t *testing.T) {
 
 	// Move all the way right
 	for i := 0; i < lastColumn; i++ {
-		b = sendKey(t, b, keyMsg("l"))
+		b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	}
 	if b.ActiveTab != lastColumn {
 		t.Errorf("after traversing right: ActiveTab = %d, want %d", b.ActiveTab, lastColumn)
@@ -379,7 +379,7 @@ func TestTabNavigation_FullTraversal(t *testing.T) {
 
 	// Move all the way back left
 	for i := 0; i < lastColumn; i++ {
-		b = sendKey(t, b, keyMsg("h"))
+		b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	}
 	if b.ActiveTab != 0 {
 		t.Errorf("after traversing back left: ActiveTab = %d, want 0", b.ActiveTab)
@@ -469,7 +469,7 @@ func TestItemNavigation_CursorIsPerColumn(t *testing.T) {
 	// Move cursor down in column 0
 	b = sendKey(t, b, keyMsg("j"))
 	// Switch to column 1
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	// Column 1 cursor should still be at 0
 	cursor := b.Columns[b.ActiveTab].Cursor
 	if cursor != 0 {
@@ -571,7 +571,7 @@ func TestView_OnlyActiveTabCardsVisible(t *testing.T) {
 	b.Height = 40
 
 	// Switch to tab 1 (Refined)
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	view := b.View()
 
 	// Cards from tab 0 (New) should NOT be visible
@@ -653,11 +653,11 @@ func TestCreateMode_BlocksNavigation(t *testing.T) {
 	origCursor := b.Columns[b.ActiveTab].Cursor
 
 	// h, l should not change ActiveTab
-	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	if b.ActiveTab != origTab {
 		t.Errorf("'h' in createMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
 	}
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	if b.ActiveTab != origTab {
 		t.Errorf("'l' in createMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
 	}
@@ -1456,7 +1456,7 @@ func TestScroll_OffsetResetsOnTabSwitch(t *testing.T) {
 	}
 
 	// Switch to column B.
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 
 	// Column B should have ScrollOffset appropriate for its cursor position.
 	// Since Column B cursor starts at 0 and has only 1 card, offset should be 0.
@@ -2163,11 +2163,11 @@ func TestConfigMode_BlocksNavigation(t *testing.T) {
 	origCursor := b.Columns[b.ActiveTab].Cursor
 
 	// h, l should NOT navigate the board tabs.
-	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	if b.ActiveTab != origTab {
 		t.Errorf("'h' in configMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
 	}
-	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	if b.ActiveTab != origTab {
 		t.Errorf("'l' in configMode changed ActiveTab to %d, want %d", b.ActiveTab, origTab)
 	}
@@ -2358,5 +2358,430 @@ func TestConfigMode_PrePopulatesRepoFromRuntime(t *testing.T) {
 	b = sendKey(t, b, keyMsg("c"))
 	if b.repoInput.Value() != "myowner/myrepo" {
 		t.Errorf("repoInput.Value() = %q after 'c', want %q", b.repoInput.Value(), "myowner/myrepo")
+	}
+}
+
+// --- Detail Panel: Card Body ---
+
+// newBoardWithBody creates a Board with one column containing two cards.
+// The first card has body1 as its body text; the second card has body2.
+func newBoardWithBody(t *testing.T, body1, body2 string) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, "", "", "", false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: "Card One", Labels: []string{"bug"}, Body: body1},
+				{Number: 2, Title: "Card Two", Labels: []string{"feature"}, Body: body2},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
+func TestView_DetailPanelShowsCardBody(t *testing.T) {
+	bodyText := "This is the card description with important details."
+	b := newBoardWithBody(t, bodyText, "other body")
+
+	view := b.View()
+
+	// The detail panel should display the body text of the selected card.
+	if !strings.Contains(view, bodyText) {
+		t.Errorf("View() detail panel does not contain card body %q", bodyText)
+	}
+}
+
+func TestView_DetailPanelEmptyBody_NoExtraSpace(t *testing.T) {
+	b := newBoardWithBody(t, "", "")
+
+	view := b.View()
+
+	// With an empty body, the view should still render without errors.
+	// The detail panel should show the card title and labels but no body content.
+	selectedCard := b.Columns[b.ActiveTab].Cards[0]
+	titleStr := fmt.Sprintf("#%d %s", selectedCard.Number, selectedCard.Title)
+	if !strings.Contains(view, titleStr) {
+		t.Errorf("View() detail panel does not contain card title %q", titleStr)
+	}
+
+	// Count occurrences of consecutive newlines in the detail area.
+	// An empty body should not produce extra blank lines (e.g., "\n\n\n").
+	if strings.Contains(view, "\n\n\n") {
+		t.Error("View() detail panel has excessive blank lines when body is empty")
+	}
+}
+
+func TestView_DetailPanelBodyUpdatesOnNavigation(t *testing.T) {
+	firstBody := "Description of the first card."
+	secondBody := "Description of the second card."
+	b := newBoardWithBody(t, firstBody, secondBody)
+
+	// Initially, the first card is selected.
+	view := b.View()
+	if !strings.Contains(view, firstBody) {
+		t.Errorf("View() detail panel does not contain first card body %q", firstBody)
+	}
+
+	// Navigate down to the second card.
+	b = sendKey(t, b, keyMsg("j"))
+	view = b.View()
+
+	// The second card's body should now appear.
+	if !strings.Contains(view, secondBody) {
+		t.Errorf("View() detail panel does not contain second card body %q after navigation", secondBody)
+	}
+
+	// The first card's body should no longer be visible (it's unique text).
+	if strings.Contains(view, firstBody) {
+		t.Errorf("View() detail panel still contains first card body %q after navigating away", firstBody)
+	}
+}
+
+// --- Detail Panel Focus: Focus Switching ---
+
+func TestDetailFocus_LKey_FocusesDetailPanel(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Press 'l' to focus the detail panel.
+	b = sendKey(t, b, keyMsg("l"))
+
+	if !b.detailFocused {
+		t.Error("after 'l': detailFocused should be true")
+	}
+}
+
+func TestDetailFocus_HKey_ReturnsFocusToCardList(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Enter detail focus with 'l', then exit with 'h'.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("h"))
+
+	if b.detailFocused {
+		t.Error("after 'l' then 'h': detailFocused should be false")
+	}
+}
+
+func TestDetailFocus_Escape_ReturnsFocusToCardList(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Enter detail focus with 'l', then exit with Escape.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	if b.detailFocused {
+		t.Error("after 'l' then Escape: detailFocused should be false")
+	}
+}
+
+func TestDetailFocus_Tab_ReturnsFocusAndSwitchesColumn(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	initialTab := b.ActiveTab
+
+	// Enter detail focus with 'l', then press Tab.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+
+	if b.detailFocused {
+		t.Error("after Tab in detail focus: detailFocused should be false")
+	}
+	if b.ActiveTab != initialTab+1 {
+		t.Errorf("after Tab in detail focus: ActiveTab = %d, want %d", b.ActiveTab, initialTab+1)
+	}
+}
+
+func TestDetailFocus_ShiftTab_ReturnsFocusAndSwitchesColumn(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Move to column 1 first so Shift+Tab can decrement.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	if b.ActiveTab != 1 {
+		t.Fatalf("precondition: ActiveTab = %d, want 1", b.ActiveTab)
+	}
+
+	// Enter detail focus with 'l', then press Shift+Tab.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
+
+	if b.detailFocused {
+		t.Error("after Shift+Tab in detail focus: detailFocused should be false")
+	}
+	if b.ActiveTab != 0 {
+		t.Errorf("after Shift+Tab in detail focus: ActiveTab = %d, want 0", b.ActiveTab)
+	}
+}
+
+// --- Detail Panel Focus: Scroll ---
+
+func TestDetailFocus_JKey_ScrollsDown(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Record the card cursor before entering detail focus.
+	cursorBefore := b.Columns[b.ActiveTab].Cursor
+
+	// Enter detail focus, then press 'j' to scroll down.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("j"))
+
+	// detailScrollOffset should increment.
+	if b.detailScrollOffset < 1 {
+		t.Errorf("detailScrollOffset = %d after 'j' in detail focus, want >= 1", b.detailScrollOffset)
+	}
+
+	// Card cursor should NOT change when in detail focus.
+	cursorAfter := b.Columns[b.ActiveTab].Cursor
+	if cursorAfter != cursorBefore {
+		t.Errorf("card cursor changed from %d to %d during detail scroll, want unchanged", cursorBefore, cursorAfter)
+	}
+}
+
+func TestDetailFocus_KKey_ScrollsUp(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Enter detail focus, scroll down twice, then scroll up once.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	offsetAfterDown := b.detailScrollOffset
+
+	b = sendKey(t, b, keyMsg("k"))
+
+	if b.detailScrollOffset >= offsetAfterDown {
+		t.Errorf("detailScrollOffset = %d after 'k', want less than %d", b.detailScrollOffset, offsetAfterDown)
+	}
+}
+
+func TestDetailFocus_KKey_ClampsAtZero(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Enter detail focus and press 'k' without scrolling down first.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("k"))
+
+	if b.detailScrollOffset < 0 {
+		t.Errorf("detailScrollOffset = %d after 'k' at top, want >= 0 (should not go negative)", b.detailScrollOffset)
+	}
+}
+
+func TestDetailFocus_ScrollOffsetResetsOnCardChange(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Enter detail focus, scroll down.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+
+	if b.detailScrollOffset == 0 {
+		t.Fatal("precondition: detailScrollOffset should be > 0 after scrolling")
+	}
+
+	// Exit detail focus with 'h', then navigate to a different card with 'j'.
+	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, keyMsg("j"))
+
+	if b.detailScrollOffset != 0 {
+		t.Errorf("detailScrollOffset = %d after changing card, want 0 (should reset)", b.detailScrollOffset)
+	}
+}
+
+func TestDetailFocus_ScrollOffsetResetsOnRefresh(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Enter detail focus, scroll down.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+
+	if b.detailScrollOffset == 0 {
+		t.Fatal("precondition: detailScrollOffset should be > 0 after scrolling")
+	}
+
+	// Exit detail focus and refresh.
+	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, keyMsg("r"))
+
+	// Simulate the board being fetched again.
+	p := provider.NewFakeProvider()
+	board, err := p.FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+
+	if b.detailScrollOffset != 0 {
+		t.Errorf("detailScrollOffset = %d after board refresh, want 0 (should reset)", b.detailScrollOffset)
+	}
+}
+
+// --- Detail Panel Focus: View ---
+
+func TestView_DetailFocused_BorderHighlighted(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Enter detail focus.
+	b = sendKey(t, b, keyMsg("l"))
+
+	// When detail panel is focused, the view should render.
+	// We verify that the model state is set correctly.
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true")
+	}
+
+	view := b.View()
+	// The view should render without panic when detailFocused is true.
+	if strings.TrimSpace(view) == "" {
+		t.Error("View() should not be empty when detail panel is focused")
+	}
+}
+
+func TestView_DetailUnfocused_BorderDim(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Without entering detail focus, the default state.
+	if b.detailFocused {
+		t.Fatal("precondition: detailFocused should be false by default")
+	}
+
+	view := b.View()
+	if strings.TrimSpace(view) == "" {
+		t.Error("View() should not be empty in default (unfocused) state")
+	}
+}
+
+func TestView_DetailFocused_StatusBarShowsDetailHints(t *testing.T) {
+	b := newBoardWithBody(t, "Some body", "Other body")
+
+	// Enter detail focus.
+	b = sendKey(t, b, keyMsg("l"))
+
+	view := b.View()
+
+	// Status bar should show detail-specific hints.
+	if !strings.Contains(view, "j/k: Scroll") {
+		t.Errorf("View() in detail focus should contain %q in status bar", "j/k: Scroll")
+	}
+	if !strings.Contains(view, "h: Back") {
+		t.Errorf("View() in detail focus should contain %q in status bar", "h: Back")
+	}
+
+	// Normal-mode hints should NOT appear.
+	if strings.Contains(view, "n: New") {
+		t.Errorf("View() in detail focus should NOT contain normal hint %q", "n: New")
+	}
+}
+
+func TestView_GlamourRendersMarkdown(t *testing.T) {
+	markdownBody := "This has **bold** text and a list:\n- item one\n- item two"
+	b := newBoardWithBody(t, markdownBody, "")
+
+	// Enter detail focus to trigger glamour rendering.
+	b = sendKey(t, b, keyMsg("l"))
+
+	view := b.View()
+
+	// The raw markdown syntax should NOT appear.
+	if strings.Contains(view, "**bold**") {
+		t.Error("View() should not contain raw markdown '**bold**' - glamour should render it")
+	}
+
+	// The word "bold" should still be present (rendered without markdown syntax).
+	if !strings.Contains(view, "bold") {
+		t.Error("View() should contain the word 'bold' (rendered from markdown)")
+	}
+}
+
+// --- Fix: Scroll offset upper bound ---
+
+func TestDetailFocus_JKey_ClampsAtMaxLines(t *testing.T) {
+	// Use a short body so we can verify scrolling stops at the end.
+	shortBody := "line one\nline two"
+	b := newBoardWithBody(t, shortBody, "")
+
+	// Enter detail focus.
+	b = sendKey(t, b, keyMsg("l"))
+
+	// Press 'j' many times (more than the number of lines).
+	for i := 0; i < 100; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	// The offset should be capped; it should not grow unboundedly.
+	// With a 2-line body, the offset should not exceed the line count.
+	bodyLineCount := strings.Count(shortBody, "\n") + 1
+	if b.detailScrollOffset > bodyLineCount {
+		t.Errorf("detailScrollOffset = %d after excessive scrolling, want <= %d (body line count)", b.detailScrollOffset, bodyLineCount)
+	}
+}
+
+// --- Fix: Tab/Shift+Tab at column boundaries ---
+
+func TestDetailFocus_Tab_AtLastColumn_StaysFocused(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Navigate to the last column.
+	lastCol := len(b.Columns) - 1
+	for b.ActiveTab < lastCol {
+		b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	}
+	if b.ActiveTab != lastCol {
+		t.Fatalf("precondition: ActiveTab = %d, want %d (last column)", b.ActiveTab, lastCol)
+	}
+
+	// Enter detail focus.
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true")
+	}
+
+	// Press Tab at the last column boundary.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+
+	// Should stay on last column and remain in detail focus.
+	if b.ActiveTab != lastCol {
+		t.Errorf("after Tab at last column: ActiveTab = %d, want %d (should not change)", b.ActiveTab, lastCol)
+	}
+	if !b.detailFocused {
+		t.Error("after Tab at last column: detailFocused should remain true (no column to switch to)")
+	}
+}
+
+func TestDetailFocus_ShiftTab_AtFirstColumn_StaysFocused(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	if b.ActiveTab != 0 {
+		t.Fatalf("precondition: ActiveTab = %d, want 0 (first column)", b.ActiveTab)
+	}
+
+	// Enter detail focus.
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true")
+	}
+
+	// Press Shift+Tab at the first column boundary.
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
+
+	// Should stay on first column and remain in detail focus.
+	if b.ActiveTab != 0 {
+		t.Errorf("after Shift+Tab at first column: ActiveTab = %d, want 0 (should not change)", b.ActiveTab)
+	}
+	if !b.detailFocused {
+		t.Error("after Shift+Tab at first column: detailFocused should remain true (no column to switch to)")
 	}
 }
