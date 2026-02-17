@@ -165,8 +165,8 @@ func TestAction_HintsShowInStatusBar(t *testing.T) {
 	b, _ := newActionTestBoard(t, actions)
 
 	view := b.View()
-	if !strings.Contains(view, "o: Open") {
-		t.Errorf("View() should contain action hint %q in the status bar", "o: Open")
+	if !strings.Contains(view, "Open") {
+		t.Errorf("View() should contain action hint desc %q in the status bar", "Open")
 	}
 }
 

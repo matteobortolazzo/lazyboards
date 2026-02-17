@@ -73,7 +73,7 @@ func (b Board) View() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
 	// Help bar.
-	helpBar := helpStyle.Render(b.statusBar.View())
+	helpBar := b.statusBar.View()
 
 	// Assemble inner content.
 	inner := lipgloss.JoinVertical(lipgloss.Left, panels, helpBar)
@@ -209,10 +209,28 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		if hasPR {
 			text += " \ue728"
 		}
+		for range card.Labels {
+			text += " \u25cf"
+		}
 		lines := wrapTitle(text, contentWidth, len([]rune(prefix)))
+		// Style PR indicator.
 		if hasPR && len(lines) > 0 {
 			last := len(lines) - 1
 			lines[last] = strings.Replace(lines[last], "\ue728", prIndicatorStyle.Render("\ue728"), 1)
+		}
+		// Style label dots with per-label colors.
+		for _, label := range card.Labels {
+			styledDot := lipgloss.NewStyle().Foreground(labelColor(label)).Render("\u25cf")
+			for li := range lines {
+				if strings.Contains(lines[li], "\u25cf") {
+					lines[li] = strings.Replace(lines[li], "\u25cf", styledDot, 1)
+					break
+				}
+			}
+		}
+		// Dim card number on non-selected cards.
+		if j != col.Cursor && len(lines) > 0 {
+			lines[0] = strings.Replace(lines[0], prefix, cardNumberStyle.Render(prefix), 1)
 		}
 		allCards = append(allCards, wrappedCard{lines: lines, selected: j == col.Cursor})
 	}
@@ -301,7 +319,7 @@ func countWrappedLines(text string, width int) int {
 // accounting for title/label wrapping at the given content width.
 func detailHeaderLineCount(card Card, contentWidth int) int {
 	titleText := fmt.Sprintf("#%d %s", card.Number, card.Title)
-	labelsText := fmt.Sprintf("Labels: %s", strings.Join(card.Labels, ", "))
+	labelsText := strings.Join(card.Labels, "  ")
 	return countWrappedLines(titleText, contentWidth) + countWrappedLines(labelsText, contentWidth) + 1 // +1 blank separator
 }
 
@@ -318,8 +336,12 @@ func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style l
 	var rightContent string
 	if len(col.Cards) > 0 {
 		card := col.Cards[col.Cursor]
+		var styledLabels []string
+		for _, label := range card.Labels {
+			styledLabels = append(styledLabels, lipgloss.NewStyle().Foreground(labelColor(label)).Render(label))
+		}
 		rightContent = detailTitleStyle.Render(fmt.Sprintf("#%d %s", card.Number, card.Title)) +
-			"\n" + fmt.Sprintf("Labels: %s", strings.Join(card.Labels, ", "))
+			"\n" + strings.Join(styledLabels, "  ")
 		if card.Body != "" {
 			if cachedGlamourRenderer == nil || cachedGlamourRendererWidth != contentWidth {
 				mdStyle := styles.DarkStyleConfig
@@ -419,7 +441,7 @@ func (b Board) viewCreateModal() string {
 		modalContent = "New Card\n\n" +
 			"Title:\n" + b.titleInput.View() + errLine + "\n\n" +
 			"Label:\n" + b.labelInput.View() + "\n\n" +
-			helpStyle.Render(createHints.View())
+			createHints.View()
 	}
 
 	modalStyle := lipgloss.NewStyle().
@@ -452,7 +474,7 @@ func (b Board) viewConfigModal() string {
 	modalContent := "Configuration\n\n" +
 		"Provider:\n" + providerDisplay + "\n\n" +
 		"Repo:\n" + repoView + errLine + "\n\n" +
-		helpStyle.Render(configHints.View())
+		configHints.View()
 
 	modalStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
@@ -475,7 +497,7 @@ func (b Board) viewPRPickerModal() string {
 	pickerHints := NewStatusBar(prPickerHints)
 	modalContent := "Select PR\n\n" +
 		prDisplay + "\n\n" +
-		helpStyle.Render(pickerHints.View())
+		pickerHints.View()
 
 	modalStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
