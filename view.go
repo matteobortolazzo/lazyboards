@@ -209,6 +209,16 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		if hasPR {
 			text += " \ue728"
 		}
+		hasWorking := false
+		for _, label := range card.Labels {
+			if label == "Working" {
+				hasWorking = true
+				break
+			}
+		}
+		if hasWorking {
+			text += " \uf110"
+		}
 		for range card.Labels {
 			text += " \u25cf"
 		}
@@ -217,6 +227,11 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		if hasPR && len(lines) > 0 {
 			last := len(lines) - 1
 			lines[last] = strings.Replace(lines[last], "\ue728", prIndicatorStyle.Render("\ue728"), 1)
+		}
+		// Style Working indicator.
+		if hasWorking && len(lines) > 0 {
+			last := len(lines) - 1
+			lines[last] = strings.Replace(lines[last], "\uf110", workingIndicatorStyle.Render("\uf110"), 1)
 		}
 		// Style label dots with per-label colors.
 		for _, label := range card.Labels {
