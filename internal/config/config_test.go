@@ -9,27 +9,42 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func TestLoad_ValidGlobalConfig(t *testing.T) {
+func loadConfigFromStrings(t *testing.T, globalYAML, localYAML string) (Config, error) {
+	t.Helper()
 	dir := t.TempDir()
 	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
 
-	cfg := Config{
-		Provider: "github",
-		Repo:     "owner/repo",
-		Project:  "my-project",
-	}
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		t.Fatalf("failed to marshal test config: %v", err)
-	}
-	if err := os.WriteFile(globalPath, data, 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
+	if globalYAML != "" {
+		if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+			t.Fatalf("failed to write global config: %v", err)
+		}
+	} else {
+		globalPath = filepath.Join(dir, "nonexistent-global.yml")
 	}
 
-	result, err := Load(globalPath, filepath.Join(dir, "nonexistent.yml"))
+	if localYAML != "" {
+		if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+			t.Fatalf("failed to write local config: %v", err)
+		}
+	} else {
+		localPath = filepath.Join(dir, "nonexistent-local.yml")
+	}
+
+	return Load(globalPath, localPath)
+}
+
+func mustLoadConfig(t *testing.T, globalYAML, localYAML string) Config {
+	t.Helper()
+	cfg, err := loadConfigFromStrings(t, globalYAML, localYAML)
 	if err != nil {
 		t.Fatalf("Load() returned unexpected error: %v", err)
 	}
+	return cfg
+}
+
+func TestLoad_ValidGlobalConfig(t *testing.T) {
+	result := mustLoadConfig(t, "provider: github\nrepo: owner/repo\nproject: my-project\n", "")
 
 	if result.Provider != "github" {
 		t.Errorf("Provider = %q, want %q", result.Provider, "github")
@@ -43,14 +58,7 @@ func TestLoad_ValidGlobalConfig(t *testing.T) {
 }
 
 func TestLoad_MissingGlobalFile_ReturnsDefaults(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "no-such-global.yml")
-	localPath := filepath.Join(dir, "no-such-local.yml")
-
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, "", "")
 
 	if result.Provider != "" {
 		t.Errorf("Provider = %q, want empty string", result.Provider)
@@ -73,33 +81,10 @@ func TestLoad_MissingGlobalFile_ReturnsDefaults(t *testing.T) {
 }
 
 func TestLoad_LocalOverridesGlobal(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
-	globalCfg := Config{
-		Provider: "github",
-		Repo:     "owner/repo",
-		Project:  "my-project",
-	}
-	globalData, err := yaml.Marshal(globalCfg)
-	if err != nil {
-		t.Fatalf("failed to marshal global config: %v", err)
-	}
-	if err := os.WriteFile(globalPath, globalData, 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-
-	// Local overrides repo
+	globalYAML := "provider: github\nrepo: owner/repo\nproject: my-project\n"
 	localYAML := "repo: other-owner/other-repo\n"
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	// Global values should be preserved
 	if result.Provider != "github" {
@@ -113,24 +98,10 @@ func TestLoad_LocalOverridesGlobal(t *testing.T) {
 }
 
 func TestLoad_LocalOverridesProvider(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := "provider: github\n"
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-
 	localYAML := "provider: ado\n"
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	if result.Provider != "ado" {
 		t.Errorf("Provider = %q, want %q (local should override global)", result.Provider, "ado")
@@ -138,26 +109,7 @@ func TestLoad_LocalOverridesProvider(t *testing.T) {
 }
 
 func TestLoad_MissingLocalFile_UsesGlobalOnly(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-
-	globalCfg := Config{
-		Provider: "github",
-		Repo:     "org/repo",
-		Project:  "board-1",
-	}
-	globalData, err := yaml.Marshal(globalCfg)
-	if err != nil {
-		t.Fatalf("failed to marshal global config: %v", err)
-	}
-	if err := os.WriteFile(globalPath, globalData, 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-
-	result, err := Load(globalPath, filepath.Join(dir, "missing-local.yml"))
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, "provider: github\nrepo: org/repo\nproject: board-1\n", "")
 
 	if result.Provider != "github" {
 		t.Errorf("Provider = %q, want %q", result.Provider, "github")
@@ -171,15 +123,7 @@ func TestLoad_MissingLocalFile_UsesGlobalOnly(t *testing.T) {
 }
 
 func TestLoad_BothMissing_ReturnsDefaults(t *testing.T) {
-	dir := t.TempDir()
-
-	result, err := Load(
-		filepath.Join(dir, "absent-global.yml"),
-		filepath.Join(dir, "absent-local.yml"),
-	)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, "", "")
 
 	if result.Provider != "" {
 		t.Errorf("Provider = %q, want empty string", result.Provider)
@@ -202,36 +146,19 @@ func TestLoad_BothMissing_ReturnsDefaults(t *testing.T) {
 }
 
 func TestLoad_InvalidYAML_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "bad.yml")
-
 	malformed := "provider: github\n  bad indent: [this is: not valid\n"
-	if err := os.WriteFile(globalPath, []byte(malformed), 0644); err != nil {
-		t.Fatalf("failed to write malformed config: %v", err)
-	}
 
-	_, err := Load(globalPath, filepath.Join(dir, "nonexistent.yml"))
+	_, err := loadConfigFromStrings(t, malformed, "")
 	if err == nil {
 		t.Error("Load() returned nil error for invalid YAML, want non-nil error")
 	}
 }
 
 func TestLoad_InvalidLocalYAML_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "bad-local.yml")
-
 	globalYAML := "provider: github\n"
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-
 	malformed := "columns: [this is: not valid\n  bad indent\n"
-	if err := os.WriteFile(localPath, []byte(malformed), 0644); err != nil {
-		t.Fatalf("failed to write malformed local config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, globalYAML, malformed)
 	if err == nil {
 		t.Error("Load() returned nil error for invalid local YAML, want non-nil error")
 	}
@@ -250,19 +177,10 @@ func TestDefaultGlobalPath_ContainsExpectedSuffix(t *testing.T) {
 }
 
 func TestLoad_UnknownYAMLFields_Ignored(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-
 	// A config file with unknown fields (e.g., "theme") should load successfully.
 	yamlContent := "provider: github\nrepo: owner/repo\ntheme: dark\n"
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, filepath.Join(dir, "nonexistent.yml"))
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error for config with unknown fields: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if result.Provider != "github" {
 		t.Errorf("Provider = %q, want %q", result.Provider, "github")
@@ -275,24 +193,14 @@ func TestLoad_UnknownYAMLFields_Ignored(t *testing.T) {
 // --- Column parsing and validation tests (ColumnConfig object format) ---
 
 func TestLoad_ParsesColumnConfigFromYAML(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 columns:
   - name: Todo
   - name: Doing
   - name: Done
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	expectedNames := []string{"Todo", "Doing", "Done"}
 	if len(result.Columns) != len(expectedNames) {
@@ -306,10 +214,6 @@ columns:
 }
 
 func TestLoad_ParsesColumnConfigWithActions(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 columns:
   - name: New
@@ -320,14 +224,8 @@ columns:
         type: shell
         command: "git checkout -b {title}"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if len(result.Columns) != 2 {
 		t.Fatalf("Columns count = %d, want 2", len(result.Columns))
@@ -364,10 +262,6 @@ columns:
 }
 
 func TestLoad_ColumnActionInvalidType_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 columns:
   - name: Implementing
@@ -377,11 +271,8 @@ columns:
         type: webhook
         command: "echo hello"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for invalid column action type")
 	}
@@ -392,10 +283,6 @@ columns:
 }
 
 func TestLoad_ColumnActionConflictsWithBuiltinKey_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 columns:
   - name: Implementing
@@ -405,11 +292,8 @@ columns:
         type: url
         url: "https://example.com"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for column action with built-in key")
 	}
@@ -420,10 +304,6 @@ columns:
 }
 
 func TestLoad_ColumnActionValidKey_AcceptsGlobalActionOverlap(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	// Column action key "o" overlaps with a global action key "o".
 	// This should be allowed -- column overrides at runtime (PR 2).
 	yamlContent := `provider: github
@@ -440,14 +320,8 @@ columns:
         type: url
         url: "https://column.example.com"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	// Both global and column actions should be parsed successfully.
 	if len(result.Actions) != 1 {
@@ -459,24 +333,14 @@ columns:
 }
 
 func TestLoad_ColumnWithoutActions_ParsesCorrectly(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 columns:
   - name: Backlog
   - name: In Progress
   - name: Done
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if len(result.Columns) != 3 {
 		t.Fatalf("Columns count = %d, want 3", len(result.Columns))
@@ -489,19 +353,9 @@ columns:
 }
 
 func TestLoad_OmittedColumns_UsesDefaults(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := "provider: github\nrepo: owner/repo\n"
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if len(result.Columns) != len(DefaultColumns) {
 		t.Fatalf("Columns count = %d, want %d (defaults)", len(result.Columns), len(DefaultColumns))
@@ -514,19 +368,9 @@ func TestLoad_OmittedColumns_UsesDefaults(t *testing.T) {
 }
 
 func TestLoad_EmptyColumnsList_UsesDefaults(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := "provider: github\ncolumns: []\n"
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if len(result.Columns) != len(DefaultColumns) {
 		t.Fatalf("Columns count = %d, want %d (defaults)", len(result.Columns), len(DefaultColumns))
@@ -539,10 +383,6 @@ func TestLoad_EmptyColumnsList_UsesDefaults(t *testing.T) {
 }
 
 func TestLoad_DuplicateColumns_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	// Case-insensitive duplicate: "Todo" and "todo"
 	yamlContent := `provider: github
 columns:
@@ -550,11 +390,8 @@ columns:
   - name: Doing
   - name: todo
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for duplicate columns")
 	}
@@ -565,22 +402,12 @@ columns:
 }
 
 func TestLoad_SingleColumn_Valid(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 columns:
   - name: Backlog
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if len(result.Columns) != 1 {
 		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
@@ -591,10 +418,6 @@ columns:
 }
 
 func TestLoad_LocalColumnsOverrideGlobal(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := `provider: github
 columns:
   - name: Global1
@@ -605,17 +428,8 @@ columns:
   - name: Local1
   - name: Local2
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	// Local columns should completely replace global columns.
 	expectedNames := []string{"Local1", "Local2"}
@@ -630,20 +444,13 @@ columns:
 }
 
 func TestLoad_WhitespaceOnlyColumnName_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 columns:
   - name: Todo
   - name: "  "
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for whitespace-only column name")
 	}
@@ -654,23 +461,13 @@ columns:
 }
 
 func TestLoad_ColumnNameWithWhitespace_Trimmed(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 columns:
   - name: " Todo "
   - name: "Doing "
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if result.Columns[0].Name != "Todo" {
 		t.Errorf("Columns[0].Name = %q, want %q (should be trimmed)", result.Columns[0].Name, "Todo")
@@ -716,10 +513,6 @@ func TestColumnNames_EmptyColumns_ReturnsEmptySlice(t *testing.T) {
 // --- Action parsing and validation tests ---
 
 func TestLoad_ParsesActionsFromYAML(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   o:
@@ -731,14 +524,8 @@ actions:
     type: shell
     command: "go test ./..."
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if len(result.Actions) != 2 {
 		t.Fatalf("Actions count = %d, want 2", len(result.Actions))
@@ -774,21 +561,11 @@ actions:
 }
 
 func TestLoad_NoActions_EmptyMap(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 repo: owner/repo
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if len(result.Actions) != 0 {
 		t.Errorf("Actions count = %d, want 0 for config without actions", len(result.Actions))
@@ -796,21 +573,14 @@ repo: owner/repo
 }
 
 func TestLoad_ActionMissingName_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   o:
     type: url
     url: "https://example.com"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for action missing name")
 	}
@@ -820,10 +590,6 @@ actions:
 }
 
 func TestLoad_ActionInvalidType_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   o:
@@ -831,11 +597,8 @@ actions:
     type: webhook
     url: "https://example.com"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for invalid action type")
 	}
@@ -845,21 +608,14 @@ actions:
 }
 
 func TestLoad_ActionMissingType_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   o:
     name: No type action
     url: "https://example.com"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for action missing type")
 	}
@@ -869,21 +625,14 @@ actions:
 }
 
 func TestLoad_ActionURLType_MissingURL_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   o:
     name: Open
     type: url
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for url type missing url field")
 	}
@@ -893,21 +642,14 @@ actions:
 }
 
 func TestLoad_ActionShellType_MissingCommand_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   x:
     name: Run tests
     type: shell
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for shell type missing command field")
 	}
@@ -917,10 +659,6 @@ actions:
 }
 
 func TestLoad_ActionKeyMultipleChars_ReturnsError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   open:
@@ -928,11 +666,8 @@ actions:
     type: url
     url: "https://example.com"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for multi-character action key")
 	}
@@ -947,10 +682,6 @@ func TestLoad_ActionConflictsWithBuiltinKey_ReturnsError(t *testing.T) {
 
 	for _, key := range builtinKeys {
 		t.Run("key_"+key, func(t *testing.T) {
-			dir := t.TempDir()
-			globalPath := filepath.Join(dir, "global.yml")
-			localPath := filepath.Join(dir, "nonexistent.yml")
-
 			yamlContent := `provider: github
 actions:
   ` + key + `:
@@ -958,11 +689,8 @@ actions:
     type: url
     url: "https://example.com"
 `
-			if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-				t.Fatalf("failed to write config: %v", err)
-			}
 
-			_, err := Load(globalPath, localPath)
+			_, err := loadConfigFromStrings(t, yamlContent, "")
 			if err == nil {
 				t.Fatalf("Load() returned nil error, want error for built-in key %q", key)
 			}
@@ -975,10 +703,6 @@ actions:
 }
 
 func TestLoad_ValidURLAction_NoError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   o:
@@ -986,14 +710,8 @@ actions:
     type: url
     url: "https://example.com/{id}"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if len(result.Actions) != 1 {
 		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
@@ -1005,10 +723,6 @@ actions:
 }
 
 func TestLoad_ValidShellAction_NoError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   x:
@@ -1016,14 +730,8 @@ actions:
     type: shell
     command: "go test ./..."
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if len(result.Actions) != 1 {
 		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
@@ -1035,10 +743,6 @@ actions:
 }
 
 func TestLoad_ActionURLType_WithExtraCommand_NoError(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   o:
@@ -1047,14 +751,8 @@ actions:
     url: "https://example.com"
     command: "echo extra"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error for url type with extra command: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if len(result.Actions) != 1 {
 		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
@@ -1062,10 +760,6 @@ actions:
 }
 
 func TestLoad_LocalActionsOverrideGlobal(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := `provider: github
 actions:
   o:
@@ -1079,17 +773,8 @@ actions:
     type: url
     url: "https://local.example.com"
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	if len(result.Actions) != 1 {
 		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
@@ -1105,10 +790,6 @@ actions:
 }
 
 func TestLoad_GlobalAndLocalActionsMerge(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := `provider: github
 actions:
   o:
@@ -1122,17 +803,8 @@ actions:
     type: shell
     command: "make build"
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	if len(result.Actions) != 2 {
 		t.Fatalf("Actions count = %d, want 2 (merged global + local)", len(result.Actions))
@@ -1147,10 +819,6 @@ actions:
 }
 
 func TestLoad_GlobalOnlyActions(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	globalYAML := `provider: github
 actions:
   o:
@@ -1158,14 +826,8 @@ actions:
     type: url
     url: "https://example.com"
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, "")
 
 	if len(result.Actions) != 1 {
 		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
@@ -1176,10 +838,6 @@ actions:
 }
 
 func TestLoad_LocalOnlyActions(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "nonexistent-global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	localYAML := `provider: github
 actions:
   x:
@@ -1187,14 +845,8 @@ actions:
     type: shell
     command: "make test"
 `
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, "", localYAML)
 
 	if len(result.Actions) != 1 {
 		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
@@ -1424,10 +1076,6 @@ func TestLocalExists_ReturnsFalseForMissingFile(t *testing.T) {
 
 func TestLoad_ActionConflictsWithConfigKey_ReturnsError(t *testing.T) {
 	// "c" is now a built-in key for config popup, so it should conflict.
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := `provider: github
 actions:
   c:
@@ -1435,11 +1083,8 @@ actions:
     type: url
     url: "https://example.com"
 `
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	_, err := Load(globalPath, localPath)
+	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for built-in key \"c\"")
 	}
@@ -1452,10 +1097,6 @@ actions:
 // --- Per-column action merging tests (#71) ---
 
 func TestLoad_ColumnActionsMerge_LocalOverridesGlobal(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := `provider: github
 columns:
   - name: Implementing
@@ -1473,17 +1114,8 @@ columns:
         type: shell
         command: "git switch -c {title}"
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	if len(result.Columns) != 1 {
 		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
@@ -1507,10 +1139,6 @@ columns:
 }
 
 func TestLoad_ColumnActionsMerge_GlobalOnlyKeysPreserved(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := `provider: github
 columns:
   - name: Implementing
@@ -1532,17 +1160,8 @@ columns:
         type: shell
         command: "git switch -c {title}"
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	if len(result.Columns) != 1 {
 		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
@@ -1573,10 +1192,6 @@ columns:
 }
 
 func TestLoad_ColumnActionsMerge_NilActionsInheritsGlobal(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := `provider: github
 columns:
   - name: Implementing
@@ -1594,17 +1209,8 @@ columns:
 	localYAML := `columns:
   - name: Implementing
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	if len(result.Columns) != 1 {
 		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
@@ -1624,10 +1230,6 @@ columns:
 }
 
 func TestLoad_ColumnActionsMerge_EmptyActionsGetsNone(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := `provider: github
 columns:
   - name: Implementing
@@ -1642,17 +1244,8 @@ columns:
   - name: Implementing
     actions: {}
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	if len(result.Columns) != 1 {
 		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
@@ -1666,10 +1259,6 @@ columns:
 }
 
 func TestLoad_ColumnActionsMerge_NoGlobalMatch(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := `provider: github
 columns:
   - name: Backlog
@@ -1688,17 +1277,8 @@ columns:
         type: shell
         command: "echo custom"
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	// Local columns replace global entirely, so only "Custom" should exist.
 	if len(result.Columns) != 1 {
@@ -1722,10 +1302,6 @@ columns:
 }
 
 func TestLoad_ColumnActionsMerge_CaseInsensitiveMatch(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	// Global uses lowercase "implementing".
 	globalYAML := `provider: github
 columns:
@@ -1749,17 +1325,8 @@ columns:
         type: shell
         command: "git switch -c {title}"
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	if len(result.Columns) != 1 {
 		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
@@ -1789,10 +1356,6 @@ columns:
 }
 
 func TestLoad_ColumnActionsMerge_GlobalColumnsWithActionsNoLocal(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := `provider: github
 columns:
   - name: Implementing
@@ -1806,17 +1369,8 @@ columns:
 	// Local has no columns field at all.
 	localYAML := `repo: local-owner/local-repo
 `
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	// Global columns should be preserved when local has no columns.
 	if len(result.Columns) != 2 {
@@ -1847,19 +1401,9 @@ columns:
 // --- SessionMaxLength config tests ---
 
 func TestLoad_SessionMaxLength_ParsesFromYAML(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := "provider: github\nsession_max_length: 50\n"
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if result.SessionMaxLength != 50 {
 		t.Errorf("SessionMaxLength = %d, want 50", result.SessionMaxLength)
@@ -1867,19 +1411,9 @@ func TestLoad_SessionMaxLength_ParsesFromYAML(t *testing.T) {
 }
 
 func TestLoad_SessionMaxLength_DefaultsWhenOmitted(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "nonexistent.yml")
-
 	yamlContent := "provider: github\n"
-	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatalf("failed to write config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, yamlContent, "")
 
 	if result.SessionMaxLength != DefaultSessionMaxLength {
 		t.Errorf("SessionMaxLength = %d, want %d (default)", result.SessionMaxLength, DefaultSessionMaxLength)
@@ -1887,23 +1421,10 @@ func TestLoad_SessionMaxLength_DefaultsWhenOmitted(t *testing.T) {
 }
 
 func TestLoad_SessionMaxLength_LocalOverridesGlobal(t *testing.T) {
-	dir := t.TempDir()
-	globalPath := filepath.Join(dir, "global.yml")
-	localPath := filepath.Join(dir, "local.yml")
-
 	globalYAML := "provider: github\nsession_max_length: 40\n"
 	localYAML := "session_max_length: 20\n"
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatalf("failed to write global config: %v", err)
-	}
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
 
-	result, err := Load(globalPath, localPath)
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
+	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	if result.SessionMaxLength != 20 {
 		t.Errorf("SessionMaxLength = %d, want 20 (local should override global)", result.SessionMaxLength)
