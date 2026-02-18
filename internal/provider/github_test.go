@@ -18,14 +18,16 @@ type mockIssuesClient struct {
 	createErr      error         // returned by Create
 	timelineEvents map[int][]*github.Timeline // keyed by issue number
 	timelineErr    error
+	capturedOpts   *github.IssueListByRepoOptions // captured from ListByRepo
 }
 
 func (m *mockIssuesClient) ListByRepo(
 	_ context.Context,
 	_ string,
 	_ string,
-	_ *github.IssueListByRepoOptions,
+	opts *github.IssueListByRepoOptions,
 ) ([]*github.Issue, *github.Response, error) {
+	m.capturedOpts = opts
 	return m.issues, nil, m.err
 }
 
@@ -801,6 +803,27 @@ func TestGitHubFetchBoard_DuplicateLinkedPRs_Deduplicated(t *testing.T) {
 	}
 	if card.LinkedPRs[0].Number != 60 {
 		t.Errorf("LinkedPR.Number = %d, want 60", card.LinkedPRs[0].Number)
+	}
+}
+
+func TestGitHubFetchBoard_RequestsIssuesSortedByCreatedAsc(t *testing.T) {
+	columns := []string{"Todo"}
+	client := &mockIssuesClient{issues: []*github.Issue{}}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	_, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if client.capturedOpts == nil {
+		t.Fatal("expected ListByRepo to be called with options, got nil")
+	}
+	if client.capturedOpts.Sort != "created" {
+		t.Errorf("opts.Sort = %q, want %q", client.capturedOpts.Sort, "created")
+	}
+	if client.capturedOpts.Direction != "asc" {
+		t.Errorf("opts.Direction = %q, want %q", client.capturedOpts.Direction, "asc")
 	}
 }
 
