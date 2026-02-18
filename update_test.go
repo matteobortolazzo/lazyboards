@@ -384,27 +384,8 @@ func TestScroll_OffsetResetsOnTabSwitch(t *testing.T) {
 
 func TestScroll_WrappedTitles_CursorCardFullyVisible(t *testing.T) {
 	// Create cards with long titles that will wrap, filling more visual lines.
-	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
-
-	var cards []provider.Card
-	for i := 0; i < 15; i++ {
-		cards = append(cards, provider.Card{
-			Number: i + 1,
-			Title:  fmt.Sprintf("Card %d with a long title that should wrap to multiple lines in the panel", i+1),
-			Labels: []string{"test"},
-		})
-	}
-
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Column A", Cards: cards},
-		},
-	}}
-	m, _ := b.Update(msg)
-	board := m.(Board)
-	board.Width = 80
-	board.Height = 20
+	board := newBoardWithGeneratedCards(t, 15,
+		"Card %d with a long title that should wrap to multiple lines in the panel", 80, 20)
 
 	// Navigate down to a card near the bottom.
 	for i := 0; i < 10; i++ {
