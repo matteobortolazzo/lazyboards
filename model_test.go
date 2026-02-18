@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -3307,5 +3308,351 @@ func TestDetailFocus_DynamicHeaderLines(t *testing.T) {
 	outputLines := strings.Split(view, "\n")
 	if len(outputLines) > b.Height {
 		t.Errorf("View() has %d lines at max scroll, want <= %d", len(outputLines), b.Height)
+	}
+}
+
+// --- Number Key Navigation (#59) ---
+
+func TestNumberKey_SwitchesToColumn(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	requireColumns(t, b)
+
+	// Pressing "1" should set ActiveTab to 0 (first column).
+	b = sendKey(t, b, keyMsg("1"))
+	if b.ActiveTab != 0 {
+		t.Errorf("after '1': ActiveTab = %d, want 0", b.ActiveTab)
+	}
+
+	// Pressing "2" should set ActiveTab to 1 (second column).
+	b = sendKey(t, b, keyMsg("2"))
+	if b.ActiveTab != 1 {
+		t.Errorf("after '2': ActiveTab = %d, want 1", b.ActiveTab)
+	}
+
+	// Pressing "3" should set ActiveTab to 2 (third column).
+	b = sendKey(t, b, keyMsg("3"))
+	if b.ActiveTab != 2 {
+		t.Errorf("after '3': ActiveTab = %d, want 2", b.ActiveTab)
+	}
+
+	// Pressing "4" should set ActiveTab to 3 (fourth column).
+	b = sendKey(t, b, keyMsg("4"))
+	if b.ActiveTab != 3 {
+		t.Errorf("after '4': ActiveTab = %d, want 3", b.ActiveTab)
+	}
+}
+
+func TestNumberKey_OutOfRange_NoChange(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	requireColumns(t, b)
+
+	// Start at column 1 (ActiveTab=1) so we can detect changes.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	if b.ActiveTab != 1 {
+		t.Fatalf("precondition: ActiveTab = %d, want 1", b.ActiveTab)
+	}
+
+	columnCount := len(b.Columns)
+
+	// Press a number beyond the column count (e.g., "5" on a 4-column board).
+	outOfRange := fmt.Sprintf("%d", columnCount+1)
+	b = sendKey(t, b, keyMsg(outOfRange))
+	if b.ActiveTab != 1 {
+		t.Errorf("after pressing %q (out of range): ActiveTab = %d, want 1 (unchanged)", outOfRange, b.ActiveTab)
+	}
+
+	// Press "0" which is not a valid column number (columns are 1-indexed).
+	b = sendKey(t, b, keyMsg("0"))
+	if b.ActiveTab != 1 {
+		t.Errorf("after pressing '0': ActiveTab = %d, want 1 (unchanged)", b.ActiveTab)
+	}
+}
+
+func TestNumberKey_ResetsScrollAndDetailOffset(t *testing.T) {
+	cardCount := 30
+	height := 15
+	b := newBoardWithCards(t, cardCount, height)
+
+	// Scroll down in column A to build up scroll offset.
+	for i := 0; i < cardCount-1; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+	if b.Columns[0].ScrollOffset <= 0 {
+		t.Fatal("precondition: ScrollOffset should be > 0 after scrolling down")
+	}
+
+	// Set a nonzero detailScrollOffset manually.
+	b.detailScrollOffset = 5
+
+	// Press "1" to switch to column 0 (same column, but should reset offsets).
+	b = sendKey(t, b, keyMsg("1"))
+
+	col := b.Columns[b.ActiveTab]
+	if col.ScrollOffset != 0 {
+		t.Errorf("ScrollOffset = %d after pressing '1', want 0 (should reset)", col.ScrollOffset)
+	}
+	if b.detailScrollOffset != 0 {
+		t.Errorf("detailScrollOffset = %d after pressing '1', want 0 (should reset)", b.detailScrollOffset)
+	}
+}
+
+func TestNumberKey_InDetailMode_SwitchesAndUnfocuses(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	requireColumns(t, b)
+
+	// Enter detail focus with 'l'.
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true after 'l'")
+	}
+
+	// Press "2" to switch to column 1 while detail is focused.
+	b = sendKey(t, b, keyMsg("2"))
+
+	// Should switch to column 1.
+	if b.ActiveTab != 1 {
+		t.Errorf("after '2' in detail focus: ActiveTab = %d, want 1", b.ActiveTab)
+	}
+
+	// Should unfocus detail panel.
+	if b.detailFocused {
+		t.Error("after '2' in detail focus: detailFocused should be false")
+	}
+
+	// Scroll offsets should be reset.
+	if b.detailScrollOffset != 0 {
+		t.Errorf("detailScrollOffset = %d after '2' in detail focus, want 0", b.detailScrollOffset)
+	}
+}
+
+func TestNumberKey_IgnoredInCreateMode(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	requireColumns(t, b)
+
+	// Enter createMode.
+	b = sendKey(t, b, keyMsg("n"))
+	if b.mode != createMode {
+		t.Fatalf("precondition: mode = %d, want %d (createMode)", b.mode, createMode)
+	}
+
+	origTab := b.ActiveTab
+
+	// Press "2" in createMode.
+	b = sendKey(t, b, keyMsg("2"))
+
+	// Should NOT change ActiveTab.
+	if b.ActiveTab != origTab {
+		t.Errorf("'2' in createMode changed ActiveTab from %d to %d, want unchanged", origTab, b.ActiveTab)
+	}
+
+	// Should still be in createMode.
+	if b.mode != createMode {
+		t.Errorf("mode = %d after '2' in createMode, want %d (createMode)", b.mode, createMode)
+	}
+}
+
+func TestNumberKey_IgnoredInConfigMode(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	requireColumns(t, b)
+
+	// Enter configMode.
+	b = sendKey(t, b, keyMsg("c"))
+	if b.mode != configMode {
+		t.Fatalf("precondition: mode = %d, want %d (configMode)", b.mode, configMode)
+	}
+
+	origTab := b.ActiveTab
+
+	// Press "2" in configMode.
+	b = sendKey(t, b, keyMsg("2"))
+
+	// Should NOT change ActiveTab.
+	if b.ActiveTab != origTab {
+		t.Errorf("'2' in configMode changed ActiveTab from %d to %d, want unchanged", origTab, b.ActiveTab)
+	}
+
+	// Should still be in configMode.
+	if b.mode != configMode {
+		t.Errorf("mode = %d after '2' in configMode, want %d (configMode)", b.mode, configMode)
+	}
+}
+
+func TestView_BorderTitleShowsNumberPrefixes(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	view := b.View()
+
+	// The view should contain number prefixes like "[1]" and "[2]" for column tab names.
+	for i := range b.Columns {
+		prefix := fmt.Sprintf("[%d]", i+1)
+		if !strings.Contains(view, prefix) {
+			t.Errorf("View() does not contain number prefix %q for column %d", prefix, i)
+		}
+	}
+}
+
+func TestView_HelpBarShowsNumberHint(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	view := b.View()
+
+	// The status bar / help bar should contain a hint about number key navigation.
+	// The exact format may vary (e.g., "1-4: Columns" or "1-4" as a key hint).
+	columnCount := len(b.Columns)
+	numberRange := fmt.Sprintf("1-%d", columnCount)
+	if !strings.Contains(view, numberRange) {
+		t.Errorf("View() help bar does not contain number key hint %q", numberRange)
+	}
+}
+
+// --- Fix 1: Border title truncation for narrow terminals ---
+
+func TestBuildBorderTitle_WideTerm_ShowsFullTitles(t *testing.T) {
+	columns := []Column{
+		{Title: "New"},
+		{Title: "Refined"},
+		{Title: "Implementing"},
+		{Title: "Implemented"},
+	}
+	title := buildBorderTitle(columns, 0, 120)
+	titleWidth := lipgloss.Width(title)
+
+	// All full column titles should appear.
+	for _, col := range columns {
+		if !strings.Contains(title, col.Title) {
+			t.Errorf("buildBorderTitle() missing full title %q at width 120", col.Title)
+		}
+	}
+
+	// Total rendered width must not exceed the requested width.
+	if titleWidth > 120 {
+		t.Errorf("buildBorderTitle() width = %d, want <= 120", titleWidth)
+	}
+}
+
+func TestBuildBorderTitle_NarrowTerm_TruncatesTitles(t *testing.T) {
+	columns := []Column{
+		{Title: "New"},
+		{Title: "Refined"},
+		{Title: "Implementing"},
+		{Title: "Implemented"},
+	}
+	// Width too narrow for all full titles but enough for truncated ones.
+	// Full labels: "[1] New ─ [2] Refined ─ [3] Implementing ─ [4] Implemented"
+	// That's ~58 chars of labels alone, plus prefix/suffix/fill.
+	// At width 40, titles must be truncated.
+	title := buildBorderTitle(columns, 0, 40)
+	titleWidth := lipgloss.Width(title)
+
+	// Total rendered width must not exceed the requested width.
+	if titleWidth > 40 {
+		t.Errorf("buildBorderTitle() width = %d, want <= 40", titleWidth)
+	}
+
+	// Number prefixes should still be present.
+	for i := range columns {
+		prefix := fmt.Sprintf("[%d]", i+1)
+		if !strings.Contains(title, prefix) {
+			t.Errorf("buildBorderTitle() missing number prefix %q at narrow width", prefix)
+		}
+	}
+}
+
+func TestBuildBorderTitle_VeryNarrowTerm_FallsBackToNumbersOnly(t *testing.T) {
+	columns := []Column{
+		{Title: "New"},
+		{Title: "Refined"},
+		{Title: "Implementing"},
+		{Title: "Implemented"},
+	}
+	// Use a width where numbers-only fits but truncated titles do not.
+	// Numbers-only: "[1] ─ [2] ─ [3] ─ [4]" + prefix (3) + suffix (1) + fill (2) ~ 28.
+	// So width 30 should trigger numbers-only mode.
+	title := buildBorderTitle(columns, 0, 30)
+	titleWidth := lipgloss.Width(title)
+
+	// Total rendered width must not exceed the requested width.
+	if titleWidth > 30 {
+		t.Errorf("buildBorderTitle() width = %d, want <= 30", titleWidth)
+	}
+
+	// Number prefixes should still be present in numbers-only mode.
+	for i := range columns {
+		prefix := fmt.Sprintf("[%d]", i+1)
+		if !strings.Contains(title, prefix) {
+			t.Errorf("buildBorderTitle() missing number prefix %q at narrow width", prefix)
+		}
+	}
+}
+
+func TestBuildBorderTitle_ExtremelyNarrowTerm_StillFitsWidth(t *testing.T) {
+	columns := []Column{
+		{Title: "New"},
+		{Title: "Refined"},
+		{Title: "Implementing"},
+		{Title: "Implemented"},
+	}
+	// At width 15, even numbers-only can't fit. Should degrade gracefully.
+	title := buildBorderTitle(columns, 0, 15)
+	titleWidth := lipgloss.Width(title)
+
+	if titleWidth > 15 {
+		t.Errorf("buildBorderTitle() width = %d, want <= 15", titleWidth)
+	}
+}
+
+func TestBuildBorderTitle_AlwaysWithinTotalWidth(t *testing.T) {
+	columns := []Column{
+		{Title: "New"},
+		{Title: "Refined"},
+		{Title: "Implementing"},
+		{Title: "Implemented"},
+	}
+	// Test a range of widths to ensure the border title never exceeds totalWidth.
+	for width := 15; width <= 150; width++ {
+		title := buildBorderTitle(columns, 0, width)
+		titleWidth := lipgloss.Width(title)
+		if titleWidth > width {
+			t.Errorf("buildBorderTitle() at totalWidth=%d: rendered width = %d, exceeds limit", width, titleWidth)
+		}
+	}
+}
+
+// --- Fix 2: Number hint updates on board re-fetch ---
+
+func TestNumberHint_UpdatesOnSubsequentFetch(t *testing.T) {
+	// Start with a board loaded from FakeProvider (4 columns).
+	b := newLoadedTestBoard(t)
+	initialColCount := len(b.Columns)
+	initialHint := b.normalHints[0]
+	expectedInitialKey := fmt.Sprintf("1-%d", initialColCount)
+	if initialHint.Key != expectedInitialKey {
+		t.Fatalf("initial hint key = %q, want %q", initialHint.Key, expectedInitialKey)
+	}
+
+	// Simulate a second fetch that returns a different number of columns.
+	newBoard := provider.Board{
+		Columns: []provider.Column{
+			{Title: "Todo", Cards: nil},
+			{Title: "Done", Cards: nil},
+		},
+	}
+	m, _ := b.Update(boardFetchedMsg{board: newBoard})
+	updated := m.(Board)
+
+	// The number hint (first element) should reflect the new column count.
+	newColCount := len(updated.Columns)
+	expectedNewKey := fmt.Sprintf("1-%d", newColCount)
+	if updated.normalHints[0].Key != expectedNewKey {
+		t.Errorf("after re-fetch, hint key = %q, want %q", updated.normalHints[0].Key, expectedNewKey)
+	}
+
+	// The number of hints should not grow (no duplicate number hints prepended).
+	if len(updated.normalHints) != len(b.normalHints) {
+		t.Errorf("normalHints length changed: before=%d, after=%d (should stay same)", len(b.normalHints), len(updated.normalHints))
 	}
 }
