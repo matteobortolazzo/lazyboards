@@ -68,11 +68,25 @@ actions:
     command: "git checkout -b {number}-{title}"
 ```
 
-**Template variables:** `{number}`, `{title}` (slugified), `{tags}`, `{repo_owner}`, `{repo_name}`, `{provider}`
+**Template variables:** `{number}`, `{title}` (slugified), `{tags}`, `{session}`, `{repo_owner}`, `{repo_name}`, `{provider}`
 
 Shell commands automatically escape template variables to prevent injection.
 
 Keys reserved for built-in navigation (`h`, `l`, `j`, `k`, `q`, `r`, `n`, `c`) cannot be used for actions.
+
+#### Tmux Integration
+
+Open a new tmux window for each card without leaving the board:
+
+```yaml
+actions:
+  t:
+    name: Tmux window
+    type: shell
+    command: "tmux new-window -d -n {session}"
+```
+
+The `-d` flag keeps focus on the current window. The `{session}` variable generates a tmux-friendly name from the card number and title (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 32).
 
 ## Keybindings
 

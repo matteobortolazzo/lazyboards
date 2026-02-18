@@ -81,7 +81,13 @@ func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, re
 	return map[string]string{
 		"number":     fmt.Sprintf("%d", cardNumber),
 		"title":      Slugify(cardTitle),
-		"tags":       strings.Join(cardLabels, ","),
+		// tags expands to a single comma-separated string of all card labels,
+		// e.g., "bug,feature,urgent". After shell escaping via BuildShellSafeVars,
+		// this becomes one quoted token: 'bug,feature,urgent'.
+		// Shell iteration like `for tag in {tags}` will NOT split into individual
+		// tags — the entire string is one argument. To iterate, users must split
+		// the value themselves, e.g.: echo {tags} | tr ',' '\n'
+		"tags": strings.Join(cardLabels, ","),
 		"repo_owner": repoOwner,
 		"repo_name":  repoName,
 		"provider":   providerName,
