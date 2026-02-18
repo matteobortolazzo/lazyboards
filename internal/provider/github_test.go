@@ -317,13 +317,13 @@ func TestGitHubFetchBoard_LabelMatchingIsCaseInsensitive(t *testing.T) {
 	}
 }
 
-func TestGitHubFetchBoard_MultipleLabels_FirstMatchWins(t *testing.T) {
+func TestGitHubFetchBoard_MultipleLabels_FurthestColumnWins(t *testing.T) {
 	columns := []string{"New", "In Progress", "Done"}
-	// Issue has labels ["Done", "In Progress"] — iterating the issue's labels,
-	// "Done" matches column index 2, and "In Progress" matches column index 1.
-	// The first matching label encountered ("Done") should win.
+	// Issue has labels ["In Progress", "Done"] — the closer column label is listed
+	// first in the API response. With furthest-match semantics, the card should
+	// land in "Done" (column index 2), not "In Progress" (column index 1).
 	issues := []*github.Issue{
-		makeIssue(5, "Multi-labeled issue", "Done", "In Progress"),
+		makeIssue(5, "Multi-labeled issue", "In Progress", "Done"),
 	}
 
 	client := &mockIssuesClient{issues: issues}
@@ -338,7 +338,7 @@ func TestGitHubFetchBoard_MultipleLabels_FirstMatchWins(t *testing.T) {
 		t.Fatalf("got %d columns, want %d", len(board.Columns), len(columns))
 	}
 
-	// "Done" is the first matching label, so the issue should be in "Done" column.
+	// The card should be in "Done" (the furthest matching column), not "In Progress".
 	doneCol := board.Columns[2]
 	if len(doneCol.Cards) != 1 {
 		t.Fatalf("column %q has %d cards, want 1", doneCol.Title, len(doneCol.Cards))
@@ -347,9 +347,62 @@ func TestGitHubFetchBoard_MultipleLabels_FirstMatchWins(t *testing.T) {
 		t.Errorf("Done column card = %q, want %q", doneCol.Cards[0].Title, "Multi-labeled issue")
 	}
 
-	// The card's Labels field should contain "Done" (the first matching label).
-	if len(doneCol.Cards[0].Labels) == 0 || doneCol.Cards[0].Labels[0] != "Done" {
-		t.Errorf("card.Labels = %v, want [\"Done\"]", doneCol.Cards[0].Labels)
+	// The card's Labels field should contain ALL labels from the issue.
+	cardLabels := doneCol.Cards[0].Labels
+	if len(cardLabels) != 2 {
+		t.Fatalf("card.Labels has %d entries, want 2", len(cardLabels))
+	}
+	if cardLabels[0] != "In Progress" || cardLabels[1] != "Done" {
+		t.Errorf("card.Labels = %v, want [\"In Progress\", \"Done\"]", cardLabels)
+	}
+
+	// Other columns should be empty.
+	if len(board.Columns[0].Cards) != 0 {
+		t.Errorf("column %q has %d cards, want 0", columns[0], len(board.Columns[0].Cards))
+	}
+	if len(board.Columns[1].Cards) != 0 {
+		t.Errorf("column %q has %d cards, want 0", columns[1], len(board.Columns[1].Cards))
+	}
+}
+
+func TestGitHubFetchBoard_MultipleLabels_NonMatchingLabelsIgnored(t *testing.T) {
+	columns := []string{"New", "In Progress", "Done"}
+	// Issue has labels ["unrelated-label", "New", "Done"] — a mix of non-matching
+	// and matching labels. "New" matches column index 0 and "Done" matches column
+	// index 2. The non-matching label should be ignored for placement, and the card
+	// should land in "Done" (the furthest matching column).
+	issues := []*github.Issue{
+		makeIssue(6, "Mixed labels issue", "unrelated-label", "New", "Done"),
+	}
+
+	client := &mockIssuesClient{issues: issues}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns) != len(columns) {
+		t.Fatalf("got %d columns, want %d", len(board.Columns), len(columns))
+	}
+
+	// The card should be in "Done" (the furthest matching column).
+	doneCol := board.Columns[2]
+	if len(doneCol.Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", doneCol.Title, len(doneCol.Cards))
+	}
+	if doneCol.Cards[0].Title != "Mixed labels issue" {
+		t.Errorf("Done column card = %q, want %q", doneCol.Cards[0].Title, "Mixed labels issue")
+	}
+
+	// The card's Labels field should contain ALL labels from the issue.
+	cardLabels := doneCol.Cards[0].Labels
+	if len(cardLabels) != 3 {
+		t.Fatalf("card.Labels has %d entries, want 3", len(cardLabels))
+	}
+	if cardLabels[0] != "unrelated-label" || cardLabels[1] != "New" || cardLabels[2] != "Done" {
+		t.Errorf("card.Labels = %v, want [\"unrelated-label\", \"New\", \"Done\"]", cardLabels)
 	}
 
 	// Other columns should be empty.
