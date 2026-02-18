@@ -32,19 +32,30 @@ func createCardCmd(p provider.BoardProvider, title, label string) tea.Cmd {
 	}
 }
 
+const maxErrorOutputLen = 200
+
 // runShellCmd returns a tea.Cmd that executes a shell command asynchronously.
 func runShellCmd(executor action.Executor, command string) tea.Cmd {
 	return func() tea.Msg {
 		stderr, err := executor.RunShell(command)
 		if err != nil {
-			msg := "Error: " + err.Error()
+			msg := "Error: " + truncateOutput(err.Error(), maxErrorOutputLen)
 			if stderr != "" {
-				msg = "Error: " + stderr
+				msg = "Error: " + truncateOutput(stderr, maxErrorOutputLen)
 			}
 			return actionResultMsg{success: false, message: msg}
 		}
 		return actionResultMsg{success: true, message: "Done"}
 	}
+}
+
+// truncateOutput truncates s to maxLen runes, appending "..." if truncated.
+func truncateOutput(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen]) + "..."
 }
 
 // saveConfigCmd returns a tea.Cmd that saves the config file.
