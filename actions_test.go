@@ -349,3 +349,40 @@ func TestAction_ColumnShellUsesShellEscape(t *testing.T) {
 		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
 	}
 }
+
+func TestAction_URLEscapesTemplateVars(t *testing.T) {
+	actions := map[string]config.Action{
+		"o": {Name: "Open", Type: "url", URL: "https://example.com/search?tags={tags}"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, false)
+
+	// Load a board with a card that has labels containing URL-special characters.
+	cardLabels := []string{"bug&fix", "feature?v2"}
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "New", Cards: []provider.Card{
+				{Number: 1, Title: "Test card", Labels: cardLabels},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Press the action key.
+	b = sendKey(t, b, keyMsg("o"))
+
+	// The tags value is "bug&fix,feature?v2" (joined with comma by BuildTemplateVars).
+	// After URL escaping, &, ?, and , should be percent-encoded.
+	expectedURL := "https://example.com/search?tags=bug%26fix%2Cfeature%3Fv2"
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called, but no calls recorded")
+	}
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}

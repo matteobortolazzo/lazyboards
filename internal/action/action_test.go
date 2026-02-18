@@ -236,3 +236,45 @@ func TestBuildSessionName_CustomMaxLen(t *testing.T) {
 		t.Errorf("BuildSessionName() = %q, want %q", got, want)
 	}
 }
+
+// --- URLEscape ---
+
+func TestURLEscape_SimpleString(t *testing.T) {
+	got := URLEscape("hello")
+	want := "hello"
+	if got != want {
+		t.Errorf("URLEscape(%q) = %q, want %q", "hello", got, want)
+	}
+}
+
+func TestURLEscape_SpecialChars(t *testing.T) {
+	input := "bug&fix?v2=yes#top 100%"
+	got := URLEscape(input)
+	want := "bug%26fix%3Fv2%3Dyes%23top+100%25"
+	if got != want {
+		t.Errorf("URLEscape(%q) = %q, want %q", input, got, want)
+	}
+}
+
+func TestURLEscape_EmptyString(t *testing.T) {
+	got := URLEscape("")
+	want := ""
+	if got != want {
+		t.Errorf("URLEscape(%q) = %q, want %q", "", got, want)
+	}
+}
+
+func TestBuildURLSafeVars_EscapesAllValues(t *testing.T) {
+	vars := map[string]string{
+		"number": "42",
+		"tags":   "bug&fix,feature?v2",
+	}
+	safe := BuildURLSafeVars(vars)
+	if safe["number"] != "42" {
+		t.Errorf("number = %q, want %q", safe["number"], "42")
+	}
+	expectedTags := "bug%26fix%2Cfeature%3Fv2"
+	if safe["tags"] != expectedTags {
+		t.Errorf("tags = %q, want %q", safe["tags"], expectedTags)
+	}
+}

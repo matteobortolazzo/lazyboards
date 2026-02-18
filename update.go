@@ -405,7 +405,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			switch act.Type {
 			case "url":
-				expanded := action.ExpandTemplate(act.URL, vars)
+				expanded := action.ExpandTemplate(act.URL, action.BuildURLSafeVars(vars))
 				if err := b.executor.OpenURL(expanded); err != nil {
 					cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), 3*time.Second)
 					return b, cmd
