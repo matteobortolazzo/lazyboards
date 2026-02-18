@@ -99,6 +99,24 @@ func requireColumns(t *testing.T, b Board) {
 	}
 }
 
+// loadFromFakeProvider fetches board data from the FakeProvider,
+// sends it through Update, and sets standard test dimensions (120x40).
+func loadFromFakeProvider(t *testing.T, b Board, p *provider.FakeProvider) Board {
+	t.Helper()
+	board, err := p.FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	loaded, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	loaded.Width = 120
+	loaded.Height = 40
+	return loaded
+}
+
 // newCreatingTestBoard creates a Board in creatingMode for testing async creation.
 func newCreatingTestBoard(t *testing.T) Board {
 	t.Helper()
@@ -147,16 +165,7 @@ func newActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, 
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, false)
-	// Load the board.
-	board, err := p.FetchBoard(nil)
-	if err != nil {
-		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
-	}
-	m, _ := b.Update(boardFetchedMsg{board: board})
-	loaded := m.(Board)
-	loaded.Width = 120
-	loaded.Height = 40
-	return loaded, fe
+	return loadFromFakeProvider(t, b, p), fe
 }
 
 // newBoardWithBody creates a Board with one column containing two cards.
@@ -294,16 +303,7 @@ func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, co
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, actions, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 0, false)
-	// Load the board.
-	board, err := p.FetchBoard(nil)
-	if err != nil {
-		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
-	}
-	m, _ := b.Update(boardFetchedMsg{board: board})
-	loaded := m.(Board)
-	loaded.Width = 120
-	loaded.Height = 40
-	return loaded, fe
+	return loadFromFakeProvider(t, b, p), fe
 }
 
 // newBoardWithPRsAndExecutor creates a Board with PR test data and a FakeExecutor.
