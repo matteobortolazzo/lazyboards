@@ -42,17 +42,6 @@ func (b Board) View() string {
 	// Outer border consumes 2 chars width, 2 lines height.
 	innerWidth := b.Width - 2
 
-	// Tab bar: all tab names joined horizontally.
-	var tabs []string
-	for i, col := range b.Columns {
-		if i == b.ActiveTab {
-			tabs = append(tabs, activeTabStyle.Render("["+col.Title+"]"))
-		} else {
-			tabs = append(tabs, inactiveTabStyle.Render("["+col.Title+"]"))
-		}
-	}
-	tabBar := strings.Join(tabs, " ")
-
 	// Panel dimensions.
 	// Left panel: ~40% of inner width, including its border (2 chars).
 	leftTotal := innerWidth * 2 / 5
@@ -61,8 +50,8 @@ func (b Board) View() string {
 	rightTotal := innerWidth - leftTotal
 	rightContentWidth := rightTotal - 2
 
-	// Panel content height: total height - outer border (2) - tab bar (1) - help bar (1) - panel borders (2).
-	panelHeight := b.Height - 6
+	// Panel content height: total height - outer border (2) - help bar (1) - panel borders (2).
+	panelHeight := b.Height - 5
 	if panelHeight < 1 {
 		panelHeight = 1
 	}
@@ -87,13 +76,117 @@ func (b Board) View() string {
 	helpBar := helpStyle.Render(b.statusBar.View())
 
 	// Assemble inner content.
-	inner := lipgloss.JoinVertical(lipgloss.Left, tabBar, panels, helpBar)
+	inner := lipgloss.JoinVertical(lipgloss.Left, panels, helpBar)
 
 	if b.mode == createMode || b.mode == creatingMode {
 		return b.viewCreateModal()
 	}
 
-	return outerStyle.Width(innerWidth).Render(inner)
+	// Render with normal outer border, then replace the top line with the border title.
+	rendered := outerStyle.Width(innerWidth).Render(inner)
+	borderTitle := buildBorderTitle(b.Columns, b.ActiveTab, b.Width)
+	lines := strings.SplitN(rendered, "\n", 2)
+	if len(lines) == 2 {
+		return borderTitle + "\n" + lines[1]
+	}
+	return rendered
+}
+
+// buildBorderTitle constructs the top border line with embedded column names.
+// Format: ╭─ [1] Name ─ [2] Name ─...──╮
+// When the terminal is too narrow, titles are progressively truncated with "…".
+// If even truncated titles don't fit, falls back to just [N] per column.
+func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
+	borderFg := lipgloss.Color("240")
+	borderStyle := lipgloss.NewStyle().Foreground(borderFg)
+
+	prefixStr := borderStyle.Render("╭─ ")
+	suffixChar := borderStyle.Render("╮")
+	prefixWidth := lipgloss.Width(prefixStr)
+	suffixWidth := lipgloss.Width(suffixChar)
+
+	// Minimum fill is " ─" (2 chars visual).
+	minFillWidth := 2
+	availableForLabels := totalWidth - prefixWidth - suffixWidth - minFillWidth
+
+	// renderLabels builds styled labels from text strings and joins them.
+	renderLabels := func(texts []string) (string, int) {
+		separator := borderStyle.Render(" ─ ")
+		var styled []string
+		for i, text := range texts {
+			if i == activeTab {
+				styled = append(styled, activeBorderTitleStyle.Render(text))
+			} else {
+				styled = append(styled, inactiveBorderTitleStyle.Render(text))
+			}
+		}
+		joined := strings.Join(styled, separator)
+		return joined, lipgloss.Width(joined)
+	}
+
+	// Try 1: Full titles — "[N] Title"
+	fullTexts := make([]string, len(columns))
+	for i, col := range columns {
+		fullTexts[i] = fmt.Sprintf("[%d] %s", i+1, col.Title)
+	}
+	joined, joinedWidth := renderLabels(fullTexts)
+
+	if joinedWidth > availableForLabels {
+		// Try 2: Truncated titles — "[N] Ti…"
+		// Compute how much space separators take.
+		sepWidth := 0
+		if len(columns) > 1 {
+			sepWidth = lipgloss.Width(borderStyle.Render(" ─ ")) * (len(columns) - 1)
+		}
+		perLabel := (availableForLabels - sepWidth) / len(columns)
+		// Each label has "[N] " prefix overhead (4 chars for single-digit, 5 for double-digit).
+		// Find max title chars after subtracting prefix overhead.
+		truncTexts := make([]string, len(columns))
+		canTruncate := true
+		for i, col := range columns {
+			numPrefix := fmt.Sprintf("[%d] ", i+1)
+			prefixLen := len([]rune(numPrefix))
+			maxTitleChars := perLabel - prefixLen
+			if maxTitleChars < 1 {
+				canTruncate = false
+				break
+			}
+			titleRunes := []rune(col.Title)
+			if len(titleRunes) > maxTitleChars {
+				truncTexts[i] = numPrefix + string(titleRunes[:maxTitleChars-1]) + "\u2026"
+			} else {
+				truncTexts[i] = numPrefix + col.Title
+			}
+		}
+
+		if canTruncate {
+			joined, joinedWidth = renderLabels(truncTexts)
+		}
+
+		// Try 3: Numbers only — "[N]"
+		if !canTruncate || joinedWidth > availableForLabels {
+			numTexts := make([]string, len(columns))
+			for i := range columns {
+				numTexts[i] = fmt.Sprintf("[%d]", i+1)
+			}
+			joined, joinedWidth = renderLabels(numTexts)
+		}
+
+		// Try 4: If even numbers-only exceeds available space, drop labels entirely.
+		if joinedWidth > availableForLabels {
+			joined = ""
+			joinedWidth = 0
+		}
+	}
+
+	// Fill remaining width with ─.
+	fillWidth := totalWidth - prefixWidth - joinedWidth - suffixWidth - 1
+	if fillWidth < 1 {
+		fillWidth = 1
+	}
+	fill := borderStyle.Render(" " + strings.Repeat("─", fillWidth))
+
+	return prefixStr + joined + fill + suffixChar
 }
 
 func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lipgloss.Style) string {
