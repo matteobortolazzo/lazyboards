@@ -181,6 +181,23 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		Render(leftContent)
 }
 
+// countWrappedLines counts how many visual lines text occupies at a given width.
+func countWrappedLines(text string, width int) int {
+	if width <= 0 || text == "" {
+		return 1
+	}
+	rendered := lipgloss.NewStyle().Width(width).Render(text)
+	return strings.Count(rendered, "\n") + 1
+}
+
+// detailHeaderLineCount computes the actual header height for a card,
+// accounting for title/label wrapping at the given content width.
+func detailHeaderLineCount(card Card, contentWidth int) int {
+	titleText := fmt.Sprintf("#%d %s", card.Number, card.Title)
+	labelsText := fmt.Sprintf("Labels: %s", strings.Join(card.Labels, ", "))
+	return countWrappedLines(titleText, contentWidth) + countWrappedLines(labelsText, contentWidth) + 1 // +1 blank separator
+}
+
 func renderBody(body string) string {
 	if cachedGlamourRenderer != nil {
 		if out, err := cachedGlamourRenderer.Render(body); err == nil {
@@ -217,13 +234,23 @@ func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style l
 
 			// Apply scroll offset and truncate to available panel height.
 			lines := strings.Split(rendered, "\n")
-			headerLines := 3 // title + labels + blank separator
+			headerLines := detailHeaderLineCount(card, contentWidth)
 			availableBodyLines := panelHeight - headerLines
 			if availableBodyLines < 1 {
 				availableBodyLines = 1
 			}
 
 			startLine := b.detailScrollOffset
+
+			// Reserve space for up-arrow if scrolled past top.
+			showUp := startLine > 0
+			if showUp {
+				availableBodyLines--
+				if availableBodyLines < 1 {
+					availableBodyLines = 1
+				}
+			}
+
 			maxOffset := len(lines) - availableBodyLines
 			if maxOffset < 0 {
 				maxOffset = 0
@@ -235,17 +262,27 @@ func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style l
 				startLine = 0
 			}
 
+			// Clamping may have zeroed startLine — reclaim up-arrow space.
+			if startLine == 0 && showUp {
+				showUp = false
+				availableBodyLines++
+			}
+
 			endLine := startLine + availableBodyLines
 			hasMore := endLine < len(lines)
 			if hasMore {
-				endLine = endLine - 1 // leave room for scroll indicator
+				endLine = endLine - 1 // leave room for down-arrow indicator
 			}
 			if endLine > len(lines) {
 				endLine = len(lines)
 			}
 
+			rightContent += "\n\n"
+			if showUp {
+				rightContent += helpStyle.Render("\u25b2") + "\n"
+			}
 			visibleLines := lines[startLine:endLine]
-			rightContent += "\n\n" + strings.Join(visibleLines, "\n")
+			rightContent += strings.Join(visibleLines, "\n")
 			if hasMore {
 				rightContent += "\n" + helpStyle.Render("\u25bc")
 			}
