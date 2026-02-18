@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -115,6 +116,7 @@ type Board struct {
 	statusBar     StatusBar
 	loaded        bool
 	actions       map[string]config.Action
+	columnConfigs []config.ColumnConfig
 	executor      action.Executor
 	repoOwner       string
 	repoName        string
@@ -133,7 +135,7 @@ type Board struct {
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, executor action.Executor, repoOwner, repoName, providerName string, firstLaunch bool) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, firstLaunch bool) Board {
 	ti := textinput.New()
 	ti.Placeholder = "Title"
 	ti.Focus()
@@ -170,6 +172,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, execut
 		spinner:         s,
 		statusBar:       sb,
 		actions:         actions,
+		columnConfigs:   columnConfigs,
 		executor:        executor,
 		repoOwner:       repoOwner,
 		repoName:        repoName,
@@ -311,6 +314,63 @@ func (b *Board) clampScrollOffset() {
 	if col.ScrollOffset > maxOffset {
 		col.ScrollOffset = maxOffset
 	}
+}
+
+// resolveAction looks up an action by key, checking the active column's
+// per-column actions first (if any), then falling back to global actions.
+func (b *Board) resolveAction(key string) (config.Action, bool) {
+	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
+		colTitle := b.Columns[b.ActiveTab].Title
+		for _, cc := range b.columnConfigs {
+			if strings.EqualFold(cc.Name, colTitle) {
+				if act, ok := cc.Actions[key]; ok {
+					return act, true
+				}
+				break
+			}
+		}
+	}
+	act, ok := b.actions[key]
+	return act, ok
+}
+
+// rebuildNormalHints reconstructs the normalHints slice by merging global
+// actions with the active column's per-column actions (column overrides global).
+func (b *Board) rebuildNormalHints() {
+	hints := make([]Hint, 0, len(normalModeHints)+len(b.actions)+4)
+
+	// Number navigation hint (if columns loaded).
+	if len(b.Columns) > 0 {
+		hints = append(hints, Hint{Key: fmt.Sprintf("1-%d", len(b.Columns)), Desc: "Column"})
+	}
+
+	// Default mode hints.
+	hints = append(hints, normalModeHints...)
+
+	// Collect action hints: start with global, overlay column-specific.
+	actionHints := make(map[string]Hint)
+	for key, act := range b.actions {
+		actionHints[key] = Hint{Key: key, Desc: act.Name}
+	}
+
+	// Overlay active column's actions.
+	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
+		colTitle := b.Columns[b.ActiveTab].Title
+		for _, cc := range b.columnConfigs {
+			if strings.EqualFold(cc.Name, colTitle) {
+				for key, act := range cc.Actions {
+					actionHints[key] = Hint{Key: key, Desc: act.Name}
+				}
+				break
+			}
+		}
+	}
+
+	for _, h := range actionHints {
+		hints = append(hints, h)
+	}
+
+	b.normalHints = hints
 }
 
 func (b Board) Init() tea.Cmd {

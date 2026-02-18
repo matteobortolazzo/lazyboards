@@ -25,7 +25,7 @@ var expectedColumnTitles = []string{"New", "Refined", "Implementing", "Implement
 func newTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	return NewBoard(p, nil, nil, "", "", "", false)
+	return NewBoard(p, nil, nil, nil, "", "", "", false)
 }
 
 // newLoadedTestBoard creates a Board and sends a boardFetchedMsg to transition
@@ -33,7 +33,7 @@ func newTestBoard(t *testing.T) Board {
 func newLoadedTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
 	// Simulate the provider returning board data.
 	board, err := p.FetchBoard(nil)
 	if err != nil {
@@ -1319,7 +1319,7 @@ func TestCreatingMode_View_ShowsSpinner(t *testing.T) {
 func newBoardWithCards(t *testing.T, cardCount, height int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
 
 	// Build provider cards.
 	providerCards := make([]provider.Card, cardCount)
@@ -1661,7 +1661,7 @@ func TestView_BothIndicators_WhenMiddle(t *testing.T) {
 func TestView_WrapsLongTitle(t *testing.T) {
 	longTitle := "This is a very long title that should definitely be wrapped in the card list panel"
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -1694,7 +1694,7 @@ func TestView_WrapsLongTitle(t *testing.T) {
 func TestView_WrappedTitles_SelectedCardAllLinesStyled(t *testing.T) {
 	longTitle := "This is a card title that is long enough to require wrapping across lines"
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -1722,7 +1722,7 @@ func TestView_WrappedTitles_SelectedCardAllLinesStyled(t *testing.T) {
 func TestScroll_WrappedTitles_CursorCardFullyVisible(t *testing.T) {
 	// Create cards with long titles that will wrap, filling more visual lines.
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
 
 	var cards []provider.Card
 	for i := 0; i < 15; i++ {
@@ -1764,7 +1764,7 @@ func TestView_WrappedTitles_PartialCardHidden(t *testing.T) {
 	// Create a board where cards have titles long enough to wrap.
 	// With limited height, the last card that would only partially fit should be hidden.
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
 
 	var cards []provider.Card
 	for i := 0; i < 10; i++ {
@@ -1967,7 +1967,7 @@ func newActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, 
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, fe, "matteobortolazzo", "lazyboards", "github", false)
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", false)
 	// Load the board.
 	board, err := p.FetchBoard(nil)
 	if err != nil {
@@ -2049,7 +2049,7 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, fe, "", "", "", false)
+	b := NewBoard(p, actions, nil, fe, "", "", "", false)
 
 	// Board starts in loadingMode. Press the action key.
 	b = sendKey(t, b, keyMsg("o"))
@@ -2066,7 +2066,7 @@ func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, fe, "", "", "", false)
+	b := NewBoard(p, actions, nil, fe, "", "", "", false)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -2166,7 +2166,7 @@ func TestAction_TemplateVarsExpanded(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, fe, "matteobortolazzo", "lazyboards", "github", false)
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", false)
 
 	// Load a board with a specific card that has known labels.
 	cardNumber := 42
@@ -2487,42 +2487,42 @@ func TestNormalMode_StatusBarShowsConfigHint(t *testing.T) {
 // --- First-Launch Flow ---
 
 func TestFirstLaunch_StartsInConfigMode(t *testing.T) {
-	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", true)
 	if b.mode != configMode {
 		t.Errorf("mode = %d, want %d (configMode) for firstLaunch board", b.mode, configMode)
 	}
 }
 
 func TestFirstLaunch_PrePopulatesProvider(t *testing.T) {
-	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", true)
 	if b.providerOptions[b.providerIndex] != "github" {
 		t.Errorf("providerOptions[providerIndex] = %q, want %q", b.providerOptions[b.providerIndex], "github")
 	}
 }
 
 func TestFirstLaunch_PrePopulatesProviderAzure(t *testing.T) {
-	b := NewBoard(nil, nil, nil, "owner", "repo", "azure-devops", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "azure-devops", true)
 	if b.providerOptions[b.providerIndex] != "azure-devops" {
 		t.Errorf("providerOptions[providerIndex] = %q, want %q", b.providerOptions[b.providerIndex], "azure-devops")
 	}
 }
 
 func TestFirstLaunch_PrePopulatesRepo(t *testing.T) {
-	b := NewBoard(nil, nil, nil, "myowner", "myrepo", "github", true)
+	b := NewBoard(nil, nil, nil, nil, "myowner", "myrepo", "github", true)
 	if b.repoInput.Value() != "myowner/myrepo" {
 		t.Errorf("repoInput.Value() = %q, want %q", b.repoInput.Value(), "myowner/myrepo")
 	}
 }
 
 func TestFirstLaunch_EmptyRepoNotPrePopulated(t *testing.T) {
-	b := NewBoard(nil, nil, nil, "", "", "github", true)
+	b := NewBoard(nil, nil, nil, nil, "", "", "github", true)
 	if b.repoInput.Value() != "" {
 		t.Errorf("repoInput.Value() = %q, want empty when no repo detected", b.repoInput.Value())
 	}
 }
 
 func TestFirstLaunch_Init_ReturnsNil(t *testing.T) {
-	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", true)
 	cmd := b.Init()
 	if cmd != nil {
 		t.Error("Init() should return nil for firstLaunch board (no fetch)")
@@ -2530,7 +2530,7 @@ func TestFirstLaunch_Init_ReturnsNil(t *testing.T) {
 }
 
 func TestFirstLaunch_Escape_Quits(t *testing.T) {
-	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", true)
 	_, cmd := b.Update(arrowMsg(tea.KeyEsc))
 	if cmd == nil {
 		t.Error("Escape in firstLaunch configMode should return a quit cmd")
@@ -2538,7 +2538,7 @@ func TestFirstLaunch_Escape_Quits(t *testing.T) {
 }
 
 func TestFirstLaunch_Escape_ConfigSavedIsFalse(t *testing.T) {
-	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", true)
 	m, _ := b.Update(arrowMsg(tea.KeyEsc))
 	updated := m.(Board)
 	if updated.ConfigSaved {
@@ -2547,7 +2547,7 @@ func TestFirstLaunch_Escape_ConfigSavedIsFalse(t *testing.T) {
 }
 
 func TestFirstLaunch_ConfigSaved_SetsConfigSavedAndQuits(t *testing.T) {
-	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", true)
 	m, cmd := b.Update(configSavedMsg{})
 	updated := m.(Board)
 	if !updated.ConfigSaved {
@@ -2559,7 +2559,7 @@ func TestFirstLaunch_ConfigSaved_SetsConfigSavedAndQuits(t *testing.T) {
 }
 
 func TestFirstLaunch_ViewShowsConfigModal(t *testing.T) {
-	b := NewBoard(nil, nil, nil, "owner", "repo", "github", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", true)
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
@@ -2572,7 +2572,7 @@ func TestFirstLaunch_ViewShowsConfigModal(t *testing.T) {
 
 func TestConfigMode_PrePopulatesProviderFromRuntime(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "owner", "repo", "github", false)
+	b := NewBoard(p, nil, nil, nil, "owner", "repo", "github", false)
 	board, _ := p.FetchBoard(nil)
 	m, _ := b.Update(boardFetchedMsg{board: board})
 	b = m.(Board)
@@ -2586,7 +2586,7 @@ func TestConfigMode_PrePopulatesProviderFromRuntime(t *testing.T) {
 
 func TestConfigMode_PrePopulatesRepoFromRuntime(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "myowner", "myrepo", "github", false)
+	b := NewBoard(p, nil, nil, nil, "myowner", "myrepo", "github", false)
 	board, _ := p.FetchBoard(nil)
 	m, _ := b.Update(boardFetchedMsg{board: board})
 	b = m.(Board)
@@ -2605,7 +2605,7 @@ func TestConfigMode_PrePopulatesRepoFromRuntime(t *testing.T) {
 func newBoardWithBody(t *testing.T, body1, body2 string) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -3201,7 +3201,7 @@ func TestDetailFocus_JKey_ScrollsWhenRenderedLinesExceedRaw(t *testing.T) {
 func newBoardWithCustomCard(t *testing.T, title string, labels []string, body string) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -3654,5 +3654,218 @@ func TestNumberHint_UpdatesOnSubsequentFetch(t *testing.T) {
 	// The number of hints should not grow (no duplicate number hints prepended).
 	if len(updated.normalHints) != len(b.normalHints) {
 		t.Errorf("normalHints length changed: before=%d, after=%d (should stay same)", len(b.normalHints), len(updated.normalHints))
+	}
+}
+
+// --- Per-Column Actions ---
+
+// newColumnActionTestBoard creates a loaded Board with global actions AND
+// per-column configs. It returns the board and FakeExecutor for assertion.
+func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, columnConfigs []config.ColumnConfig) (Board, *action.FakeExecutor) {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", false)
+	// Load the board.
+	board, err := p.FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	loaded := m.(Board)
+	loaded.Width = 120
+	loaded.Height = 40
+	return loaded, fe
+}
+
+func TestAction_ColumnActionOverridesGlobal(t *testing.T) {
+	globalActions := map[string]config.Action{
+		"o": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
+	}
+	columnConfigs := []config.ColumnConfig{
+		{
+			Name: "New",
+			Actions: map[string]config.Action{
+				"o": {Name: "Column Open", Type: "url", URL: "https://column.com/{number}"},
+			},
+		},
+		{Name: "Refined"},
+		{Name: "Implementing"},
+		{Name: "Implemented"},
+	}
+	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
+
+	// Board starts on column 0 ("New") which has the column-level override.
+	b = sendKey(t, b, keyMsg("o"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called, but no calls recorded")
+	}
+	// The column action URL should have been used, not the global one.
+	if !strings.Contains(fe.OpenURLCalls[0], "column.com") {
+		t.Errorf("expected column action URL containing %q, got %q", "column.com", fe.OpenURLCalls[0])
+	}
+}
+
+func TestAction_FallbackToGlobalWhenColumnHasNoAction(t *testing.T) {
+	globalActions := map[string]config.Action{
+		"o": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
+	}
+	columnConfigs := []config.ColumnConfig{
+		{Name: "New"}, // No column-level actions for "o".
+		{Name: "Refined"},
+		{Name: "Implementing"},
+		{Name: "Implemented"},
+	}
+	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
+
+	// Board starts on column 0 ("New") which has no column-level actions.
+	b = sendKey(t, b, keyMsg("o"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called via global fallback, but no calls recorded")
+	}
+	if !strings.Contains(fe.OpenURLCalls[0], "global.com") {
+		t.Errorf("expected global action URL containing %q, got %q", "global.com", fe.OpenURLCalls[0])
+	}
+}
+
+func TestAction_ColumnActionOnlyFiresInMatchingColumn(t *testing.T) {
+	// No global action for key "x".
+	globalActions := map[string]config.Action{}
+	columnConfigs := []config.ColumnConfig{
+		{Name: "New"}, // No actions for column 0.
+		{
+			Name: "Refined",
+			Actions: map[string]config.Action{
+				"x": {Name: "Deploy", Type: "url", URL: "https://deploy.com/{number}"},
+			},
+		},
+		{Name: "Implementing"},
+		{Name: "Implemented"},
+	}
+	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
+
+	// Start on column 0 ("New"). Press "x" — should have no effect.
+	b = sendKey(t, b, keyMsg("x"))
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("expected no OpenURL calls on column 0, got %d", len(fe.OpenURLCalls))
+	}
+
+	// Tab to column 1 ("Refined"). Press "x" — should trigger the deploy action.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	b = sendKey(t, b, keyMsg("x"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called on column 1 ('Refined'), but no calls recorded")
+	}
+	if !strings.Contains(fe.OpenURLCalls[0], "deploy.com") {
+		t.Errorf("expected deploy URL containing %q, got %q", "deploy.com", fe.OpenURLCalls[0])
+	}
+}
+
+func TestStatusBar_HintsUpdateOnColumnSwitch(t *testing.T) {
+	globalActions := map[string]config.Action{
+		"o": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
+	}
+	columnConfigs := []config.ColumnConfig{
+		{Name: "New"}, // No column-level actions.
+		{
+			Name: "Refined",
+			Actions: map[string]config.Action{
+				"o": {Name: "Deploy", Type: "url", URL: "https://deploy.com/{number}"},
+			},
+		},
+		{Name: "Implementing"},
+		{Name: "Implemented"},
+	}
+	b, _ := newColumnActionTestBoard(t, globalActions, columnConfigs)
+
+	// On column 0: should show global action hint.
+	view0 := b.View()
+	if !strings.Contains(view0, "o: Global Open") {
+		t.Errorf("on column 0, View() should contain %q, got:\n%s", "o: Global Open", view0)
+	}
+
+	// Tab to column 1: should show column-level action hint overriding global.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	view1 := b.View()
+	if !strings.Contains(view1, "o: Deploy") {
+		t.Errorf("on column 1, View() should contain %q, got:\n%s", "o: Deploy", view1)
+	}
+	if strings.Contains(view1, "o: Global Open") {
+		t.Errorf("on column 1, View() should NOT contain %q", "o: Global Open")
+	}
+
+	// Shift+tab back to column 0: should show global hint again.
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
+	view0again := b.View()
+	if !strings.Contains(view0again, "o: Global Open") {
+		t.Errorf("back on column 0, View() should contain %q, got:\n%s", "o: Global Open", view0again)
+	}
+}
+
+func TestStatusBar_ColumnOnlyActionAppearsOnlyInColumn(t *testing.T) {
+	// No global action for "x".
+	globalActions := map[string]config.Action{}
+	columnConfigs := []config.ColumnConfig{
+		{
+			Name: "New",
+			Actions: map[string]config.Action{
+				"x": {Name: "Special", Type: "url", URL: "https://special.com/{number}"},
+			},
+		},
+		{Name: "Refined"},
+		{Name: "Implementing"},
+		{Name: "Implemented"},
+	}
+	b, _ := newColumnActionTestBoard(t, globalActions, columnConfigs)
+
+	// On column 0: should show the column-only action hint.
+	view0 := b.View()
+	if !strings.Contains(view0, "x: Special") {
+		t.Errorf("on column 0, View() should contain %q, got:\n%s", "x: Special", view0)
+	}
+
+	// Tab to column 1: should NOT show the column-only action hint.
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	view1 := b.View()
+	if strings.Contains(view1, "x: Special") {
+		t.Errorf("on column 1, View() should NOT contain %q", "x: Special")
+	}
+}
+
+func TestAction_ColumnShellUsesShellEscape(t *testing.T) {
+	globalActions := map[string]config.Action{}
+	columnConfigs := []config.ColumnConfig{
+		{
+			Name: "New",
+			Actions: map[string]config.Action{
+				"s": {Name: "Run", Type: "shell", Command: "echo {title}"},
+			},
+		},
+		{Name: "Refined"},
+		{Name: "Implementing"},
+		{Name: "Implemented"},
+	}
+	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
+
+	// Get the selected card's title to compute expected escaped value.
+	selectedCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	expectedCmd := "echo " + action.ShellEscape(action.Slugify(selectedCard.Title))
+
+	// Press the column shell action key.
+	m, cmd := b.Update(keyMsg("s"))
+	b = m.(Board)
+	_ = b
+
+	// Execute the returned cmd(s) to trigger RunShell.
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called via column shell action, but no calls recorded")
+	}
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
 	}
 }
