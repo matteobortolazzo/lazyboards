@@ -147,6 +147,11 @@ func LocalExists(path string) bool {
 // Save writes provider and repo to the config file at path.
 // If the file already exists, it preserves existing fields (like actions).
 func Save(path, provider, repo string) error {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".yml" && ext != ".yaml" {
+		return fmt.Errorf("config path %q must have .yml or .yaml extension", path)
+	}
+
 	// Read existing config if file exists.
 	var cfg Config
 	data, err := os.ReadFile(path)
