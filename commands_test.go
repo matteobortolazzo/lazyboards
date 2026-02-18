@@ -1,8 +1,11 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/matteobortolazzo/lazyboards/internal/action"
 )
 
 func TestWrapTitle_ShortTitleSingleLine(t *testing.T) {
@@ -151,5 +154,110 @@ func TestWrapTitle_MultipleWraps(t *testing.T) {
 		if !strings.Contains(joined, word) {
 			t.Errorf("word %q missing from wrapped output: %v", word, got)
 		}
+	}
+}
+
+// --- truncateOutput unit tests ---
+
+func TestTruncateOutput_ShortString(t *testing.T) {
+	input := "short error"
+	maxLen := 200
+	got := truncateOutput(input, maxLen)
+	if got != input {
+		t.Errorf("truncateOutput(%q, %d) = %q, want %q (unchanged)", input, maxLen, got, input)
+	}
+}
+
+func TestTruncateOutput_ExactLimit(t *testing.T) {
+	input := strings.Repeat("x", 200)
+	maxLen := 200
+	got := truncateOutput(input, maxLen)
+	if got != input {
+		t.Errorf("truncateOutput(len=%d, %d) should return input unchanged, got len=%d", len(input), maxLen, len(got))
+	}
+}
+
+func TestTruncateOutput_LongString(t *testing.T) {
+	maxLen := 200
+	input := strings.Repeat("a", maxLen+100)
+	got := truncateOutput(input, maxLen)
+
+	// Result should be truncated to maxLen runes plus the "..." suffix.
+	expectedLen := maxLen + len("...")
+	if len([]rune(got)) != expectedLen {
+		t.Errorf("truncateOutput(len=%d, %d) returned %d runes, want %d", len([]rune(input)), maxLen, len([]rune(got)), expectedLen)
+	}
+
+	// Result should end with "..." to indicate truncation.
+	if !strings.HasSuffix(got, "...") {
+		t.Errorf("truncateOutput() result should end with %q, got %q", "...", got[len(got)-10:])
+	}
+}
+
+func TestTruncateOutput_EmptyString(t *testing.T) {
+	got := truncateOutput("", 200)
+	if got != "" {
+		t.Errorf("truncateOutput(%q, 200) = %q, want empty string", "", got)
+	}
+}
+
+func TestTruncateOutput_Unicode(t *testing.T) {
+	// Each character here is multi-byte in UTF-8 but counts as 1 rune.
+	maxLen := 10
+	input := strings.Repeat("\u00e9", maxLen+5) // 15 runes of e-acute
+	got := truncateOutput(input, maxLen)
+
+	// Should truncate by rune count, not byte count.
+	gotRunes := []rune(got)
+	expectedRuneCount := maxLen + len([]rune("..."))
+	if len(gotRunes) != expectedRuneCount {
+		t.Errorf("truncateOutput(rune_len=%d, %d) returned %d runes, want %d", len([]rune(input)), maxLen, len(gotRunes), expectedRuneCount)
+	}
+
+	// The first maxLen runes should be the original content.
+	originalPrefix := string([]rune(input)[:maxLen])
+	if !strings.HasPrefix(got, originalPrefix) {
+		t.Errorf("truncateOutput() should preserve first %d runes of original content", maxLen)
+	}
+
+	if !strings.HasSuffix(got, "...") {
+		t.Errorf("truncateOutput() result should end with %q", "...")
+	}
+}
+
+// --- Integration test: runShellCmd truncation ---
+
+func TestRunShellCmd_TruncatesLongStderr(t *testing.T) {
+	// Build a long stderr string that exceeds 200 characters.
+	longStderr := strings.Repeat("E", 300)
+	fe := &action.FakeExecutor{
+		RunShellStderr: longStderr,
+		RunShellErr:    errors.New("exit status 1"),
+	}
+
+	// Call runShellCmd directly and execute the returned tea.Cmd.
+	cmd := runShellCmd(fe, "some-command")
+	msg := cmd()
+
+	result, ok := msg.(actionResultMsg)
+	if !ok {
+		t.Fatalf("runShellCmd returned %T, want actionResultMsg", msg)
+	}
+
+	if result.success {
+		t.Error("expected success=false for a failed shell command")
+	}
+
+	// The message should be bounded. The "Error: " prefix plus truncated stderr
+	// plus "..." should not exceed a reasonable length. The raw stderr is 300 chars,
+	// so the message must be shorter than "Error: " + 300 chars.
+	maxExpectedLen := len("Error: ") + maxErrorOutputLen + len("...")
+	if len([]rune(result.message)) > maxExpectedLen {
+		t.Errorf("actionResultMsg.message has %d runes, want <= %d (stderr should be truncated)", len([]rune(result.message)), maxExpectedLen)
+	}
+
+	// The message should still contain the "Error: " prefix.
+	if !strings.HasPrefix(result.message, "Error: ") {
+		t.Errorf("actionResultMsg.message should start with %q, got %q", "Error: ", result.message[:20])
 	}
 }
