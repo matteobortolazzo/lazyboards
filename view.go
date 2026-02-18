@@ -74,6 +74,9 @@ func (b Board) View() string {
 
 	// Help bar.
 	helpBar := b.statusBar.View()
+	if b.refreshing {
+		helpBar = b.spinner.View() + " Refreshing..."
+	}
 
 	// Assemble inner content.
 	inner := lipgloss.JoinVertical(lipgloss.Left, panels, helpBar)
