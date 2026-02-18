@@ -43,18 +43,7 @@ func (b Board) View() string {
 	innerWidth := b.Width - 2
 
 	// Panel dimensions.
-	// Left panel: ~40% of inner width, including its border (2 chars).
-	leftTotal := innerWidth * 2 / 5
-	leftContentWidth := leftTotal - 2
-	// Right panel: remaining width, including its border (2 chars).
-	rightTotal := innerWidth - leftTotal
-	rightContentWidth := rightTotal - 2
-
-	// Panel content height: total height - outer border (2) - help bar (1) - panel borders (2).
-	panelHeight := b.Height - 5
-	if panelHeight < 1 {
-		panelHeight = 1
-	}
+	panelHeight, leftContentWidth, rightContentWidth := b.layoutDimensions()
 
 	// Set panel border styles based on detail focus.
 	var leftStyle, rightStyle lipgloss.Style
@@ -285,16 +274,16 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		linesUsed := 0
 		endIdx := col.ScrollOffset
 		for endIdx < len(allCards) {
-			cardLineCount := len(allCards[endIdx].lines)
+			lineCount := len(allCards[endIdx].lines)
 			// Reserve 1 line for down indicator if there are more cards after.
 			neededForDown := 0
 			if endIdx+1 < len(allCards) {
 				neededForDown = 1
 			}
-			if linesUsed+cardLineCount > available-neededForDown {
+			if linesUsed+lineCount > available-neededForDown {
 				break
 			}
-			linesUsed += cardLineCount
+			linesUsed += lineCount
 			endIdx++
 		}
 
