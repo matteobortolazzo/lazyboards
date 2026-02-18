@@ -117,6 +117,9 @@ func Load(globalPath, localPath string) (Config, error) {
 		cfg.Columns = globalColumns
 	}
 
+	// Merge per-column actions: for each local column, merge with matching global column's actions.
+	mergeColumnActions(cfg.Columns, globalColumns)
+
 	if err := validateColumns(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -154,6 +157,42 @@ func Save(path, provider, repo string) error {
 		return err
 	}
 	return os.WriteFile(path, out, 0600)
+}
+
+// mergeColumnActions merges per-column actions from globalColumns into columns.
+// For each column, if a matching global column exists (case-insensitive name),
+// global-only action keys are preserved. Local action keys take priority.
+// If a local column has nil actions, it inherits all matching global column actions.
+func mergeColumnActions(columns []ColumnConfig, globalColumns []ColumnConfig) {
+	globalByName := make(map[string]ColumnConfig, len(globalColumns))
+	for _, gc := range globalColumns {
+		globalByName[strings.ToLower(gc.Name)] = gc
+	}
+
+	for i := range columns {
+		gc, found := globalByName[strings.ToLower(columns[i].Name)]
+		if !found || len(gc.Actions) == 0 {
+			continue
+		}
+		if columns[i].Actions == nil {
+			// Nil means actions were not specified; inherit all global actions.
+			columns[i].Actions = make(map[string]Action, len(gc.Actions))
+			for k, v := range gc.Actions {
+				columns[i].Actions[k] = v
+			}
+			continue
+		}
+		if len(columns[i].Actions) == 0 {
+			// Explicit empty map means "no actions"; skip merge.
+			continue
+		}
+		// Non-empty local actions: fill in global-only keys (local wins on conflicts).
+		for k, v := range gc.Actions {
+			if _, exists := columns[i].Actions[k]; !exists {
+				columns[i].Actions[k] = v
+			}
+		}
+	}
 }
 
 // validateColumns checks that columns are valid and applies defaults if empty.
