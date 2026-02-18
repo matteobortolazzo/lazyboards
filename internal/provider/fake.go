@@ -47,24 +47,16 @@ func NewFakeProvider() *FakeProvider {
 				},
 			},
 			{
-				Title: "PR Ready",
+				Title: "Implemented",
 				Cards: []Card{
 					{Number: 13, Title: "Fix clamp", Labels: []string{"bug"}},
 					{Number: 14, Title: "Refactor", Labels: []string{"chore"}},
-					{Number: 15, Title: "Help bar", Labels: []string{"ui"}},
-				},
-			},
-			{
-				Title: "Done",
-				Cards: []Card{
-					{Number: 16, Title: "Go module", Labels: []string{"infra"}},
-					{Number: 17, Title: "Scaffold", Labels: []string{"feature"}},
-					{Number: 18, Title: "Fake data", Labels: []string{"feature"}},
-					{Number: 19, Title: "Tests", Labels: []string{"test"}},
+					{Number: 15, Title: "Go module", Labels: []string{"infra"}},
+					{Number: 16, Title: "Scaffold", Labels: []string{"feature"}},
 				},
 			},
 		},
-		nextNumber: 20,
+		nextNumber: 17,
 	}
 }
 
