@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -95,7 +96,14 @@ func main() {
 	case "github":
 		token := os.Getenv("GITHUB_TOKEN")
 		if token == "" {
-			fmt.Fprintf(os.Stderr, "GITHUB_TOKEN environment variable is required\n")
+			out, err := exec.Command("gh", "auth", "token").Output()
+			if err == nil {
+				token = strings.TrimSpace(string(out))
+			}
+		}
+		if token == "" {
+			fmt.Fprintf(os.Stderr, "GitHub token not found.\n\n")
+			fmt.Fprintf(os.Stderr, "Either set GITHUB_TOKEN or authenticate with: gh auth login\n")
 			os.Exit(1)
 		}
 		parts := strings.SplitN(repo, "/", 2)
