@@ -290,6 +290,44 @@ func (b *Board) enterConfigMode() {
 	}
 }
 
+// layoutDimensions computes the panel layout dimensions.
+// panelHeight = terminal height - outer border (2) - help bar (1) - panel borders (2) = Height - 5.
+// leftContentWidth = left panel content area (40% of inner width, minus border).
+// rightContentWidth = right panel content area (remaining width, minus border).
+func (b Board) layoutDimensions() (panelHeight, leftContentWidth, rightContentWidth int) {
+	innerWidth := b.Width - 2
+	leftTotal := innerWidth * 2 / 5
+	leftContentWidth = leftTotal - 2
+	rightTotal := innerWidth - leftTotal
+	rightContentWidth = rightTotal - 2
+	panelHeight = b.Height - 5
+	if panelHeight < 1 {
+		panelHeight = 1
+	}
+	return
+}
+
+// cardLineCount returns the number of visual lines a card occupies
+// when its title is wrapped to fit within contentWidth.
+func cardLineCount(card Card, contentWidth int) int {
+	// Build the display text exactly as the view renders it
+	prefix := fmt.Sprintf("#%d ", card.Number)
+	text := prefix + card.Title
+	if len(card.LinkedPRs) > 0 {
+		text += " \ue728"
+	}
+	for _, label := range card.Labels {
+		if label == "Working" {
+			text += " \uf110"
+			break
+		}
+	}
+	for range card.Labels {
+		text += " \u25cf"
+	}
+	return len(wrapTitle(text, contentWidth, len([]rune(prefix))))
+}
+
 func (b *Board) clampScrollOffset() {
 	if len(b.Columns) == 0 {
 		return
@@ -301,43 +339,15 @@ func (b *Board) clampScrollOffset() {
 		return
 	}
 
-	panelHeight := b.Height - 5
-	if panelHeight < 1 {
-		panelHeight = 1
-	}
-
-	// Compute content width using the same formula as View().
-	innerWidth := b.Width - 2
-	leftTotal := innerWidth * 2 / 5
-	contentWidth := leftTotal - 2
+	panelHeight, contentWidth, _ := b.layoutDimensions()
 	if contentWidth < 1 {
 		contentWidth = 1
-	}
-
-	// Helper: count how many lines a card occupies when wrapped.
-	cardLineCount := func(idx int) int {
-		card := col.Cards[idx]
-		prefix := fmt.Sprintf("#%d ", card.Number)
-		text := prefix + card.Title
-		if len(card.LinkedPRs) > 0 {
-			text += " \ue728"
-		}
-		for _, label := range card.Labels {
-			if label == "Working" {
-				text += " \uf110"
-				break
-			}
-		}
-		for range card.Labels {
-			text += " \u25cf"
-		}
-		return len(wrapTitle(text, contentWidth, len([]rune(prefix))))
 	}
 
 	// Compute total lines for all cards.
 	totalLines := 0
 	for i := 0; i < totalCards; i++ {
-		totalLines += cardLineCount(i)
+		totalLines += cardLineCount(col.Cards[i], contentWidth)
 	}
 
 	if totalLines <= panelHeight {
@@ -357,7 +367,7 @@ func (b *Board) clampScrollOffset() {
 		linesUsed := 0
 		lastVisible := col.ScrollOffset
 		for lastVisible < totalCards {
-			cl := cardLineCount(lastVisible)
+			cl := cardLineCount(col.Cards[lastVisible], contentWidth)
 			neededForDown := 0
 			if lastVisible+1 < totalCards {
 				neededForDown = 1
@@ -376,10 +386,10 @@ func (b *Board) clampScrollOffset() {
 			// Scroll down so cursor card is the last visible.
 			// Work backwards from cursor to find the ScrollOffset.
 			col.ScrollOffset = col.Cursor
-			linesFromCursor := cardLineCount(col.Cursor)
+			linesFromCursor := cardLineCount(col.Cards[col.Cursor], contentWidth)
 			avail := panelHeight - 1 // reserve 1 for up indicator (since we're scrolling down)
 			for col.ScrollOffset > 0 {
-				prevLines := cardLineCount(col.ScrollOffset - 1)
+				prevLines := cardLineCount(col.Cards[col.ScrollOffset-1], contentWidth)
 				neededForDown := 0
 				if col.Cursor+1 < totalCards {
 					neededForDown = 1

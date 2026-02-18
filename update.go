@@ -464,13 +464,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if card.Body != "" {
 				rendered := renderBody(card.Body)
 				maxLines := len(strings.Split(rendered, "\n"))
-				panelHeight := b.Height - 5
-				if panelHeight < 1 {
-					panelHeight = 1
-				}
-				innerWidth := b.Width - 2
-				leftTotal := innerWidth * 2 / 5
-				rightContentWidth := innerWidth - leftTotal - 2
+				panelHeight, _, rightContentWidth := b.layoutDimensions()
 				headerLines := detailHeaderLineCount(card, rightContentWidth)
 				availableBodyLines := panelHeight - headerLines
 				if availableBodyLines < 1 {
