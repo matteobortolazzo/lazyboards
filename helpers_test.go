@@ -215,6 +215,78 @@ func newBoardWithCustomCard(t *testing.T, title string, labels []string, body st
 	return board
 }
 
+// newBoardWithGeneratedCards creates a Board with a single column containing
+// count cards. Each card's title is generated from titleFmt (which must contain
+// a %d placeholder for the card number). Width and Height are set to the given values.
+func newBoardWithGeneratedCards(t *testing.T, count int, titleFmt string, width, height int) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
+
+	cards := make([]provider.Card, count)
+	for i := range cards {
+		cards[i] = provider.Card{
+			Number: i + 1,
+			Title:  fmt.Sprintf(titleFmt, i+1),
+			Labels: []string{"test"},
+		}
+	}
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: cards},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = width
+	board.Height = height
+	return board
+}
+
+// newBoardWithInlineCards creates a Board with a single column containing the
+// given cards. Width and Height are set to the given values.
+func newBoardWithInlineCards(t *testing.T, cards []provider.Card, width, height int) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: cards},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = width
+	board.Height = height
+	return board
+}
+
+// newActionTestBoardWithColumns creates a loaded Board with the given actions
+// and custom columns. It returns the board and the FakeExecutor for assertion.
+func newActionTestBoardWithColumns(t *testing.T, actions map[string]config.Action, columns []provider.Column) (Board, *action.FakeExecutor) {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, false)
+
+	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
+	loaded, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	loaded.Width = 120
+	loaded.Height = 40
+	return loaded, fe
+}
+
 // newColumnActionTestBoard creates a loaded Board with global actions AND
 // per-column configs. It returns the board and FakeExecutor for assertion.
 func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, columnConfigs []config.ColumnConfig) (Board, *action.FakeExecutor) {
