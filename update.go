@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -23,7 +22,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case boardFetchErrorMsg:
 		if b.refreshing {
 			b.refreshing = false
-			cmd := b.statusBar.SetTimedMessage("Refresh failed: "+provider.SanitizeError(msg.err), 3*time.Second)
+			cmd := b.statusBar.SetTimedMessage("Refresh failed: "+provider.SanitizeError(msg.err), statusMessageDuration)
 			return b, cmd
 		}
 		b.mode = errorMode
@@ -58,7 +57,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, nil
 
 	case actionResultMsg:
-		cmd := b.statusBar.SetTimedMessage(msg.message, 3*time.Second)
+		cmd := b.statusBar.SetTimedMessage(msg.message, statusMessageDuration)
 		return b, cmd
 
 	case spinner.TickMsg:
@@ -172,7 +171,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		} else {
 			b.statusBar.SetActionHints(b.normalHints)
 		}
-		cmd := b.statusBar.SetTimedMessage("Board refreshed", 3*time.Second)
+		cmd := b.statusBar.SetTimedMessage("Board refreshed", statusMessageDuration)
 		return b, cmd
 	}
 
@@ -184,7 +183,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.rebuildNormalHints()
 	b.statusBar.SetActionHints(b.normalHints)
 	if b.loaded {
-		cmd = b.statusBar.SetTimedMessage("Board refreshed", 3*time.Second)
+		cmd = b.statusBar.SetTimedMessage("Board refreshed", statusMessageDuration)
 	}
 	b.loaded = true
 	return b, cmd
@@ -329,15 +328,15 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		card := col.Cards[col.Cursor]
 		switch len(card.LinkedPRs) {
 		case 0:
-			cmd := b.statusBar.SetTimedMessage("No linked PRs", 3*time.Second)
+			cmd := b.statusBar.SetTimedMessage("No linked PRs", statusMessageDuration)
 			return b, cmd
 		case 1:
 			pr := card.LinkedPRs[0]
 			if err := b.executor.OpenURL(pr.URL); err != nil {
-				cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), 3*time.Second)
+				cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
 				return b, cmd
 			}
-			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), 3*time.Second)
+			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), statusMessageDuration)
 			return b, cmd
 		default:
 			b.prPickerIndex = 0
@@ -408,13 +407,13 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case "url":
 				expanded := action.ExpandTemplate(act.URL, action.BuildURLSafeVars(vars))
 				if err := b.executor.OpenURL(expanded); err != nil {
-					cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), 3*time.Second)
+					cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
 					return b, cmd
 				}
 				return b, nil
 			case "shell":
 				expanded := action.ExpandTemplate(act.Command, action.BuildShellSafeVars(vars))
-				cmd := b.statusBar.SetTimedMessage("Running...", 30*time.Second)
+				cmd := b.statusBar.SetTimedMessage("Running...", longStatusMessageDuration)
 				return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
 			}
 		}
@@ -538,10 +537,10 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = normalMode
 		b.statusBar.SetActionHints(b.normalHints)
 		if err := b.executor.OpenURL(pr.URL); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), 3*time.Second)
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
 			return b, cmd
 		}
-		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), 3*time.Second)
+		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), statusMessageDuration)
 		return b, cmd
 	}
 	return b, nil

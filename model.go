@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -108,6 +109,11 @@ const (
 	errorMode
 	configMode
 	prPickerMode
+)
+
+const (
+	statusMessageDuration     = 3 * time.Second
+	longStatusMessageDuration = 30 * time.Second
 )
 
 // LinkedPR represents a pull request linked to a card.
