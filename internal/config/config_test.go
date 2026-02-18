@@ -66,8 +66,8 @@ func TestLoad_MissingGlobalFile_ReturnsDefaults(t *testing.T) {
 		t.Fatalf("Columns count = %d, want %d (defaults)", len(result.Columns), len(DefaultColumns))
 	}
 	for i, col := range result.Columns {
-		if col != DefaultColumns[i] {
-			t.Errorf("Columns[%d] = %q, want %q", i, col, DefaultColumns[i])
+		if col.Name != DefaultColumns[i].Name {
+			t.Errorf("Columns[%d].Name = %q, want %q", i, col.Name, DefaultColumns[i].Name)
 		}
 	}
 }
@@ -195,8 +195,8 @@ func TestLoad_BothMissing_ReturnsDefaults(t *testing.T) {
 		t.Fatalf("Columns count = %d, want %d (defaults)", len(result.Columns), len(DefaultColumns))
 	}
 	for i, col := range result.Columns {
-		if col != DefaultColumns[i] {
-			t.Errorf("Columns[%d] = %q, want %q", i, col, DefaultColumns[i])
+		if col.Name != DefaultColumns[i].Name {
+			t.Errorf("Columns[%d].Name = %q, want %q", i, col.Name, DefaultColumns[i].Name)
 		}
 	}
 }
@@ -272,14 +272,19 @@ func TestLoad_UnknownYAMLFields_Ignored(t *testing.T) {
 	}
 }
 
-// --- Column parsing and validation tests ---
+// --- Column parsing and validation tests (ColumnConfig object format) ---
 
-func TestLoad_ParsesColumnsFromYAML(t *testing.T) {
+func TestLoad_ParsesColumnConfigFromYAML(t *testing.T) {
 	dir := t.TempDir()
 	globalPath := filepath.Join(dir, "global.yml")
 	localPath := filepath.Join(dir, "nonexistent.yml")
 
-	yamlContent := "provider: github\ncolumns:\n  - Todo\n  - Doing\n  - Done\n"
+	yamlContent := `provider: github
+columns:
+  - name: Todo
+  - name: Doing
+  - name: Done
+`
 	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
@@ -289,13 +294,196 @@ func TestLoad_ParsesColumnsFromYAML(t *testing.T) {
 		t.Fatalf("Load() returned unexpected error: %v", err)
 	}
 
-	expected := []string{"Todo", "Doing", "Done"}
-	if len(result.Columns) != len(expected) {
-		t.Fatalf("Columns count = %d, want %d", len(result.Columns), len(expected))
+	expectedNames := []string{"Todo", "Doing", "Done"}
+	if len(result.Columns) != len(expectedNames) {
+		t.Fatalf("Columns count = %d, want %d", len(result.Columns), len(expectedNames))
 	}
 	for i, col := range result.Columns {
-		if col != expected[i] {
-			t.Errorf("Columns[%d] = %q, want %q", i, col, expected[i])
+		if col.Name != expectedNames[i] {
+			t.Errorf("Columns[%d].Name = %q, want %q", i, col.Name, expectedNames[i])
+		}
+	}
+}
+
+func TestLoad_ParsesColumnConfigWithActions(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+columns:
+  - name: New
+  - name: Implementing
+    actions:
+      b:
+        name: Create branch
+        type: shell
+        command: "git checkout -b {title}"
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Columns) != 2 {
+		t.Fatalf("Columns count = %d, want 2", len(result.Columns))
+	}
+
+	// First column: no actions.
+	if result.Columns[0].Name != "New" {
+		t.Errorf("Columns[0].Name = %q, want %q", result.Columns[0].Name, "New")
+	}
+	if len(result.Columns[0].Actions) != 0 {
+		t.Errorf("Columns[0].Actions count = %d, want 0", len(result.Columns[0].Actions))
+	}
+
+	// Second column: has actions.
+	if result.Columns[1].Name != "Implementing" {
+		t.Errorf("Columns[1].Name = %q, want %q", result.Columns[1].Name, "Implementing")
+	}
+	if len(result.Columns[1].Actions) != 1 {
+		t.Fatalf("Columns[1].Actions count = %d, want 1", len(result.Columns[1].Actions))
+	}
+	act, ok := result.Columns[1].Actions["b"]
+	if !ok {
+		t.Fatal("Columns[1].Actions missing key 'b'")
+	}
+	if act.Name != "Create branch" {
+		t.Errorf("Columns[1].Actions[b].Name = %q, want %q", act.Name, "Create branch")
+	}
+	if act.Type != "shell" {
+		t.Errorf("Columns[1].Actions[b].Type = %q, want %q", act.Type, "shell")
+	}
+	if act.Command != "git checkout -b {title}" {
+		t.Errorf("Columns[1].Actions[b].Command = %q, want %q", act.Command, "git checkout -b {title}")
+	}
+}
+
+func TestLoad_ColumnActionInvalidType_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+columns:
+  - name: Implementing
+    actions:
+      b:
+        name: Bad action
+        type: webhook
+        command: "echo hello"
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, err := Load(globalPath, localPath)
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for invalid column action type")
+	}
+	errLower := strings.ToLower(err.Error())
+	if !strings.Contains(errLower, "type") {
+		t.Errorf("error = %q, want it to contain 'type'", err.Error())
+	}
+}
+
+func TestLoad_ColumnActionConflictsWithBuiltinKey_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+columns:
+  - name: Implementing
+    actions:
+      j:
+        name: Conflicting action
+        type: url
+        url: "https://example.com"
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	_, err := Load(globalPath, localPath)
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for column action with built-in key")
+	}
+	errLower := strings.ToLower(err.Error())
+	if !strings.Contains(errLower, "conflict") && !strings.Contains(errLower, "built-in") {
+		t.Errorf("error = %q, want it to contain 'conflict' or 'built-in'", err.Error())
+	}
+}
+
+func TestLoad_ColumnActionValidKey_AcceptsGlobalActionOverlap(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	// Column action key "o" overlaps with a global action key "o".
+	// This should be allowed -- column overrides at runtime (PR 2).
+	yamlContent := `provider: github
+actions:
+  o:
+    name: Global open
+    type: url
+    url: "https://global.example.com"
+columns:
+  - name: Implementing
+    actions:
+      o:
+        name: Column open
+        type: url
+        url: "https://column.example.com"
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	// Both global and column actions should be parsed successfully.
+	if len(result.Actions) != 1 {
+		t.Errorf("global Actions count = %d, want 1", len(result.Actions))
+	}
+	if len(result.Columns[0].Actions) != 1 {
+		t.Errorf("Columns[0].Actions count = %d, want 1", len(result.Columns[0].Actions))
+	}
+}
+
+func TestLoad_ColumnWithoutActions_ParsesCorrectly(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := `provider: github
+columns:
+  - name: Backlog
+  - name: In Progress
+  - name: Done
+`
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(result.Columns) != 3 {
+		t.Fatalf("Columns count = %d, want 3", len(result.Columns))
+	}
+	for _, col := range result.Columns {
+		if len(col.Actions) != 0 {
+			t.Errorf("Column %q has %d actions, want 0", col.Name, len(col.Actions))
 		}
 	}
 }
@@ -319,8 +507,8 @@ func TestLoad_OmittedColumns_UsesDefaults(t *testing.T) {
 		t.Fatalf("Columns count = %d, want %d (defaults)", len(result.Columns), len(DefaultColumns))
 	}
 	for i, col := range result.Columns {
-		if col != DefaultColumns[i] {
-			t.Errorf("Columns[%d] = %q, want %q", i, col, DefaultColumns[i])
+		if col.Name != DefaultColumns[i].Name {
+			t.Errorf("Columns[%d].Name = %q, want %q", i, col.Name, DefaultColumns[i].Name)
 		}
 	}
 }
@@ -344,8 +532,8 @@ func TestLoad_EmptyColumnsList_UsesDefaults(t *testing.T) {
 		t.Fatalf("Columns count = %d, want %d (defaults)", len(result.Columns), len(DefaultColumns))
 	}
 	for i, col := range result.Columns {
-		if col != DefaultColumns[i] {
-			t.Errorf("Columns[%d] = %q, want %q", i, col, DefaultColumns[i])
+		if col.Name != DefaultColumns[i].Name {
+			t.Errorf("Columns[%d].Name = %q, want %q", i, col.Name, DefaultColumns[i].Name)
 		}
 	}
 }
@@ -356,7 +544,12 @@ func TestLoad_DuplicateColumns_ReturnsError(t *testing.T) {
 	localPath := filepath.Join(dir, "nonexistent.yml")
 
 	// Case-insensitive duplicate: "Todo" and "todo"
-	yamlContent := "provider: github\ncolumns:\n  - Todo\n  - Doing\n  - todo\n"
+	yamlContent := `provider: github
+columns:
+  - name: Todo
+  - name: Doing
+  - name: todo
+`
 	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
@@ -376,7 +569,10 @@ func TestLoad_SingleColumn_Valid(t *testing.T) {
 	globalPath := filepath.Join(dir, "global.yml")
 	localPath := filepath.Join(dir, "nonexistent.yml")
 
-	yamlContent := "provider: github\ncolumns:\n  - Backlog\n"
+	yamlContent := `provider: github
+columns:
+  - name: Backlog
+`
 	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
@@ -389,8 +585,8 @@ func TestLoad_SingleColumn_Valid(t *testing.T) {
 	if len(result.Columns) != 1 {
 		t.Fatalf("Columns count = %d, want 1", len(result.Columns))
 	}
-	if result.Columns[0] != "Backlog" {
-		t.Errorf("Columns[0] = %q, want %q", result.Columns[0], "Backlog")
+	if result.Columns[0].Name != "Backlog" {
+		t.Errorf("Columns[0].Name = %q, want %q", result.Columns[0].Name, "Backlog")
 	}
 }
 
@@ -399,8 +595,16 @@ func TestLoad_LocalColumnsOverrideGlobal(t *testing.T) {
 	globalPath := filepath.Join(dir, "global.yml")
 	localPath := filepath.Join(dir, "local.yml")
 
-	globalYAML := "provider: github\ncolumns:\n  - Global1\n  - Global2\n  - Global3\n"
-	localYAML := "columns:\n  - Local1\n  - Local2\n"
+	globalYAML := `provider: github
+columns:
+  - name: Global1
+  - name: Global2
+  - name: Global3
+`
+	localYAML := `columns:
+  - name: Local1
+  - name: Local2
+`
 	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
 		t.Fatalf("failed to write global config: %v", err)
 	}
@@ -414,23 +618,27 @@ func TestLoad_LocalColumnsOverrideGlobal(t *testing.T) {
 	}
 
 	// Local columns should completely replace global columns.
-	expected := []string{"Local1", "Local2"}
-	if len(result.Columns) != len(expected) {
-		t.Fatalf("Columns count = %d, want %d (local should replace global)", len(result.Columns), len(expected))
+	expectedNames := []string{"Local1", "Local2"}
+	if len(result.Columns) != len(expectedNames) {
+		t.Fatalf("Columns count = %d, want %d (local should replace global)", len(result.Columns), len(expectedNames))
 	}
 	for i, col := range result.Columns {
-		if col != expected[i] {
-			t.Errorf("Columns[%d] = %q, want %q", i, col, expected[i])
+		if col.Name != expectedNames[i] {
+			t.Errorf("Columns[%d].Name = %q, want %q", i, col.Name, expectedNames[i])
 		}
 	}
 }
 
-func TestLoad_WhitespaceOnlyColumn_ReturnsError(t *testing.T) {
+func TestLoad_WhitespaceOnlyColumnName_ReturnsError(t *testing.T) {
 	dir := t.TempDir()
 	globalPath := filepath.Join(dir, "global.yml")
 	localPath := filepath.Join(dir, "nonexistent.yml")
 
-	yamlContent := "provider: github\ncolumns:\n  - Todo\n  - \"  \"\n"
+	yamlContent := `provider: github
+columns:
+  - name: Todo
+  - name: "  "
+`
 	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
@@ -445,12 +653,16 @@ func TestLoad_WhitespaceOnlyColumn_ReturnsError(t *testing.T) {
 	}
 }
 
-func TestLoad_ColumnsWithWhitespace_Trimmed(t *testing.T) {
+func TestLoad_ColumnNameWithWhitespace_Trimmed(t *testing.T) {
 	dir := t.TempDir()
 	globalPath := filepath.Join(dir, "global.yml")
 	localPath := filepath.Join(dir, "nonexistent.yml")
 
-	yamlContent := "provider: github\ncolumns:\n  - \" Todo \"\n  - \"Doing \"\n"
+	yamlContent := `provider: github
+columns:
+  - name: " Todo "
+  - name: "Doing "
+`
 	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatalf("failed to write config: %v", err)
 	}
@@ -460,11 +672,44 @@ func TestLoad_ColumnsWithWhitespace_Trimmed(t *testing.T) {
 		t.Fatalf("Load() returned unexpected error: %v", err)
 	}
 
-	if result.Columns[0] != "Todo" {
-		t.Errorf("Columns[0] = %q, want %q (should be trimmed)", result.Columns[0], "Todo")
+	if result.Columns[0].Name != "Todo" {
+		t.Errorf("Columns[0].Name = %q, want %q (should be trimmed)", result.Columns[0].Name, "Todo")
 	}
-	if result.Columns[1] != "Doing" {
-		t.Errorf("Columns[1] = %q, want %q (should be trimmed)", result.Columns[1], "Doing")
+	if result.Columns[1].Name != "Doing" {
+		t.Errorf("Columns[1].Name = %q, want %q (should be trimmed)", result.Columns[1].Name, "Doing")
+	}
+}
+
+// --- ColumnNames() helper ---
+
+func TestColumnNames_ExtractsNamesFromColumnConfigs(t *testing.T) {
+	cfg := Config{
+		Columns: []ColumnConfig{
+			{Name: "New"},
+			{Name: "Implementing"},
+			{Name: "Done"},
+		},
+	}
+
+	names := cfg.ColumnNames()
+	expectedNames := []string{"New", "Implementing", "Done"}
+
+	if len(names) != len(expectedNames) {
+		t.Fatalf("ColumnNames() returned %d names, want %d", len(names), len(expectedNames))
+	}
+	for i, name := range names {
+		if name != expectedNames[i] {
+			t.Errorf("ColumnNames()[%d] = %q, want %q", i, name, expectedNames[i])
+		}
+	}
+}
+
+func TestColumnNames_EmptyColumns_ReturnsEmptySlice(t *testing.T) {
+	cfg := Config{}
+
+	names := cfg.ColumnNames()
+	if len(names) != 0 {
+		t.Errorf("ColumnNames() returned %d names, want 0 for empty columns", len(names))
 	}
 }
 

@@ -18,17 +18,37 @@ type Action struct {
 	Command string `yaml:"command"`
 }
 
+// ColumnConfig defines a column with optional per-column actions.
+type ColumnConfig struct {
+	Name    string            `yaml:"name"`
+	Actions map[string]Action `yaml:"actions"`
+}
+
 // Config holds the application configuration.
 type Config struct {
 	Provider string            `yaml:"provider"`
 	Repo     string            `yaml:"repo"`
 	Project  string            `yaml:"project"`
 	Actions  map[string]Action `yaml:"actions"`
-	Columns  []string          `yaml:"columns"`
+	Columns  []ColumnConfig    `yaml:"columns"`
 }
 
 // DefaultColumns is the default set of column names when none are configured.
-var DefaultColumns = []string{"New", "Refined", "Implementing", "Implemented"}
+var DefaultColumns = []ColumnConfig{
+	{Name: "New"},
+	{Name: "Refined"},
+	{Name: "Implementing"},
+	{Name: "Implemented"},
+}
+
+// ColumnNames extracts the column name strings from the ColumnConfig slice.
+func (c Config) ColumnNames() []string {
+	names := make([]string, len(c.Columns))
+	for i, col := range c.Columns {
+		names[i] = col.Name
+	}
+	return names
+}
 
 // builtinKeys is the set of single-character keys reserved for built-in navigation.
 var builtinKeys = map[string]bool{
@@ -139,7 +159,7 @@ func Save(path, provider, repo string) error {
 // validateColumns checks that columns are valid and applies defaults if empty.
 func validateColumns(cfg *Config) error {
 	if len(cfg.Columns) == 0 {
-		cfg.Columns = make([]string, len(DefaultColumns))
+		cfg.Columns = make([]ColumnConfig, len(DefaultColumns))
 		copy(cfg.Columns, DefaultColumns)
 		return nil
 	}
@@ -147,16 +167,21 @@ func validateColumns(cfg *Config) error {
 	// Validate column names and check for case-insensitive duplicates.
 	seen := make(map[string]bool, len(cfg.Columns))
 	for i, col := range cfg.Columns {
-		trimmed := strings.TrimSpace(col)
+		trimmed := strings.TrimSpace(col.Name)
 		if trimmed == "" {
 			return fmt.Errorf("column %d: name cannot be empty or whitespace-only", i+1)
 		}
-		cfg.Columns[i] = trimmed
+		cfg.Columns[i].Name = trimmed
 		lower := strings.ToLower(trimmed)
 		if seen[lower] {
 			return fmt.Errorf("duplicate column %q (case-insensitive)", trimmed)
 		}
 		seen[lower] = true
+
+		// Validate per-column actions with the same rules as global actions.
+		if err := validateActions(col.Actions); err != nil {
+			return fmt.Errorf("column %q: %w", trimmed, err)
+		}
 	}
 	return nil
 }
