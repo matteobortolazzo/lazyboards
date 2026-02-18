@@ -124,10 +124,10 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
 		return joined, lipgloss.Width(joined)
 	}
 
-	// Try 1: Full titles — "[N] Title"
+	// Try 1: Full titles — "[N] Title (C)"
 	fullTexts := make([]string, len(columns))
 	for i, col := range columns {
-		fullTexts[i] = fmt.Sprintf("[%d] %s", i+1, col.Title)
+		fullTexts[i] = fmt.Sprintf("[%d] %s (%d)", i+1, col.Title, len(col.Cards))
 	}
 	joined, joinedWidth := renderLabels(fullTexts)
 
@@ -146,16 +146,18 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
 		for i, col := range columns {
 			numPrefix := fmt.Sprintf("[%d] ", i+1)
 			prefixLen := len([]rune(numPrefix))
-			maxTitleChars := perLabel - prefixLen
+			countSuffix := fmt.Sprintf(" (%d)", len(col.Cards))
+			countLen := len([]rune(countSuffix))
+			maxTitleChars := perLabel - prefixLen - countLen
 			if maxTitleChars < 1 {
 				canTruncate = false
 				break
 			}
 			titleRunes := []rune(col.Title)
 			if len(titleRunes) > maxTitleChars {
-				truncTexts[i] = numPrefix + string(titleRunes[:maxTitleChars-1]) + "\u2026"
+				truncTexts[i] = numPrefix + string(titleRunes[:maxTitleChars-1]) + "\u2026" + countSuffix
 			} else {
-				truncTexts[i] = numPrefix + col.Title
+				truncTexts[i] = numPrefix + col.Title + countSuffix
 			}
 		}
 
@@ -163,11 +165,11 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
 			joined, joinedWidth = renderLabels(truncTexts)
 		}
 
-		// Try 3: Numbers only — "[N]"
+		// Try 3: Numbers only — "[N] (C)"
 		if !canTruncate || joinedWidth > availableForLabels {
 			numTexts := make([]string, len(columns))
-			for i := range columns {
-				numTexts[i] = fmt.Sprintf("[%d]", i+1)
+			for i, col := range columns {
+				numTexts[i] = fmt.Sprintf("[%d] (%d)", i+1, len(col.Cards))
 			}
 			joined, joinedWidth = renderLabels(numTexts)
 		}
