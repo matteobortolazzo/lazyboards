@@ -306,8 +306,12 @@ func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, co
 	return loaded, fe
 }
 
-// newBoardWithPRsAndExecutor creates a Board with PR test data and a FakeExecutor.
-// Same card setup as newBoardWithPRs but includes an executor for testing OpenURL calls.
+// newBoardWithPRsAndExecutor creates a Board with one column containing three cards:
+// - Card 1: no LinkedPRs
+// - Card 2: 1 LinkedPR
+// - Card 3: 2 LinkedPRs
+// It also returns a FakeExecutor for asserting OpenURL/RunShell calls.
+// newBoardWithPRs delegates to this function when the executor is not needed.
 func newBoardWithPRsAndExecutor(t *testing.T) (Board, *action.FakeExecutor) {
 	t.Helper()
 	p := provider.NewFakeProvider()
@@ -373,26 +377,6 @@ func newBoardWithWorkingLabel(t *testing.T) Board {
 // - Card 3: 2 LinkedPRs
 func newBoardWithPRs(t *testing.T) Board {
 	t.Helper()
-	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
-
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Column A", Cards: []provider.Card{
-				{Number: 1, Title: "No PRs", Labels: []string{"bug"}},
-				{Number: 2, Title: "One PR", Labels: []string{"feature"}, LinkedPRs: []provider.LinkedPR{
-					{Number: 10, Title: "feat: one PR", URL: "https://github.com/owner/repo/pull/10"},
-				}},
-				{Number: 3, Title: "Two PRs", Labels: []string{"feature"}, LinkedPRs: []provider.LinkedPR{
-					{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20"},
-					{Number: 21, Title: "feat: second PR", URL: "https://github.com/owner/repo/pull/21"},
-				}},
-			}},
-		},
-	}}
-	m, _ := b.Update(msg)
-	board := m.(Board)
-	board.Width = 120
-	board.Height = 40
-	return board
+	b, _ := newBoardWithPRsAndExecutor(t)
+	return b
 }
