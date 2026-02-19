@@ -2,12 +2,20 @@ package provider
 
 import "context"
 
-// Card represents a single Kanban card (e.g., a GitHub issue).
-type Card struct {
+// LinkedPR represents a pull request linked to a card.
+type LinkedPR struct {
 	Number int
 	Title  string
-	Labels []string
-	Body   string
+	URL    string
+}
+
+// Card represents a single Kanban card (e.g., a GitHub issue).
+type Card struct {
+	Number    int
+	Title     string
+	Labels    []string
+	Body      string
+	LinkedPRs []LinkedPR
 }
 
 // Column represents a Kanban column containing cards.

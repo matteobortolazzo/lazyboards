@@ -238,3 +238,62 @@ func TestErrorMode_StatusBarShowsRetryAndQuit(t *testing.T) {
 		t.Errorf("View() in errorMode should NOT contain %q", "n: New")
 	}
 }
+
+// --- LinkedPR Mapping ---
+
+func TestBoardFetched_MapsLinkedPRs(t *testing.T) {
+	b := newBoardWithPRs(t)
+
+	if len(b.Columns) == 0 {
+		t.Fatal("board has 0 columns after fetch")
+	}
+	col := b.Columns[0]
+	if len(col.Cards) < 3 {
+		t.Fatalf("column has %d cards, want at least 3", len(col.Cards))
+	}
+
+	// Card 0: no LinkedPRs.
+	if got := len(col.Cards[0].LinkedPRs); got != 0 {
+		t.Errorf("card 0 LinkedPRs count = %d, want 0", got)
+	}
+
+	// Card 1: 1 LinkedPR.
+	if got := len(col.Cards[1].LinkedPRs); got != 1 {
+		t.Fatalf("card 1 LinkedPRs count = %d, want 1", got)
+	}
+	pr1 := col.Cards[1].LinkedPRs[0]
+	if pr1.Number != 10 {
+		t.Errorf("card 1 LinkedPRs[0].Number = %d, want 10", pr1.Number)
+	}
+	if pr1.Title != "feat: one PR" {
+		t.Errorf("card 1 LinkedPRs[0].Title = %q, want %q", pr1.Title, "feat: one PR")
+	}
+	if pr1.URL != "https://github.com/owner/repo/pull/10" {
+		t.Errorf("card 1 LinkedPRs[0].URL = %q, want %q", pr1.URL, "https://github.com/owner/repo/pull/10")
+	}
+
+	// Card 2: 2 LinkedPRs.
+	if got := len(col.Cards[2].LinkedPRs); got != 2 {
+		t.Fatalf("card 2 LinkedPRs count = %d, want 2", got)
+	}
+	pr2a := col.Cards[2].LinkedPRs[0]
+	if pr2a.Number != 20 {
+		t.Errorf("card 2 LinkedPRs[0].Number = %d, want 20", pr2a.Number)
+	}
+	if pr2a.Title != "feat: first PR" {
+		t.Errorf("card 2 LinkedPRs[0].Title = %q, want %q", pr2a.Title, "feat: first PR")
+	}
+	if pr2a.URL != "https://github.com/owner/repo/pull/20" {
+		t.Errorf("card 2 LinkedPRs[0].URL = %q, want %q", pr2a.URL, "https://github.com/owner/repo/pull/20")
+	}
+	pr2b := col.Cards[2].LinkedPRs[1]
+	if pr2b.Number != 21 {
+		t.Errorf("card 2 LinkedPRs[1].Number = %d, want 21", pr2b.Number)
+	}
+	if pr2b.Title != "feat: second PR" {
+		t.Errorf("card 2 LinkedPRs[1].Title = %q, want %q", pr2b.Title, "feat: second PR")
+	}
+	if pr2b.URL != "https://github.com/owner/repo/pull/21" {
+		t.Errorf("card 2 LinkedPRs[1].URL = %q, want %q", pr2b.URL, "https://github.com/owner/repo/pull/21")
+	}
+}

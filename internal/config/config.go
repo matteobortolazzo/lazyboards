@@ -53,7 +53,7 @@ func (c Config) ColumnNames() []string {
 // builtinKeys is the set of single-character keys reserved for built-in navigation.
 var builtinKeys = map[string]bool{
 	"j": true, "k": true,
-	"q": true, "r": true, "n": true, "c": true,
+	"q": true, "r": true, "n": true, "c": true, "p": true,
 	"1": true, "2": true, "3": true, "4": true,
 	"5": true, "6": true, "7": true, "8": true, "9": true,
 }
