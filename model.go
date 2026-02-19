@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -192,7 +193,7 @@ type configState struct {
 
 // createState groups fields related to the create-card modal.
 type createState struct {
-	titleInput textinput.Model
+	titleInput textarea.Model
 	labelInput textinput.Model
 }
 
@@ -229,11 +230,13 @@ type Board struct {
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
 func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, firstLaunch bool) Board {
-	ti := textinput.New()
+	ti := textarea.New()
 	ti.Placeholder = "Title"
-	ti.Focus()
 	ti.CharLimit = 100
-	ti.Width = 40
+	ti.ShowLineNumbers = false
+	ti.SetHeight(3)
+	ti.SetWidth(36)
+	ti.KeyMap.InsertNewline.SetEnabled(false)
 
 	li := textinput.New()
 	li.Placeholder = "Label"

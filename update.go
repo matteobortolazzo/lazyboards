@@ -290,7 +290,7 @@ func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = normalMode
 		return b, nil
 	case tea.KeyEnter:
-		title := strings.TrimSpace(b.create.titleInput.Value())
+		title := strings.TrimSpace(strings.ReplaceAll(b.create.titleInput.Value(), "\n", " "))
 		if title == "" {
 			b.validationErr = "Title is required"
 			return b, nil
@@ -386,8 +386,9 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = createMode
 		b.create.titleInput.SetValue("")
 		b.create.labelInput.SetValue("")
-		b.create.titleInput.Focus()
+		cmd := b.create.titleInput.Focus()
 		b.create.labelInput.Blur()
+		return b, cmd
 	case "c":
 		b.enterConfigMode()
 	case "r":
