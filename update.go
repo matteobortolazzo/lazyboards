@@ -202,6 +202,9 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		cmd = b.statusBar.SetTimedMessage("Board refreshed", statusMessageDuration)
 	}
 	b.loaded = true
+	if cleanupCmd != nil {
+		cmd = tea.Batch(cmd, cleanupCmd)
+	}
 	return b, cmd
 }
 
@@ -251,12 +254,18 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 	return runCleanupCmds(b.executor, commands)
 }
 
-// columnCleanup returns the cleanup command for the column at colIdx, or empty string.
+// columnCleanup returns the cleanup command for the column at colIdx, matched by title.
 func (b *Board) columnCleanup(colIdx int) string {
-	if colIdx >= len(b.columnConfigs) {
+	if colIdx >= len(b.Columns) {
 		return ""
 	}
-	return b.columnConfigs[colIdx].Cleanup
+	colTitle := b.Columns[colIdx].Title
+	for _, cc := range b.columnConfigs {
+		if strings.EqualFold(cc.Name, colTitle) {
+			return cc.Cleanup
+		}
+	}
+	return ""
 }
 
 func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
