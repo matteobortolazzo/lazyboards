@@ -562,8 +562,8 @@ func (b Board) viewCreateModal() string {
 			{Key: "enter", Desc: "Submit"},
 		})
 		modalContent = "New Card\n\n" +
-			"Title:\n" + b.titleInput.View() + errLine + "\n\n" +
-			"Label:\n" + b.labelInput.View() + "\n\n" +
+			"Title:\n" + b.create.titleInput.View() + errLine + "\n\n" +
+			"Label:\n" + b.create.labelInput.View() + "\n\n" +
 			createHints.View()
 	}
 
@@ -577,7 +577,7 @@ func (b Board) viewConfigModal() string {
 		errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
 	}
 
-	providerDisplay := "< " + b.providerOptions[b.providerIndex] + " >"
+	providerDisplay := "< " + b.config.providerOptions[b.config.providerIndex] + " >"
 
 	configHints := NewStatusBar([]Hint{
 		{Key: "esc", Desc: "Cancel"},
@@ -585,7 +585,7 @@ func (b Board) viewConfigModal() string {
 		{Key: "enter", Desc: "Save"},
 	})
 
-	repoView := b.repoInput.View()
+	repoView := b.config.repoInput.View()
 
 	modalContent := "Configuration\n\n" +
 		"Provider:\n" + providerDisplay + "\n\n" +
