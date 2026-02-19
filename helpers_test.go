@@ -1,0 +1,235 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/provider"
+)
+
+// expectedColumnCount is the number of Kanban columns in the board.
+const expectedColumnCount = 4
+
+// expectedColumnTitles are the Kanban column names from the spec.
+var expectedColumnTitles = []string{"New", "Refined", "Implementing", "Implemented"}
+
+// newTestBoard creates a Board in loadingMode using NewBoard.
+func newTestBoard(t *testing.T) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	return NewBoard(p, nil, nil, nil, "", "", "", false)
+}
+
+// newLoadedTestBoard creates a Board and sends a boardFetchedMsg to transition
+// it to normalMode with populated columns (simulating a successful fetch).
+func newLoadedTestBoard(t *testing.T) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+	// Simulate the provider returning board data.
+	board, err := p.FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	return updated
+}
+
+// errorProvider is a test-only provider that always returns errors.
+type errorProvider struct{}
+
+func (e errorProvider) FetchBoard(_ context.Context) (provider.Board, error) {
+	return provider.Board{}, errors.New("connection failed")
+}
+
+func (e errorProvider) CreateCard(_ context.Context, _ string, _ string) (provider.Card, error) {
+	return provider.Card{}, errors.New("not implemented")
+}
+
+// keyMsg builds a tea.KeyMsg for a single rune key (e.g., "h", "l", "j", "k", "q").
+func keyMsg(key string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
+}
+
+// arrowMsg builds a tea.KeyMsg for a special key type.
+func arrowMsg(kt tea.KeyType) tea.KeyMsg {
+	return tea.KeyMsg{Type: kt}
+}
+
+// sendKey is a helper that sends a key message through Update and returns the updated Board.
+func sendKey(t *testing.T, b Board, msg tea.Msg) Board {
+	t.Helper()
+	m, _ := b.Update(msg)
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	return updated
+}
+
+// execCmds recursively executes a tea.Cmd, handling tea.BatchMsg.
+func execCmds(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	msg := cmd()
+	if batchMsg, ok := msg.(tea.BatchMsg); ok {
+		for _, subCmd := range batchMsg {
+			execCmds(subCmd)
+		}
+	}
+}
+
+// requireColumns fails the test immediately if the board has no columns,
+// preventing panics from index-out-of-range on the stub implementation.
+func requireColumns(t *testing.T, b Board) {
+	t.Helper()
+	if len(b.Columns) == 0 {
+		t.Fatal("board has 0 columns; cannot test item navigation")
+	}
+}
+
+// newCreatingTestBoard creates a Board in creatingMode for testing async creation.
+func newCreatingTestBoard(t *testing.T) Board {
+	t.Helper()
+	b := newLoadedTestBoard(t)
+	b.mode = creatingMode
+	return b
+}
+
+// newBoardWithCards creates a Board with a single column containing cardCount
+// cards, plus a second column with one card (for tab-switch tests).
+// Width is set to 120 and Height to the given height parameter.
+func newBoardWithCards(t *testing.T, cardCount, height int) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+
+	// Build provider cards.
+	providerCards := make([]provider.Card, cardCount)
+	for i := range providerCards {
+		providerCards[i] = provider.Card{
+			Number: i + 1,
+			Title:  fmt.Sprintf("Card %d", i+1),
+			Labels: []string{"test"},
+		}
+	}
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: providerCards},
+			{Title: "Column B", Cards: []provider.Card{
+				{Number: 100, Title: "Other card", Labels: []string{"test"}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = height
+	return board
+}
+
+// newActionTestBoard creates a loaded Board with the given actions and a FakeExecutor.
+// It returns the board and the FakeExecutor for assertion.
+func newActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, *action.FakeExecutor) {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", false)
+	// Load the board.
+	board, err := p.FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	loaded := m.(Board)
+	loaded.Width = 120
+	loaded.Height = 40
+	return loaded, fe
+}
+
+// newBoardWithBody creates a Board with one column containing two cards.
+// The first card has body1 as its body text; the second card has body2.
+func newBoardWithBody(t *testing.T, body1, body2 string) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: "Card One", Labels: []string{"bug"}, Body: body1},
+				{Number: 2, Title: "Card Two", Labels: []string{"feature"}, Body: body2},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
+// newBoardWithLongBody creates a board where the first card has a body with
+// lineCount paragraphs (e.g., 50), which exceeds the visible panel area at Height=40,
+// enabling scroll testing. Uses \n\n paragraph separators so glamour renders
+// each as a distinct paragraph (single \n are soft breaks that glamour may collapse).
+func newBoardWithLongBody(t *testing.T, lineCount int) Board {
+	t.Helper()
+	var lines []string
+	for i := 1; i <= lineCount; i++ {
+		lines = append(lines, fmt.Sprintf("scroll line %d", i))
+	}
+	longBody := strings.Join(lines, "\n\n")
+	return newBoardWithBody(t, longBody, "Other body")
+}
+
+// newBoardWithCustomCard creates a board with a single card using the given title, labels, and body.
+func newBoardWithCustomCard(t *testing.T, title string, labels []string, body string) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: title, Labels: labels, Body: body},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 80
+	board.Height = 20
+	return board
+}
+
+// newColumnActionTestBoard creates a loaded Board with global actions AND
+// per-column configs. It returns the board and FakeExecutor for assertion.
+func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, columnConfigs []config.ColumnConfig) (Board, *action.FakeExecutor) {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", false)
+	// Load the board.
+	board, err := p.FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	loaded := m.(Board)
+	loaded.Width = 120
+	loaded.Height = 40
+	return loaded, fe
+}
