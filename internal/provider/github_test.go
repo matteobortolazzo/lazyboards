@@ -3,8 +3,10 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/go-github/v68/github"
@@ -844,5 +846,179 @@ func TestGitHubFetchBoard_TimelineAPIError_ReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "rate limit") {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), "rate limit")
+	}
+}
+
+// --- Concurrent Timeline Fetch Tests ---
+
+// countingMockClient extends mockIssuesClient with per-issue timeline errors
+// and call counting for testing concurrent fetch behavior.
+type countingMockClient struct {
+	mockIssuesClient
+	timelineErrs  map[int]error // per-issue errors
+	timelineCalls atomic.Int32
+}
+
+func (m *countingMockClient) ListIssueTimeline(
+	ctx context.Context,
+	_ string,
+	_ string,
+	number int,
+	_ *github.ListOptions,
+) ([]*github.Timeline, *github.Response, error) {
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
+	m.timelineCalls.Add(1)
+	if err, ok := m.timelineErrs[number]; ok {
+		return nil, nil, err
+	}
+	return m.timelineEvents[number], nil, nil
+}
+
+func TestGitHubFetchBoard_MultipleIssues_AllLinkedPRsPopulated(t *testing.T) {
+	columns := []string{"Todo", "Doing", "Done"}
+
+	issues := []*github.Issue{
+		makeIssue(1, "Issue one", "Todo"),
+		makeIssue(2, "Issue two", "Todo"),
+		makeIssue(3, "Issue three", "Doing"),
+		makeIssue(4, "Issue four", "Doing"),
+		makeIssue(5, "Issue five", "Done"),
+	}
+
+	timelineEvents := map[int][]*github.Timeline{
+		1: {makeCrossReferencedPREvent(101, "PR for issue 1", "https://github.com/o/r/pull/101")},
+		2: {
+			makeCrossReferencedPREvent(102, "PR for issue 2a", "https://github.com/o/r/pull/102"),
+			makeCrossReferencedPREvent(103, "PR for issue 2b", "https://github.com/o/r/pull/103"),
+		},
+		3: {makeCrossReferencedPREvent(104, "PR for issue 3", "https://github.com/o/r/pull/104")},
+		4: {}, // no linked PRs
+		5: {makeCrossReferencedPREvent(105, "PR for issue 5", "https://github.com/o/r/pull/105")},
+	}
+
+	client := &mockIssuesClient{
+		issues:         issues,
+		timelineEvents: timelineEvents,
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	// Collect all cards across columns.
+	cardsByNumber := make(map[int]Card)
+	for _, col := range board.Columns {
+		for _, card := range col.Cards {
+			cardsByNumber[card.Number] = card
+		}
+	}
+
+	if len(cardsByNumber) != 5 {
+		t.Fatalf("got %d total cards, want 5", len(cardsByNumber))
+	}
+
+	// Issue 1: 1 linked PR.
+	if len(cardsByNumber[1].LinkedPRs) != 1 || cardsByNumber[1].LinkedPRs[0].Number != 101 {
+		t.Errorf("issue 1 LinkedPRs = %v, want [{Number:101 ...}]", cardsByNumber[1].LinkedPRs)
+	}
+
+	// Issue 2: 2 linked PRs.
+	if len(cardsByNumber[2].LinkedPRs) != 2 {
+		t.Errorf("issue 2 LinkedPRs has %d entries, want 2", len(cardsByNumber[2].LinkedPRs))
+	}
+
+	// Issue 3: 1 linked PR.
+	if len(cardsByNumber[3].LinkedPRs) != 1 || cardsByNumber[3].LinkedPRs[0].Number != 104 {
+		t.Errorf("issue 3 LinkedPRs = %v, want [{Number:104 ...}]", cardsByNumber[3].LinkedPRs)
+	}
+
+	// Issue 4: no linked PRs.
+	if len(cardsByNumber[4].LinkedPRs) != 0 {
+		t.Errorf("issue 4 LinkedPRs has %d entries, want 0", len(cardsByNumber[4].LinkedPRs))
+	}
+
+	// Issue 5: 1 linked PR.
+	if len(cardsByNumber[5].LinkedPRs) != 1 || cardsByNumber[5].LinkedPRs[0].Number != 105 {
+		t.Errorf("issue 5 LinkedPRs = %v, want [{Number:105 ...}]", cardsByNumber[5].LinkedPRs)
+	}
+}
+
+func TestGitHubFetchBoard_TimelineErrorCancelsRemaining(t *testing.T) {
+	columns := []string{"Todo"}
+
+	// Create 50 issues — enough that with bounded concurrency, many should be
+	// cancelled when one timeline fetch fails.
+	issueCount := 50
+	issues := make([]*github.Issue, issueCount)
+	timelineEvents := make(map[int][]*github.Timeline, issueCount)
+	for i := range issues {
+		num := i + 1
+		issues[i] = makeIssue(num, fmt.Sprintf("Issue %d", num), "Todo")
+		timelineEvents[num] = []*github.Timeline{}
+	}
+
+	failingIssue := 1
+	client := &countingMockClient{
+		mockIssuesClient: mockIssuesClient{
+			issues:         issues,
+			timelineEvents: timelineEvents,
+		},
+		timelineErrs: map[int]error{
+			failingIssue: errors.New("timeline fetch failed"),
+		},
+	}
+
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	_, err := provider.FetchBoard(context.Background())
+	if err == nil {
+		t.Fatal("expected error from FetchBoard, got nil")
+	}
+
+	calls := int(client.timelineCalls.Load())
+	if calls >= issueCount {
+		t.Errorf("timeline API called %d times, want fewer than %d (cancellation should prevent remaining calls)", calls, issueCount)
+	}
+}
+
+func TestGitHubFetchBoard_OrderPreservedWithConcurrentFetches(t *testing.T) {
+	columns := []string{"Backlog"}
+
+	// Create 15 issues all in the same column.
+	issueCount := 15
+	issues := make([]*github.Issue, issueCount)
+	timelineEvents := make(map[int][]*github.Timeline, issueCount)
+	for i := range issues {
+		num := i + 1
+		issues[i] = makeIssue(num, fmt.Sprintf("Issue %d", num), "Backlog")
+		timelineEvents[num] = []*github.Timeline{}
+	}
+
+	client := &mockIssuesClient{
+		issues:         issues,
+		timelineEvents: timelineEvents,
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	cards := board.Columns[0].Cards
+	if len(cards) != issueCount {
+		t.Fatalf("got %d cards, want %d", len(cards), issueCount)
+	}
+
+	// Cards must be in creation order (issue number ascending).
+	for i, card := range cards {
+		expectedNumber := i + 1
+		if card.Number != expectedNumber {
+			t.Errorf("card[%d].Number = %d, want %d (order not preserved)", i, card.Number, expectedNumber)
+		}
 	}
 }

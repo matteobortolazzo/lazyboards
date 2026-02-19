@@ -5,9 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/google/go-github/v68/github"
 )
+
+// maxTimelineConcurrency limits the number of concurrent timeline API calls.
+const maxTimelineConcurrency = 10
+
+// cardLocation records where a card was placed so concurrent timeline results
+// can be assigned back without reordering.
+type cardLocation struct {
+	colIdx   int
+	cardIdx  int
+	issueNum int
+}
 
 // Compile-time check: *GitHubProvider implements BoardProvider.
 var _ BoardProvider = (*GitHubProvider)(nil)
@@ -38,6 +50,8 @@ func NewGitHubProvider(client GitHubIssuesClient, owner, repo string, columns []
 }
 
 // FetchBoard retrieves open issues and maps them to board columns.
+// It fetches issues sequentially, then fetches linked PRs concurrently
+// with bounded concurrency to reduce total latency.
 func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 	if len(g.columns) == 0 {
 		return Board{}, errors.New("at least one column is required")
@@ -55,7 +69,10 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 		colIndex[strings.ToLower(name)] = i
 	}
 
-	// Fetch all open issues with pagination.
+	// --- Phase 1: Collect issues and build cards (sequential) ---
+
+	var locations []cardLocation
+
 	opts := &github.IssueListByRepoOptions{
 		State:       "open",
 		Sort:        "created",
@@ -90,13 +107,6 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 				card.Labels = allLabels
 			}
 
-			// Fetch timeline events to find linked PRs.
-			linkedPRs, err := g.fetchLinkedPRs(ctx, issue.GetNumber())
-			if err != nil {
-				return Board{}, err
-			}
-			card.LinkedPRs = linkedPRs
-
 			// Find the furthest (rightmost) column matching any label.
 			bestIdx := -1
 			for _, label := range issue.Labels {
@@ -112,12 +122,88 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 				bestIdx = 0
 			}
 			columns[bestIdx].Cards = append(columns[bestIdx].Cards, card)
+
+			// Record location for Phase 2.
+			locations = append(locations, cardLocation{
+				colIdx:   bestIdx,
+				cardIdx:  len(columns[bestIdx].Cards) - 1,
+				issueNum: issue.GetNumber(),
+			})
 		}
 
 		if resp == nil || resp.NextPage == 0 {
 			break
 		}
 		opts.Page = resp.NextPage
+	}
+
+	// --- Phase 2: Fetch linked PRs concurrently ---
+
+	if len(locations) == 0 {
+		return Board{Columns: columns}, nil
+	}
+
+	type timelineResult struct {
+		loc       cardLocation
+		linkedPRs []LinkedPR
+		err       error
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	sem := make(chan struct{}, maxTimelineConcurrency)
+	results := make(chan timelineResult, len(locations))
+	var wg sync.WaitGroup
+
+	for _, loc := range locations {
+		wg.Add(1)
+		go func(loc cardLocation) {
+			defer wg.Done()
+
+			// Check for cancellation before acquiring semaphore.
+			select {
+			case <-ctx.Done():
+				results <- timelineResult{loc: loc, err: ctx.Err()}
+				return
+			case sem <- struct{}{}:
+			}
+			defer func() { <-sem }()
+
+			// Check again after acquiring semaphore.
+			if ctx.Err() != nil {
+				results <- timelineResult{loc: loc, err: ctx.Err()}
+				return
+			}
+
+			linkedPRs, err := g.fetchLinkedPRs(ctx, loc.issueNum)
+			results <- timelineResult{loc: loc, linkedPRs: linkedPRs, err: err}
+			if err != nil {
+				cancel()
+			}
+		}(loc)
+	}
+
+	// Close results channel once all goroutines complete.
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results; return the first real (non-cancellation) error.
+	var firstErr error
+	for res := range results {
+		if res.err != nil {
+			if firstErr == nil && !errors.Is(res.err, context.Canceled) {
+				firstErr = res.err
+			}
+			continue
+		}
+		columns[res.loc.colIdx].Cards[res.loc.cardIdx].LinkedPRs = res.linkedPRs
+	}
+
+	if firstErr != nil {
+		return Board{}, firstErr
 	}
 
 	return Board{Columns: columns}, nil
