@@ -133,6 +133,9 @@ type Card struct {
 	LinkedPRs []LinkedPR
 }
 
+// refreshTickMsg is sent when the periodic refresh timer fires.
+type refreshTickMsg struct{}
+
 // actionResultMsg is sent when an async shell action completes.
 type actionResultMsg struct {
 	success bool
@@ -224,12 +227,13 @@ type Board struct {
 	detailScrollOffset int
 	prPickerIndex      int
 	refreshing         bool
+	refreshInterval    time.Duration
 	prevCards          map[int]prevCardInfo
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, firstLaunch bool) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, firstLaunch bool) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 100
@@ -261,18 +265,19 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 	ri.Width = 40
 
 	b := Board{
-		mode:          loadingMode,
-		provider:      p,
-		spinner:       s,
-		statusBar:     sb,
-		actions:       actions,
-		columnConfigs: columnConfigs,
-		executor:      executor,
-		repoOwner:     repoOwner,
-		repoName:      repoName,
-		providerName:  providerName,
-		sessionMaxLen: sessionMaxLen,
-		normalHints:   hints,
+		mode:            loadingMode,
+		provider:        p,
+		spinner:         s,
+		statusBar:       sb,
+		actions:         actions,
+		columnConfigs:   columnConfigs,
+		executor:        executor,
+		repoOwner:       repoOwner,
+		repoName:        repoName,
+		providerName:    providerName,
+		sessionMaxLen:   sessionMaxLen,
+		refreshInterval: refreshInterval,
+		normalHints:     hints,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
 			providerIndex:   0,
