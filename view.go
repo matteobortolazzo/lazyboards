@@ -201,6 +201,9 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 	for j, card := range col.Cards {
 		prefix := fmt.Sprintf("#%d ", card.Number)
 		text := prefix + card.Title
+		if len(card.LinkedPRs) > 0 {
+			text += " \u23c7"
+		}
 		lines := wrapTitle(text, contentWidth, len([]rune(prefix)))
 		allCards = append(allCards, wrappedCard{lines: lines, selected: j == col.Cursor})
 	}
