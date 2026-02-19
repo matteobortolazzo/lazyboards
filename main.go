@@ -60,7 +60,7 @@ func main() {
 			os.Exit(1)
 		}
 		b := m.(Board)
-		if !b.ConfigSaved {
+		if !b.config.configSaved {
 			fmt.Fprintf(os.Stderr, "Configuration required. Exiting.\n")
 			os.Exit(1)
 		}
