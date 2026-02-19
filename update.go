@@ -61,6 +61,13 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := b.statusBar.SetTimedMessage(msg.message, statusMessageDuration)
 		return b, cmd
 
+	case cleanupResultMsg:
+		if msg.count == 0 {
+			return b, nil
+		}
+		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Cleaned up %d sessions", msg.count), statusMessageDuration)
+		return b, cmd
+
 	case spinner.TickMsg:
 		if b.mode == loadingMode || b.mode == creatingMode || b.refreshing {
 			var cmd tea.Cmd
@@ -118,6 +125,11 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		cols[i] = Column{Title: pc.Title, Cards: cards}
 	}
 
+	// Build new card position map and detect departures for cleanup.
+	newCards := buildCardMap(cols)
+	cleanupCmd := b.detectDepartures(newCards)
+	b.prevCards = newCards
+
 	if b.refreshing {
 		// Preserve ActiveTab and cursor position by card Number.
 		savedTab := b.ActiveTab
@@ -173,6 +185,9 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 			b.statusBar.SetActionHints(b.normalHints)
 		}
 		cmd := b.statusBar.SetTimedMessage("Board refreshed", statusMessageDuration)
+		if cleanupCmd != nil {
+			cmd = tea.Batch(cmd, cleanupCmd)
+		}
 		return b, cmd
 	}
 
@@ -187,7 +202,70 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		cmd = b.statusBar.SetTimedMessage("Board refreshed", statusMessageDuration)
 	}
 	b.loaded = true
+	if cleanupCmd != nil {
+		cmd = tea.Batch(cmd, cleanupCmd)
+	}
 	return b, cmd
+}
+
+// buildCardMap creates a map from card number to its column position and metadata.
+func buildCardMap(cols []Column) map[int]prevCardInfo {
+	m := make(map[int]prevCardInfo)
+	for i, col := range cols {
+		for _, card := range col.Cards {
+			m[card.Number] = prevCardInfo{
+				colIdx: i,
+				title:  card.Title,
+				labels: card.Labels,
+			}
+		}
+	}
+	return m
+}
+
+// detectDepartures compares previous card positions with new positions and
+// returns a tea.Cmd to run cleanup commands for cards that left their columns.
+func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
+	if b.prevCards == nil || b.executor == nil {
+		return nil
+	}
+
+	var commands []string
+	for cardNum, prev := range b.prevCards {
+		cleanup := b.columnCleanup(prev.colIdx)
+		if cleanup == "" {
+			continue
+		}
+
+		newInfo, exists := newCards[cardNum]
+		if exists && newInfo.colIdx == prev.colIdx {
+			continue // card stayed in same column
+		}
+
+		// Card departed — expand template and collect command.
+		vars := action.BuildTemplateVars(cardNum, prev.title, prev.labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
+		expanded := action.ExpandTemplate(cleanup, action.BuildShellSafeVars(vars))
+		commands = append(commands, expanded)
+	}
+
+	if len(commands) == 0 {
+		return nil
+	}
+	return runCleanupCmds(b.executor, commands)
+}
+
+// columnCleanup returns the cleanup command for the column at colIdx, matched by title.
+func (b *Board) columnCleanup(colIdx int) string {
+	if colIdx >= len(b.Columns) {
+		return ""
+	}
+	colTitle := b.Columns[colIdx].Title
+	for _, cc := range b.columnConfigs {
+		if strings.EqualFold(cc.Name, colTitle) {
+			return cc.Cleanup
+		}
+	}
+	return ""
 }
 
 func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
