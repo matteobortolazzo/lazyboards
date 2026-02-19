@@ -187,30 +187,49 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
 	return prefixStr + joined + fill + suffixChar
 }
 
+// isHiddenLabel returns true if a label should be hidden from the colored dot display.
+// "Working" (case-insensitive) and any label matching a column name are hidden.
+func isHiddenLabel(label string, columnNames []string) bool {
+	if strings.EqualFold(label, "Working") {
+		return true
+	}
+	for _, col := range columnNames {
+		if strings.EqualFold(label, col) {
+			return true
+		}
+	}
+	return false
+}
+
 // cardDisplayText builds the raw display text for a card: "#N title [PR icon] [Working icon] [label dots]".
 // Returns the assembled text and the rune-length of the number prefix (for wrap indentation).
-func cardDisplayText(card Card) (string, int) {
+// columnNames controls which labels are hidden from the dot display.
+func cardDisplayText(card Card, columnNames []string) (string, int) {
 	prefix := fmt.Sprintf("#%d ", card.Number)
 	text := prefix + card.Title
 	if len(card.LinkedPRs) > 0 {
 		text += " \ue728"
 	}
+	// Spinner icon uses exact match (case-sensitive) — only "Working" triggers it.
+	// Dot filtering in isHiddenLabel uses EqualFold (case-insensitive) per ticket #124.
 	for _, label := range card.Labels {
 		if label == "Working" {
 			text += " \uf110"
 			break
 		}
 	}
-	for range card.Labels {
-		text += " \u25cf"
+	for _, label := range card.Labels {
+		if !isHiddenLabel(label, columnNames) {
+			text += " \u25cf"
+		}
 	}
 	return text, len([]rune(prefix))
 }
 
 // cardLineCount returns the number of visual lines a card occupies
 // when its title is wrapped to fit within contentWidth.
-func cardLineCount(card Card, contentWidth int) int {
-	text, prefixLen := cardDisplayText(card)
+func cardLineCount(card Card, contentWidth int, columnNames []string) int {
+	text, prefixLen := cardDisplayText(card, columnNames)
 	return len(wrapTitle(text, contentWidth, prefixLen))
 }
 
@@ -230,10 +249,15 @@ func (b *Board) clampScrollOffset() {
 		contentWidth = 1
 	}
 
+	columnNames := make([]string, len(b.Columns))
+	for i, c := range b.Columns {
+		columnNames[i] = c.Title
+	}
+
 	// Compute total lines for all cards.
 	totalLines := 0
 	for i := 0; i < totalCards; i++ {
-		totalLines += cardLineCount(col.Cards[i], contentWidth)
+		totalLines += cardLineCount(col.Cards[i], contentWidth, columnNames)
 	}
 
 	if totalLines <= panelHeight {
@@ -253,7 +277,7 @@ func (b *Board) clampScrollOffset() {
 		linesUsed := 0
 		lastVisible := col.ScrollOffset
 		for lastVisible < totalCards {
-			cl := cardLineCount(col.Cards[lastVisible], contentWidth)
+			cl := cardLineCount(col.Cards[lastVisible], contentWidth, columnNames)
 			neededForDown := 0
 			if lastVisible+1 < totalCards {
 				neededForDown = 1
@@ -272,10 +296,10 @@ func (b *Board) clampScrollOffset() {
 			// Scroll down so cursor card is the last visible.
 			// Work backwards from cursor to find the ScrollOffset.
 			col.ScrollOffset = col.Cursor
-			linesFromCursor := cardLineCount(col.Cards[col.Cursor], contentWidth)
+			linesFromCursor := cardLineCount(col.Cards[col.Cursor], contentWidth, columnNames)
 			avail := panelHeight - 1 // reserve 1 for up indicator (since we're scrolling down)
 			for col.ScrollOffset > 0 {
-				prevLines := cardLineCount(col.Cards[col.ScrollOffset-1], contentWidth)
+				prevLines := cardLineCount(col.Cards[col.ScrollOffset-1], contentWidth, columnNames)
 				neededForDown := 0
 				if col.Cursor+1 < totalCards {
 					neededForDown = 1
@@ -302,6 +326,11 @@ func (b *Board) clampScrollOffset() {
 }
 
 func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lipgloss.Style) string {
+	columnNames := make([]string, len(b.Columns))
+	for i, c := range b.Columns {
+		columnNames[i] = c.Title
+	}
+
 	// Pre-compute wrapped lines for each card.
 	type wrappedCard struct {
 		lines    []string
@@ -309,9 +338,9 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 	}
 	var allCards []wrappedCard
 	for j, card := range col.Cards {
-		text, prefixLen := cardDisplayText(card)
+		text, prefixLen := cardDisplayText(card, columnNames)
 		hasPR := len(card.LinkedPRs) > 0
-		hasWorking := false
+		hasWorking := false // Case-sensitive — see comment in cardDisplayText.
 		for _, label := range card.Labels {
 			if label == "Working" {
 				hasWorking = true
@@ -329,8 +358,11 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 			last := len(lines) - 1
 			lines[last] = strings.Replace(lines[last], "\uf110", workingIndicatorStyle.Render("\uf110"), 1)
 		}
-		// Style label dots with per-label colors.
+		// Style label dots with per-label colors (skip hidden labels).
 		for _, label := range card.Labels {
+			if isHiddenLabel(label, columnNames) {
+				continue
+			}
 			styledDot := lipgloss.NewStyle().Foreground(labelColor(label)).Render("\u25cf")
 			for li := range lines {
 				if strings.Contains(lines[li], "\u25cf") {

@@ -653,3 +653,160 @@ func TestView_CardList_ShowsLabelDots(t *testing.T) {
 		t.Error("View() card list should contain label dot \u25cf for cards with labels")
 	}
 }
+
+func TestView_CardList_HidesWorkingLabelDot(t *testing.T) {
+	// A card with labels ["Working", "bug"] should show the spinner icon
+	// but only 1 dot (for "bug"), not 2. The "Working" label dot is hidden.
+	b := newBoardWithCustomCard(t, "Fix crash", []string{"Working", "bug"}, "")
+	view := b.View()
+
+	// Spinner icon must still be present.
+	if !strings.Contains(view, "\uf110") {
+		t.Error("View() should contain Working spinner icon for card with 'Working' label")
+	}
+
+	// Count dots on the line(s) containing the card.
+	lines := strings.Split(view, "\n")
+	dotCount := 0
+	for _, line := range lines {
+		if strings.Contains(line, "#1") && strings.Contains(line, "Fix crash") {
+			dotCount += strings.Count(line, "\u25cf")
+		}
+	}
+	if dotCount != 1 {
+		t.Errorf("expected 1 label dot (for 'bug' only), got %d", dotCount)
+	}
+}
+
+func TestView_CardList_HidesColumnNameLabelDot(t *testing.T) {
+	// When a card has a label matching its column name, that label's dot
+	// should be hidden. Only non-column-name labels get dots.
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Backlog", Cards: []provider.Card{
+				{Number: 1, Title: "Add feature", Labels: []string{"Backlog", "enhancement"}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 80
+	board.Height = 20
+	view := board.View()
+
+	// Count dots on the line(s) containing the card.
+	lines := strings.Split(view, "\n")
+	dotCount := 0
+	for _, line := range lines {
+		if strings.Contains(line, "#1") && strings.Contains(line, "Add feature") {
+			dotCount += strings.Count(line, "\u25cf")
+		}
+	}
+	if dotCount != 1 {
+		t.Errorf("expected 1 label dot (for 'enhancement' only, not 'Backlog'), got %d", dotCount)
+	}
+}
+
+func TestView_CardList_HidesWorkingCaseInsensitive(t *testing.T) {
+	// The "working" label (lowercase) should also be hidden from the dot display,
+	// even though it does NOT trigger the spinner icon (spinner is case-sensitive).
+	b := newBoardWithCustomCard(t, "Some task", []string{"working", "bug"}, "")
+	view := b.View()
+
+	// Count dots on the line(s) containing the card.
+	lines := strings.Split(view, "\n")
+	dotCount := 0
+	for _, line := range lines {
+		if strings.Contains(line, "#1") && strings.Contains(line, "Some task") {
+			dotCount += strings.Count(line, "\u25cf")
+		}
+	}
+	if dotCount != 1 {
+		t.Errorf("expected 1 label dot (for 'bug' only, 'working' hidden case-insensitively), got %d", dotCount)
+	}
+}
+
+func TestView_CardList_NoDots_WhenOnlyHiddenLabels(t *testing.T) {
+	// A card with only ["Working"] should show the spinner icon but NO dots at all.
+	b := newBoardWithCustomCard(t, "Solo working", []string{"Working"}, "")
+	view := b.View()
+
+	// Spinner icon must still be present.
+	if !strings.Contains(view, "\uf110") {
+		t.Error("View() should contain Working spinner icon for card with 'Working' label")
+	}
+
+	// No dots should appear on the card's line.
+	lines := strings.Split(view, "\n")
+	dotCount := 0
+	for _, line := range lines {
+		if strings.Contains(line, "#1") && strings.Contains(line, "Solo working") {
+			dotCount += strings.Count(line, "\u25cf")
+		}
+	}
+	if dotCount != 0 {
+		t.Errorf("expected 0 label dots when only hidden labels present, got %d", dotCount)
+	}
+}
+
+func TestView_CardList_MixedHiddenLabels(t *testing.T) {
+	// Column "To Do" with a card that has labels ["Working", "To Do", "bug", "urgent"].
+	// "Working" and "To Do" (column name) should be hidden; only "bug" and "urgent" get dots.
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "To Do", Cards: []provider.Card{
+				{Number: 1, Title: "Important task", Labels: []string{"Working", "To Do", "bug", "urgent"}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	view := board.View()
+
+	// Count dots on the line(s) containing the card.
+	lines := strings.Split(view, "\n")
+	dotCount := 0
+	for _, line := range lines {
+		if strings.Contains(line, "#1") && strings.Contains(line, "Important task") {
+			dotCount += strings.Count(line, "\u25cf")
+		}
+	}
+	if dotCount != 2 {
+		t.Errorf("expected 2 label dots (for 'bug' and 'urgent'), got %d", dotCount)
+	}
+}
+
+func TestView_DetailPanel_StillShowsHiddenLabels(t *testing.T) {
+	// The detail panel must display ALL labels including "Working" and column-name
+	// labels, even though they are hidden from the card list dots.
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Backlog", Cards: []provider.Card{
+				{Number: 1, Title: "Test card", Labels: []string{"Working", "Backlog", "bug"}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	view := board.View()
+
+	// All three labels should appear as text in the detail panel (right side).
+	for _, label := range []string{"Working", "Backlog", "bug"} {
+		if !strings.Contains(view, label) {
+			t.Errorf("detail panel should contain label %q, but it was not found in view", label)
+		}
+	}
+}
