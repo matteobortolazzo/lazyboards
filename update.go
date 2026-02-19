@@ -85,6 +85,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleCreateModeKey(msg)
 		case configMode:
 			return b.handleConfigModeKey(msg)
+		case prPickerMode:
+			return b.handlePRPickerModeKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -248,6 +250,29 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = loadingMode
 		b.statusBar.ClearMessage()
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+	case "p":
+		if len(b.Columns) == 0 {
+			return b, nil
+		}
+		col := b.Columns[b.ActiveTab]
+		if len(col.Cards) == 0 {
+			return b, nil
+		}
+		card := col.Cards[col.Cursor]
+		switch len(card.LinkedPRs) {
+		case 0:
+			cmd := b.statusBar.SetTimedMessage("No linked PRs", 3*time.Second)
+			return b, cmd
+		case 1:
+			b.prPickerIndex = 0
+			b.mode = prReviewMode
+			return b, nil
+		default:
+			b.prPickerIndex = 0
+			b.mode = prPickerMode
+			b.statusBar.SetActionHints(prPickerHints)
+			return b, nil
+		}
 	case "l", "right":
 		b.detailFocused = true
 		b.statusBar.SetActionHints(detailFocusHints)
@@ -418,6 +443,30 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.rebuildNormalHints()
 			b.statusBar.SetActionHints(b.normalHints)
 		}
+	}
+	return b, nil
+}
+
+func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	col := b.Columns[b.ActiveTab]
+	card := col.Cards[col.Cursor]
+	prCount := len(card.LinkedPRs)
+
+	switch msg.Type {
+	case tea.KeyEscape:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyLeft:
+		b.prPickerIndex = (b.prPickerIndex - 1 + prCount) % prCount
+		return b, nil
+	case tea.KeyRight:
+		b.prPickerIndex = (b.prPickerIndex + 1) % prCount
+		return b, nil
+	case tea.KeyEnter:
+		b.mode = prReviewMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
 	}
 	return b, nil
 }

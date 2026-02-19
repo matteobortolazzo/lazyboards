@@ -82,6 +82,10 @@ func (b Board) View() string {
 		return b.viewCreateModal()
 	}
 
+	if b.mode == prPickerMode {
+		return b.viewPRPickerModal()
+	}
+
 	// Render with normal outer border, then replace the top line with the border title.
 	rendered := outerStyle.Width(innerWidth).Render(inner)
 	borderTitle := buildBorderTitle(b.Columns, b.ActiveTab, b.Width)
@@ -444,6 +448,29 @@ func (b Board) viewConfigModal() string {
 		"Provider:\n" + providerDisplay + "\n\n" +
 		"Repo:\n" + repoView + errLine + "\n\n" +
 		helpStyle.Render(configHints.View())
+
+	modalStyle := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("15")).
+		Padding(1, 2).
+		Width(modalWidth)
+
+	modal := modalStyle.Render(modalContent)
+	return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
+}
+
+func (b Board) viewPRPickerModal() string {
+	col := b.Columns[b.ActiveTab]
+	card := col.Cards[col.Cursor]
+	pr := card.LinkedPRs[b.prPickerIndex]
+
+	modalWidth := 50
+	prDisplay := fmt.Sprintf("\u25c0 #%d %s \u25b6", pr.Number, pr.Title)
+
+	pickerHints := NewStatusBar(prPickerHints)
+	modalContent := "Select PR\n\n" +
+		prDisplay + "\n\n" +
+		helpStyle.Render(pickerHints.View())
 
 	modalStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
