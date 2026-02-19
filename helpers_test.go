@@ -77,6 +77,22 @@ func sendKey(t *testing.T, b Board, msg tea.Msg) Board {
 	return updated
 }
 
+// simulateRefresh simulates a background refresh completing by fetching
+// default board data from a FakeProvider and sending a boardFetchedMsg.
+func simulateRefresh(t *testing.T, b Board) Board {
+	t.Helper()
+	board, err := provider.NewFakeProvider().FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	return updated
+}
+
 // execCmds recursively executes a tea.Cmd, handling tea.BatchMsg.
 func execCmds(cmd tea.Cmd) {
 	if cmd == nil {

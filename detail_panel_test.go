@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 func TestDetailFocus_LeftArrow_ReturnsFocusToCardList(t *testing.T) {
@@ -275,13 +274,7 @@ func TestDetailFocus_ScrollOffsetResetsOnRefresh(t *testing.T) {
 	b = sendKey(t, b, keyMsg("r"))
 
 	// Simulate the board being fetched again.
-	p := provider.NewFakeProvider()
-	board, err := p.FetchBoard(nil)
-	if err != nil {
-		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
-	}
-	m, _ := b.Update(boardFetchedMsg{board: board})
-	b = m.(Board)
+	b = simulateRefresh(t, b)
 
 	if b.detailScrollOffset != 0 {
 		t.Errorf("detailScrollOffset = %d after board refresh, want 0 (should reset)", b.detailScrollOffset)
