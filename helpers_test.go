@@ -23,7 +23,7 @@ var expectedColumnTitles = []string{"New", "Refined", "Implementing", "Implement
 func newTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	return NewBoard(p, nil, nil, nil, "", "", "", false)
+	return NewBoard(p, nil, nil, nil, "", "", "", 0, false)
 }
 
 // newLoadedTestBoard creates a Board and sends a boardFetchedMsg to transition
@@ -31,7 +31,7 @@ func newTestBoard(t *testing.T) Board {
 func newLoadedTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
 	// Simulate the provider returning board data.
 	board, err := p.FetchBoard(nil)
 	if err != nil {
@@ -113,7 +113,7 @@ func newCreatingTestBoard(t *testing.T) Board {
 func newBoardWithCards(t *testing.T, cardCount, height int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
 
 	// Build provider cards.
 	providerCards := make([]provider.Card, cardCount)
@@ -146,7 +146,7 @@ func newActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, 
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", false)
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, false)
 	// Load the board.
 	board, err := p.FetchBoard(nil)
 	if err != nil {
@@ -164,7 +164,7 @@ func newActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, 
 func newBoardWithBody(t *testing.T, body1, body2 string) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -199,7 +199,7 @@ func newBoardWithLongBody(t *testing.T, lineCount int) Board {
 func newBoardWithCustomCard(t *testing.T, title string, labels []string, body string) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -221,7 +221,7 @@ func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, co
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", false)
+	b := NewBoard(p, actions, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 0, false)
 	// Load the board.
 	board, err := p.FetchBoard(nil)
 	if err != nil {
@@ -241,7 +241,7 @@ func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, co
 func newBoardWithPRs(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{

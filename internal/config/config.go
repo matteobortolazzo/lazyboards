@@ -24,13 +24,16 @@ type ColumnConfig struct {
 	Actions map[string]Action `yaml:"actions"`
 }
 
+const DefaultSessionMaxLength = 32
+
 // Config holds the application configuration.
 type Config struct {
-	Provider string            `yaml:"provider"`
-	Repo     string            `yaml:"repo"`
-	Project  string            `yaml:"project"`
-	Actions  map[string]Action `yaml:"actions"`
-	Columns  []ColumnConfig    `yaml:"columns"`
+	Provider         string            `yaml:"provider"`
+	Repo             string            `yaml:"repo"`
+	Project          string            `yaml:"project"`
+	Actions          map[string]Action `yaml:"actions"`
+	Columns          []ColumnConfig    `yaml:"columns"`
+	SessionMaxLength int               `yaml:"session_max_length"`
 }
 
 // DefaultColumns is the default set of column names when none are configured.
@@ -126,6 +129,10 @@ func Load(globalPath, localPath string) (Config, error) {
 
 	if err := validateActions(cfg.Actions); err != nil {
 		return Config{}, err
+	}
+
+	if cfg.SessionMaxLength <= 0 {
+		cfg.SessionMaxLength = DefaultSessionMaxLength
 	}
 
 	return cfg, nil

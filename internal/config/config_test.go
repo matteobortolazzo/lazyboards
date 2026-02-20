@@ -1769,3 +1769,69 @@ columns:
 		t.Errorf("Columns[1].Name = %q, want %q", result.Columns[1].Name, "Done")
 	}
 }
+
+// --- SessionMaxLength config tests ---
+
+func TestLoad_SessionMaxLength_ParsesFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := "provider: github\nsession_max_length: 50\n"
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if result.SessionMaxLength != 50 {
+		t.Errorf("SessionMaxLength = %d, want 50", result.SessionMaxLength)
+	}
+}
+
+func TestLoad_SessionMaxLength_DefaultsWhenOmitted(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "nonexistent.yml")
+
+	yamlContent := "provider: github\n"
+	if err := os.WriteFile(globalPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if result.SessionMaxLength != DefaultSessionMaxLength {
+		t.Errorf("SessionMaxLength = %d, want %d (default)", result.SessionMaxLength, DefaultSessionMaxLength)
+	}
+}
+
+func TestLoad_SessionMaxLength_LocalOverridesGlobal(t *testing.T) {
+	dir := t.TempDir()
+	globalPath := filepath.Join(dir, "global.yml")
+	localPath := filepath.Join(dir, "local.yml")
+
+	globalYAML := "provider: github\nsession_max_length: 40\n"
+	localYAML := "session_max_length: 20\n"
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	result, err := Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if result.SessionMaxLength != 20 {
+		t.Errorf("SessionMaxLength = %d, want 20 (local should override global)", result.SessionMaxLength)
+	}
+}

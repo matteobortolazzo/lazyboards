@@ -50,7 +50,7 @@ func main() {
 
 	// First-launch flow: show config popup before creating provider
 	if !config.LocalExists(config.DefaultLocalPath) {
-		board := NewBoard(nil, nil, nil, nil, repoOwner, repoNameOnly, prov, true)
+		board := NewBoard(nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, true)
 		p := tea.NewProgram(board, tea.WithAltScreen())
 		m, err := p.Run()
 		if err != nil {
@@ -112,7 +112,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	board := NewBoard(bp, cfg.Actions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, false)
+	board := NewBoard(bp, cfg.Actions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, false)
 
 	p := tea.NewProgram(board, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
