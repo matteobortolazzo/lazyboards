@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"hash/fnv"
 	"strings"
 	"time"
@@ -80,9 +79,6 @@ func labelColor(label string) lipgloss.Color {
 // normalModeHints are the default status bar hints shown in normal mode.
 var normalModeHints = []Hint{
 	{Key: "n", Desc: "New"},
-	{Key: "c", Desc: "Config"},
-	{Key: "r", Desc: "Refresh"},
-	{Key: "q", Desc: "Quit"},
 }
 
 // detailFocusHints are the status bar hints shown when the detail panel is focused.
@@ -353,12 +349,7 @@ func (b *Board) resolveAction(key string) (config.Action, bool) {
 // rebuildNormalHints reconstructs the normalHints slice by merging global
 // actions with the active column's per-column actions (column overrides global).
 func (b *Board) rebuildNormalHints() {
-	hints := make([]Hint, 0, len(normalModeHints)+len(b.actions)+4)
-
-	// Number navigation hint (if columns loaded).
-	if len(b.Columns) > 0 {
-		hints = append(hints, Hint{Key: fmt.Sprintf("1-%d", len(b.Columns)), Desc: "Column"})
-	}
+	hints := make([]Hint, 0, len(normalModeHints)+len(b.actions)+1)
 
 	// Conditional PR hint: only show when the selected card has linked PRs.
 	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
