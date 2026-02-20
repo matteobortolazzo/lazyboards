@@ -573,3 +573,178 @@ func collectMsgs(cmd tea.Cmd) []tea.Msg {
 	}
 	return []tea.Msg{msg}
 }
+
+// --- Auto-Refresh ---
+
+func TestAutoRefresh_ShellSuccess_StartsTimer(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Send actionResultMsg with success=true (simulating shell action completion).
+	m, cmd := b.Update(actionResultMsg{success: true, message: "Done"})
+	b = m.(Board)
+
+	// Should set pendingAutoRefresh to true.
+	if !b.pendingAutoRefresh {
+		t.Error("pendingAutoRefresh should be true after successful shell action")
+	}
+
+	// Should return a non-nil cmd (status message + tick timer).
+	if cmd == nil {
+		t.Error("successful actionResultMsg should return a non-nil cmd")
+	}
+}
+
+func TestAutoRefresh_ShellFailure_NoTimer(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Send actionResultMsg with success=false.
+	m, _ := b.Update(actionResultMsg{success: false, message: "Error: exit 1"})
+	b = m.(Board)
+
+	// Should NOT set pendingAutoRefresh.
+	if b.pendingAutoRefresh {
+		t.Error("pendingAutoRefresh should be false after failed shell action")
+	}
+}
+
+func TestAutoRefresh_TimerFires_TriggersRefresh(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	// Manually set pendingAutoRefresh (simulating timer was started).
+	b.pendingAutoRefresh = true
+
+	// Send autoRefreshMsg (simulating timer firing).
+	m, cmd := b.Update(autoRefreshMsg{})
+	b = m.(Board)
+
+	// Should start a refresh.
+	if !b.refreshing {
+		t.Error("refreshing should be true after autoRefreshMsg fires")
+	}
+
+	// pendingAutoRefresh should be cleared.
+	if b.pendingAutoRefresh {
+		t.Error("pendingAutoRefresh should be false after autoRefreshMsg fires")
+	}
+
+	// Should return a non-nil cmd (spinner tick + fetch).
+	if cmd == nil {
+		t.Error("autoRefreshMsg should return a non-nil cmd for refresh")
+	}
+}
+
+func TestAutoRefresh_CancelledByManualRefresh(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Set pendingAutoRefresh (simulating timer was started).
+	b.pendingAutoRefresh = true
+
+	// Press "r" to trigger manual refresh.
+	m, _ := b.Update(keyMsg("r"))
+	b = m.(Board)
+
+	// Manual refresh should cancel auto-refresh.
+	if b.pendingAutoRefresh {
+		t.Error("pendingAutoRefresh should be false after manual refresh")
+	}
+
+	// Complete the manual refresh so refreshing=false, isolating the cancellation guard.
+	b = simulateRefresh(t, b)
+
+	// Now send autoRefreshMsg (the timer fires after manual refresh completed).
+	// Only the pendingAutoRefresh=false guard is active (refreshing is false).
+	m, cmd := b.Update(autoRefreshMsg{})
+	b = m.(Board)
+
+	if cmd != nil {
+		t.Error("autoRefreshMsg after manual refresh should return nil cmd (cancelled)")
+	}
+}
+
+func TestAutoRefresh_IgnoredWhenAlreadyRefreshing(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	// Set both pendingAutoRefresh and refreshing.
+	b.pendingAutoRefresh = true
+	b.refreshing = true
+
+	// Send autoRefreshMsg while already refreshing.
+	m, cmd := b.Update(autoRefreshMsg{})
+	b = m.(Board)
+
+	// Should NOT start another refresh (already in progress).
+	if cmd != nil {
+		t.Error("autoRefreshMsg while already refreshing should return nil cmd")
+	}
+
+	// refreshing should still be true (unchanged).
+	if !b.refreshing {
+		t.Error("refreshing should remain true when autoRefreshMsg is ignored")
+	}
+}
+
+func TestAutoRefresh_ClearedOnBoardFetched(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Set pendingAutoRefresh and refreshing (simulating auto-refresh in progress).
+	b.pendingAutoRefresh = true
+	b.refreshing = true
+
+	// Simulate board fetch completing.
+	b = simulateRefresh(t, b)
+
+	// pendingAutoRefresh should be cleared.
+	if b.pendingAutoRefresh {
+		t.Error("pendingAutoRefresh should be false after boardFetchedMsg")
+	}
+}
+
+func TestAutoRefresh_ClearedOnFetchError(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Simulate auto-refresh in progress (timer fired, fetch started).
+	b.pendingAutoRefresh = true
+	b.refreshing = true
+
+	// Send a fetch error.
+	m, _ := b.Update(boardFetchErrorMsg{err: fmt.Errorf("timeout")})
+	b = m.(Board)
+
+	// pendingAutoRefresh should be cleared on fetch error.
+	if b.pendingAutoRefresh {
+		t.Error("pendingAutoRefresh should be false after boardFetchErrorMsg")
+	}
+}
+
+func TestAutoRefresh_CancelledByManualRefresh_DetailFocused(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	requireColumns(t, b)
+
+	// Enter detail focus mode.
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true after 'l'")
+	}
+
+	// Set pendingAutoRefresh.
+	b.pendingAutoRefresh = true
+
+	// Press "r" in detail-focused mode to trigger manual refresh.
+	m, _ := b.Update(keyMsg("r"))
+	b = m.(Board)
+
+	// Manual refresh should cancel auto-refresh in detail mode too.
+	if b.pendingAutoRefresh {
+		t.Error("pendingAutoRefresh should be false after manual refresh in detail-focused mode")
+	}
+}
