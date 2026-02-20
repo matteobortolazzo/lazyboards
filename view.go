@@ -290,10 +290,15 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 	for j, card := range col.Cards {
 		prefix := fmt.Sprintf("#%d ", card.Number)
 		text := prefix + card.Title
-		if len(card.LinkedPRs) > 0 {
-			text += " \u23c7"
+		hasPR := len(card.LinkedPRs) > 0
+		if hasPR {
+			text += " \ue728"
 		}
 		lines := wrapTitle(text, contentWidth, len([]rune(prefix)))
+		if hasPR && len(lines) > 0 {
+			last := len(lines) - 1
+			lines[last] = strings.Replace(lines[last], "\ue728", prIndicatorStyle.Render("\ue728"), 1)
+		}
 		allCards = append(allCards, wrappedCard{lines: lines, selected: j == col.Cursor})
 	}
 
