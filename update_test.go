@@ -385,7 +385,7 @@ func TestScroll_OffsetResetsOnTabSwitch(t *testing.T) {
 func TestScroll_WrappedTitles_CursorCardFullyVisible(t *testing.T) {
 	// Create cards with long titles that will wrap, filling more visual lines.
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", false)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
 
 	var cards []provider.Card
 	for i := 0; i < 15; i++ {

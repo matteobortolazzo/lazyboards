@@ -147,6 +147,7 @@ type Board struct {
 	repoOwner       string
 	repoName        string
 	providerName    string
+	sessionMaxLen   int
 	normalHints     []Hint
 	providerOptions []string
 	providerIndex   int
@@ -165,7 +166,7 @@ type Board struct {
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, firstLaunch bool) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, firstLaunch bool) Board {
 	ti := textinput.New()
 	ti.Placeholder = "Title"
 	ti.Focus()
@@ -207,6 +208,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 		repoOwner:       repoOwner,
 		repoName:        repoName,
 		providerName:    providerName,
+		sessionMaxLen:   sessionMaxLen,
 		normalHints:     hints,
 		providerOptions: []string{"github", "azure-devops"},
 		providerIndex:   0,
