@@ -26,6 +26,7 @@ type ColumnConfig struct {
 }
 
 const DefaultSessionMaxLength = 32
+const DefaultRefreshInterval = 5
 
 // Config holds the application configuration.
 type Config struct {
@@ -35,6 +36,7 @@ type Config struct {
 	Actions          map[string]Action `yaml:"actions"`
 	Columns          []ColumnConfig    `yaml:"columns"`
 	SessionMaxLength int               `yaml:"session_max_length"`
+	RefreshInterval  int               `yaml:"refresh_interval"`
 }
 
 // DefaultColumns is the default set of column names when none are configured.
@@ -134,6 +136,12 @@ func Load(globalPath, localPath string) (Config, error) {
 
 	if cfg.SessionMaxLength <= 0 {
 		cfg.SessionMaxLength = DefaultSessionMaxLength
+	}
+
+	if cfg.RefreshInterval == 0 {
+		cfg.RefreshInterval = DefaultRefreshInterval
+	} else if cfg.RefreshInterval < 0 {
+		cfg.RefreshInterval = 0 // 0 means disabled internally
 	}
 
 	return cfg, nil

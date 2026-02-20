@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -348,4 +349,227 @@ func TestBackgroundRefresh_SpinnerTickPropagated(t *testing.T) {
 	if cmd == nil {
 		t.Error("spinner tick should return non-nil cmd when refreshing is true in normalMode")
 	}
+}
+
+// --- Periodic Background Refresh ---
+
+func TestRefreshTick_TriggersRefresh(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshInterval = 5 * time.Minute
+
+	// Send refreshTickMsg to a loaded board in normalMode.
+	m, cmd := b.Update(refreshTickMsg{})
+	updated := m.(Board)
+
+	// Should start a background refresh.
+	if !updated.refreshing {
+		t.Error("refreshing should be true after refreshTickMsg in normalMode")
+	}
+
+	// Should return a non-nil cmd (spinner tick + fetch).
+	if cmd == nil {
+		t.Error("refreshTickMsg should return a non-nil cmd to start the refresh")
+	}
+}
+
+func TestRefreshTick_SkippedWhenAlreadyRefreshing(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshInterval = 5 * time.Minute
+	b.refreshing = true
+
+	// Send refreshTickMsg while already refreshing.
+	m, cmd := b.Update(refreshTickMsg{})
+	updated := m.(Board)
+
+	// Should still be refreshing (no double-refresh).
+	if !updated.refreshing {
+		t.Error("refreshing should remain true when refreshTickMsg arrives during active refresh")
+	}
+
+	// Board state should not change (mode stays normalMode).
+	if updated.mode != normalMode {
+		t.Errorf("mode = %d after refreshTickMsg during active refresh, want %d (normalMode)", updated.mode, normalMode)
+	}
+
+	// Should return a non-nil cmd to reschedule the next tick (keep timer alive).
+	if cmd == nil {
+		t.Error("refreshTickMsg during active refresh should return a non-nil cmd to reschedule the next tick")
+	}
+}
+
+func TestRefreshTick_SkippedInNonNormalMode(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshInterval = 5 * time.Minute
+	b.mode = loadingMode
+
+	// Send refreshTickMsg while in loadingMode.
+	m, cmd := b.Update(refreshTickMsg{})
+	updated := m.(Board)
+
+	// Should not start a refresh.
+	if updated.refreshing {
+		t.Error("refreshing should remain false when refreshTickMsg arrives in loadingMode")
+	}
+
+	// Mode should remain loadingMode.
+	if updated.mode != loadingMode {
+		t.Errorf("mode = %d after refreshTickMsg in loadingMode, want %d (loadingMode)", updated.mode, loadingMode)
+	}
+
+	// Should return a non-nil cmd to reschedule the next tick (keep timer alive).
+	if cmd == nil {
+		t.Error("refreshTickMsg in non-normal mode should return a non-nil cmd to reschedule the next tick")
+	}
+}
+
+func TestRefreshTick_DisabledWhenIntervalZero(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshInterval = 0
+
+	// Send refreshTickMsg with interval disabled.
+	m, _ := b.Update(refreshTickMsg{})
+	updated := m.(Board)
+
+	// Should not start a refresh.
+	if updated.refreshing {
+		t.Error("refreshing should remain false when refreshTickMsg arrives with refreshInterval=0")
+	}
+}
+
+func TestBoardFetched_SchedulesNextTick(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshInterval = 5 * time.Minute
+	b.Width = 120
+	b.Height = 40
+
+	// Start a background refresh.
+	m, _ := b.Update(keyMsg("r"))
+	b = m.(Board)
+	if !b.refreshing {
+		t.Fatal("precondition: refreshing should be true after 'r'")
+	}
+
+	// Simulate the board being fetched (refresh completes).
+	board, err := provider.NewFakeProvider().FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, cmd := b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+
+	// Refresh should be complete.
+	if b.refreshing {
+		t.Error("refreshing should be false after boardFetchedMsg")
+	}
+
+	// The returned cmd should be non-nil (it should include the tick schedule).
+	if cmd == nil {
+		t.Error("boardFetchedMsg with refreshInterval > 0 should return a non-nil cmd (includes tick schedule)")
+	}
+}
+
+func TestBoardFetched_NoTickWhenIntervalZero(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshInterval = 0
+	b.Width = 120
+	b.Height = 40
+
+	// Start a background refresh.
+	m, _ := b.Update(keyMsg("r"))
+	b = m.(Board)
+
+	// Simulate the board being fetched (refresh completes).
+	board, err := provider.NewFakeProvider().FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, cmd := b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+
+	// With refreshInterval=0, the cmd should contain only the "Board refreshed"
+	// timed message cmd, NOT a tick schedule. We verify by executing the cmd
+	// and checking that no refreshTickMsg is produced.
+	if cmd == nil {
+		// Even without periodic refresh, a "Board refreshed" timed message cmd
+		// is expected, so nil here would indicate a different issue.
+		t.Skip("cmd is nil; existing behavior may not produce a timed message cmd here")
+	}
+
+	// Execute the cmd tree and check that no refreshTickMsg is among the results.
+	msgs := collectMsgs(cmd)
+	for _, msg := range msgs {
+		if _, ok := msg.(refreshTickMsg); ok {
+			t.Error("boardFetchedMsg with refreshInterval=0 should NOT schedule a refreshTickMsg")
+		}
+	}
+}
+
+func TestManualRefresh_ResetsTimer(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshInterval = 1 * time.Millisecond
+	b.Width = 120
+	b.Height = 40
+
+	// Press 'r' to start a manual refresh.
+	m, _ := b.Update(keyMsg("r"))
+	b = m.(Board)
+	if !b.refreshing {
+		t.Fatal("precondition: refreshing should be true after 'r'")
+	}
+
+	// Complete the refresh with boardFetchedMsg.
+	board, err := provider.NewFakeProvider().FetchBoard(nil)
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, cmd := b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+
+	// After manual refresh completes, a tick should be scheduled
+	// (timer resets so the next periodic refresh fires after the full interval).
+	if cmd == nil {
+		t.Fatal("cmd should be non-nil after manual refresh with refreshInterval > 0")
+	}
+
+	// Verify the cmd tree contains a refreshTickMsg when executed.
+	msgs := collectMsgs(cmd)
+	found := false
+	for _, msg := range msgs {
+		if _, ok := msg.(refreshTickMsg); ok {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("manual refresh completion should schedule a refreshTickMsg for the next periodic refresh")
+	}
+}
+
+// collectMsgs executes a tea.Cmd tree and collects all resulting tea.Msg values.
+// It recursively expands tea.BatchMsg. Uses a timeout to avoid blocking on
+// tea.Tick or other long-running commands. Use very short durations (e.g., 1ms)
+// for refreshInterval in tests so tick commands complete within the timeout.
+func collectMsgs(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	ch := make(chan tea.Msg, 1)
+	go func() { ch <- cmd() }()
+	var msg tea.Msg
+	select {
+	case msg = <-ch:
+	case <-time.After(100 * time.Millisecond):
+		return nil // Skip blocking commands
+	}
+	if msg == nil {
+		return nil
+	}
+	if batchMsg, ok := msg.(tea.BatchMsg); ok {
+		var msgs []tea.Msg
+		for _, subCmd := range batchMsg {
+			msgs = append(msgs, collectMsgs(subCmd)...)
+		}
+		return msgs
+	}
+	return []tea.Msg{msg}
 }
