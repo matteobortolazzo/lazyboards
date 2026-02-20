@@ -198,7 +198,7 @@ func TestAction_TemplateVarsExpanded(t *testing.T) {
 	}
 	cardNumber := 42
 	cardTitle := "Add custom actions"
-	cardLabels := []string{"bug", "enhancement"}
+	cardLabels := []provider.Label{{Name: "bug"}, {Name: "enhancement"}}
 	b, fe := newActionTestBoardWithColumns(t, actions, []provider.Column{
 		{Title: "New", Cards: []provider.Card{
 			{Number: cardNumber, Title: cardTitle, Labels: cardLabels},
@@ -348,7 +348,7 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, false)
 
 	// Load a board with a card that has labels containing URL-special characters.
-	cardLabels := []string{"bug&fix", "feature?v2"}
+	cardLabels := []provider.Label{{Name: "bug&fix"}, {Name: "feature?v2"}}
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "New", Cards: []provider.Card{

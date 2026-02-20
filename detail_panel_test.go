@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 func TestDetailFocus_LeftArrow_ReturnsFocusToCardList(t *testing.T) {
@@ -29,8 +30,8 @@ func TestView_DetailPanelShowsSelectedCard(t *testing.T) {
 	// Detail panel should show each of the selected card's labels individually.
 	selectedCard := b.Columns[b.ActiveTab].Cards[0]
 	for _, label := range selectedCard.Labels {
-		if !strings.Contains(view, label) {
-			t.Errorf("View() detail panel does not contain selected card label %q", label)
+		if !strings.Contains(view, label.Name) {
+			t.Errorf("View() detail panel does not contain selected card label %q", label.Name)
 		}
 	}
 
@@ -39,8 +40,8 @@ func TestView_DetailPanelShowsSelectedCard(t *testing.T) {
 	view = b.View()
 	nextCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
 	for _, label := range nextCard.Labels {
-		if !strings.Contains(view, label) {
-			t.Errorf("View() detail panel does not contain card label %q after navigating", label)
+		if !strings.Contains(view, label.Name) {
+			t.Errorf("View() detail panel does not contain card label %q after navigating", label.Name)
 		}
 	}
 }
@@ -612,7 +613,7 @@ func TestDetailFocus_BorderAlignment_LongTitle(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("body line %d", i))
 	}
 	body := strings.Join(lines, "\n\n")
-	b := newBoardWithCustomCard(t, longTitle, []string{"bug"}, body)
+	b := newBoardWithCustomCard(t, longTitle, []provider.Label{{Name: "bug"}}, body)
 
 	view := b.View()
 
@@ -670,7 +671,7 @@ func TestDetailFocus_DynamicHeaderLines(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("body line %d", i))
 	}
 	body := strings.Join(lines, "\n\n")
-	b := newBoardWithCustomCard(t, longTitle, []string{"bug"}, body)
+	b := newBoardWithCustomCard(t, longTitle, []provider.Label{{Name: "bug"}}, body)
 
 	// Initialize glamour renderer.
 	b.View()

@@ -111,7 +111,7 @@ func TestCreateCard_AppearsInSubsequentFetchBoard(t *testing.T) {
 	firstCol := board.Columns[0]
 	found := false
 	for _, card := range firstCol.Cards {
-		if card.Number == created.Number && card.Title == title && len(card.Labels) > 0 && card.Labels[0] == label {
+		if card.Number == created.Number && card.Title == title && len(card.Labels) > 0 && card.Labels[0].Name == label {
 			found = true
 			break
 		}
