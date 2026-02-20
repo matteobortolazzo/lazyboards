@@ -23,6 +23,7 @@ var (
 	rightPanelStyle   = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	outerStyle        = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	prIndicatorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 )
 
 // normalModeHints are the default status bar hints shown in normal mode.
@@ -276,7 +277,7 @@ func (b *Board) clampScrollOffset() {
 		prefix := fmt.Sprintf("#%d ", card.Number)
 		text := prefix + card.Title
 		if len(card.LinkedPRs) > 0 {
-			text += " \u23c7"
+			text += " \ue728"
 		}
 		return len(wrapTitle(text, contentWidth, len([]rune(prefix))))
 	}

@@ -552,8 +552,8 @@ func TestView_CardList_ShowsPRIndicator(t *testing.T) {
 	view := b.View()
 
 	// Cards with LinkedPRs should have the PR indicator symbol in the view.
-	if !strings.Contains(view, "\u23c7") {
-		t.Error("View() should contain PR indicator \u23c7 for cards with linked PRs")
+	if !strings.Contains(view, "\ue728") {
+		t.Error("View() should contain PR indicator \ue728 for cards with linked PRs")
 	}
 }
 
@@ -566,7 +566,7 @@ func TestView_CardList_NoPRIndicator_WhenNoPRs(t *testing.T) {
 	lines := strings.Split(view, "\n")
 	for _, line := range lines {
 		if strings.Contains(line, "#1") && strings.Contains(line, "No PRs") {
-			if strings.Contains(line, "\u23c7") {
+			if strings.Contains(line, "\ue728") {
 				t.Errorf("card with 0 PRs should NOT have PR indicator, but line %q contains it", line)
 			}
 		}
