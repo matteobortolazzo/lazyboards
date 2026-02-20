@@ -10,7 +10,7 @@ import (
 func TestLoad_ParsesActionsFromYAML(t *testing.T) {
 	yamlContent := `provider: github
 actions:
-  o:
+  b:
     name: Open in browser
     type: url
     url: "https://example.com/{id}"
@@ -26,18 +26,18 @@ actions:
 		t.Fatalf("Actions count = %d, want 2", len(result.Actions))
 	}
 
-	urlAction, ok := result.Actions["o"]
+	urlAction, ok := result.Actions["b"]
 	if !ok {
-		t.Fatal("Actions missing key 'o'")
+		t.Fatal("Actions missing key 'b'")
 	}
 	if urlAction.Name != "Open in browser" {
-		t.Errorf("Actions[o].Name = %q, want %q", urlAction.Name, "Open in browser")
+		t.Errorf("Actions[b].Name = %q, want %q", urlAction.Name, "Open in browser")
 	}
 	if urlAction.Type != "url" {
-		t.Errorf("Actions[o].Type = %q, want %q", urlAction.Type, "url")
+		t.Errorf("Actions[b].Type = %q, want %q", urlAction.Type, "url")
 	}
 	if urlAction.URL != "https://example.com/{id}" {
-		t.Errorf("Actions[o].URL = %q, want %q", urlAction.URL, "https://example.com/{id}")
+		t.Errorf("Actions[b].URL = %q, want %q", urlAction.URL, "https://example.com/{id}")
 	}
 
 	shellAction, ok := result.Actions["x"]
@@ -70,7 +70,7 @@ repo: owner/repo
 func TestLoad_ActionMissingName_ReturnsError(t *testing.T) {
 	yamlContent := `provider: github
 actions:
-  o:
+  b:
     type: url
     url: "https://example.com"
 `
@@ -87,7 +87,7 @@ actions:
 func TestLoad_ActionInvalidType_ReturnsError(t *testing.T) {
 	yamlContent := `provider: github
 actions:
-  o:
+  b:
     name: Bad action
     type: webhook
     url: "https://example.com"
@@ -105,7 +105,7 @@ actions:
 func TestLoad_ActionMissingType_ReturnsError(t *testing.T) {
 	yamlContent := `provider: github
 actions:
-  o:
+  b:
     name: No type action
     url: "https://example.com"
 `
@@ -122,7 +122,7 @@ actions:
 func TestLoad_ActionURLType_MissingURL_ReturnsError(t *testing.T) {
 	yamlContent := `provider: github
 actions:
-  o:
+  b:
     name: Open
     type: url
 `
@@ -173,7 +173,7 @@ actions:
 }
 
 func TestLoad_ActionConflictsWithBuiltinKey_ReturnsError(t *testing.T) {
-	builtinKeys := []string{"j", "k", "q", "r", "n", "p"}
+	builtinKeys := []string{"j", "k", "q", "r", "n", "p", "o"}
 
 	for _, key := range builtinKeys {
 		t.Run("key_"+key, func(t *testing.T) {
@@ -200,7 +200,7 @@ actions:
 func TestLoad_ValidURLAction_NoError(t *testing.T) {
 	yamlContent := `provider: github
 actions:
-  o:
+  b:
     name: Open in browser
     type: url
     url: "https://example.com/{id}"
@@ -211,9 +211,9 @@ actions:
 	if len(result.Actions) != 1 {
 		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
 	}
-	action := result.Actions["o"]
+	action := result.Actions["b"]
 	if action.Type != "url" {
-		t.Errorf("Actions[o].Type = %q, want %q", action.Type, "url")
+		t.Errorf("Actions[b].Type = %q, want %q", action.Type, "url")
 	}
 }
 
@@ -240,7 +240,7 @@ actions:
 func TestLoad_ActionURLType_WithExtraCommand_NoError(t *testing.T) {
 	yamlContent := `provider: github
 actions:
-  o:
+  b:
     name: Open and run
     type: url
     url: "https://example.com"
@@ -257,13 +257,13 @@ actions:
 func TestLoad_LocalActionsOverrideGlobal(t *testing.T) {
 	globalYAML := `provider: github
 actions:
-  o:
+  b:
     name: Global open
     type: url
     url: "https://global.example.com"
 `
 	localYAML := `actions:
-  o:
+  b:
     name: Local open
     type: url
     url: "https://local.example.com"
@@ -275,19 +275,19 @@ actions:
 		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
 	}
 
-	action := result.Actions["o"]
+	action := result.Actions["b"]
 	if action.Name != "Local open" {
-		t.Errorf("Actions[o].Name = %q, want %q (local should override global)", action.Name, "Local open")
+		t.Errorf("Actions[b].Name = %q, want %q (local should override global)", action.Name, "Local open")
 	}
 	if action.URL != "https://local.example.com" {
-		t.Errorf("Actions[o].URL = %q, want %q (local should override global)", action.URL, "https://local.example.com")
+		t.Errorf("Actions[b].URL = %q, want %q (local should override global)", action.URL, "https://local.example.com")
 	}
 }
 
 func TestLoad_GlobalAndLocalActionsMerge(t *testing.T) {
 	globalYAML := `provider: github
 actions:
-  o:
+  b:
     name: Open
     type: url
     url: "https://example.com"
@@ -305,8 +305,8 @@ actions:
 		t.Fatalf("Actions count = %d, want 2 (merged global + local)", len(result.Actions))
 	}
 
-	if _, ok := result.Actions["o"]; !ok {
-		t.Error("Actions missing key 'o' from global config")
+	if _, ok := result.Actions["b"]; !ok {
+		t.Error("Actions missing key 'b' from global config")
 	}
 	if _, ok := result.Actions["x"]; !ok {
 		t.Error("Actions missing key 'x' from local config")
@@ -316,7 +316,7 @@ actions:
 func TestLoad_GlobalOnlyActions(t *testing.T) {
 	globalYAML := `provider: github
 actions:
-  o:
+  b:
     name: Open
     type: url
     url: "https://example.com"
@@ -327,8 +327,8 @@ actions:
 	if len(result.Actions) != 1 {
 		t.Fatalf("Actions count = %d, want 1", len(result.Actions))
 	}
-	if _, ok := result.Actions["o"]; !ok {
-		t.Error("Actions missing key 'o' from global config")
+	if _, ok := result.Actions["b"]; !ok {
+		t.Error("Actions missing key 'b' from global config")
 	}
 }
 
