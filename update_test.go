@@ -64,27 +64,33 @@ func TestNormalMode_LeftArrow_DoesNotChangeTab(t *testing.T) {
 	}
 }
 
-func TestTabNavigation_H_ClampsAtStart(t *testing.T) {
+func TestTabNavigation_ShiftTab_WrapsToLastColumn(t *testing.T) {
 	b := newLoadedTestBoard(t)
-	// Already at column 0, pressing h should stay at 0
+	lastCol := len(b.Columns) - 1
+	// At column 0, pressing Shift+Tab should wrap to last column
 	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
-	if b.ActiveTab != 0 {
-		t.Errorf("'h' at column 0: ActiveTab = %d, want 0", b.ActiveTab)
+	if b.ActiveTab != lastCol {
+		t.Errorf("Shift+Tab at column 0: ActiveTab = %d, want %d (should wrap to last)", b.ActiveTab, lastCol)
 	}
 }
 
-func TestTabNavigation_L_ClampsAtEnd(t *testing.T) {
+func TestTabNavigation_Tab_WrapsToFirstColumn(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	if len(b.Columns) < 2 {
 		t.Fatal("board must have at least 2 columns for this test")
 	}
 	lastColumn := len(b.Columns) - 1
-	// Move to the last column and then one more
-	for i := 0; i < len(b.Columns); i++ {
+	// Move to the last column
+	for i := 0; i < lastColumn; i++ {
 		b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	}
 	if b.ActiveTab != lastColumn {
-		t.Errorf("pressing 'l' past end: ActiveTab = %d, want %d", b.ActiveTab, lastColumn)
+		t.Fatalf("precondition: ActiveTab = %d, want %d (last column)", b.ActiveTab, lastColumn)
+	}
+	// One more Tab should wrap to first column
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	if b.ActiveTab != 0 {
+		t.Errorf("Tab past last column: ActiveTab = %d, want 0 (should wrap to first)", b.ActiveTab)
 	}
 }
 
@@ -109,6 +115,48 @@ func TestTabNavigation_FullTraversal(t *testing.T) {
 	}
 	if b.ActiveTab != 0 {
 		t.Errorf("after traversing back left: ActiveTab = %d, want 0", b.ActiveTab)
+	}
+
+	// Tab past last should wrap to first
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	if b.ActiveTab != 1 {
+		t.Errorf("after Tab at column 0: ActiveTab = %d, want 1", b.ActiveTab)
+	}
+	// Navigate to last column and Tab again to wrap
+	for i := 1; i < lastColumn; i++ {
+		b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	if b.ActiveTab != 0 {
+		t.Errorf("Tab past last column: ActiveTab = %d, want 0 (should wrap)", b.ActiveTab)
+	}
+
+	// Shift+Tab past first should wrap to last
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
+	if b.ActiveTab != lastColumn {
+		t.Errorf("Shift+Tab past first column: ActiveTab = %d, want %d (should wrap to last)", b.ActiveTab, lastColumn)
+	}
+}
+
+func TestTabNavigation_Tab_SingleColumn_NoChange(t *testing.T) {
+	b := newBoardWithBody(t, "body", "body2")
+	if len(b.Columns) != 1 {
+		t.Fatalf("precondition: expected 1 column, got %d", len(b.Columns))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	if b.ActiveTab != 0 {
+		t.Errorf("Tab on single-column board: ActiveTab = %d, want 0", b.ActiveTab)
+	}
+}
+
+func TestTabNavigation_ShiftTab_SingleColumn_NoChange(t *testing.T) {
+	b := newBoardWithBody(t, "body", "body2")
+	if len(b.Columns) != 1 {
+		t.Fatalf("precondition: expected 1 column, got %d", len(b.Columns))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
+	if b.ActiveTab != 0 {
+		t.Errorf("Shift+Tab on single-column board: ActiveTab = %d, want 0", b.ActiveTab)
 	}
 }
 
