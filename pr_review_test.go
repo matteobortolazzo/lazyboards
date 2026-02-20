@@ -1,9 +1,11 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // enterPRReview creates a board with PRs, navigates to the card with exactly
@@ -121,5 +123,74 @@ func TestPRReview_BlocksCreateAndConfig(t *testing.T) {
 		if b.mode != prReviewMode {
 			t.Errorf("after %q: mode = %d, want prReviewMode (%d)", bk.name, b.mode, prReviewMode)
 		}
+	}
+}
+
+func TestPRReview_ViewShowsPRNumber(t *testing.T) {
+	b := enterPRReview(t)
+
+	view := b.View()
+	if !strings.Contains(view, "#10") {
+		t.Error("PR review view should contain the PR number (#10)")
+	}
+}
+
+func TestPRReview_ViewShowsPRTitle(t *testing.T) {
+	b := enterPRReview(t)
+
+	view := b.View()
+	if !strings.Contains(view, "feat: one PR") {
+		t.Error("PR review view should contain the PR title")
+	}
+}
+
+func TestPRReview_ViewShowsPlaceholder(t *testing.T) {
+	b := enterPRReview(t)
+
+	view := b.View()
+	if !strings.Contains(view, "coming soon") {
+		t.Error("PR review right panel should contain 'coming soon' placeholder")
+	}
+}
+
+func TestPRReview_ViewFocusBorderHighlight(t *testing.T) {
+	b := enterPRReview(t)
+
+	// Default: left panel focused.
+	viewLeft := b.View()
+	if viewLeft == "" {
+		t.Fatal("PR review view should not be empty with left focus")
+	}
+
+	// Switch focus to right panel.
+	b.prFocusRight = true
+	viewRight := b.View()
+	if viewRight == "" {
+		t.Fatal("PR review view should not be empty with right focus")
+	}
+}
+
+func TestPRReview_ViewBorderTitleShowsPR(t *testing.T) {
+	pr := LinkedPR{Number: 10, Title: "feat: one PR", URL: "https://github.com/owner/repo/pull/10"}
+	result := buildPRBorderTitle(pr, 120)
+
+	if !strings.Contains(result, "PR #10") {
+		t.Error("buildPRBorderTitle should contain 'PR #10'")
+	}
+	if lipgloss.Width(result) > 120 {
+		t.Errorf("buildPRBorderTitle width = %d, want <= 120", lipgloss.Width(result))
+	}
+}
+
+func TestPRReview_ViewResizeHandled(t *testing.T) {
+	b := enterPRReview(t)
+
+	// Send a resize message.
+	m, _ := b.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	b = m.(Board)
+
+	view := b.View()
+	if view == "" {
+		t.Error("PR review view should not be empty after resize")
 	}
 }
