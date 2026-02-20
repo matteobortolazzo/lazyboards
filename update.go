@@ -302,6 +302,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		b.detailScrollOffset = 0
 		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
 	case "k", "up":
 		col := &b.Columns[b.ActiveTab]
 		if col.Cursor > 0 {
@@ -309,6 +311,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		b.detailScrollOffset = 0
 		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
 	default:
 		// Check for number key navigation (1-9).
 		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
