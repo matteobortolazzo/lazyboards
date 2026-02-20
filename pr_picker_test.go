@@ -9,7 +9,7 @@ import (
 )
 
 func TestNormalMode_P_NoPRs_ShowsMessage(t *testing.T) {
-	b := newBoardWithPRs(t)
+	b, _ := newBoardWithPRsAndExecutor(t)
 
 	// Card 0 (cursor starts here) has 0 LinkedPRs.
 	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
@@ -30,8 +30,8 @@ func TestNormalMode_P_NoPRs_ShowsMessage(t *testing.T) {
 	}
 }
 
-func TestNormalMode_P_SinglePR_SkipsPicker(t *testing.T) {
-	b := newBoardWithPRs(t)
+func TestNormalMode_P_SinglePR_OpensBrowser(t *testing.T) {
+	b, fe := newBoardWithPRsAndExecutor(t)
 
 	// Navigate to card 1 which has exactly 1 LinkedPR.
 	b = sendKey(t, b, keyMsg("j"))
@@ -40,19 +40,38 @@ func TestNormalMode_P_SinglePR_SkipsPicker(t *testing.T) {
 		t.Fatalf("test setup: expected card at cursor to have 1 LinkedPR, got %d", len(card.LinkedPRs))
 	}
 
-	// Press "p" — should skip picker and go directly to prReviewMode.
+	// Press "p" — should open the PR URL in the browser and stay in normalMode.
 	b = sendKey(t, b, keyMsg("p"))
 
-	if b.mode != prReviewMode {
-		t.Errorf("mode = %d, want prReviewMode (%d)", b.mode, prReviewMode)
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
 	}
-	if b.prPickerIndex != 0 {
-		t.Errorf("prPickerIndex = %d, want 0", b.prPickerIndex)
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
+	}
+	if fe.OpenURLCalls[0] != "https://github.com/owner/repo/pull/10" {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], "https://github.com/owner/repo/pull/10")
+	}
+}
+
+func TestNormalMode_P_SinglePR_ShowsStatusMessage(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+
+	// Navigate to card 1 which has exactly 1 LinkedPR.
+	b = sendKey(t, b, keyMsg("j"))
+
+	// Press "p" — status bar should show "Opened PR #10".
+	m, cmd := b.Update(keyMsg("p"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if !strings.Contains(b.statusBar.View(), "Opened PR #10") {
+		t.Errorf("statusBar.View() = %q, want it to contain %q", b.statusBar.View(), "Opened PR #10")
 	}
 }
 
 func TestNormalMode_P_MultiplePRs_EntersPicker(t *testing.T) {
-	b := newBoardWithPRs(t)
+	b, _ := newBoardWithPRsAndExecutor(t)
 
 	// Navigate to card 2 which has 2 LinkedPRs.
 	b = sendKey(t, b, keyMsg("j"))
@@ -128,28 +147,58 @@ func TestPRPicker_Escape_ReturnsToNormal(t *testing.T) {
 	}
 }
 
-func TestPRPicker_Enter_SelectsPR(t *testing.T) {
-	b := newBoardWithPRs(t)
+func TestPRPicker_Enter_OpensBrowser(t *testing.T) {
+	b, fe := newBoardWithPRsAndExecutor(t)
 
-	// Navigate to card 2 and enter picker.
+	// Navigate to card 2 (2 LinkedPRs) and enter picker.
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("p"))
 
 	// Move to second PR (index 1).
 	b = sendKey(t, b, arrowMsg(tea.KeyRight))
-	if b.prPickerIndex != 1 {
-		t.Fatalf("test setup: prPickerIndex = %d, want 1", b.prPickerIndex)
-	}
 
-	// Press Enter — should select the PR and enter prReviewMode.
-	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	// Press Enter — should open the selected PR URL in the browser.
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
 
-	if b.mode != prReviewMode {
-		t.Errorf("mode = %d, want prReviewMode (%d)", b.mode, prReviewMode)
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
 	}
-	if b.prPickerIndex != 1 {
-		t.Errorf("prPickerIndex = %d, want 1 (the selected PR)", b.prPickerIndex)
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
+	}
+	if fe.OpenURLCalls[0] != "https://github.com/owner/repo/pull/21" {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], "https://github.com/owner/repo/pull/21")
+	}
+}
+
+func TestPRPicker_Enter_ShowsStatusMessage(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+
+	// Navigate to card 2 (2 LinkedPRs) and enter picker.
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("p"))
+
+	// Move to second PR and press Enter.
+	b = sendKey(t, b, arrowMsg(tea.KeyRight))
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if !strings.Contains(b.statusBar.View(), "Opened PR #21") {
+		t.Errorf("statusBar.View() = %q, want it to contain %q", b.statusBar.View(), "Opened PR #21")
+	}
+}
+
+func TestNormalMode_HintShowsOpenPR(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+
+	view := b.statusBar.View()
+	if !strings.Contains(view, "Open PR") {
+		t.Errorf("statusBar.View() = %q, want it to contain %q", view, "Open PR")
 	}
 }
 
