@@ -12,10 +12,12 @@ import (
 
 // mockIssuesClient implements GitHubIssuesClient with configurable return values.
 type mockIssuesClient struct {
-	issues       []*github.Issue
-	err          error
-	createdIssue *github.Issue // returned by Create
-	createErr    error         // returned by Create
+	issues         []*github.Issue
+	err            error
+	createdIssue   *github.Issue // returned by Create
+	createErr      error         // returned by Create
+	timelineEvents map[int][]*github.Timeline // keyed by issue number
+	timelineErr    error
 }
 
 func (m *mockIssuesClient) ListByRepo(
@@ -34,6 +36,16 @@ func (m *mockIssuesClient) Create(
 	_ *github.IssueRequest,
 ) (*github.Issue, *github.Response, error) {
 	return m.createdIssue, nil, m.createErr
+}
+
+func (m *mockIssuesClient) ListIssueTimeline(
+	_ context.Context,
+	_ string,
+	_ string,
+	number int,
+	_ *github.ListOptions,
+) ([]*github.Timeline, *github.Response, error) {
+	return m.timelineEvents[number], nil, m.timelineErr
 }
 
 // makeIssue builds a github.Issue with the given number, title, and label names.
@@ -540,5 +552,221 @@ func TestGitHubFetchBoard_NilIssueBody_ResultsInEmptyCardBody(t *testing.T) {
 	card := board.Columns[0].Cards[0]
 	if card.Body != "" {
 		t.Errorf("card.Body = %q, want empty string for nil issue body", card.Body)
+	}
+}
+
+// --- Linked PRs from Timeline API ---
+
+// makeCrossReferencedPREvent builds a Timeline event that represents
+// a cross-referenced pull request (a PR that references the issue).
+func makeCrossReferencedPREvent(prNumber int, prTitle, prHTMLURL string) *github.Timeline {
+	return &github.Timeline{
+		Event: github.Ptr("cross-referenced"),
+		Source: &github.Source{
+			Issue: &github.Issue{
+				Number:           github.Ptr(prNumber),
+				Title:            github.Ptr(prTitle),
+				HTMLURL:          github.Ptr(prHTMLURL),
+				PullRequestLinks: &github.PullRequestLinks{URL: github.Ptr(prHTMLURL)},
+			},
+		},
+	}
+}
+
+// makeCrossReferencedIssueEvent builds a Timeline event that represents
+// a cross-referenced regular issue (not a PR).
+func makeCrossReferencedIssueEvent(issueNumber int, issueTitle string) *github.Timeline {
+	return &github.Timeline{
+		Event: github.Ptr("cross-referenced"),
+		Source: &github.Source{
+			Issue: &github.Issue{
+				Number: github.Ptr(issueNumber),
+				Title:  github.Ptr(issueTitle),
+				// No PullRequestLinks — this is a regular issue, not a PR.
+			},
+		},
+	}
+}
+
+func TestGitHubFetchBoard_LinkedPRsPopulatedFromTimeline(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := makeIssue(10, "Bug report", "Todo")
+
+	prNumber := 89
+	prTitle := "Fix bug"
+	prURL := "https://github.com/owner/repo/pull/89"
+
+	client := &mockIssuesClient{
+		issues: []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{
+			10: {makeCrossReferencedPREvent(prNumber, prTitle, prURL)},
+		},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if len(card.LinkedPRs) != 1 {
+		t.Fatalf("card.LinkedPRs has %d entries, want 1", len(card.LinkedPRs))
+	}
+
+	linkedPR := card.LinkedPRs[0]
+	if linkedPR.Number != prNumber {
+		t.Errorf("LinkedPR.Number = %d, want %d", linkedPR.Number, prNumber)
+	}
+	if linkedPR.Title != prTitle {
+		t.Errorf("LinkedPR.Title = %q, want %q", linkedPR.Title, prTitle)
+	}
+	if linkedPR.URL != prURL {
+		t.Errorf("LinkedPR.URL = %q, want %q", linkedPR.URL, prURL)
+	}
+}
+
+func TestGitHubFetchBoard_NoLinkedPRs_EmptyTimeline(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := makeIssue(20, "Solo issue", "Todo")
+
+	client := &mockIssuesClient{
+		issues: []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{
+			20: {}, // empty timeline
+		},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if len(card.LinkedPRs) != 0 {
+		t.Errorf("card.LinkedPRs has %d entries, want 0", len(card.LinkedPRs))
+	}
+}
+
+func TestGitHubFetchBoard_CrossReferencedNonPR_Ignored(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := makeIssue(30, "Referenced issue", "Todo")
+
+	client := &mockIssuesClient{
+		issues: []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{
+			30: {makeCrossReferencedIssueEvent(31, "Related issue")},
+		},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if len(card.LinkedPRs) != 0 {
+		t.Errorf("card.LinkedPRs has %d entries, want 0 (non-PR cross-reference should be ignored)", len(card.LinkedPRs))
+	}
+}
+
+func TestGitHubFetchBoard_MultipleLinkedPRs(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := makeIssue(40, "Complex issue", "Todo")
+
+	client := &mockIssuesClient{
+		issues: []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{
+			40: {
+				makeCrossReferencedPREvent(50, "First fix", "https://github.com/owner/repo/pull/50"),
+				makeCrossReferencedPREvent(51, "Second fix", "https://github.com/owner/repo/pull/51"),
+			},
+		},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if len(card.LinkedPRs) != 2 {
+		t.Fatalf("card.LinkedPRs has %d entries, want 2", len(card.LinkedPRs))
+	}
+
+	// Verify both PRs are present (order should match timeline order).
+	if card.LinkedPRs[0].Number != 50 {
+		t.Errorf("LinkedPRs[0].Number = %d, want 50", card.LinkedPRs[0].Number)
+	}
+	if card.LinkedPRs[1].Number != 51 {
+		t.Errorf("LinkedPRs[1].Number = %d, want 51", card.LinkedPRs[1].Number)
+	}
+}
+
+func TestGitHubFetchBoard_DuplicateLinkedPRs_Deduplicated(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := makeIssue(45, "Issue with duplicate cross-refs", "Todo")
+
+	// Same PR cross-referenced multiple times in timeline.
+	prEvent := makeCrossReferencedPREvent(60, "Fix", "https://github.com/owner/repo/pull/60")
+
+	client := &mockIssuesClient{
+		issues: []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{
+			45: {prEvent, prEvent, prEvent},
+		},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	card := board.Columns[0].Cards[0]
+	if len(card.LinkedPRs) != 1 {
+		t.Fatalf("card.LinkedPRs has %d entries, want 1 (duplicates should be deduplicated)", len(card.LinkedPRs))
+	}
+	if card.LinkedPRs[0].Number != 60 {
+		t.Errorf("LinkedPR.Number = %d, want 60", card.LinkedPRs[0].Number)
+	}
+}
+
+func TestGitHubFetchBoard_TimelineAPIError_ReturnsError(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := makeIssue(50, "Issue", "Todo")
+
+	apiErr := errors.New("timeline API rate limit exceeded")
+	client := &mockIssuesClient{
+		issues:      []*github.Issue{issue},
+		timelineErr: apiErr,
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	_, err := provider.FetchBoard(context.Background())
+	if err == nil {
+		t.Fatal("expected error from FetchBoard when timeline API fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "rate limit") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "rate limit")
 	}
 }
