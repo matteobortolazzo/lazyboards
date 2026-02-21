@@ -32,7 +32,15 @@ provider: github
 repo: owner/repo
 ```
 
-Set your GitHub token:
+### Authentication
+
+If you have the [GitHub CLI](https://cli.github.com/) installed, lazyboards will use your existing authentication automatically:
+
+```
+gh auth login
+```
+
+Alternatively, set a token manually:
 
 ```
 export GITHUB_TOKEN=your_token_here
