@@ -58,6 +58,8 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 	// Fetch all open issues with pagination.
 	opts := &github.IssueListByRepoOptions{
 		State:       "open",
+		Sort:        "created",
+		Direction:   "asc",
 		ListOptions: github.ListOptions{PerPage: 100},
 	}
 
