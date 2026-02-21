@@ -56,8 +56,25 @@ func (b Board) View() string {
 	}
 
 	col := b.Columns[b.ActiveTab]
-	leftPanel := b.viewCardList(col, panelHeight, leftContentWidth, leftStyle)
-	rightPanel := b.viewCardDetail(col, rightContentWidth, panelHeight, rightStyle)
+	// When a search query is active, display only filtered cards.
+	displayCol := col
+	if b.searchQuery != "" {
+		filtered := b.filteredCards()
+		cursor := col.Cursor
+		if len(filtered) == 0 {
+			cursor = 0
+		} else if cursor >= len(filtered) {
+			cursor = len(filtered) - 1
+		}
+		displayCol = Column{
+			Title:        col.Title,
+			Cards:        filtered,
+			Cursor:       cursor,
+			ScrollOffset: col.ScrollOffset,
+		}
+	}
+	leftPanel := b.viewCardList(displayCol, panelHeight, leftContentWidth, leftStyle)
+	rightPanel := b.viewCardDetail(displayCol, rightContentWidth, panelHeight, rightStyle)
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
@@ -238,7 +255,13 @@ func (b *Board) clampScrollOffset() {
 		return
 	}
 	col := &b.Columns[b.ActiveTab]
-	totalCards := len(col.Cards)
+
+	// Use filtered cards when a search is active.
+	cards := col.Cards
+	if b.searchQuery != "" {
+		cards = b.filteredCards()
+	}
+	totalCards := len(cards)
 	if totalCards == 0 {
 		col.ScrollOffset = 0
 		return
@@ -257,7 +280,7 @@ func (b *Board) clampScrollOffset() {
 	// Compute total lines for all cards.
 	totalLines := 0
 	for i := 0; i < totalCards; i++ {
-		totalLines += cardLineCount(col.Cards[i], contentWidth, columnNames)
+		totalLines += cardLineCount(cards[i], contentWidth, columnNames)
 	}
 
 	if totalLines <= panelHeight {
@@ -277,7 +300,7 @@ func (b *Board) clampScrollOffset() {
 		linesUsed := 0
 		lastVisible := col.ScrollOffset
 		for lastVisible < totalCards {
-			cl := cardLineCount(col.Cards[lastVisible], contentWidth, columnNames)
+			cl := cardLineCount(cards[lastVisible], contentWidth, columnNames)
 			neededForDown := 0
 			if lastVisible+1 < totalCards {
 				neededForDown = 1
@@ -296,10 +319,10 @@ func (b *Board) clampScrollOffset() {
 			// Scroll down so cursor card is the last visible.
 			// Work backwards from cursor to find the ScrollOffset.
 			col.ScrollOffset = col.Cursor
-			linesFromCursor := cardLineCount(col.Cards[col.Cursor], contentWidth, columnNames)
+			linesFromCursor := cardLineCount(cards[col.Cursor], contentWidth, columnNames)
 			avail := panelHeight - 1 // reserve 1 for up indicator (since we're scrolling down)
 			for col.ScrollOffset > 0 {
-				prevLines := cardLineCount(col.Cards[col.ScrollOffset-1], contentWidth, columnNames)
+				prevLines := cardLineCount(cards[col.ScrollOffset-1], contentWidth, columnNames)
 				neededForDown := 0
 				if col.Cursor+1 < totalCards {
 					neededForDown = 1
