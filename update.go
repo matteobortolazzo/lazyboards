@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -22,11 +23,11 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case boardFetchErrorMsg:
 		if b.refreshing {
 			b.refreshing = false
-			cmd := b.statusBar.SetTimedMessage("Refresh failed: "+msg.err.Error(), 3*time.Second)
+			cmd := b.statusBar.SetTimedMessage("Refresh failed: "+provider.SanitizeError(msg.err), 3*time.Second)
 			return b, cmd
 		}
 		b.mode = errorMode
-		b.loadErr = msg.err.Error()
+		b.loadErr = provider.SanitizeError(msg.err)
 		b.statusBar.SetActionHints([]Hint{
 			{Key: "r", Desc: "Retry"},
 			{Key: "q", Desc: "Quit"},
@@ -37,7 +38,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.handleCardCreated(msg)
 
 	case cardCreateErrorMsg:
-		b.validationErr = msg.err.Error()
+		b.validationErr = provider.SanitizeError(msg.err)
 		b.mode = createMode
 		cmd := b.titleInput.Focus()
 		b.labelInput.Blur()
@@ -52,7 +53,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 
 	case configSaveErrorMsg:
-		b.validationErr = msg.err.Error()
+		b.validationErr = provider.SanitizeError(msg.err)
 		b.mode = configMode
 		return b, nil
 
