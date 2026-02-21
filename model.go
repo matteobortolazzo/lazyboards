@@ -259,11 +259,12 @@ type Board struct {
 	searchInput            textinput.Model
 	helpScrollOffset       int
 	helpFromDetailFocused  bool
+	workingLabel           string
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, firstLaunch bool) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, workingLabel string, firstLaunch bool) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 100
@@ -311,6 +312,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 		providerName:    providerName,
 		sessionMaxLen:   sessionMaxLen,
 		refreshInterval: refreshInterval,
+		workingLabel:    workingLabel,
 		normalHints:     hints,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},

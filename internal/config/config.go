@@ -27,6 +27,7 @@ type ColumnConfig struct {
 
 const DefaultSessionMaxLength = 32
 const DefaultRefreshInterval = 5
+const DefaultWorkingLabel = "Working"
 
 // Config holds the application configuration.
 type Config struct {
@@ -37,6 +38,15 @@ type Config struct {
 	Columns          []ColumnConfig    `yaml:"columns"`
 	SessionMaxLength int               `yaml:"session_max_length"`
 	RefreshInterval  int               `yaml:"refresh_interval"`
+	WorkingLabel     *string           `yaml:"working_label,omitempty"`
+}
+
+// WorkingLabelValue returns the configured working label, or DefaultWorkingLabel if not set.
+func (c Config) WorkingLabelValue() string {
+	if c.WorkingLabel == nil {
+		return DefaultWorkingLabel
+	}
+	return *c.WorkingLabel
 }
 
 // DefaultColumns is the default set of column names when none are configured.

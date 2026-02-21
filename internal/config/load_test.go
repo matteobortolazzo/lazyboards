@@ -184,3 +184,88 @@ func TestLoad_SessionMaxLength_LocalOverridesGlobal(t *testing.T) {
 		t.Errorf("SessionMaxLength = %d, want 20 (local should override global)", result.SessionMaxLength)
 	}
 }
+
+// --- WorkingLabel config tests (#113) ---
+
+func TestLoad_WorkingLabel_ParsesFromYAML(t *testing.T) {
+	yamlContent := "provider: github\nworking_label: In Progress\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	if result.WorkingLabel == nil {
+		t.Fatal("WorkingLabel should not be nil when set in config")
+	}
+	if *result.WorkingLabel != "In Progress" {
+		t.Errorf("WorkingLabel = %q, want %q", *result.WorkingLabel, "In Progress")
+	}
+}
+
+func TestLoad_WorkingLabel_DefaultsToWorkingWhenOmitted(t *testing.T) {
+	yamlContent := "provider: github\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	// When omitted, WorkingLabel should be nil (not set), and
+	// WorkingLabelValue() should return the default "Working".
+	if result.WorkingLabel != nil {
+		t.Errorf("WorkingLabel should be nil when omitted, got %q", *result.WorkingLabel)
+	}
+	if result.WorkingLabelValue() != "Working" {
+		t.Errorf("WorkingLabelValue() = %q, want %q (default)", result.WorkingLabelValue(), "Working")
+	}
+}
+
+func TestLoad_WorkingLabel_EmptyStringDisablesFeature(t *testing.T) {
+	yamlContent := "provider: github\nworking_label: \"\"\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	// Explicitly set to empty string means "disable the feature".
+	// WorkingLabel should be a pointer to "" (not nil).
+	if result.WorkingLabel == nil {
+		t.Fatal("WorkingLabel should not be nil when explicitly set to empty string")
+	}
+	if *result.WorkingLabel != "" {
+		t.Errorf("WorkingLabel = %q, want empty string", *result.WorkingLabel)
+	}
+	if result.WorkingLabelValue() != "" {
+		t.Errorf("WorkingLabelValue() = %q, want empty string (disabled)", result.WorkingLabelValue())
+	}
+}
+
+func TestLoad_WorkingLabel_LocalOverridesGlobal(t *testing.T) {
+	globalYAML := "provider: github\nworking_label: Active\n"
+	localYAML := "working_label: In Progress\n"
+
+	result := mustLoadConfig(t, globalYAML, localYAML)
+
+	if result.WorkingLabel == nil {
+		t.Fatal("WorkingLabel should not be nil when set in local config")
+	}
+	if *result.WorkingLabel != "In Progress" {
+		t.Errorf("WorkingLabel = %q, want %q (local should override global)", *result.WorkingLabel, "In Progress")
+	}
+}
+
+func TestWorkingLabelValue_NilReturnsDefault(t *testing.T) {
+	cfg := Config{}
+	if cfg.WorkingLabelValue() != "Working" {
+		t.Errorf("WorkingLabelValue() = %q, want %q (default when nil)", cfg.WorkingLabelValue(), "Working")
+	}
+}
+
+func TestWorkingLabelValue_SetReturnsValue(t *testing.T) {
+	label := "In Review"
+	cfg := Config{WorkingLabel: &label}
+	if cfg.WorkingLabelValue() != "In Review" {
+		t.Errorf("WorkingLabelValue() = %q, want %q", cfg.WorkingLabelValue(), "In Review")
+	}
+}
+
+func TestWorkingLabelValue_EmptyStringReturnsEmpty(t *testing.T) {
+	label := ""
+	cfg := Config{WorkingLabel: &label}
+	if cfg.WorkingLabelValue() != "" {
+		t.Errorf("WorkingLabelValue() = %q, want empty string", cfg.WorkingLabelValue())
+	}
+}
