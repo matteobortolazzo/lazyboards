@@ -474,12 +474,7 @@ func TestBoardFetched_AfterRefresh_ShowsMessage(t *testing.T) {
 	b = m.(Board)
 
 	// Simulate the board being fetched again (this is a refresh, not first load).
-	board, err := provider.NewFakeProvider().FetchBoard(nil)
-	if err != nil {
-		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
-	}
-	m, _ = b.Update(boardFetchedMsg{board: board})
-	b = m.(Board)
+	b = simulateRefresh(t, b)
 
 	// After refresh completes, refreshing flag should be cleared.
 	if b.refreshing {
@@ -502,12 +497,7 @@ func TestClearStatusMsg_ClearsTimedMessage(t *testing.T) {
 	b = m.(Board)
 
 	// Simulate board fetched (triggers "Board refreshed" message).
-	board, err := provider.NewFakeProvider().FetchBoard(nil)
-	if err != nil {
-		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
-	}
-	m, _ = b.Update(boardFetchedMsg{board: board})
-	b = m.(Board)
+	b = simulateRefresh(t, b)
 
 	// Verify "Board refreshed" is visible before clearing (precondition).
 	viewBefore := b.View()
@@ -854,12 +844,7 @@ func TestBackgroundRefresh_PreservesColumnIndex(t *testing.T) {
 	b = m.(Board)
 
 	// Simulate the board being fetched again with same columns.
-	board, err := provider.NewFakeProvider().FetchBoard(nil)
-	if err != nil {
-		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
-	}
-	m, _ = b.Update(boardFetchedMsg{board: board})
-	b = m.(Board)
+	b = simulateRefresh(t, b)
 
 	// ActiveTab should be preserved at 1.
 	if b.ActiveTab != 1 {
@@ -1007,12 +992,7 @@ func TestBackgroundRefresh_DetailFocused_PreservesHints(t *testing.T) {
 	}
 
 	// Simulate the board being fetched again (refresh completes).
-	board, err := provider.NewFakeProvider().FetchBoard(nil)
-	if err != nil {
-		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
-	}
-	m, _ = b.Update(boardFetchedMsg{board: board})
-	b = m.(Board)
+	b = simulateRefresh(t, b)
 
 	// Detail focus should be preserved.
 	if !b.detailFocused {
