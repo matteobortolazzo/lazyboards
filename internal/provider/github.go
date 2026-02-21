@@ -95,21 +95,21 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 			}
 			card.LinkedPRs = linkedPRs
 
-			// Find the first label that matches a column for placement.
-			matched := false
+			// Find the furthest (rightmost) column matching any label.
+			bestIdx := -1
 			for _, label := range issue.Labels {
-				labelName := label.GetName()
-				if idx, ok := colIndex[strings.ToLower(labelName)]; ok {
-					columns[idx].Cards = append(columns[idx].Cards, card)
-					matched = true
-					break
+				if idx, ok := colIndex[strings.ToLower(label.GetName())]; ok {
+					if idx > bestIdx {
+						bestIdx = idx
+					}
 				}
 			}
 
 			// No matching label: place in first column.
-			if !matched {
-				columns[0].Cards = append(columns[0].Cards, card)
+			if bestIdx < 0 {
+				bestIdx = 0
 			}
+			columns[bestIdx].Cards = append(columns[bestIdx].Cards, card)
 		}
 
 		if resp == nil || resp.NextPage == 0 {
