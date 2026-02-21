@@ -263,6 +263,38 @@ func newBoardWithPRsAndExecutor(t *testing.T) (Board, *action.FakeExecutor) {
 	return board, fe
 }
 
+// newBoardWithWorkingLabel creates a Board with one column containing four cards
+// covering all combinations of "Working" label and linked PRs:
+// - Card 1: No "Working" label, no PR (baseline — no indicators)
+// - Card 2: Has "Working" label, no PR (Working indicator only)
+// - Card 3: Has PR, no "Working" label (PR indicator only)
+// - Card 4: Has both PR and "Working" label (both indicators)
+func newBoardWithWorkingLabel(t *testing.T) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: "No indicators", Labels: []string{"bug"}},
+				{Number: 2, Title: "Working only", Labels: []string{"Working"}},
+				{Number: 3, Title: "PR only", Labels: []string{"feature"}, LinkedPRs: []provider.LinkedPR{
+					{Number: 10, Title: "feat: some PR", URL: "https://github.com/owner/repo/pull/10"},
+				}},
+				{Number: 4, Title: "Both indicators", Labels: []string{"Working", "feature"}, LinkedPRs: []provider.LinkedPR{
+					{Number: 20, Title: "feat: another PR", URL: "https://github.com/owner/repo/pull/20"},
+				}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
 // newBoardWithPRs creates a Board with one column containing three cards:
 // - Card 1: no LinkedPRs
 // - Card 2: 1 LinkedPR

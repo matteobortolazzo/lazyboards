@@ -570,6 +570,76 @@ func TestView_CardList_NoPRIndicator_WhenNoPRs(t *testing.T) {
 	}
 }
 
+// --- Working Indicator Tests ---
+
+func TestView_CardList_ShowsWorkingIndicator(t *testing.T) {
+	b := newBoardWithWorkingLabel(t)
+	view := b.View()
+
+	// Cards with the "Working" label should have the spinner icon in the view.
+	if !strings.Contains(view, "\uf110") {
+		t.Error("View() should contain Working indicator \uf110 for cards with 'Working' label")
+	}
+}
+
+func TestView_CardList_NoWorkingIndicator_WhenNoWorkingLabel(t *testing.T) {
+	b := newBoardWithWorkingLabel(t)
+	view := b.View()
+
+	// Find the line(s) for card 1 ("No indicators" with label "bug") and verify
+	// it does NOT have the Working indicator.
+	lines := strings.Split(view, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "#1") && strings.Contains(line, "No indicators") {
+			if strings.Contains(line, "\uf110") {
+				t.Errorf("card without 'Working' label should NOT have Working indicator, but line %q contains it", line)
+			}
+		}
+	}
+}
+
+func TestView_CardList_BothPRAndWorkingIndicators(t *testing.T) {
+	b := newBoardWithWorkingLabel(t)
+	view := b.View()
+
+	// Card 4 has both a linked PR and the "Working" label.
+	// The view should contain both indicator icons.
+	if !strings.Contains(view, "\ue728") {
+		t.Error("View() should contain PR indicator \ue728 for card with linked PR")
+	}
+	if !strings.Contains(view, "\uf110") {
+		t.Error("View() should contain Working indicator \uf110 for card with 'Working' label")
+	}
+
+	// Verify ordering: PR icon (\ue728) should appear before Working icon (\uf110)
+	// on the same line for card 4.
+	lines := strings.Split(view, "\n")
+	foundBothOnSameLine := false
+	for _, line := range lines {
+		prIdx := strings.Index(line, "\ue728")
+		workIdx := strings.Index(line, "\uf110")
+		if prIdx >= 0 && workIdx >= 0 {
+			foundBothOnSameLine = true
+			if prIdx >= workIdx {
+				t.Errorf("PR indicator should appear before Working indicator, but PR at index %d, Working at index %d in line %q", prIdx, workIdx, line)
+			}
+		}
+	}
+	if !foundBothOnSameLine {
+		t.Error("expected at least one line containing both PR indicator and Working indicator for card with both")
+	}
+}
+
+func TestView_CardList_WorkingIndicator_CaseSensitive(t *testing.T) {
+	// A card with "working" (lowercase) should NOT trigger the Working indicator.
+	b := newBoardWithCustomCard(t, "Lowercase working", []string{"working"}, "")
+	view := b.View()
+
+	if strings.Contains(view, "\uf110") {
+		t.Error("View() should NOT contain Working indicator \uf110 for card with lowercase 'working' label")
+	}
+}
+
 // --- Label Dot Tests ---
 
 func TestView_CardList_ShowsLabelDots(t *testing.T) {
