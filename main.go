@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v68/github"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/auth"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -94,7 +95,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  repo: owner/repo\n\n")
 		os.Exit(1)
 	case "github":
-		token := os.Getenv("GITHUB_TOKEN")
+		token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 		if token == "" {
 			out, err := exec.Command("gh", "auth", "token").Output()
 			if err == nil {
@@ -104,6 +105,11 @@ func main() {
 		if token == "" {
 			fmt.Fprintf(os.Stderr, "GitHub token not found.\n\n")
 			fmt.Fprintf(os.Stderr, "Either set GITHUB_TOKEN or authenticate with: gh auth login\n")
+			os.Exit(1)
+		}
+		if err := auth.ValidateGitHubToken(token); err != nil {
+			fmt.Fprintf(os.Stderr, "Invalid GitHub token format.\n\n")
+			fmt.Fprintf(os.Stderr, "Ensure GITHUB_TOKEN or `gh auth token` provides a valid token.\n")
 			os.Exit(1)
 		}
 		parts := strings.SplitN(repo, "/", 2)
