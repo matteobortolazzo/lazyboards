@@ -1325,6 +1325,80 @@ actions:
 	}
 }
 
+func TestSave_RejectsNonYAMLExtension(t *testing.T) {
+	cases := []struct {
+		name     string
+		filename string
+	}{
+		{"txt extension", "config.txt"},
+		{"sh extension", "script.sh"},
+		{"json extension", "data.json"},
+		{"no extension", "noext"},
+		{"dotfile no real extension", ".bashrc"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tc.filename)
+
+			err := Save(path, "github", "owner/repo")
+			if err == nil {
+				t.Fatalf("Save(%q) returned nil error, want error for non-YAML extension", tc.filename)
+			}
+
+			// Error message should contain the path so the user knows which file was rejected.
+			if !strings.Contains(err.Error(), path) {
+				t.Errorf("error = %q, want it to contain the path %q", err.Error(), path)
+			}
+
+			// The file should NOT have been created (no side effects on rejection).
+			if _, statErr := os.Stat(path); statErr == nil {
+				t.Errorf("Save(%q) rejected the extension but still created the file", tc.filename)
+			}
+		})
+	}
+}
+
+func TestSave_AcceptsYAMLExtension(t *testing.T) {
+	cases := []struct {
+		name     string
+		filename string
+	}{
+		{"yml extension", "config.yml"},
+		{"yaml extension", "config.yaml"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tc.filename)
+
+			err := Save(path, "github", "owner/repo")
+			if err != nil {
+				t.Fatalf("Save(%q) returned unexpected error: %v", tc.filename, err)
+			}
+
+			// File should exist and contain valid YAML.
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("failed to read saved config: %v", err)
+			}
+
+			var cfg Config
+			if err := yaml.Unmarshal(data, &cfg); err != nil {
+				t.Fatalf("saved file is not valid YAML: %v", err)
+			}
+			if cfg.Provider != "github" {
+				t.Errorf("Provider = %q, want %q", cfg.Provider, "github")
+			}
+			if cfg.Repo != "owner/repo" {
+				t.Errorf("Repo = %q, want %q", cfg.Repo, "owner/repo")
+			}
+		})
+	}
+}
+
 func TestLocalExists_ReturnsTrueForExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yml")
