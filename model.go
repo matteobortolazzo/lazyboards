@@ -24,7 +24,8 @@ var (
 	rightPanelStyle   = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	outerStyle        = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	prIndicatorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
+	prIndicatorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
+	workingIndicatorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
 	cardNumberStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	hintKeyStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	hintDescStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
@@ -313,6 +314,12 @@ func (b *Board) clampScrollOffset() {
 		text := prefix + card.Title
 		if len(card.LinkedPRs) > 0 {
 			text += " \ue728"
+		}
+		for _, label := range card.Labels {
+			if label == "Working" {
+				text += " \uf110"
+				break
+			}
 		}
 		for range card.Labels {
 			text += " \u25cf"
