@@ -640,6 +640,47 @@ func TestView_CardList_WorkingIndicator_CaseSensitive(t *testing.T) {
 	}
 }
 
+// --- Background Refresh View ---
+
+func TestView_BackgroundRefresh_ShowsRefreshingIndicator(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Set refreshing flag.
+	b.refreshing = true
+
+	view := b.View()
+
+	// View should contain "Refreshing..." indicator in the help bar area.
+	if !strings.Contains(view, "Refreshing...") {
+		t.Errorf("View() with refreshing=true should contain %q, got:\n%s", "Refreshing...", view)
+	}
+}
+
+func TestView_BackgroundRefresh_BoardStillVisible(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Set refreshing flag.
+	b.refreshing = true
+
+	view := b.View()
+
+	// Board content (column titles) should still be visible, not replaced with a loading screen.
+	for _, title := range expectedColumnTitles {
+		if !strings.Contains(view, title) {
+			t.Errorf("View() with refreshing=true should still contain column title %q (board visible)", title)
+		}
+	}
+
+	// Should NOT show the full loading screen.
+	if strings.Contains(view, "Loading board...") {
+		t.Error("View() with refreshing=true should NOT show full 'Loading board...' screen")
+	}
+}
+
 // --- Label Dot Tests ---
 
 func TestView_CardList_ShowsLabelDots(t *testing.T) {

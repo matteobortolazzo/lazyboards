@@ -199,6 +199,7 @@ type Board struct {
 	detailFocused      bool
 	detailScrollOffset int
 	prPickerIndex      int
+	refreshing         bool
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).

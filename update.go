@@ -20,6 +20,11 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.handleBoardFetched(msg)
 
 	case boardFetchErrorMsg:
+		if b.refreshing {
+			b.refreshing = false
+			cmd := b.statusBar.SetTimedMessage("Refresh failed: "+msg.err.Error(), 3*time.Second)
+			return b, cmd
+		}
 		b.mode = errorMode
 		b.loadErr = msg.err.Error()
 		b.statusBar.SetActionHints([]Hint{
@@ -56,7 +61,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, cmd
 
 	case spinner.TickMsg:
-		if b.mode == loadingMode || b.mode == creatingMode {
+		if b.mode == loadingMode || b.mode == creatingMode || b.refreshing {
 			var cmd tea.Cmd
 			b.spinner, cmd = b.spinner.Update(msg)
 			return b, cmd
@@ -111,6 +116,65 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		}
 		cols[i] = Column{Title: pc.Title, Cards: cards}
 	}
+
+	if b.refreshing {
+		// Preserve ActiveTab and cursor position by card Number.
+		savedTab := b.ActiveTab
+		savedNumber := -1
+		if savedTab < len(b.Columns) {
+			oldCol := b.Columns[savedTab]
+			if len(oldCol.Cards) > 0 && oldCol.Cursor < len(oldCol.Cards) {
+				savedNumber = oldCol.Cards[oldCol.Cursor].Number
+			}
+		}
+
+		b.Columns = cols
+		b.refreshing = false
+		b.detailScrollOffset = 0
+
+		// Clamp ActiveTab if columns were reduced.
+		if b.ActiveTab >= len(b.Columns) {
+			b.ActiveTab = len(b.Columns) - 1
+			if b.ActiveTab < 0 {
+				b.ActiveTab = 0
+			}
+		}
+
+		// Restore cursor by card Number in the active column.
+		if b.ActiveTab < len(b.Columns) {
+			col := &b.Columns[b.ActiveTab]
+			found := false
+			if savedNumber >= 0 {
+				for i, card := range col.Cards {
+					if card.Number == savedNumber {
+						col.Cursor = i
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				// Clamp cursor to valid range.
+				if col.Cursor >= len(col.Cards) {
+					col.Cursor = len(col.Cards) - 1
+					if col.Cursor < 0 {
+						col.Cursor = 0
+					}
+				}
+			}
+		}
+
+		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		if b.detailFocused {
+			b.statusBar.SetActionHints(detailFocusHints)
+		} else {
+			b.statusBar.SetActionHints(b.normalHints)
+		}
+		cmd := b.statusBar.SetTimedMessage("Board refreshed", 3*time.Second)
+		return b, cmd
+	}
+
 	b.Columns = cols
 	b.mode = normalMode
 	b.detailScrollOffset = 0
@@ -248,8 +312,10 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		b.enterConfigMode()
 	case "r":
-		b.mode = loadingMode
-		b.statusBar.ClearMessage()
+		if b.refreshing {
+			return b, nil
+		}
+		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	case "p":
 		if len(b.Columns) == 0 {
@@ -383,8 +449,10 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		return b, tea.Quit
 	case "r":
-		b.mode = loadingMode
-		b.statusBar.ClearMessage()
+		if b.refreshing {
+			return b, nil
+		}
+		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	case "h", "left":
 		b.detailFocused = false
