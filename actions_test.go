@@ -14,7 +14,7 @@ import (
 
 func TestAction_URLTriggersOpenURL(t *testing.T) {
 	actions := map[string]config.Action{
-		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
@@ -23,7 +23,7 @@ func TestAction_URLTriggersOpenURL(t *testing.T) {
 	expectedURL := fmt.Sprintf("https://example.com/%d", selectedCard.Number)
 
 	// Press the action key in normalMode.
-	b = sendKey(t, b, keyMsg("o"))
+	b = sendKey(t, b, keyMsg("x"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called, but no calls recorded")
@@ -61,13 +61,13 @@ func TestAction_ShellTriggersRunShell(t *testing.T) {
 
 func TestAction_IgnoredInCreateMode(t *testing.T) {
 	actions := map[string]config.Action{
-		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
 	// Enter createMode, then press the action key.
 	b = sendKey(t, b, keyMsg("n"))
-	b = sendKey(t, b, keyMsg("o"))
+	b = sendKey(t, b, keyMsg("x"))
 	_ = b
 
 	if len(fe.OpenURLCalls) != 0 {
@@ -77,14 +77,14 @@ func TestAction_IgnoredInCreateMode(t *testing.T) {
 
 func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	actions := map[string]config.Action{
-		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, actions, nil, fe, "", "", "", 0, 0, false)
 
 	// Board starts in loadingMode. Press the action key.
-	b = sendKey(t, b, keyMsg("o"))
+	b = sendKey(t, b, keyMsg("x"))
 	_ = b
 
 	if len(fe.OpenURLCalls) != 0 {
@@ -94,7 +94,7 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 
 func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	actions := map[string]config.Action{
-		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -112,7 +112,7 @@ func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	b.Height = 40
 
 	// Press the action key with no cards in the column.
-	b = sendKey(t, b, keyMsg("o"))
+	b = sendKey(t, b, keyMsg("x"))
 	_ = b
 
 	if len(fe.OpenURLCalls) != 0 {
@@ -160,7 +160,7 @@ func TestAction_ShellError_ShowsError(t *testing.T) {
 
 func TestAction_HintsShowInStatusBar(t *testing.T) {
 	actions := map[string]config.Action{
-		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
@@ -172,13 +172,13 @@ func TestAction_HintsShowInStatusBar(t *testing.T) {
 
 func TestAction_URLError_ShowsErrorInStatusBar(t *testing.T) {
 	actions := map[string]config.Action{
-		"o": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 	fe.OpenURLErr = errors.New("failed to open browser")
 
 	// Press the action key.
-	m, cmd := b.Update(keyMsg("o"))
+	m, cmd := b.Update(keyMsg("x"))
 	b = m.(Board)
 
 	// Should return a cmd for the timed status message.
@@ -194,7 +194,7 @@ func TestAction_URLError_ShowsErrorInStatusBar(t *testing.T) {
 
 func TestAction_TemplateVarsExpanded(t *testing.T) {
 	actions := map[string]config.Action{
-		"o": {Name: "Open", Type: "url", URL: "https://gh.com/{repo_owner}/{repo_name}/issues/{number}"},
+		"x": {Name: "Open", Type: "url", URL: "https://gh.com/{repo_owner}/{repo_name}/issues/{number}"},
 	}
 	cardNumber := 42
 	cardTitle := "Add custom actions"
@@ -206,7 +206,7 @@ func TestAction_TemplateVarsExpanded(t *testing.T) {
 	})
 
 	// Press the action key.
-	b = sendKey(t, b, keyMsg("o"))
+	b = sendKey(t, b, keyMsg("x"))
 	_ = b
 
 	expectedURL := fmt.Sprintf("https://gh.com/matteobortolazzo/lazyboards/issues/%d", cardNumber)
@@ -220,13 +220,13 @@ func TestAction_TemplateVarsExpanded(t *testing.T) {
 
 func TestAction_ColumnActionOverridesGlobal(t *testing.T) {
 	globalActions := map[string]config.Action{
-		"o": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
+		"x": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
 	}
 	columnConfigs := []config.ColumnConfig{
 		{
 			Name: "New",
 			Actions: map[string]config.Action{
-				"o": {Name: "Column Open", Type: "url", URL: "https://column.com/{number}"},
+				"x": {Name: "Column Open", Type: "url", URL: "https://column.com/{number}"},
 			},
 		},
 		{Name: "Refined"},
@@ -236,7 +236,7 @@ func TestAction_ColumnActionOverridesGlobal(t *testing.T) {
 	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
 
 	// Board starts on column 0 ("New") which has the column-level override.
-	b = sendKey(t, b, keyMsg("o"))
+	b = sendKey(t, b, keyMsg("x"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called, but no calls recorded")
@@ -249,10 +249,10 @@ func TestAction_ColumnActionOverridesGlobal(t *testing.T) {
 
 func TestAction_FallbackToGlobalWhenColumnHasNoAction(t *testing.T) {
 	globalActions := map[string]config.Action{
-		"o": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
+		"x": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
 	}
 	columnConfigs := []config.ColumnConfig{
-		{Name: "New"}, // No column-level actions for "o".
+		{Name: "New"}, // No column-level actions for "x".
 		{Name: "Refined"},
 		{Name: "Implementing"},
 		{Name: "Implemented"},
@@ -260,7 +260,7 @@ func TestAction_FallbackToGlobalWhenColumnHasNoAction(t *testing.T) {
 	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
 
 	// Board starts on column 0 ("New") which has no column-level actions.
-	b = sendKey(t, b, keyMsg("o"))
+	b = sendKey(t, b, keyMsg("x"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called via global fallback, but no calls recorded")
@@ -341,7 +341,7 @@ func TestAction_ColumnShellUsesShellEscape(t *testing.T) {
 
 func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	actions := map[string]config.Action{
-		"o": {Name: "Open", Type: "url", URL: "https://example.com/search?tags={tags}"},
+		"x": {Name: "Open", Type: "url", URL: "https://example.com/search?tags={tags}"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -362,7 +362,7 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	b.Height = 40
 
 	// Press the action key.
-	b = sendKey(t, b, keyMsg("o"))
+	b = sendKey(t, b, keyMsg("x"))
 
 	// The tags value is "bug&fix,feature?v2" (joined with comma by BuildTemplateVars).
 	// After URL escaping, &, ?, and , should be percent-encoded.
@@ -373,5 +373,102 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	}
 	if fe.OpenURLCalls[0] != expectedURL {
 		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+// --- Repository Open (o key) ---
+
+func TestRepoOpen_NormalMode_OpensRepoURL(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, false)
+	b = loadFromFakeProvider(t, b, p)
+
+	// Press "o" in normal mode.
+	b = sendKey(t, b, keyMsg("o"))
+
+	expectedURL := "https://github.com/matteobortolazzo/lazyboards"
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called, but no calls recorded")
+	}
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+func TestRepoOpen_NormalMode_NonGitHubProvider_ShowsMessage(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "owner", "repo", "azure-devops", 0, 0, false)
+	b = loadFromFakeProvider(t, b, p)
+
+	// Press "o" with a non-GitHub provider.
+	b = sendKey(t, b, keyMsg("o"))
+
+	view := b.View()
+	if !strings.Contains(view, "not available") {
+		t.Errorf("View() should contain %q for non-GitHub provider, got:\n%s", "not available", view)
+	}
+}
+
+func TestRepoOpen_NormalMode_MissingRepoInfo_ShowsMessage(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "", "", "github", 0, 0, false)
+	b = loadFromFakeProvider(t, b, p)
+
+	// Press "o" with missing repo owner/name.
+	b = sendKey(t, b, keyMsg("o"))
+
+	view := b.View()
+	if !strings.Contains(view, "not available") {
+		t.Errorf("View() should contain %q for missing repo info, got:\n%s", "not available", view)
+	}
+}
+
+func TestRepoOpen_DetailFocused_OpensRepoURL(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, false)
+	b = loadFromFakeProvider(t, b, p)
+
+	// Enter detail focus, then press "o".
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("o"))
+
+	expectedURL := "https://github.com/matteobortolazzo/lazyboards"
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called from detail focus, but no calls recorded")
+	}
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+func TestRepoOpen_OpenURLError_ShowsError(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	fe.OpenURLErr = errors.New("browser not found")
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, false)
+	b = loadFromFakeProvider(t, b, p)
+
+	// Press "o" with OpenURL error configured.
+	b = sendKey(t, b, keyMsg("o"))
+
+	view := b.View()
+	if !strings.Contains(view, "Error:") {
+		t.Errorf("View() after OpenURL error should contain %q, got:\n%s", "Error:", view)
+	}
+}
+
+func TestRepoOpen_HintShowsInStatusBar(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, false)
+	b = loadFromFakeProvider(t, b, p)
+
+	view := b.View()
+	if !strings.Contains(view, "Open") {
+		t.Errorf("View() should contain %q hint in the status bar, got:\n%s", "Open", view)
 	}
 }

@@ -119,18 +119,18 @@ columns:
 }
 
 func TestLoad_ColumnActionValidKey_AcceptsGlobalActionOverlap(t *testing.T) {
-	// Column action key "o" overlaps with a global action key "o".
+	// Column action key "b" overlaps with a global action key "b".
 	// This should be allowed -- column overrides at runtime (PR 2).
 	yamlContent := `provider: github
 actions:
-  o:
+  b:
     name: Global open
     type: url
     url: "https://global.example.com"
 columns:
   - name: Implementing
     actions:
-      o:
+      b:
         name: Column open
         type: url
         url: "https://column.example.com"
