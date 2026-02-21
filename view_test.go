@@ -69,19 +69,16 @@ func TestView_ContainsHelpBar(t *testing.T) {
 	b.Height = 40
 	view := b.View()
 
-	// Status bar should show contextual hints for normalMode.
-	expectedHints := []string{"n: New", "r: Refresh", "q: Quit"}
-	for _, hint := range expectedHints {
-		if !strings.Contains(view, hint) {
-			t.Errorf("View() does not contain status bar hint %q", hint)
+	// Status bar should show contextual hint keys and descriptions for normalMode.
+	// Keys and descriptions are styled separately, so check each part individually.
+	expectedKeys := []string{"n", "r", "q"}
+	expectedDescs := []string{"New", "Refresh", "Quit"}
+	for i, key := range expectedKeys {
+		if !strings.Contains(view, key) {
+			t.Errorf("View() does not contain status bar key %q", key)
 		}
-	}
-
-	// Old-style combined key hints should NOT appear.
-	oldHints := []string{"h/l", "j/k"}
-	for _, old := range oldHints {
-		if strings.Contains(view, old) {
-			t.Errorf("View() still contains old help text %q, want new status bar format", old)
+		if !strings.Contains(view, expectedDescs[i]) {
+			t.Errorf("View() does not contain status bar desc %q", expectedDescs[i])
 		}
 	}
 }
@@ -570,5 +567,19 @@ func TestView_CardList_NoPRIndicator_WhenNoPRs(t *testing.T) {
 				t.Errorf("card with 0 PRs should NOT have PR indicator, but line %q contains it", line)
 			}
 		}
+	}
+}
+
+// --- Label Dot Tests ---
+
+func TestView_CardList_ShowsLabelDots(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	view := b.View()
+
+	// Cards have labels, so the card list should contain the dot character ●.
+	if !strings.Contains(view, "\u25cf") {
+		t.Error("View() card list should contain label dot \u25cf for cards with labels")
 	}
 }

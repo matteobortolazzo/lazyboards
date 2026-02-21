@@ -56,7 +56,7 @@ func (s StatusBar) View() string {
 	}
 	parts := make([]string, len(s.hints))
 	for i, h := range s.hints {
-		parts[i] = h.Key + ": " + h.Desc
+		parts[i] = hintKeyStyle.Render(h.Key) + hintDescStyle.Render(": "+h.Desc)
 	}
-	return strings.Join(parts, " | ")
+	return strings.Join(parts, hintDescStyle.Render(" | "))
 }

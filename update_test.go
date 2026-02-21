@@ -534,8 +534,8 @@ func TestClearStatusMsg_ClearsTimedMessage(t *testing.T) {
 	}
 
 	// Normal hints should be restored.
-	if !strings.Contains(view, "n: New") {
-		t.Errorf("View() after clearStatusMsg should contain %q (hints restored)", "n: New")
+	if !strings.Contains(view, "New") {
+		t.Errorf("View() after clearStatusMsg should contain hint desc %q (hints restored)", "New")
 	}
 }
 
@@ -546,8 +546,8 @@ func TestNormalMode_StatusBarShowsConfigHint(t *testing.T) {
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
-	if !strings.Contains(view, "c: Config") {
-		t.Errorf("View() status bar does not contain %q", "c: Config")
+	if !strings.Contains(view, "Config") {
+		t.Errorf("View() status bar does not contain hint desc %q", "Config")
 	}
 }
 
@@ -775,25 +775,25 @@ func TestStatusBar_HintsUpdateOnColumnSwitch(t *testing.T) {
 
 	// On column 0: should show global action hint.
 	view0 := b.View()
-	if !strings.Contains(view0, "o: Global Open") {
-		t.Errorf("on column 0, View() should contain %q, got:\n%s", "o: Global Open", view0)
+	if !strings.Contains(view0, "Global Open") {
+		t.Errorf("on column 0, View() should contain %q, got:\n%s", "Global Open", view0)
 	}
 
 	// Tab to column 1: should show column-level action hint overriding global.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	view1 := b.View()
-	if !strings.Contains(view1, "o: Deploy") {
-		t.Errorf("on column 1, View() should contain %q, got:\n%s", "o: Deploy", view1)
+	if !strings.Contains(view1, "Deploy") {
+		t.Errorf("on column 1, View() should contain %q, got:\n%s", "Deploy", view1)
 	}
-	if strings.Contains(view1, "o: Global Open") {
-		t.Errorf("on column 1, View() should NOT contain %q", "o: Global Open")
+	if strings.Contains(view1, "Global Open") {
+		t.Errorf("on column 1, View() should NOT contain %q", "Global Open")
 	}
 
 	// Shift+tab back to column 0: should show global hint again.
 	b = sendKey(t, b, arrowMsg(tea.KeyShiftTab))
 	view0again := b.View()
-	if !strings.Contains(view0again, "o: Global Open") {
-		t.Errorf("back on column 0, View() should contain %q, got:\n%s", "o: Global Open", view0again)
+	if !strings.Contains(view0again, "Global Open") {
+		t.Errorf("back on column 0, View() should contain %q, got:\n%s", "Global Open", view0again)
 	}
 }
 
@@ -815,14 +815,14 @@ func TestStatusBar_ColumnOnlyActionAppearsOnlyInColumn(t *testing.T) {
 
 	// On column 0: should show the column-only action hint.
 	view0 := b.View()
-	if !strings.Contains(view0, "x: Special") {
-		t.Errorf("on column 0, View() should contain %q, got:\n%s", "x: Special", view0)
+	if !strings.Contains(view0, "Special") {
+		t.Errorf("on column 0, View() should contain %q, got:\n%s", "Special", view0)
 	}
 
 	// Tab to column 1: should NOT show the column-only action hint.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 	view1 := b.View()
-	if strings.Contains(view1, "x: Special") {
-		t.Errorf("on column 1, View() should NOT contain %q", "x: Special")
+	if strings.Contains(view1, "Special") {
+		t.Errorf("on column 1, View() should NOT contain %q", "Special")
 	}
 }
