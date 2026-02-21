@@ -196,25 +196,14 @@ func TestAction_TemplateVarsExpanded(t *testing.T) {
 	actions := map[string]config.Action{
 		"o": {Name: "Open", Type: "url", URL: "https://gh.com/{repo_owner}/{repo_name}/issues/{number}"},
 	}
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, false)
-
-	// Load a board with a specific card that has known labels.
 	cardNumber := 42
 	cardTitle := "Add custom actions"
 	cardLabels := []string{"bug", "enhancement"}
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "New", Cards: []provider.Card{
-				{Number: cardNumber, Title: cardTitle, Labels: cardLabels},
-			}},
-		},
-	}}
-	m, _ := b.Update(msg)
-	b = m.(Board)
-	b.Width = 120
-	b.Height = 40
+	b, fe := newActionTestBoardWithColumns(t, actions, []provider.Column{
+		{Title: "New", Cards: []provider.Card{
+			{Number: cardNumber, Title: cardTitle, Labels: cardLabels},
+		}},
+	})
 
 	// Press the action key.
 	b = sendKey(t, b, keyMsg("o"))

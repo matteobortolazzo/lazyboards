@@ -160,20 +160,9 @@ func TestView_BothIndicators_WhenMiddle(t *testing.T) {
 
 func TestView_WrapsLongTitle(t *testing.T) {
 	longTitle := "This is a very long title that should definitely be wrapped in the card list panel"
-	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
-
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Column A", Cards: []provider.Card{
-				{Number: 1, Title: longTitle, Labels: []string{"test"}},
-			}},
-		},
-	}}
-	m, _ := b.Update(msg)
-	board := m.(Board)
-	board.Width = 80
-	board.Height = 30
+	board := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: longTitle, Labels: []string{"test"}},
+	}, 80, 30)
 
 	view := board.View()
 
@@ -193,21 +182,10 @@ func TestView_WrapsLongTitle(t *testing.T) {
 
 func TestView_WrappedTitles_SelectedCardAllLinesStyled(t *testing.T) {
 	longTitle := "This is a card title that is long enough to require wrapping across lines"
-	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
-
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Column A", Cards: []provider.Card{
-				{Number: 1, Title: longTitle, Labels: []string{"test"}},
-				{Number: 2, Title: "Short", Labels: []string{"test"}},
-			}},
-		},
-	}}
-	m, _ := b.Update(msg)
-	board := m.(Board)
-	board.Width = 80
-	board.Height = 30
+	board := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: longTitle, Labels: []string{"test"}},
+		{Number: 2, Title: "Short", Labels: []string{"test"}},
+	}, 80, 30)
 
 	view := board.View()
 
@@ -222,27 +200,8 @@ func TestView_WrappedTitles_SelectedCardAllLinesStyled(t *testing.T) {
 func TestView_WrappedTitles_PartialCardHidden(t *testing.T) {
 	// Create a board where cards have titles long enough to wrap.
 	// With limited height, the last card that would only partially fit should be hidden.
-	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", 0, false)
-
-	var cards []provider.Card
-	for i := 0; i < 10; i++ {
-		cards = append(cards, provider.Card{
-			Number: i + 1,
-			Title:  fmt.Sprintf("Card %d with a very long title that wraps to take more vertical space", i+1),
-			Labels: []string{"test"},
-		})
-	}
-
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Column A", Cards: cards},
-		},
-	}}
-	m, _ := b.Update(msg)
-	board := m.(Board)
-	board.Width = 60  // narrow width to force wrapping
-	board.Height = 15 // short height to force some cards off-screen
+	board := newBoardWithGeneratedCards(t, 10,
+		"Card %d with a very long title that wraps to take more vertical space", 60, 15)
 
 	view := board.View()
 
