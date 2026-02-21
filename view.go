@@ -430,6 +430,17 @@ func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style l
 		Render(rightContent)
 }
 
+func (b Board) renderModal(content string, width int) string {
+	modalStyle := lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("15")).
+		Padding(1, 2).
+		Width(width)
+
+	modal := modalStyle.Render(content)
+	return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
+}
+
 func (b Board) viewCreateModal() string {
 	modalWidth := 40
 	var modalContent string
@@ -451,14 +462,7 @@ func (b Board) viewCreateModal() string {
 			createHints.View()
 	}
 
-	modalStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("15")).
-		Padding(1, 2).
-		Width(modalWidth)
-
-	modal := modalStyle.Render(modalContent)
-	return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
+	return b.renderModal(modalContent, modalWidth)
 }
 
 func (b Board) viewConfigModal() string {
@@ -483,14 +487,7 @@ func (b Board) viewConfigModal() string {
 		"Repo:\n" + repoView + errLine + "\n\n" +
 		configHints.View()
 
-	modalStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("15")).
-		Padding(1, 2).
-		Width(modalWidth)
-
-	modal := modalStyle.Render(modalContent)
-	return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
+	return b.renderModal(modalContent, modalWidth)
 }
 
 func (b Board) viewPRPickerModal() string {
@@ -506,12 +503,5 @@ func (b Board) viewPRPickerModal() string {
 		prDisplay + "\n\n" +
 		pickerHints.View()
 
-	modalStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("15")).
-		Padding(1, 2).
-		Width(modalWidth)
-
-	modal := modalStyle.Render(modalContent)
-	return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, modal)
+	return b.renderModal(modalContent, modalWidth)
 }
