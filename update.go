@@ -349,19 +349,9 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.detailFocused = true
 		b.statusBar.SetActionHints(detailFocusHints)
 	case "shift+tab":
-		b.ActiveTab = (b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns)
-		b.Columns[b.ActiveTab].ScrollOffset = 0
-		b.detailScrollOffset = 0
-		b.clampScrollOffset()
-		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
+		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
 	case "tab":
-		b.ActiveTab = (b.ActiveTab + 1) % len(b.Columns)
-		b.Columns[b.ActiveTab].ScrollOffset = 0
-		b.detailScrollOffset = 0
-		b.clampScrollOffset()
-		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
+		b.switchColumn((b.ActiveTab + 1) % len(b.Columns))
 	case "j", "down":
 		col := &b.Columns[b.ActiveTab]
 		if col.Cursor < len(col.Cards)-1 {
@@ -385,13 +375,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
 			idx := int(msg.Runes[0] - '1')
 			if idx < len(b.Columns) {
-				b.ActiveTab = idx
-				b.Columns[b.ActiveTab].Cursor = 0
-				b.Columns[b.ActiveTab].ScrollOffset = 0
-				b.detailScrollOffset = 0
-				b.clampScrollOffset()
-				b.rebuildNormalHints()
-				b.statusBar.SetActionHints(b.normalHints)
+				b.Columns[idx].Cursor = 0
+				b.switchColumn(idx)
 			}
 			return b, nil
 		}
@@ -435,13 +420,8 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		idx := int(msg.Runes[0] - '1')
 		if idx < len(b.Columns) {
 			b.detailFocused = false
-			b.detailScrollOffset = 0
-			b.ActiveTab = idx
-			b.Columns[b.ActiveTab].Cursor = 0
-			b.Columns[b.ActiveTab].ScrollOffset = 0
-			b.clampScrollOffset()
-			b.rebuildNormalHints()
-			b.statusBar.SetActionHints(b.normalHints)
+			b.Columns[idx].Cursor = 0
+			b.switchColumn(idx)
 		}
 		return b, nil
 	}
@@ -499,22 +479,21 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "tab":
 		b.detailFocused = false
-		b.detailScrollOffset = 0
-		b.ActiveTab = (b.ActiveTab + 1) % len(b.Columns)
-		b.Columns[b.ActiveTab].ScrollOffset = 0
-		b.clampScrollOffset()
-		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
+		b.switchColumn((b.ActiveTab + 1) % len(b.Columns))
 	case "shift+tab":
 		b.detailFocused = false
-		b.detailScrollOffset = 0
-		b.ActiveTab = (b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns)
-		b.Columns[b.ActiveTab].ScrollOffset = 0
-		b.clampScrollOffset()
-		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
+		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
 	}
 	return b, nil
+}
+
+func (b *Board) switchColumn(idx int) {
+	b.ActiveTab = idx
+	b.Columns[b.ActiveTab].ScrollOffset = 0
+	b.detailScrollOffset = 0
+	b.clampScrollOffset()
+	b.rebuildNormalHints()
+	b.statusBar.SetActionHints(b.normalHints)
 }
 
 func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
