@@ -2,6 +2,7 @@ package action
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"unicode"
@@ -37,6 +38,20 @@ func BuildShellSafeVars(vars map[string]string) map[string]string {
 	safe := make(map[string]string, len(vars))
 	for k, v := range vars {
 		safe[k] = ShellEscape(v)
+	}
+	return safe
+}
+
+// URLEscape percent-encodes a string for safe use in URLs.
+func URLEscape(s string) string {
+	return url.QueryEscape(s)
+}
+
+// BuildURLSafeVars creates a variable map with all values URL-encoded.
+func BuildURLSafeVars(vars map[string]string) map[string]string {
+	safe := make(map[string]string, len(vars))
+	for k, v := range vars {
+		safe[k] = URLEscape(v)
 	}
 	return safe
 }
