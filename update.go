@@ -162,7 +162,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	for i, pc := range msg.board.Columns {
 		cards := make([]Card, len(pc.Cards))
 		for j, c := range pc.Cards {
-			cards[j] = Card{Number: c.Number, Title: c.Title, Labels: c.Labels, Body: c.Body, LinkedPRs: mapLinkedPRs(c.LinkedPRs)}
+			cards[j] = Card{Number: c.Number, Title: c.Title, Labels: mapLabels(c.Labels), Body: c.Body, LinkedPRs: mapLinkedPRs(c.LinkedPRs)}
 		}
 		cols[i] = Column{Title: pc.Title, Cards: cards}
 	}
@@ -263,10 +263,14 @@ func buildCardMap(cols []Column) map[int]prevCardInfo {
 	m := make(map[int]prevCardInfo)
 	for i, col := range cols {
 		for _, card := range col.Cards {
+			names := make([]string, len(card.Labels))
+			for j, l := range card.Labels {
+				names[j] = l.Name
+			}
 			m[card.Number] = prevCardInfo{
 				colIdx: i,
 				title:  card.Title,
-				labels: card.Labels,
+				labels: names,
 			}
 		}
 	}
@@ -322,7 +326,7 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 	newCard := Card{
 		Number:    msg.card.Number,
 		Title:     msg.card.Title,
-		Labels:    msg.card.Labels,
+		Labels:    mapLabels(msg.card.Labels),
 		Body:      msg.card.Body,
 		LinkedPRs: mapLinkedPRs(msg.card.LinkedPRs),
 	}
@@ -546,7 +550,11 @@ func (b Board) handleRepoOpenKey() (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleActionKey(act config.Action, card Card) (tea.Model, tea.Cmd) {
-	vars := action.BuildTemplateVars(card.Number, card.Title, card.Labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
+	labelNames := make([]string, len(card.Labels))
+	for i, l := range card.Labels {
+		labelNames[i] = l.Name
+	}
+	vars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
 
 	switch act.Type {
 	case "url":

@@ -9,11 +9,17 @@ type LinkedPR struct {
 	URL    string
 }
 
+// Label represents a card label with an optional hex color from the provider.
+type Label struct {
+	Name  string
+	Color string
+}
+
 // Card represents a single Kanban card (e.g., a GitHub issue).
 type Card struct {
 	Number    int
 	Title     string
-	Labels    []string
+	Labels    []Label
 	Body      string
 	LinkedPRs []LinkedPR
 }

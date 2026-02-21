@@ -213,13 +213,13 @@ func cardDisplayText(card Card, columnNames []string) (string, int) {
 	// Spinner icon uses exact match (case-sensitive) — only "Working" triggers it.
 	// Dot filtering in isHiddenLabel uses EqualFold (case-insensitive) per ticket #124.
 	for _, label := range card.Labels {
-		if label == "Working" {
+		if label.Name == "Working" {
 			text += " \uf110"
 			break
 		}
 	}
 	for _, label := range card.Labels {
-		if !isHiddenLabel(label, columnNames) {
+		if !isHiddenLabel(label.Name, columnNames) {
 			text += " \u25cf"
 		}
 	}
@@ -342,7 +342,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		hasPR := len(card.LinkedPRs) > 0
 		hasWorking := false // Case-sensitive — see comment in cardDisplayText.
 		for _, label := range card.Labels {
-			if label == "Working" {
+			if label.Name == "Working" {
 				hasWorking = true
 				break
 			}
@@ -360,7 +360,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		}
 		// Style label dots with per-label colors (skip hidden labels).
 		for _, label := range card.Labels {
-			if isHiddenLabel(label, columnNames) {
+			if isHiddenLabel(label.Name, columnNames) {
 				continue
 			}
 			styledDot := lipgloss.NewStyle().Foreground(labelColor(label)).Render("\u25cf")
@@ -463,7 +463,11 @@ func countWrappedLines(text string, width int) int {
 // accounting for title/label wrapping at the given content width.
 func detailHeaderLineCount(card Card, contentWidth int) int {
 	titleText := fmt.Sprintf("#%d %s", card.Number, card.Title)
-	labelsText := strings.Join(card.Labels, "  ")
+	labelNames := make([]string, len(card.Labels))
+	for i, l := range card.Labels {
+		labelNames[i] = l.Name
+	}
+	labelsText := strings.Join(labelNames, "  ")
 	return countWrappedLines(titleText, contentWidth) + countWrappedLines(labelsText, contentWidth) + 1 // +1 blank separator
 }
 
@@ -482,7 +486,7 @@ func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style l
 		card := col.Cards[col.Cursor]
 		var styledLabels []string
 		for _, label := range card.Labels {
-			styledLabels = append(styledLabels, lipgloss.NewStyle().Foreground(labelColor(label)).Render(label))
+			styledLabels = append(styledLabels, lipgloss.NewStyle().Foreground(labelColor(label)).Render(label.Name))
 		}
 		rightContent = detailTitleStyle.Render(fmt.Sprintf("#%d %s", card.Number, card.Title)) +
 			"\n" + strings.Join(styledLabels, "  ")
