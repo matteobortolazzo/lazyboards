@@ -427,8 +427,8 @@ func TestView_HelpBarShowsNewHint(t *testing.T) {
 	b.Height = 40
 	view := b.View()
 
-	if !strings.Contains(view, "n: New") {
-		t.Errorf("View() status bar does not contain %q", "n: New")
+	if !strings.Contains(view, "New") {
+		t.Errorf("View() status bar does not contain hint desc %q", "New")
 	}
 }
 
@@ -665,7 +665,7 @@ func TestCreateMode_StatusBarShowsEscapeHint(t *testing.T) {
 	b = sendKey(t, b, keyMsg("n"))
 	view := b.View()
 
-	if !strings.Contains(view, "esc: Cancel") {
-		t.Errorf("View() in createMode should contain %q, got:\n%s", "esc: Cancel", view)
+	if !strings.Contains(view, "Cancel") {
+		t.Errorf("View() in createMode should contain hint desc %q, got:\n%s", "Cancel", view)
 	}
 }

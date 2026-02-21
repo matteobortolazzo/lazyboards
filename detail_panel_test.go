@@ -27,20 +27,22 @@ func TestView_DetailPanelShowsSelectedCard(t *testing.T) {
 	b.Height = 40
 	view := b.View()
 
-	// Detail panel should show the selected card's labels (comma-separated).
+	// Detail panel should show each of the selected card's labels individually.
 	selectedCard := b.Columns[b.ActiveTab].Cards[0]
-	labelsStr := strings.Join(selectedCard.Labels, ", ")
-	if !strings.Contains(view, labelsStr) {
-		t.Errorf("View() detail panel does not contain selected card labels %q", labelsStr)
+	for _, label := range selectedCard.Labels {
+		if !strings.Contains(view, label) {
+			t.Errorf("View() detail panel does not contain selected card label %q", label)
+		}
 	}
 
 	// After navigating down, detail should update to the new card.
 	b = sendKey(t, b, keyMsg("j"))
 	view = b.View()
 	nextCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
-	nextLabelsStr := strings.Join(nextCard.Labels, ", ")
-	if !strings.Contains(view, nextLabelsStr) {
-		t.Errorf("View() detail panel does not contain card labels %q after navigating", nextLabelsStr)
+	for _, label := range nextCard.Labels {
+		if !strings.Contains(view, label) {
+			t.Errorf("View() detail panel does not contain card label %q after navigating", label)
+		}
 	}
 }
 
@@ -329,17 +331,20 @@ func TestView_DetailFocused_StatusBarShowsDetailHints(t *testing.T) {
 
 	view := b.View()
 
-	// Status bar should show detail-specific hints.
-	if !strings.Contains(view, "j/k: Scroll") {
-		t.Errorf("View() in detail focus should contain %q in status bar", "j/k: Scroll")
+	// Status bar should show detail-specific hint keys and descriptions.
+	if !strings.Contains(view, "j/k") {
+		t.Errorf("View() in detail focus should contain key %q in status bar", "j/k")
 	}
-	if !strings.Contains(view, "h: Back") {
-		t.Errorf("View() in detail focus should contain %q in status bar", "h: Back")
+	if !strings.Contains(view, "Scroll") {
+		t.Errorf("View() in detail focus should contain desc %q in status bar", "Scroll")
+	}
+	if !strings.Contains(view, "Back") {
+		t.Errorf("View() in detail focus should contain desc %q in status bar", "Back")
 	}
 
-	// Normal-mode hints should NOT appear.
-	if strings.Contains(view, "n: New") {
-		t.Errorf("View() in detail focus should NOT contain normal hint %q", "n: New")
+	// Normal-mode hint descriptions should NOT appear.
+	if strings.Contains(view, "New") {
+		t.Errorf("View() in detail focus should NOT contain normal hint desc %q", "New")
 	}
 }
 

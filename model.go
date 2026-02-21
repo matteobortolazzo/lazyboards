@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"hash/fnv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -24,7 +25,54 @@ var (
 	outerStyle        = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	prIndicatorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
+	cardNumberStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	hintKeyStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	hintDescStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
+
+// labelPalette contains 8 muted 256-color ANSI codes for label coloring.
+var labelPalette = []lipgloss.Color{
+	lipgloss.Color("168"), // rose
+	lipgloss.Color("114"), // green
+	lipgloss.Color("75"),  // blue
+	lipgloss.Color("222"), // gold
+	lipgloss.Color("174"), // salmon
+	lipgloss.Color("152"), // mauve
+	lipgloss.Color("80"),  // teal
+	lipgloss.Color("215"), // orange
+}
+
+// semanticLabelColors maps common label names (lowercase) to specific palette colors.
+var semanticLabelColors = map[string]lipgloss.Color{
+	"bug":           lipgloss.Color("168"),
+	"critical":      lipgloss.Color("168"),
+	"feature":       lipgloss.Color("114"),
+	"enhancement":   lipgloss.Color("114"),
+	"design":        lipgloss.Color("75"),
+	"question":      lipgloss.Color("75"),
+	"docs":          lipgloss.Color("222"),
+	"documentation": lipgloss.Color("222"),
+	"infra":         lipgloss.Color("174"),
+	"ops":           lipgloss.Color("174"),
+	"chore":         lipgloss.Color("152"),
+	"refactor":      lipgloss.Color("152"),
+	"test":          lipgloss.Color("80"),
+	"testing":       lipgloss.Color("80"),
+	"backend":       lipgloss.Color("215"),
+	"ui":            lipgloss.Color("215"),
+}
+
+// labelColor returns a deterministic color for a label.
+// Semantic labels get fixed colors; unknown labels use FNV-32 hash.
+func labelColor(label string) lipgloss.Color {
+	lower := strings.ToLower(label)
+	if c, ok := semanticLabelColors[lower]; ok {
+		return c
+	}
+	h := fnv.New32a()
+	h.Write([]byte(lower))
+	return labelPalette[h.Sum32()%uint32(len(labelPalette))]
+}
 
 // normalModeHints are the default status bar hints shown in normal mode.
 var normalModeHints = []Hint{
@@ -265,6 +313,9 @@ func (b *Board) clampScrollOffset() {
 		text := prefix + card.Title
 		if len(card.LinkedPRs) > 0 {
 			text += " \ue728"
+		}
+		for range card.Labels {
+			text += " \u25cf"
 		}
 		return len(wrapTitle(text, contentWidth, len([]rune(prefix))))
 	}

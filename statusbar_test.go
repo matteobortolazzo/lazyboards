@@ -17,17 +17,19 @@ func TestStatusBar_ViewShowsHints(t *testing.T) {
 	sb := NewStatusBar(hints)
 	view := sb.View()
 
-	// Each hint should be rendered as "key: desc".
+	// Each hint's key and description should appear in the rendered output.
 	for _, h := range hints {
-		expected := h.Key + ": " + h.Desc
-		if !strings.Contains(view, expected) {
-			t.Errorf("View() = %q, want it to contain %q", view, expected)
+		if !strings.Contains(view, h.Key) {
+			t.Errorf("View() = %q, want it to contain key %q", view, h.Key)
+		}
+		if !strings.Contains(view, h.Desc) {
+			t.Errorf("View() = %q, want it to contain desc %q", view, h.Desc)
 		}
 	}
 
-	// Hints should be separated by " | ".
-	if !strings.Contains(view, " | ") {
-		t.Errorf("View() = %q, want hints separated by %q", view, " | ")
+	// Hints should be separated by " | " (possibly styled).
+	if !strings.Contains(view, "|") {
+		t.Errorf("View() = %q, want hints separated by pipe character", view)
 	}
 }
 
@@ -54,7 +56,8 @@ func TestStatusBar_TimedMessage_OverridesHints(t *testing.T) {
 	if !strings.Contains(view, "Board refreshed") {
 		t.Errorf("View() = %q, want it to contain %q", view, "Board refreshed")
 	}
-	if strings.Contains(view, "n: New") {
+	// Hint descriptions should NOT appear when a timed message is active.
+	if strings.Contains(view, "New") {
 		t.Errorf("View() = %q, should NOT contain hints when a timed message is active", view)
 	}
 }
@@ -73,7 +76,7 @@ func TestStatusBar_ClearMessage_RestoresHints(t *testing.T) {
 	if strings.Contains(view, "Temporary message") {
 		t.Errorf("View() = %q, should NOT contain message after ClearMessage()", view)
 	}
-	if !strings.Contains(view, "n: New") {
+	if !strings.Contains(view, "New") {
 		t.Errorf("View() = %q, want hints restored after ClearMessage()", view)
 	}
 }
@@ -102,16 +105,22 @@ func TestStatusBar_SetActionHints_OverridesDefaults(t *testing.T) {
 	sb.SetActionHints(newHints)
 	view := sb.View()
 
-	// New hints should be visible.
-	if !strings.Contains(view, "esc: Cancel") {
-		t.Errorf("View() = %q, want it to contain %q after SetActionHints()", view, "esc: Cancel")
+	// New hint keys and descriptions should be visible.
+	if !strings.Contains(view, "esc") {
+		t.Errorf("View() = %q, want it to contain key %q after SetActionHints()", view, "esc")
 	}
-	if !strings.Contains(view, "enter: Submit") {
-		t.Errorf("View() = %q, want it to contain %q after SetActionHints()", view, "enter: Submit")
+	if !strings.Contains(view, "Cancel") {
+		t.Errorf("View() = %q, want it to contain desc %q after SetActionHints()", view, "Cancel")
+	}
+	if !strings.Contains(view, "enter") {
+		t.Errorf("View() = %q, want it to contain key %q after SetActionHints()", view, "enter")
+	}
+	if !strings.Contains(view, "Submit") {
+		t.Errorf("View() = %q, want it to contain desc %q after SetActionHints()", view, "Submit")
 	}
 
-	// Old hints should NOT be visible.
-	if strings.Contains(view, "n: New") {
-		t.Errorf("View() = %q, should NOT contain old hints after SetActionHints()", view)
+	// Old hint descriptions should NOT be visible.
+	if strings.Contains(view, "New") {
+		t.Errorf("View() = %q, should NOT contain old hint desc after SetActionHints()", view)
 	}
 }
