@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,6 +18,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.statusBar.ClearMessage()
 		return b, nil
 
+	case refreshTickMsg:
+		return b.handleRefreshTick()
+
 	case boardFetchedMsg:
 		return b.handleBoardFetched(msg)
 
@@ -24,6 +28,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if b.refreshing {
 			b.refreshing = false
 			cmd := b.statusBar.SetTimedMessage("Refresh failed: "+provider.SanitizeError(msg.err), statusMessageDuration)
+			if tickCmd := b.scheduleRefreshTick(); tickCmd != nil {
+				cmd = tea.Batch(cmd, tickCmd)
+			}
 			return b, cmd
 		}
 		b.mode = errorMode
@@ -115,6 +122,26 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+func (b Board) handleRefreshTick() (tea.Model, tea.Cmd) {
+	if b.refreshInterval <= 0 {
+		return b, nil
+	}
+	if b.mode != normalMode || b.refreshing {
+		return b, b.scheduleRefreshTick()
+	}
+	b.refreshing = true
+	return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+}
+
+func (b Board) scheduleRefreshTick() tea.Cmd {
+	if b.refreshInterval <= 0 {
+		return nil
+	}
+	return tea.Tick(b.refreshInterval, func(time.Time) tea.Msg {
+		return refreshTickMsg{}
+	})
+}
+
 func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	cols := make([]Column, len(msg.board.Columns))
 	for i, pc := range msg.board.Columns {
@@ -188,6 +215,9 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		if cleanupCmd != nil {
 			cmd = tea.Batch(cmd, cleanupCmd)
 		}
+		if tickCmd := b.scheduleRefreshTick(); tickCmd != nil {
+			cmd = tea.Batch(cmd, tickCmd)
+		}
 		return b, cmd
 	}
 
@@ -204,6 +234,9 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.loaded = true
 	if cleanupCmd != nil {
 		cmd = tea.Batch(cmd, cleanupCmd)
+	}
+	if tickCmd := b.scheduleRefreshTick(); tickCmd != nil {
+		cmd = tea.Batch(cmd, tickCmd)
 	}
 	return b, cmd
 }
