@@ -269,3 +269,113 @@ func TestWorkingLabelValue_EmptyStringReturnsEmpty(t *testing.T) {
 		t.Errorf("WorkingLabelValue() = %q, want empty string", cfg.WorkingLabelValue())
 	}
 }
+
+// --- ActionRefreshDelay config tests (#119) ---
+
+func TestLoad_ActionRefreshDelay_ParsesFromYAML(t *testing.T) {
+	yamlContent := "provider: github\naction_refresh_delay: 10\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	if result.ActionRefreshDelay == nil {
+		t.Fatal("ActionRefreshDelay should not be nil when set in config")
+	}
+	if *result.ActionRefreshDelay != 10 {
+		t.Errorf("ActionRefreshDelay = %d, want 10", *result.ActionRefreshDelay)
+	}
+}
+
+func TestLoad_ActionRefreshDelay_DefaultsWhenOmitted(t *testing.T) {
+	yamlContent := "provider: github\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	// When omitted, ActionRefreshDelay should be nil (not set), and
+	// ActionRefreshDelayValue() should return the default.
+	if result.ActionRefreshDelay != nil {
+		t.Errorf("ActionRefreshDelay should be nil when omitted, got %d", *result.ActionRefreshDelay)
+	}
+	if result.ActionRefreshDelayValue() != DefaultActionRefreshDelay {
+		t.Errorf("ActionRefreshDelayValue() = %d, want %d (default)", result.ActionRefreshDelayValue(), DefaultActionRefreshDelay)
+	}
+}
+
+func TestLoad_ActionRefreshDelay_LocalOverridesGlobal(t *testing.T) {
+	globalYAML := "provider: github\naction_refresh_delay: 10\n"
+	localYAML := "action_refresh_delay: 3\n"
+
+	result := mustLoadConfig(t, globalYAML, localYAML)
+
+	if result.ActionRefreshDelay == nil {
+		t.Fatal("ActionRefreshDelay should not be nil when set in local config")
+	}
+	if *result.ActionRefreshDelay != 3 {
+		t.Errorf("ActionRefreshDelay = %d, want 3 (local should override global)", *result.ActionRefreshDelay)
+	}
+}
+
+func TestLoad_ActionRefreshDelay_NegativeBecomesZero(t *testing.T) {
+	yamlContent := "provider: github\naction_refresh_delay: -5\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	// Negative value stays as-is in the pointer, but ActionRefreshDelayValue() returns 0.
+	if result.ActionRefreshDelay == nil {
+		t.Fatal("ActionRefreshDelay should not be nil when set in config")
+	}
+	if *result.ActionRefreshDelay != -5 {
+		t.Errorf("ActionRefreshDelay = %d, want -5 (raw value preserved)", *result.ActionRefreshDelay)
+	}
+	if result.ActionRefreshDelayValue() != 0 {
+		t.Errorf("ActionRefreshDelayValue() = %d, want 0 (negative should become 0)", result.ActionRefreshDelayValue())
+	}
+}
+
+func TestLoad_ActionRefreshDelay_ExplicitZeroDisablesFeature(t *testing.T) {
+	yamlContent := "provider: github\naction_refresh_delay: 0\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	// Explicitly set to 0 means "disable auto-refresh after shell actions".
+	// ActionRefreshDelay should be a pointer to 0 (not nil).
+	if result.ActionRefreshDelay == nil {
+		t.Fatal("ActionRefreshDelay should not be nil when explicitly set to 0")
+	}
+	if *result.ActionRefreshDelay != 0 {
+		t.Errorf("ActionRefreshDelay = %d, want 0", *result.ActionRefreshDelay)
+	}
+	if result.ActionRefreshDelayValue() != 0 {
+		t.Errorf("ActionRefreshDelayValue() = %d, want 0 (disabled)", result.ActionRefreshDelayValue())
+	}
+}
+
+func TestActionRefreshDelayValue_NilReturnsDefault(t *testing.T) {
+	cfg := Config{}
+	if cfg.ActionRefreshDelayValue() != DefaultActionRefreshDelay {
+		t.Errorf("ActionRefreshDelayValue() = %d, want %d (default when nil)", cfg.ActionRefreshDelayValue(), DefaultActionRefreshDelay)
+	}
+}
+
+func TestActionRefreshDelayValue_SetReturnsValue(t *testing.T) {
+	delay := 10
+	cfg := Config{ActionRefreshDelay: &delay}
+	if cfg.ActionRefreshDelayValue() != 10 {
+		t.Errorf("ActionRefreshDelayValue() = %d, want 10", cfg.ActionRefreshDelayValue())
+	}
+}
+
+func TestActionRefreshDelayValue_ZeroReturnsZero(t *testing.T) {
+	delay := 0
+	cfg := Config{ActionRefreshDelay: &delay}
+	if cfg.ActionRefreshDelayValue() != 0 {
+		t.Errorf("ActionRefreshDelayValue() = %d, want 0", cfg.ActionRefreshDelayValue())
+	}
+}
+
+func TestActionRefreshDelayValue_NegativeReturnsZero(t *testing.T) {
+	delay := -3
+	cfg := Config{ActionRefreshDelay: &delay}
+	if cfg.ActionRefreshDelayValue() != 0 {
+		t.Errorf("ActionRefreshDelayValue() = %d, want 0 (negative clamped)", cfg.ActionRefreshDelayValue())
+	}
+}

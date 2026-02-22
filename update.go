@@ -67,9 +67,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case actionResultMsg:
 		cmd := b.statusBar.SetTimedMessage(msg.message, statusMessageDuration)
-		if msg.success {
+		if msg.success && b.actionRefreshDelay > 0 {
 			b.pendingAutoRefresh = true
-			cmd = tea.Batch(cmd, tea.Tick(autoRefreshDelay, func(time.Time) tea.Msg {
+			cmd = tea.Batch(cmd, tea.Tick(b.actionRefreshDelay, func(time.Time) tea.Msg {
 				return autoRefreshMsg{}
 			}))
 		}

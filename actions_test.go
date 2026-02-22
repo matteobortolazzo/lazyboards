@@ -81,7 +81,7 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "", "", "", 0, 0, "Working", false)
+	b := NewBoard(p, actions, nil, fe, "", "", "", 0, 0, 0, "Working", false)
 
 	// Board starts in loadingMode. Press the action key.
 	b = sendKey(t, b, keyMsg("x"))
@@ -98,7 +98,7 @@ func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "", "", "", 0, 0, "Working", false)
+	b := NewBoard(p, actions, nil, fe, "", "", "", 0, 0, 0, "Working", false)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -345,7 +345,7 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false)
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false)
 
 	// Load a board with a card that has labels containing URL-special characters.
 	cardLabels := []provider.Label{{Name: "bug&fix"}, {Name: "feature?v2"}}
@@ -381,7 +381,7 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 func TestRepoOpen_NormalMode_OpensRepoURL(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false)
 	b = loadFromFakeProvider(t, b, p)
 
 	// Press "o" in normal mode.
@@ -399,7 +399,7 @@ func TestRepoOpen_NormalMode_OpensRepoURL(t *testing.T) {
 func TestRepoOpen_NormalMode_NonGitHubProvider_ShowsMessage(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, fe, "owner", "repo", "azure-devops", 0, 0, "Working", false)
+	b := NewBoard(p, nil, nil, fe, "owner", "repo", "azure-devops", 0, 0, 0, "Working", false)
 	b = loadFromFakeProvider(t, b, p)
 
 	// Press "o" with a non-GitHub provider.
@@ -414,7 +414,7 @@ func TestRepoOpen_NormalMode_NonGitHubProvider_ShowsMessage(t *testing.T) {
 func TestRepoOpen_NormalMode_MissingRepoInfo_ShowsMessage(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, fe, "", "", "github", 0, 0, "Working", false)
+	b := NewBoard(p, nil, nil, fe, "", "", "github", 0, 0, 0, "Working", false)
 	b = loadFromFakeProvider(t, b, p)
 
 	// Press "o" with missing repo owner/name.
@@ -429,7 +429,7 @@ func TestRepoOpen_NormalMode_MissingRepoInfo_ShowsMessage(t *testing.T) {
 func TestRepoOpen_DetailFocused_OpensRepoURL(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false)
 	b = loadFromFakeProvider(t, b, p)
 
 	// Enter detail focus, then press "o".
@@ -449,7 +449,7 @@ func TestRepoOpen_OpenURLError_ShowsError(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	fe.OpenURLErr = errors.New("browser not found")
-	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false)
 	b = loadFromFakeProvider(t, b, p)
 
 	// Press "o" with OpenURL error configured.
@@ -464,7 +464,7 @@ func TestRepoOpen_OpenURLError_ShowsError(t *testing.T) {
 func TestRepoOpen_HintShowsInStatusBar(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false)
 	b = loadFromFakeProvider(t, b, p)
 
 	view := b.View()

@@ -106,6 +106,20 @@ columns:
 
 The `cleanup` command uses the same template variables as actions. It runs when a card moves to another column or disappears.
 
+### Action Refresh Delay
+
+After a shell action completes successfully, the board automatically refreshes after a short delay. Configure the delay in seconds with `action_refresh_delay`:
+
+```yaml
+action_refresh_delay: 10
+```
+
+The default is 5 seconds. Setting to 0 disables auto-refresh after shell actions entirely:
+
+```yaml
+action_refresh_delay: 0
+```
+
 ## Keybindings
 
 ### Normal Mode

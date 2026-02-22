@@ -130,7 +130,6 @@ const (
 const (
 	statusMessageDuration     = 3 * time.Second
 	longStatusMessageDuration = 30 * time.Second
-	autoRefreshDelay          = 5 * time.Second
 )
 
 // LinkedPR represents a pull request linked to a card.
@@ -253,6 +252,7 @@ type Board struct {
 	prPickerIndex      int
 	refreshing             bool
 	refreshInterval        time.Duration
+	actionRefreshDelay     time.Duration
 	pendingAutoRefresh     bool
 	prevCards              map[int]prevCardInfo
 	searchQuery            string
@@ -264,7 +264,7 @@ type Board struct {
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, workingLabel string, firstLaunch bool) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, firstLaunch bool) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 100
@@ -312,8 +312,9 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 		repoName:        repoName,
 		providerName:    providerName,
 		sessionMaxLen:   sessionMaxLen,
-		refreshInterval: refreshInterval,
-		workingLabel:    workingLabel,
+		refreshInterval:    refreshInterval,
+		actionRefreshDelay: actionRefreshDelay,
+		workingLabel:       workingLabel,
 		normalHints:     hints,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
