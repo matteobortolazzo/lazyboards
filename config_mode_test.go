@@ -71,11 +71,11 @@ func TestConfigMode_LeftRight_CyclesProvider(t *testing.T) {
 	b = sendKey(t, b, keyMsg("c"))
 
 	// Record initial provider index.
-	initialIndex := b.providerIndex
+	initialIndex := b.config.providerIndex
 
 	// Press Right to cycle to next provider.
 	b = sendKey(t, b, arrowMsg(tea.KeyRight))
-	if b.providerIndex == initialIndex {
+	if b.config.providerIndex == initialIndex {
 		t.Error("Right arrow in configMode should change providerIndex")
 	}
 }
@@ -85,14 +85,14 @@ func TestConfigMode_ProviderWrapsAround(t *testing.T) {
 	b = sendKey(t, b, keyMsg("c"))
 
 	// Cycle through all providers and one more to wrap around.
-	totalProviders := len(b.providerOptions)
+	totalProviders := len(b.config.providerOptions)
 	for i := 0; i < totalProviders; i++ {
 		b = sendKey(t, b, arrowMsg(tea.KeyRight))
 	}
 
 	// Should wrap back to the first provider.
-	if b.providerIndex != 0 {
-		t.Errorf("providerIndex = %d after wrapping around %d providers, want 0", b.providerIndex, totalProviders)
+	if b.config.providerIndex != 0 {
+		t.Errorf("providerIndex = %d after wrapping around %d providers, want 0", b.config.providerIndex, totalProviders)
 	}
 }
 
@@ -103,20 +103,20 @@ func TestConfigMode_TabSwitchesFocus(t *testing.T) {
 	b = sendKey(t, b, keyMsg("c"))
 
 	// Initially focus should be on provider field (configFocus == 0).
-	if b.configFocus != 0 {
-		t.Errorf("configFocus = %d on entering configMode, want 0 (provider field)", b.configFocus)
+	if b.config.focus != 0 {
+		t.Errorf("configFocus = %d on entering configMode, want 0 (provider field)", b.config.focus)
 	}
 
 	// Tab should switch focus to repo field.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
-	if b.configFocus != 1 {
-		t.Errorf("configFocus = %d after Tab, want 1 (repo field)", b.configFocus)
+	if b.config.focus != 1 {
+		t.Errorf("configFocus = %d after Tab, want 1 (repo field)", b.config.focus)
 	}
 
 	// Another Tab should switch back to provider field.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
-	if b.configFocus != 0 {
-		t.Errorf("configFocus = %d after second Tab, want 0 (provider field)", b.configFocus)
+	if b.config.focus != 0 {
+		t.Errorf("configFocus = %d after second Tab, want 0 (provider field)", b.config.focus)
 	}
 }
 
@@ -134,8 +134,8 @@ func TestConfigMode_TypingUpdatesRepoField(t *testing.T) {
 		b = sendKey(t, b, keyMsg(string(ch)))
 	}
 
-	if b.repoInput.Value() != "owner/repo" {
-		t.Errorf("repoInput.Value() = %q, want %q", b.repoInput.Value(), "owner/repo")
+	if b.config.repoInput.Value() != "owner/repo" {
+		t.Errorf("repoInput.Value() = %q, want %q", b.config.repoInput.Value(), "owner/repo")
 	}
 }
 
@@ -295,29 +295,29 @@ func TestFirstLaunch_StartsInConfigMode(t *testing.T) {
 
 func TestFirstLaunch_PrePopulatesProvider(t *testing.T) {
 	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, true)
-	if b.providerOptions[b.providerIndex] != "github" {
-		t.Errorf("providerOptions[providerIndex] = %q, want %q", b.providerOptions[b.providerIndex], "github")
+	if b.config.providerOptions[b.config.providerIndex] != "github" {
+		t.Errorf("providerOptions[providerIndex] = %q, want %q", b.config.providerOptions[b.config.providerIndex], "github")
 	}
 }
 
 func TestFirstLaunch_PrePopulatesProviderAzure(t *testing.T) {
 	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "azure-devops", 0, true)
-	if b.providerOptions[b.providerIndex] != "azure-devops" {
-		t.Errorf("providerOptions[providerIndex] = %q, want %q", b.providerOptions[b.providerIndex], "azure-devops")
+	if b.config.providerOptions[b.config.providerIndex] != "azure-devops" {
+		t.Errorf("providerOptions[providerIndex] = %q, want %q", b.config.providerOptions[b.config.providerIndex], "azure-devops")
 	}
 }
 
 func TestFirstLaunch_PrePopulatesRepo(t *testing.T) {
 	b := NewBoard(nil, nil, nil, nil, "myowner", "myrepo", "github", 0, true)
-	if b.repoInput.Value() != "myowner/myrepo" {
-		t.Errorf("repoInput.Value() = %q, want %q", b.repoInput.Value(), "myowner/myrepo")
+	if b.config.repoInput.Value() != "myowner/myrepo" {
+		t.Errorf("repoInput.Value() = %q, want %q", b.config.repoInput.Value(), "myowner/myrepo")
 	}
 }
 
 func TestFirstLaunch_EmptyRepoNotPrePopulated(t *testing.T) {
 	b := NewBoard(nil, nil, nil, nil, "", "", "github", 0, true)
-	if b.repoInput.Value() != "" {
-		t.Errorf("repoInput.Value() = %q, want empty when no repo detected", b.repoInput.Value())
+	if b.config.repoInput.Value() != "" {
+		t.Errorf("repoInput.Value() = %q, want empty when no repo detected", b.config.repoInput.Value())
 	}
 }
 
@@ -341,7 +341,7 @@ func TestFirstLaunch_Escape_ConfigSavedIsFalse(t *testing.T) {
 	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, true)
 	m, _ := b.Update(arrowMsg(tea.KeyEsc))
 	updated := m.(Board)
-	if updated.ConfigSaved {
+	if updated.config.configSaved {
 		t.Error("ConfigSaved should be false after Escape in firstLaunch")
 	}
 }
@@ -350,7 +350,7 @@ func TestFirstLaunch_ConfigSaved_SetsConfigSavedAndQuits(t *testing.T) {
 	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, true)
 	m, cmd := b.Update(configSavedMsg{})
 	updated := m.(Board)
-	if !updated.ConfigSaved {
+	if !updated.config.configSaved {
 		t.Error("ConfigSaved should be true after configSavedMsg in firstLaunch")
 	}
 	if cmd == nil {
@@ -379,8 +379,8 @@ func TestConfigMode_PrePopulatesProviderFromRuntime(t *testing.T) {
 
 	// Press "c" to enter configMode.
 	b = sendKey(t, b, keyMsg("c"))
-	if b.providerOptions[b.providerIndex] != "github" {
-		t.Errorf("providerOptions[providerIndex] = %q after 'c', want %q", b.providerOptions[b.providerIndex], "github")
+	if b.config.providerOptions[b.config.providerIndex] != "github" {
+		t.Errorf("providerOptions[providerIndex] = %q after 'c', want %q", b.config.providerOptions[b.config.providerIndex], "github")
 	}
 }
 
@@ -393,7 +393,7 @@ func TestConfigMode_PrePopulatesRepoFromRuntime(t *testing.T) {
 
 	// Press "c" to enter configMode.
 	b = sendKey(t, b, keyMsg("c"))
-	if b.repoInput.Value() != "myowner/myrepo" {
-		t.Errorf("repoInput.Value() = %q after 'c', want %q", b.repoInput.Value(), "myowner/myrepo")
+	if b.config.repoInput.Value() != "myowner/myrepo" {
+		t.Errorf("repoInput.Value() = %q after 'c', want %q", b.config.repoInput.Value(), "myowner/myrepo")
 	}
 }
