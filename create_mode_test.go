@@ -669,3 +669,43 @@ func TestCreateMode_StatusBarShowsEscapeHint(t *testing.T) {
 		t.Errorf("View() in createMode should contain hint desc %q, got:\n%s", "Cancel", view)
 	}
 }
+
+// --- Textarea Title Field ---
+
+func TestCreateMode_LongTitlePreservedBeyondVisibleWidth(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+
+	// Build a title that is longer than the visible textarea width (36 chars)
+	// but under the CharLimit (100 chars), to verify the textarea
+	// preserves the full text and wraps visually instead of scrolling.
+	longTitle := strings.Repeat("a", 80)
+	for _, ch := range longTitle {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	got := b.create.titleInput.Value()
+	if got != longTitle {
+		t.Errorf("titleInput.Value() length = %d, want %d (full text should be preserved, not truncated)",
+			len(got), len(longTitle))
+	}
+}
+
+func TestCreateMode_EnterDoesNotInsertNewline(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+
+	// Type some text into the title field.
+	for _, ch := range "My title" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Press Enter — this should submit the form, not insert a newline.
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	// The title value should never contain a newline character,
+	// confirming Enter was intercepted before reaching the textarea.
+	if strings.Contains(b.create.titleInput.Value(), "\n") {
+		t.Error("titleInput.Value() contains a newline; Enter should submit the form, not insert a newline")
+	}
+}
