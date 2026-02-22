@@ -533,27 +533,6 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		Render(leftContent)
 }
 
-// countWrappedLines counts how many visual lines text occupies at a given width.
-func countWrappedLines(text string, width int) int {
-	if width <= 0 || text == "" {
-		return 1
-	}
-	rendered := lipgloss.NewStyle().Width(width).Render(text)
-	return strings.Count(rendered, "\n") + 1
-}
-
-// detailHeaderLineCount computes the actual header height for a card,
-// accounting for title/label wrapping at the given content width.
-func detailHeaderLineCount(card Card, contentWidth int) int {
-	titleText := fmt.Sprintf("#%d %s", card.Number, card.Title)
-	labelNames := make([]string, len(card.Labels))
-	for i, l := range card.Labels {
-		labelNames[i] = l.Name
-	}
-	labelsText := strings.Join(labelNames, "  ")
-	return countWrappedLines(titleText, contentWidth) + countWrappedLines(labelsText, contentWidth) + 1 // +1 blank separator
-}
-
 func renderBody(body string) string {
 	if cachedGlamourRenderer != nil {
 		if out, err := cachedGlamourRenderer.Render(body); err == nil {
@@ -563,89 +542,113 @@ func renderBody(body string) string {
 	return body
 }
 
+// composeDetailMarkdown builds a markdown string for the detail panel.
+// It always starts with a fenced YAML code block containing the card title.
+// If the card has labels, a "labels:" field is added inside the YAML block.
+// If the card has a body, it is appended after a blank line.
+func composeDetailMarkdown(card Card) string {
+	var sb strings.Builder
+	sb.WriteString("```\n")
+
+	// Escape title for YAML double-quoted string and code fence safety.
+	safeTitle := strings.ReplaceAll(card.Title, `\`, `\\`)
+	safeTitle = strings.ReplaceAll(safeTitle, `"`, `\"`)
+	safeTitle = strings.ReplaceAll(safeTitle, "```", "` ` `")
+	sb.WriteString(fmt.Sprintf("title: \"#%d %s\"\n", card.Number, safeTitle))
+
+	if len(card.Labels) > 0 {
+		labelNames := make([]string, len(card.Labels))
+		for i, l := range card.Labels {
+			// Escape label for YAML quoted string and code fence safety.
+			safe := strings.ReplaceAll(l.Name, `\`, `\\`)
+			safe = strings.ReplaceAll(safe, `"`, `\"`)
+			safe = strings.ReplaceAll(safe, "```", "` ` `")
+			labelNames[i] = `"` + safe + `"`
+		}
+		sb.WriteString("labels: [" + strings.Join(labelNames, ", ") + "]\n")
+	}
+	sb.WriteString("```")
+	if card.Body != "" {
+		sb.WriteString("\n\n" + card.Body)
+	}
+	return sb.String()
+}
+
 func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style lipgloss.Style) string {
 	var rightContent string
 	if len(col.Cards) > 0 {
 		card := col.Cards[col.Cursor]
-		var styledLabels []string
-		for _, label := range card.Labels {
-			styledLabels = append(styledLabels, lipgloss.NewStyle().Foreground(labelColor(label)).Render(label.Name))
+
+		// Initialize glamour renderer if needed.
+		if cachedGlamourRenderer == nil || cachedGlamourRendererWidth != contentWidth {
+			mdStyle := styles.DarkStyleConfig
+			mdStyle.Document.Color = nil
+			mdStyle.Document.BackgroundColor = nil
+			mdStyle.Paragraph.Color = nil
+			mdStyle.Paragraph.BackgroundColor = nil
+			mdStyle.Text.Color = nil
+			r, err := glamour.NewTermRenderer(
+				glamour.WithStyles(mdStyle),
+				glamour.WithWordWrap(contentWidth),
+			)
+			if err == nil {
+				cachedGlamourRenderer = r
+				cachedGlamourRendererWidth = contentWidth
+			}
 		}
-		rightContent = detailTitleStyle.Render(fmt.Sprintf("#%d %s", card.Number, card.Title)) +
-			"\n" + strings.Join(styledLabels, "  ")
-		if card.Body != "" {
-			if cachedGlamourRenderer == nil || cachedGlamourRendererWidth != contentWidth {
-				mdStyle := styles.DarkStyleConfig
-				mdStyle.Document.Color = nil
-				mdStyle.Document.BackgroundColor = nil
-				mdStyle.Paragraph.Color = nil
-				mdStyle.Paragraph.BackgroundColor = nil
-				mdStyle.Text.Color = nil
-				r, err := glamour.NewTermRenderer(
-					glamour.WithStyles(mdStyle),
-					glamour.WithWordWrap(contentWidth),
-				)
-				if err == nil {
-					cachedGlamourRenderer = r
-					cachedGlamourRendererWidth = contentWidth
-				}
-			}
-			rendered := renderBody(card.Body)
 
-			// Apply scroll offset and truncate to available panel height.
-			lines := strings.Split(rendered, "\n")
-			headerLines := detailHeaderLineCount(card, contentWidth)
-			availableBodyLines := panelHeight - headerLines
-			if availableBodyLines < 1 {
-				availableBodyLines = 1
-			}
+		// Build and render the full markdown (frontmatter + body).
+		fullMarkdown := composeDetailMarkdown(card)
+		rendered := renderBody(fullMarkdown)
 
-			startLine := b.detailScrollOffset
+		// Apply unified scroll: the entire rendered content scrolls as one unit.
+		lines := strings.Split(rendered, "\n")
+		availableLines := panelHeight
 
-			// Reserve space for up-arrow if scrolled past top.
-			showUp := startLine > 0
-			if showUp {
-				availableBodyLines--
-				if availableBodyLines < 1 {
-					availableBodyLines = 1
-				}
-			}
+		startLine := b.detailScrollOffset
 
-			maxOffset := len(lines) - availableBodyLines
-			if maxOffset < 0 {
-				maxOffset = 0
+		// Reserve space for up-arrow if scrolled past top.
+		showUp := startLine > 0
+		if showUp {
+			availableLines--
+			if availableLines < 1 {
+				availableLines = 1
 			}
-			if startLine > maxOffset {
-				startLine = maxOffset
-			}
-			if startLine < 0 {
-				startLine = 0
-			}
+		}
 
-			// Clamping may have zeroed startLine — reclaim up-arrow space.
-			if startLine == 0 && showUp {
-				showUp = false
-				availableBodyLines++
-			}
+		maxOffset := len(lines) - availableLines
+		if maxOffset < 0 {
+			maxOffset = 0
+		}
+		if startLine > maxOffset {
+			startLine = maxOffset
+		}
+		if startLine < 0 {
+			startLine = 0
+		}
 
-			endLine := startLine + availableBodyLines
-			hasMore := endLine < len(lines)
-			if hasMore {
-				endLine = endLine - 1 // leave room for down-arrow indicator
-			}
-			if endLine > len(lines) {
-				endLine = len(lines)
-			}
+		// Clamping may have zeroed startLine — reclaim up-arrow space.
+		if startLine == 0 && showUp {
+			showUp = false
+			availableLines++
+		}
 
-			rightContent += "\n\n"
-			if showUp {
-				rightContent += helpStyle.Render("\u25b2") + "\n"
-			}
-			visibleLines := lines[startLine:endLine]
-			rightContent += strings.Join(visibleLines, "\n")
-			if hasMore {
-				rightContent += "\n" + helpStyle.Render("\u25bc")
-			}
+		endLine := startLine + availableLines
+		hasMore := endLine < len(lines)
+		if hasMore {
+			endLine = endLine - 1 // leave room for down-arrow indicator
+		}
+		if endLine > len(lines) {
+			endLine = len(lines)
+		}
+
+		if showUp {
+			rightContent += helpStyle.Render("\u25b2") + "\n"
+		}
+		visibleLines := lines[startLine:endLine]
+		rightContent += strings.Join(visibleLines, "\n")
+		if hasMore {
+			rightContent += "\n" + helpStyle.Render("\u25bc")
 		}
 	}
 	return style.
