@@ -116,6 +116,12 @@ func Load(globalPath, localPath string) (Config, error) {
 		}
 	}
 
+	// Identity fields (provider, repo, project) only come from local config,
+	// not from global config. Clear them after global load.
+	cfg.Provider = ""
+	cfg.Repo = ""
+	cfg.Project = ""
+
 	// Save global actions and columns before local override.
 	globalActions := cfg.Actions
 	globalColumns := cfg.Columns
