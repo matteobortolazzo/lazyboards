@@ -187,6 +187,120 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
 	return prefixStr + joined + fill + suffixChar
 }
 
+// cardDisplayText builds the raw display text for a card: "#N title [PR icon] [Working icon] [label dots]".
+// Returns the assembled text and the rune-length of the number prefix (for wrap indentation).
+func cardDisplayText(card Card) (string, int) {
+	prefix := fmt.Sprintf("#%d ", card.Number)
+	text := prefix + card.Title
+	if len(card.LinkedPRs) > 0 {
+		text += " \ue728"
+	}
+	for _, label := range card.Labels {
+		if label == "Working" {
+			text += " \uf110"
+			break
+		}
+	}
+	for range card.Labels {
+		text += " \u25cf"
+	}
+	return text, len([]rune(prefix))
+}
+
+// cardLineCount returns the number of visual lines a card occupies
+// when its title is wrapped to fit within contentWidth.
+func cardLineCount(card Card, contentWidth int) int {
+	text, prefixLen := cardDisplayText(card)
+	return len(wrapTitle(text, contentWidth, prefixLen))
+}
+
+func (b *Board) clampScrollOffset() {
+	if len(b.Columns) == 0 {
+		return
+	}
+	col := &b.Columns[b.ActiveTab]
+	totalCards := len(col.Cards)
+	if totalCards == 0 {
+		col.ScrollOffset = 0
+		return
+	}
+
+	panelHeight, contentWidth, _ := b.layoutDimensions()
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	// Compute total lines for all cards.
+	totalLines := 0
+	for i := 0; i < totalCards; i++ {
+		totalLines += cardLineCount(col.Cards[i], contentWidth)
+	}
+
+	if totalLines <= panelHeight {
+		col.ScrollOffset = 0
+		return
+	}
+
+	// Iterate to find stable scroll position (converges in <=3 iterations).
+	for iter := 0; iter < 3; iter++ {
+		// Count lines visible from ScrollOffset.
+		available := panelHeight
+		if col.ScrollOffset > 0 {
+			available-- // up indicator
+		}
+
+		// Count how many cards fit from ScrollOffset.
+		linesUsed := 0
+		lastVisible := col.ScrollOffset
+		for lastVisible < totalCards {
+			cl := cardLineCount(col.Cards[lastVisible], contentWidth)
+			neededForDown := 0
+			if lastVisible+1 < totalCards {
+				neededForDown = 1
+			}
+			if linesUsed+cl > available-neededForDown {
+				break
+			}
+			linesUsed += cl
+			lastVisible++
+		}
+		// lastVisible is now one past the last fully visible card index.
+
+		if col.Cursor < col.ScrollOffset {
+			col.ScrollOffset = col.Cursor
+		} else if col.Cursor >= lastVisible {
+			// Scroll down so cursor card is the last visible.
+			// Work backwards from cursor to find the ScrollOffset.
+			col.ScrollOffset = col.Cursor
+			linesFromCursor := cardLineCount(col.Cards[col.Cursor], contentWidth)
+			avail := panelHeight - 1 // reserve 1 for up indicator (since we're scrolling down)
+			for col.ScrollOffset > 0 {
+				prevLines := cardLineCount(col.Cards[col.ScrollOffset-1], contentWidth)
+				neededForDown := 0
+				if col.Cursor+1 < totalCards {
+					neededForDown = 1
+				}
+				if linesFromCursor+prevLines > avail-neededForDown {
+					break
+				}
+				linesFromCursor += prevLines
+				col.ScrollOffset--
+			}
+		} else {
+			break
+		}
+	}
+
+	// Final bounds clamp.
+	if col.ScrollOffset < 0 {
+		col.ScrollOffset = 0
+	}
+	maxOffset := totalCards - 1
+	if col.ScrollOffset > maxOffset {
+		col.ScrollOffset = maxOffset
+	}
+}
+
 func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lipgloss.Style) string {
 	// Pre-compute wrapped lines for each card.
 	type wrappedCard struct {
@@ -195,12 +309,8 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 	}
 	var allCards []wrappedCard
 	for j, card := range col.Cards {
-		prefix := fmt.Sprintf("#%d ", card.Number)
-		text := prefix + card.Title
+		text, prefixLen := cardDisplayText(card)
 		hasPR := len(card.LinkedPRs) > 0
-		if hasPR {
-			text += " \ue728"
-		}
 		hasWorking := false
 		for _, label := range card.Labels {
 			if label == "Working" {
@@ -208,13 +318,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 				break
 			}
 		}
-		if hasWorking {
-			text += " \uf110"
-		}
-		for range card.Labels {
-			text += " \u25cf"
-		}
-		lines := wrapTitle(text, contentWidth, len([]rune(prefix)))
+		lines := wrapTitle(text, contentWidth, prefixLen)
 		// Style PR indicator.
 		if hasPR && len(lines) > 0 {
 			last := len(lines) - 1
@@ -237,6 +341,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		}
 		// Dim card number on non-selected cards.
 		if j != col.Cursor && len(lines) > 0 {
+			prefix := fmt.Sprintf("#%d ", card.Number)
 			lines[0] = strings.Replace(lines[0], prefix, cardNumberStyle.Render(prefix), 1)
 		}
 		allCards = append(allCards, wrappedCard{lines: lines, selected: j == col.Cursor})
