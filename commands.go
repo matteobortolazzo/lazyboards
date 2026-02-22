@@ -68,6 +68,23 @@ func saveConfigCmd(path, provider, repo string) tea.Cmd {
 	}
 }
 
+// cleanupResultMsg is sent when cleanup commands finish executing.
+type cleanupResultMsg struct {
+	count int
+}
+
+// runCleanupCmds returns a tea.Cmd that executes cleanup shell commands.
+func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
+	return func() tea.Msg {
+		count := 0
+		for _, cmd := range commands {
+			executor.RunShell(cmd)
+			count++
+		}
+		return cleanupResultMsg{count: count}
+	}
+}
+
 // wrapTitle wraps text at word boundaries to fit within maxWidth.
 // First line uses full maxWidth; continuation lines are indented by indentWidth spaces.
 // Falls back to character-break if a single word exceeds the available width.

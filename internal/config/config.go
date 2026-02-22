@@ -22,6 +22,7 @@ type Action struct {
 type ColumnConfig struct {
 	Name    string            `yaml:"name"`
 	Actions map[string]Action `yaml:"actions"`
+	Cleanup string            `yaml:"cleanup"`
 }
 
 const DefaultSessionMaxLength = 32
