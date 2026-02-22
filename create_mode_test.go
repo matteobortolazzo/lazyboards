@@ -153,28 +153,28 @@ func TestCreateMode_TabSwitchesFocus(t *testing.T) {
 	b = sendKey(t, b, keyMsg("n"))
 
 	// Title should be focused initially.
-	if !b.titleInput.Focused() {
+	if !b.create.titleInput.Focused() {
 		t.Error("titleInput should be focused when entering createMode")
 	}
-	if b.labelInput.Focused() {
+	if b.create.labelInput.Focused() {
 		t.Error("labelInput should NOT be focused when entering createMode")
 	}
 
 	// Tab should switch focus to labelInput.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
-	if b.titleInput.Focused() {
+	if b.create.titleInput.Focused() {
 		t.Error("titleInput should NOT be focused after Tab")
 	}
-	if !b.labelInput.Focused() {
+	if !b.create.labelInput.Focused() {
 		t.Error("labelInput should be focused after Tab")
 	}
 
 	// Another Tab should switch focus back to titleInput.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
-	if !b.titleInput.Focused() {
+	if !b.create.titleInput.Focused() {
 		t.Error("titleInput should be focused after second Tab")
 	}
-	if b.labelInput.Focused() {
+	if b.create.labelInput.Focused() {
 		t.Error("labelInput should NOT be focused after second Tab")
 	}
 }
@@ -188,8 +188,8 @@ func TestCreateMode_TypingUpdatesTitleField(t *testing.T) {
 		b = sendKey(t, b, keyMsg(string(ch)))
 	}
 
-	if b.titleInput.Value() != "Fix bug" {
-		t.Errorf("titleInput.Value() = %q, want %q", b.titleInput.Value(), "Fix bug")
+	if b.create.titleInput.Value() != "Fix bug" {
+		t.Errorf("titleInput.Value() = %q, want %q", b.create.titleInput.Value(), "Fix bug")
 	}
 }
 
@@ -205,8 +205,8 @@ func TestCreateMode_TypingUpdatesLabelField(t *testing.T) {
 		b = sendKey(t, b, keyMsg(string(ch)))
 	}
 
-	if b.labelInput.Value() != "bug" {
-		t.Errorf("labelInput.Value() = %q, want %q", b.labelInput.Value(), "bug")
+	if b.create.labelInput.Value() != "bug" {
+		t.Errorf("labelInput.Value() = %q, want %q", b.create.labelInput.Value(), "bug")
 	}
 }
 
@@ -225,11 +225,11 @@ func TestCreateMode_FieldsResetOnReopen(t *testing.T) {
 	// Re-enter createMode.
 	b = sendKey(t, b, keyMsg("n"))
 
-	if b.titleInput.Value() != "" {
-		t.Errorf("titleInput.Value() after reopen = %q, want empty string (fields should reset)", b.titleInput.Value())
+	if b.create.titleInput.Value() != "" {
+		t.Errorf("titleInput.Value() after reopen = %q, want empty string (fields should reset)", b.create.titleInput.Value())
 	}
-	if b.labelInput.Value() != "" {
-		t.Errorf("labelInput.Value() after reopen = %q, want empty string (fields should reset)", b.labelInput.Value())
+	if b.create.labelInput.Value() != "" {
+		t.Errorf("labelInput.Value() after reopen = %q, want empty string (fields should reset)", b.create.labelInput.Value())
 	}
 }
 
@@ -413,11 +413,11 @@ func TestSubmit_ResetsFieldsAfterCreation(t *testing.T) {
 	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Some task", Labels: []string{"feature"}}})
 	b = m.(Board)
 
-	if b.titleInput.Value() != "" {
-		t.Errorf("titleInput.Value() = %q after submit, want empty string (fields should reset)", b.titleInput.Value())
+	if b.create.titleInput.Value() != "" {
+		t.Errorf("titleInput.Value() = %q after submit, want empty string (fields should reset)", b.create.titleInput.Value())
 	}
-	if b.labelInput.Value() != "" {
-		t.Errorf("labelInput.Value() = %q after submit, want empty string (fields should reset)", b.labelInput.Value())
+	if b.create.labelInput.Value() != "" {
+		t.Errorf("labelInput.Value() = %q after submit, want empty string (fields should reset)", b.create.labelInput.Value())
 	}
 }
 
@@ -601,11 +601,11 @@ func TestCreatingMode_Success_AppendsCardAndClosesModal(t *testing.T) {
 	}
 
 	// Fields should be reset.
-	if updated.titleInput.Value() != "" {
-		t.Errorf("titleInput.Value() = %q after success, want empty string", updated.titleInput.Value())
+	if updated.create.titleInput.Value() != "" {
+		t.Errorf("titleInput.Value() = %q after success, want empty string", updated.create.titleInput.Value())
 	}
-	if updated.labelInput.Value() != "" {
-		t.Errorf("labelInput.Value() = %q after success, want empty string", updated.labelInput.Value())
+	if updated.create.labelInput.Value() != "" {
+		t.Errorf("labelInput.Value() = %q after success, want empty string", updated.create.labelInput.Value())
 	}
 	if updated.validationErr != "" {
 		t.Errorf("validationErr = %q after success, want empty string", updated.validationErr)
@@ -614,8 +614,8 @@ func TestCreatingMode_Success_AppendsCardAndClosesModal(t *testing.T) {
 
 func TestCreatingMode_Error_ShowsErrorAndPreservesInput(t *testing.T) {
 	b := newCreatingTestBoard(t)
-	b.titleInput.SetValue("My title")
-	b.labelInput.SetValue("my-label")
+	b.create.titleInput.SetValue("My title")
+	b.create.labelInput.SetValue("my-label")
 
 	msg := cardCreateErrorMsg{err: errors.New("API error")}
 	m, _ := b.Update(msg)
@@ -632,15 +632,15 @@ func TestCreatingMode_Error_ShowsErrorAndPreservesInput(t *testing.T) {
 	}
 
 	// Input fields should be preserved so user can retry.
-	if updated.titleInput.Value() != "My title" {
-		t.Errorf("titleInput.Value() = %q after error, want %q (input should be preserved)", updated.titleInput.Value(), "My title")
+	if updated.create.titleInput.Value() != "My title" {
+		t.Errorf("titleInput.Value() = %q after error, want %q (input should be preserved)", updated.create.titleInput.Value(), "My title")
 	}
-	if updated.labelInput.Value() != "my-label" {
-		t.Errorf("labelInput.Value() = %q after error, want %q (input should be preserved)", updated.labelInput.Value(), "my-label")
+	if updated.create.labelInput.Value() != "my-label" {
+		t.Errorf("labelInput.Value() = %q after error, want %q (input should be preserved)", updated.create.labelInput.Value(), "my-label")
 	}
 
 	// Title input should be focused for easy editing.
-	if !updated.titleInput.Focused() {
+	if !updated.create.titleInput.Focused() {
 		t.Error("titleInput should be focused after error so user can edit and retry")
 	}
 }

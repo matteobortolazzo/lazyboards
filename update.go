@@ -39,13 +39,13 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cardCreateErrorMsg:
 		b.validationErr = provider.SanitizeError(msg.err)
 		b.mode = createMode
-		cmd := b.titleInput.Focus()
-		b.labelInput.Blur()
+		cmd := b.create.titleInput.Focus()
+		b.create.labelInput.Blur()
 		return b, cmd
 
 	case configSavedMsg:
-		if b.firstLaunch {
-			b.ConfigSaved = true
+		if b.config.firstLaunch {
+			b.config.configSaved = true
 			return b, tea.Quit
 		}
 		b.mode = loadingMode
@@ -198,8 +198,8 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 		LinkedPRs: mapLinkedPRs(msg.card.LinkedPRs),
 	}
 	b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
-	b.titleInput.SetValue("")
-	b.labelInput.SetValue("")
+	b.create.titleInput.SetValue("")
+	b.create.labelInput.SetValue("")
 	b.validationErr = ""
 	b.mode = normalMode
 	return b, nil
@@ -211,12 +211,12 @@ func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = normalMode
 		return b, nil
 	case tea.KeyEnter:
-		title := strings.TrimSpace(b.titleInput.Value())
+		title := strings.TrimSpace(b.create.titleInput.Value())
 		if title == "" {
 			b.validationErr = "Title is required"
 			return b, nil
 		}
-		label := strings.TrimSpace(b.labelInput.Value())
+		label := strings.TrimSpace(b.create.labelInput.Value())
 		for _, col := range b.Columns {
 			if strings.EqualFold(col.Title, label) {
 				b.validationErr = "Cannot use reserved column label"
@@ -224,26 +224,26 @@ func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		b.mode = creatingMode
-		b.titleInput.Blur()
-		b.labelInput.Blur()
+		b.create.titleInput.Blur()
+		b.create.labelInput.Blur()
 		return b, tea.Batch(b.spinner.Tick, createCardCmd(b.provider, title, label))
 	case tea.KeyTab:
 		var cmd tea.Cmd
-		if b.titleInput.Focused() {
-			b.titleInput.Blur()
-			cmd = b.labelInput.Focus()
+		if b.create.titleInput.Focused() {
+			b.create.titleInput.Blur()
+			cmd = b.create.labelInput.Focus()
 		} else {
-			b.labelInput.Blur()
-			cmd = b.titleInput.Focus()
+			b.create.labelInput.Blur()
+			cmd = b.create.titleInput.Focus()
 		}
 		return b, cmd
 	default:
 		b.validationErr = ""
 		var cmd tea.Cmd
-		if b.titleInput.Focused() {
-			b.titleInput, cmd = b.titleInput.Update(msg)
-		} else if b.labelInput.Focused() {
-			b.labelInput, cmd = b.labelInput.Update(msg)
+		if b.create.titleInput.Focused() {
+			b.create.titleInput, cmd = b.create.titleInput.Update(msg)
+		} else if b.create.labelInput.Focused() {
+			b.create.labelInput, cmd = b.create.labelInput.Update(msg)
 		}
 		return b, cmd
 	}
@@ -252,43 +252,43 @@ func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (b Board) handleConfigModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
-		if b.firstLaunch {
+		if b.config.firstLaunch {
 			return b, tea.Quit
 		}
 		b.mode = normalMode
 		return b, nil
 	case tea.KeyEnter:
-		provider := b.providerOptions[b.providerIndex]
-		repo := strings.TrimSpace(b.repoInput.Value())
+		provider := b.config.providerOptions[b.config.providerIndex]
+		repo := strings.TrimSpace(b.config.repoInput.Value())
 		if repo == "" {
 			b.validationErr = "Repository is required"
 			return b, nil
 		}
 		b.validationErr = ""
-		return b, saveConfigCmd(b.configLocalPath, provider, repo)
+		return b, saveConfigCmd(b.config.localPath, provider, repo)
 	case tea.KeyTab:
-		if b.configFocus == 0 {
-			b.configFocus = 1
-			cmd := b.repoInput.Focus()
+		if b.config.focus == 0 {
+			b.config.focus = 1
+			cmd := b.config.repoInput.Focus()
 			return b, cmd
 		}
-		b.configFocus = 0
-		b.repoInput.Blur()
+		b.config.focus = 0
+		b.config.repoInput.Blur()
 		return b, nil
 	case tea.KeyRight:
-		if b.configFocus == 0 {
-			b.providerIndex = (b.providerIndex + 1) % len(b.providerOptions)
+		if b.config.focus == 0 {
+			b.config.providerIndex = (b.config.providerIndex + 1) % len(b.config.providerOptions)
 		}
 		return b, nil
 	case tea.KeyLeft:
-		if b.configFocus == 0 {
-			b.providerIndex = (b.providerIndex - 1 + len(b.providerOptions)) % len(b.providerOptions)
+		if b.config.focus == 0 {
+			b.config.providerIndex = (b.config.providerIndex - 1 + len(b.config.providerOptions)) % len(b.config.providerOptions)
 		}
 		return b, nil
 	default:
-		if b.configFocus == 1 {
+		if b.config.focus == 1 {
 			var cmd tea.Cmd
-			b.repoInput, cmd = b.repoInput.Update(msg)
+			b.config.repoInput, cmd = b.config.repoInput.Update(msg)
 			return b, cmd
 		}
 		return b, nil
@@ -305,10 +305,10 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Quit
 	case "n":
 		b.mode = createMode
-		b.titleInput.SetValue("")
-		b.labelInput.SetValue("")
-		b.titleInput.Focus()
-		b.labelInput.Blur()
+		b.create.titleInput.SetValue("")
+		b.create.labelInput.SetValue("")
+		b.create.titleInput.Focus()
+		b.create.labelInput.Blur()
 	case "c":
 		b.enterConfigMode()
 	case "r":

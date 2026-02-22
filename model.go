@@ -172,6 +172,23 @@ type cardCreateErrorMsg struct {
 	err error
 }
 
+// configState groups fields related to the config modal.
+type configState struct {
+	providerOptions []string
+	providerIndex   int
+	repoInput       textinput.Model
+	focus           int
+	localPath       string
+	firstLaunch     bool
+	configSaved     bool
+}
+
+// createState groups fields related to the create-card modal.
+type createState struct {
+	titleInput textinput.Model
+	labelInput textinput.Model
+}
+
 // Board is the top-level model implementing tea.Model.
 type Board struct {
 	Columns       []Column
@@ -179,8 +196,6 @@ type Board struct {
 	Width         int
 	Height        int
 	mode          boardMode
-	titleInput    textinput.Model
-	labelInput    textinput.Model
 	validationErr string
 	provider      provider.BoardProvider
 	spinner       spinner.Model
@@ -195,13 +210,8 @@ type Board struct {
 	providerName    string
 	sessionMaxLen   int
 	normalHints     []Hint
-	providerOptions []string
-	providerIndex   int
-	repoInput       textinput.Model
-	configFocus     int
-	configLocalPath    string
-	firstLaunch        bool
-	ConfigSaved        bool
+	config          configState
+	create          createState
 	detailFocused      bool
 	detailScrollOffset int
 	prPickerIndex      int
@@ -240,25 +250,29 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 	ri.Width = 40
 
 	b := Board{
-		mode:            loadingMode,
-		titleInput:      ti,
-		labelInput:      li,
-		provider:        p,
-		spinner:         s,
-		statusBar:       sb,
-		actions:         actions,
-		columnConfigs:   columnConfigs,
-		executor:        executor,
-		repoOwner:       repoOwner,
-		repoName:        repoName,
-		providerName:    providerName,
-		sessionMaxLen:   sessionMaxLen,
-		normalHints:     hints,
-		providerOptions: []string{"github", "azure-devops"},
-		providerIndex:   0,
-		repoInput:       ri,
-		configLocalPath: config.DefaultLocalPath,
-		firstLaunch:     firstLaunch,
+		mode:          loadingMode,
+		provider:      p,
+		spinner:       s,
+		statusBar:     sb,
+		actions:       actions,
+		columnConfigs: columnConfigs,
+		executor:      executor,
+		repoOwner:     repoOwner,
+		repoName:      repoName,
+		providerName:  providerName,
+		sessionMaxLen: sessionMaxLen,
+		normalHints:   hints,
+		config: configState{
+			providerOptions: []string{"github", "azure-devops"},
+			providerIndex:   0,
+			repoInput:       ri,
+			localPath:       config.DefaultLocalPath,
+			firstLaunch:     firstLaunch,
+		},
+		create: createState{
+			titleInput: ti,
+			labelInput: li,
+		},
 	}
 
 	if firstLaunch {
@@ -271,20 +285,20 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 // enterConfigMode sets up configMode with pre-populated values from runtime.
 func (b *Board) enterConfigMode() {
 	b.mode = configMode
-	b.configFocus = 0
+	b.config.focus = 0
 	b.validationErr = ""
-	b.repoInput.Blur()
+	b.config.repoInput.Blur()
 
 	if b.repoOwner != "" && b.repoName != "" {
-		b.repoInput.SetValue(b.repoOwner + "/" + b.repoName)
+		b.config.repoInput.SetValue(b.repoOwner + "/" + b.repoName)
 	} else {
-		b.repoInput.SetValue("")
+		b.config.repoInput.SetValue("")
 	}
 
-	b.providerIndex = 0
-	for i, opt := range b.providerOptions {
+	b.config.providerIndex = 0
+	for i, opt := range b.config.providerOptions {
 		if opt == b.providerName {
-			b.providerIndex = i
+			b.config.providerIndex = i
 			break
 		}
 	}
@@ -492,7 +506,7 @@ func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
 }
 
 func (b Board) Init() tea.Cmd {
-	if b.firstLaunch {
+	if b.config.firstLaunch {
 		return nil
 	}
 	return tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
