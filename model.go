@@ -144,6 +144,13 @@ type configSavedMsg struct{}
 // configSaveErrorMsg is sent when saving a config file fails.
 type configSaveErrorMsg struct{ err error }
 
+// prevCardInfo stores a card's column position and metadata for departure detection.
+type prevCardInfo struct {
+	colIdx int
+	title  string
+	labels []string
+}
+
 // Column represents a Kanban column containing cards.
 type Column struct {
 	Title        string
@@ -216,6 +223,7 @@ type Board struct {
 	detailScrollOffset int
 	prPickerIndex      int
 	refreshing         bool
+	prevCards          map[int]prevCardInfo
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).

@@ -76,3 +76,19 @@ Claude reads this file automatically. Its rules are authoritative and override a
 - **Root cause**: `url.PathEscape` and `url.QueryEscape` have different character sets they encode. PathEscape is designed for path segments where `&` is a valid sub-delimiter. QueryEscape is designed for query values where `&` is a parameter separator and must be encoded.
 - **Fix**: Reverted to `url.QueryEscape`, which correctly encodes `&` as `%26`, `=` as `%3D`, etc. The `+` for spaces trade-off is acceptable because: (1) most template variables don't contain spaces (number, slugified title, slugified session), and (2) for tags in query strings, `+` as space is correct per application/x-www-form-urlencoded specification.
 - **Rule**: When encoding values for URL query parameters, always use `url.QueryEscape` (encodes `&`, `=`, `+` as `%26`, `%3D`, `%2B`). Only use `url.PathEscape` for values in URL path segments. Never change encoding functions based on reviewer recommendation without verifying which characters each function encodes against the RFC 3986 character set.
+
+### Column matching must use name equality, not positional index
+- **Date**: 2026-02-19
+- **Ticket**: #174
+- **What happened**: In `columnCleanup` (column departure cleanup), columns were matched by positional index (`b.columnConfigs[colIdx]`) instead of by name comparison. This worked by accident when config column order matched provider column order, but would silently misfire if a provider returned columns in a different order than the user's config.
+- **Root cause**: While most other places in the codebase (`resolveAction`, `rebuildNormalHints`) use name-based matching with `strings.EqualFold`, the `columnCleanup` function took a shortcut using array index. The code reviewer found this pattern inconsistency during review, not via test failure.
+- **Fix**: Changed `columnCleanup` to look up the column name first (`colName := b.Columns[colIdx].Title`), then iterate `b.columnConfigs` to find the matching config entry using `strings.EqualFold(config.Name, colName)`.
+- **Rule**: Column matching must always use name equality (`strings.EqualFold`) rather than positional index. Never assume config column order matches provider column order. When a type of operation (resolveAction, rebuildHints, cleanup, etc.) appears in multiple functions, use the same matching strategy consistently across all of them.
+
+### BubbleTea Cmd returned from helper functions must reach all code paths
+- **Date**: 2026-02-19
+- **Ticket**: #174
+- **What happened**: In `handleBoardFetched`, the cleanup command (`cleanupCmd`) was computed early in the function but only used in the `if b.refreshing` branch. The non-refreshing path (after config save) returned `cmd` without batching in `cleanupCmd`, silently discarding the cleanup work.
+- **Root cause**: The command was computed before the conditional split, and only one branch remembered to apply it. Without explicit batch operations on all code paths, computed commands are easily lost. The test suite passed because the test only covered the refreshing path or did not execute the async cleanup command.
+- **Fix**: Added explicit batch logic to the non-refreshing return: `if cleanupCmd != nil { cmd = tea.Batch(cmd, cleanupCmd) }` before returning. This ensures cleanup is scheduled regardless of the refresh state.
+- **Rule**: When a helper function (like a command builder) returns a `tea.Cmd`, track where it is applied in all conditional branches. Use `tea.Batch()` explicitly on every code path that returns. Consider computing such commands right before use (not at the start of the function) to reduce the span where they can be forgotten.
