@@ -580,6 +580,7 @@ func TestAutoRefresh_ShellSuccess_StartsTimer(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
+	b.actionRefreshDelay = 5 * time.Second
 
 	// Send actionResultMsg with success=true (simulating shell action completion).
 	m, cmd := b.Update(actionResultMsg{success: true, message: "Done"})
@@ -600,6 +601,7 @@ func TestAutoRefresh_ShellFailure_NoTimer(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
+	b.actionRefreshDelay = 5 * time.Second
 
 	// Send actionResultMsg with success=false.
 	m, _ := b.Update(actionResultMsg{success: false, message: "Error: exit 1"})
@@ -746,5 +748,48 @@ func TestAutoRefresh_CancelledByManualRefresh_DetailFocused(t *testing.T) {
 	// Manual refresh should cancel auto-refresh in detail mode too.
 	if b.pendingAutoRefresh {
 		t.Error("pendingAutoRefresh should be false after manual refresh in detail-focused mode")
+	}
+}
+
+// --- Configurable Action Refresh Delay (#119) ---
+
+func TestAutoRefresh_DisabledWhenDelayZero(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Disable auto-refresh after shell actions by setting delay to 0.
+	b.actionRefreshDelay = 0
+
+	// Send actionResultMsg with success=true (simulating shell action completion).
+	m, _ := b.Update(actionResultMsg{success: true, message: "Done"})
+	b = m.(Board)
+
+	// With delay=0, auto-refresh should NOT be scheduled.
+	if b.pendingAutoRefresh {
+		t.Error("pendingAutoRefresh should be false when actionRefreshDelay is 0 (disabled)")
+	}
+}
+
+func TestAutoRefresh_UsesConfiguredDelay(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Set a non-zero action refresh delay.
+	b.actionRefreshDelay = 10 * time.Second
+
+	// Send actionResultMsg with success=true (simulating shell action completion).
+	m, cmd := b.Update(actionResultMsg{success: true, message: "Done"})
+	b = m.(Board)
+
+	// With a non-zero delay, auto-refresh SHOULD be scheduled.
+	if !b.pendingAutoRefresh {
+		t.Error("pendingAutoRefresh should be true when actionRefreshDelay is non-zero")
+	}
+
+	// Should return a non-nil cmd (status message + tick timer).
+	if cmd == nil {
+		t.Error("successful actionResultMsg with non-zero delay should return a non-nil cmd")
 	}
 }

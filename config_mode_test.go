@@ -287,42 +287,42 @@ func TestConfigMode_EnterWithEmptyRepo_ShowsValidationError(t *testing.T) {
 // --- First Launch ---
 
 func TestFirstLaunch_StartsInConfigMode(t *testing.T) {
-	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, "Working", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, 0, "Working", true)
 	if b.mode != configMode {
 		t.Errorf("mode = %d, want %d (configMode) for firstLaunch board", b.mode, configMode)
 	}
 }
 
 func TestFirstLaunch_PrePopulatesProvider(t *testing.T) {
-	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, "Working", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, 0, "Working", true)
 	if b.config.providerOptions[b.config.providerIndex] != "github" {
 		t.Errorf("providerOptions[providerIndex] = %q, want %q", b.config.providerOptions[b.config.providerIndex], "github")
 	}
 }
 
 func TestFirstLaunch_PrePopulatesProviderAzure(t *testing.T) {
-	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "azure-devops", 0, 0, "Working", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "azure-devops", 0, 0, 0, "Working", true)
 	if b.config.providerOptions[b.config.providerIndex] != "azure-devops" {
 		t.Errorf("providerOptions[providerIndex] = %q, want %q", b.config.providerOptions[b.config.providerIndex], "azure-devops")
 	}
 }
 
 func TestFirstLaunch_PrePopulatesRepo(t *testing.T) {
-	b := NewBoard(nil, nil, nil, nil, "myowner", "myrepo", "github", 0, 0, "Working", true)
+	b := NewBoard(nil, nil, nil, nil, "myowner", "myrepo", "github", 0, 0, 0, "Working", true)
 	if b.config.repoInput.Value() != "myowner/myrepo" {
 		t.Errorf("repoInput.Value() = %q, want %q", b.config.repoInput.Value(), "myowner/myrepo")
 	}
 }
 
 func TestFirstLaunch_EmptyRepoNotPrePopulated(t *testing.T) {
-	b := NewBoard(nil, nil, nil, nil, "", "", "github", 0, 0, "Working", true)
+	b := NewBoard(nil, nil, nil, nil, "", "", "github", 0, 0, 0, "Working", true)
 	if b.config.repoInput.Value() != "" {
 		t.Errorf("repoInput.Value() = %q, want empty when no repo detected", b.config.repoInput.Value())
 	}
 }
 
 func TestFirstLaunch_Init_ReturnsNil(t *testing.T) {
-	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, "Working", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, 0, "Working", true)
 	cmd := b.Init()
 	if cmd != nil {
 		t.Error("Init() should return nil for firstLaunch board (no fetch)")
@@ -330,7 +330,7 @@ func TestFirstLaunch_Init_ReturnsNil(t *testing.T) {
 }
 
 func TestFirstLaunch_Escape_Quits(t *testing.T) {
-	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, "Working", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, 0, "Working", true)
 	_, cmd := b.Update(arrowMsg(tea.KeyEsc))
 	if cmd == nil {
 		t.Error("Escape in firstLaunch configMode should return a quit cmd")
@@ -338,7 +338,7 @@ func TestFirstLaunch_Escape_Quits(t *testing.T) {
 }
 
 func TestFirstLaunch_Escape_ConfigSavedIsFalse(t *testing.T) {
-	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, "Working", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, 0, "Working", true)
 	m, _ := b.Update(arrowMsg(tea.KeyEsc))
 	updated := m.(Board)
 	if updated.config.configSaved {
@@ -347,7 +347,7 @@ func TestFirstLaunch_Escape_ConfigSavedIsFalse(t *testing.T) {
 }
 
 func TestFirstLaunch_ConfigSaved_SetsConfigSavedAndQuits(t *testing.T) {
-	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, "Working", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, 0, "Working", true)
 	m, cmd := b.Update(configSavedMsg{})
 	updated := m.(Board)
 	if !updated.config.configSaved {
@@ -359,7 +359,7 @@ func TestFirstLaunch_ConfigSaved_SetsConfigSavedAndQuits(t *testing.T) {
 }
 
 func TestFirstLaunch_ViewShowsConfigModal(t *testing.T) {
-	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, "Working", true)
+	b := NewBoard(nil, nil, nil, nil, "owner", "repo", "github", 0, 0, 0, "Working", true)
 	b.Width = 120
 	b.Height = 40
 	view := b.View()
@@ -372,7 +372,7 @@ func TestFirstLaunch_ViewShowsConfigModal(t *testing.T) {
 
 func TestConfigMode_PrePopulatesProviderFromRuntime(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "owner", "repo", "github", 0, 0, "Working", false)
+	b := NewBoard(p, nil, nil, nil, "owner", "repo", "github", 0, 0, 0, "Working", false)
 	board, _ := p.FetchBoard(nil)
 	m, _ := b.Update(boardFetchedMsg{board: board})
 	b = m.(Board)
@@ -386,7 +386,7 @@ func TestConfigMode_PrePopulatesProviderFromRuntime(t *testing.T) {
 
 func TestConfigMode_PrePopulatesRepoFromRuntime(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "myowner", "myrepo", "github", 0, 0, "Working", false)
+	b := NewBoard(p, nil, nil, nil, "myowner", "myrepo", "github", 0, 0, 0, "Working", false)
 	board, _ := p.FetchBoard(nil)
 	m, _ := b.Update(boardFetchedMsg{board: board})
 	b = m.(Board)
