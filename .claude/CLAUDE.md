@@ -18,7 +18,7 @@ The main BubbleTea model is split by responsibility:
 | `model.go` | Board struct, types, constants, styles, `NewBoard()`, `Init()`, `enterConfigMode()` |
 | `update.go` | `Update()` dispatcher + key/message handler methods |
 | `view.go` | `View()` dispatcher + rendering helpers (card list, detail, modals) + display helpers (`cardDisplayText`, `cardLineCount`, `clampScrollOffset`) |
-| `commands.go` | Async `tea.Cmd` builders (`fetchBoardCmd`, `createCardCmd`, `runShellCmd`, `saveConfigCmd`) + `wrapTitle` |
+| `commands.go` | Async `tea.Cmd` builders (`fetchBoardCmd`, `createCardCmd`, `runShellCmd`, `runCleanupCmds`, `saveConfigCmd`) + `wrapTitle` |
 | `statusbar.go` | `StatusBar` component (hints, timed messages) |
 | `main.go` | Entry point, config loading, provider setup |
 
@@ -37,6 +37,7 @@ Tests are split by domain to mirror production code:
 | `config_mode_test.go` | Config mode, first launch flow |
 | `detail_panel_test.go` | Detail panel focus, scrolling, glamour rendering |
 | `actions_test.go` | Action triggers (URL, shell), column actions |
+| `cleanup_test.go` | Column cleanup on card departure |
 | `statusbar_test.go` | StatusBar component tests |
 
 Internal packages: `internal/action`, `internal/config`, `internal/git`, `internal/provider`.

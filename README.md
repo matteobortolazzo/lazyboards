@@ -10,7 +10,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Split-pane layout: card list + detail view
 - Scrollable card lists with overflow indicators
 - Card creation via modal form with validation
-- Custom actions: open URLs or run shell commands bound to any key
+- Custom actions: open URLs or run shell commands bound to any key, with column cleanup on departure
 - Auto-detection of provider and repo from git remote
 - In-app configuration UI (first-launch flow or press `c`)
 - Board refresh without restarting
@@ -87,6 +87,24 @@ actions:
 ```
 
 The `-d` flag keeps focus on the current window. The `{session}` variable generates a tmux-friendly name from the card number and title (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 32).
+
+#### Column Cleanup
+
+Run a command automatically when a card leaves a column (detected on board refresh). Useful for closing tmux windows or stopping processes spawned by column actions:
+
+```yaml
+columns:
+  - name: New
+    actions:
+      R:
+        name: Refine ticket
+        type: shell
+        command: 'tmux new-window -d -n {session} "claude"'
+    cleanup: 'tmux kill-window -t {session} 2>/dev/null || true'
+  - name: Refined
+```
+
+The `cleanup` command uses the same template variables as actions. It runs when a card moves to another column or disappears.
 
 ## Keybindings
 
