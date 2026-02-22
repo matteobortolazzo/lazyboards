@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -325,25 +326,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(col.Cards) == 0 {
 			return b, nil
 		}
-		card := col.Cards[col.Cursor]
-		switch len(card.LinkedPRs) {
-		case 0:
-			cmd := b.statusBar.SetTimedMessage("No linked PRs", statusMessageDuration)
-			return b, cmd
-		case 1:
-			pr := card.LinkedPRs[0]
-			if err := b.executor.OpenURL(pr.URL); err != nil {
-				cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
-				return b, cmd
-			}
-			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), statusMessageDuration)
-			return b, cmd
-		default:
-			b.prPickerIndex = 0
-			b.mode = prPickerMode
-			b.statusBar.SetActionHints(prPickerHints)
-			return b, nil
-		}
+		return b.handlePROpenKey(col.Cards[col.Cursor])
 	case "l", "right":
 		b.detailFocused = true
 		b.statusBar.SetActionHints(detailFocusHints)
@@ -385,23 +368,48 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if len(col.Cards) == 0 {
 				return b, nil
 			}
-			card := col.Cards[col.Cursor]
-			vars := action.BuildTemplateVars(card.Number, card.Title, card.Labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
-
-			switch act.Type {
-			case "url":
-				expanded := action.ExpandTemplate(act.URL, action.BuildURLSafeVars(vars))
-				if err := b.executor.OpenURL(expanded); err != nil {
-					cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
-					return b, cmd
-				}
-				return b, nil
-			case "shell":
-				expanded := action.ExpandTemplate(act.Command, action.BuildShellSafeVars(vars))
-				cmd := b.statusBar.SetTimedMessage("Running...", longStatusMessageDuration)
-				return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
-			}
+			return b.handleActionKey(act, col.Cards[col.Cursor])
 		}
+	}
+	return b, nil
+}
+
+func (b Board) handlePROpenKey(card Card) (tea.Model, tea.Cmd) {
+	switch len(card.LinkedPRs) {
+	case 0:
+		cmd := b.statusBar.SetTimedMessage("No linked PRs", statusMessageDuration)
+		return b, cmd
+	case 1:
+		pr := card.LinkedPRs[0]
+		if err := b.executor.OpenURL(pr.URL); err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+			return b, cmd
+		}
+		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), statusMessageDuration)
+		return b, cmd
+	default:
+		b.prPickerIndex = 0
+		b.mode = prPickerMode
+		b.statusBar.SetActionHints(prPickerHints)
+		return b, nil
+	}
+}
+
+func (b Board) handleActionKey(act config.Action, card Card) (tea.Model, tea.Cmd) {
+	vars := action.BuildTemplateVars(card.Number, card.Title, card.Labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
+
+	switch act.Type {
+	case "url":
+		expanded := action.ExpandTemplate(act.URL, action.BuildURLSafeVars(vars))
+		if err := b.executor.OpenURL(expanded); err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+			return b, cmd
+		}
+		return b, nil
+	case "shell":
+		expanded := action.ExpandTemplate(act.Command, action.BuildShellSafeVars(vars))
+		cmd := b.statusBar.SetTimedMessage("Running...", longStatusMessageDuration)
+		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
 	}
 	return b, nil
 }
