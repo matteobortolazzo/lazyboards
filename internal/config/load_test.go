@@ -6,16 +6,21 @@ import (
 )
 
 func TestLoad_ValidGlobalConfig(t *testing.T) {
-	result := mustLoadConfig(t, "provider: github\nrepo: owner/repo\nproject: my-project\n", "")
+	result := mustLoadConfig(t, "provider: github\nrepo: owner/repo\nproject: my-project\nsession_max_length: 50\n", "")
 
-	if result.Provider != "github" {
-		t.Errorf("Provider = %q, want %q", result.Provider, "github")
+	// Identity fields from global config should be silently ignored.
+	if result.Provider != "" {
+		t.Errorf("Provider = %q, want empty (global identity fields are ignored)", result.Provider)
 	}
-	if result.Repo != "owner/repo" {
-		t.Errorf("Repo = %q, want %q", result.Repo, "owner/repo")
+	if result.Repo != "" {
+		t.Errorf("Repo = %q, want empty (global identity fields are ignored)", result.Repo)
 	}
-	if result.Project != "my-project" {
-		t.Errorf("Project = %q, want %q", result.Project, "my-project")
+	if result.Project != "" {
+		t.Errorf("Project = %q, want empty (global identity fields are ignored)", result.Project)
+	}
+	// Non-identity fields from global config should still work.
+	if result.SessionMaxLength != 50 {
+		t.Errorf("SessionMaxLength = %d, want 50 (non-identity global fields preserved)", result.SessionMaxLength)
 	}
 }
 
@@ -48,12 +53,12 @@ func TestLoad_LocalOverridesGlobal(t *testing.T) {
 
 	result := mustLoadConfig(t, globalYAML, localYAML)
 
-	// Global values should be preserved
-	if result.Provider != "github" {
-		t.Errorf("Provider = %q, want %q (from global)", result.Provider, "github")
+	// Global provider should be stripped (not carried through).
+	if result.Provider != "" {
+		t.Errorf("Provider = %q, want empty (global identity fields are ignored)", result.Provider)
 	}
 
-	// Local repo should override global
+	// Local repo should be preserved.
 	if result.Repo != "other-owner/other-repo" {
 		t.Errorf("Repo = %q, want %q (from local)", result.Repo, "other-owner/other-repo")
 	}
@@ -70,17 +75,80 @@ func TestLoad_LocalOverridesProvider(t *testing.T) {
 	}
 }
 
+// --- Global identity fields ignored (#197) ---
+
+func TestLoad_GlobalIdentityFields_IgnoredWhenNoLocal(t *testing.T) {
+	globalYAML := "provider: github\nrepo: owner/repo\nproject: my-project\nsession_max_length: 42\n"
+
+	result := mustLoadConfig(t, globalYAML, "")
+
+	// Identity fields (provider, repo, project) from global should be stripped.
+	if result.Provider != "" {
+		t.Errorf("Provider = %q, want empty (global identity fields are ignored)", result.Provider)
+	}
+	if result.Repo != "" {
+		t.Errorf("Repo = %q, want empty (global identity fields are ignored)", result.Repo)
+	}
+	if result.Project != "" {
+		t.Errorf("Project = %q, want empty (global identity fields are ignored)", result.Project)
+	}
+	// Non-identity fields from global should be preserved.
+	if result.SessionMaxLength != 42 {
+		t.Errorf("SessionMaxLength = %d, want 42 (non-identity global fields preserved)", result.SessionMaxLength)
+	}
+}
+
+func TestLoad_LocalIdentityFields_Preserved(t *testing.T) {
+	localYAML := "provider: ado\nrepo: my-org/my-repo\nproject: sprint-board\n"
+
+	result := mustLoadConfig(t, "", localYAML)
+
+	// Identity fields from local config should be preserved.
+	if result.Provider != "ado" {
+		t.Errorf("Provider = %q, want %q (local identity fields preserved)", result.Provider, "ado")
+	}
+	if result.Repo != "my-org/my-repo" {
+		t.Errorf("Repo = %q, want %q (local identity fields preserved)", result.Repo, "my-org/my-repo")
+	}
+	if result.Project != "sprint-board" {
+		t.Errorf("Project = %q, want %q (local identity fields preserved)", result.Project, "sprint-board")
+	}
+}
+
+func TestLoad_GlobalIdentityIgnored_LocalIdentityPreserved(t *testing.T) {
+	globalYAML := "provider: github\nrepo: global-owner/global-repo\nproject: global-project\nsession_max_length: 64\n"
+	localYAML := "provider: ado\nrepo: local-owner/local-repo\nproject: local-project\n"
+
+	result := mustLoadConfig(t, globalYAML, localYAML)
+
+	// Only local identity fields should appear; global identity fields are stripped.
+	if result.Provider != "ado" {
+		t.Errorf("Provider = %q, want %q (local identity preserved, global ignored)", result.Provider, "ado")
+	}
+	if result.Repo != "local-owner/local-repo" {
+		t.Errorf("Repo = %q, want %q (local identity preserved, global ignored)", result.Repo, "local-owner/local-repo")
+	}
+	if result.Project != "local-project" {
+		t.Errorf("Project = %q, want %q (local identity preserved, global ignored)", result.Project, "local-project")
+	}
+	// Non-identity global fields should still merge through.
+	if result.SessionMaxLength != 64 {
+		t.Errorf("SessionMaxLength = %d, want 64 (non-identity global fields preserved)", result.SessionMaxLength)
+	}
+}
+
 func TestLoad_MissingLocalFile_UsesGlobalOnly(t *testing.T) {
 	result := mustLoadConfig(t, "provider: github\nrepo: org/repo\nproject: board-1\n", "")
 
-	if result.Provider != "github" {
-		t.Errorf("Provider = %q, want %q", result.Provider, "github")
+	// Identity fields from global config should be silently ignored.
+	if result.Provider != "" {
+		t.Errorf("Provider = %q, want empty (global identity fields are ignored)", result.Provider)
 	}
-	if result.Repo != "org/repo" {
-		t.Errorf("Repo = %q, want %q", result.Repo, "org/repo")
+	if result.Repo != "" {
+		t.Errorf("Repo = %q, want empty (global identity fields are ignored)", result.Repo)
 	}
-	if result.Project != "board-1" {
-		t.Errorf("Project = %q, want %q", result.Project, "board-1")
+	if result.Project != "" {
+		t.Errorf("Project = %q, want empty (global identity fields are ignored)", result.Project)
 	}
 }
 
@@ -140,15 +208,16 @@ func TestDefaultGlobalPath_ContainsExpectedSuffix(t *testing.T) {
 
 func TestLoad_UnknownYAMLFields_Ignored(t *testing.T) {
 	// A config file with unknown fields (e.g., "theme") should load successfully.
+	// Identity fields in global config should also be ignored.
 	yamlContent := "provider: github\nrepo: owner/repo\ntheme: dark\n"
 
 	result := mustLoadConfig(t, yamlContent, "")
 
-	if result.Provider != "github" {
-		t.Errorf("Provider = %q, want %q", result.Provider, "github")
+	if result.Provider != "" {
+		t.Errorf("Provider = %q, want empty (global identity fields are ignored)", result.Provider)
 	}
-	if result.Repo != "owner/repo" {
-		t.Errorf("Repo = %q, want %q", result.Repo, "owner/repo")
+	if result.Repo != "" {
+		t.Errorf("Repo = %q, want empty (global identity fields are ignored)", result.Repo)
 	}
 }
 

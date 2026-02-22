@@ -51,8 +51,9 @@ func main() {
 		repoNameOnly = parts[1]
 	}
 
-	// First-launch flow: show config popup before creating provider
-	if !config.LocalExists(config.DefaultLocalPath) {
+	// First-launch flow: show config popup when no local config exists
+	// and git detection didn't provide both provider and repo.
+	if !config.LocalExists(config.DefaultLocalPath) && (prov == "" || repo == "") {
 		board := NewBoard(nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, 0, config.DefaultWorkingLabel, true)
 		p := tea.NewProgram(board, tea.WithAltScreen())
 		m, err := p.Run()
