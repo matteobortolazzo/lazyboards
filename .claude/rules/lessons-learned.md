@@ -100,3 +100,19 @@ Claude reads this file automatically. Its rules are authoritative and override a
 - **Root cause**: `tea.Tick` returns a `func() tea.Msg` that internally calls `<-time.After(d)`, which blocks for the specified duration. Any test helper that calls `cmd()` directly will block on tick commands. This was a latent issue with `execCmds` (the 30s `longStatusMessageDuration` tick was always borderline) that became critical when periodic refresh added 5-minute tick commands.
 - **Fix**: Both `execCmds` and `collectMsgs` now use a goroutine + `select` with `time.After(100ms)` timeout. If a command doesn't return within 100ms, it's skipped. For tests that need to collect `refreshTickMsg` from a tick, use `1 * time.Millisecond` as the refresh interval so the tick completes within the 100ms timeout.
 - **Rule**: Test helpers that execute `tea.Cmd` functions must never call `cmd()` directly — always wrap in a goroutine with a short timeout (100ms) to avoid blocking on `tea.Tick` or other timer-based commands. When testing tick-based features, use very short durations (1ms) so the tick completes within the timeout window.
+
+### Use lipgloss.Width() not len([]rune()) for terminal hit-detection width
+- **Date**: 2026-02-22
+- **Ticket**: #192
+- **What happened**: In `handleTabClick` (`update.go`), tab label width was calculated with `len([]rune(labelText))` for mouse click hit-zone detection. CJK characters and emoji each occupy 2 terminal cells but count as 1 rune, so hit zones were offset for any non-ASCII label text.
+- **Root cause**: Rune count measures Unicode code points, not terminal display cells. East Asian wide characters (CJK, emoji) are 2 cells wide per rune, so `len([]rune(...))` underestimates the rendered width and produces incorrect click boundaries.
+- **Fix**: Changed to `lipgloss.Width(labelText)`, which calls `go-runewidth` internally and returns the correct terminal cell width accounting for wide characters.
+- **Rule**: Never use `len(s)` or `len([]rune(s))` for terminal layout calculations (hit detection, column sizing, truncation). Always use `lipgloss.Width(s)` which correctly measures terminal cell width for all Unicode including CJK and emoji.
+
+### Adding a new function call may require adding its package import
+- **Date**: 2026-02-22
+- **Ticket**: #192
+- **What happened**: After replacing `len([]rune(labelText))` with `lipgloss.Width(labelText)` in `update.go`, the build failed because `lipgloss` was not in the file's import block. The `view.go` file already imported `lipgloss`, but imports are per-file in Go.
+- **Root cause**: Go imports are file-scoped. A package available in one file of a package does not automatically become available in another file. When refactoring to use a new function from an external package, the import must be added to every file that calls it.
+- **Fix**: Added `"github.com/charmbracelet/lipgloss"` to the import block in `update.go`.
+- **Rule**: After introducing a call to an external package function in any Go file, immediately verify the file's import block includes that package. Do not assume it is imported because another file in the same package imports it.

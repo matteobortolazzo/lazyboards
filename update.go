@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -97,6 +98,12 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b, cmd
 		}
 		return b, nil
+
+	case tea.MouseMsg:
+		if !b.mouseEnabled || b.mode != normalMode {
+			return b, nil
+		}
+		return b.handleMouseMsg(msg)
 
 	case tea.KeyMsg:
 		// ctrl+c always quits regardless of mode.
@@ -629,29 +636,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.detailFocused = false
 		b.statusBar.SetActionHints(b.normalHints)
 	case "j", "down":
-		col := b.Columns[b.ActiveTab]
-		if len(col.Cards) > 0 {
-			card := col.Cards[col.Cursor]
-			fullMarkdown := composeDetailMarkdown(card)
-			rendered := renderBody(fullMarkdown)
-			totalLines := len(strings.Split(rendered, "\n"))
-			panelHeight, _, _ := b.layoutDimensions()
-			availableLines := panelHeight
-			// Account for up-arrow indicator when scrolled.
-			if b.detailScrollOffset > 0 {
-				availableLines--
-				if availableLines < 1 {
-					availableLines = 1
-				}
-			}
-			maxOffset := totalLines - availableLines
-			if maxOffset < 0 {
-				maxOffset = 0
-			}
-			if b.detailScrollOffset < maxOffset {
-				b.detailScrollOffset++
-			}
-		}
+		b.scrollDetailDown()
 	case "k", "up":
 		if b.detailScrollOffset > 0 {
 			b.detailScrollOffset--
@@ -664,6 +649,34 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
 	}
 	return b, nil
+}
+
+// scrollDetailDown increments the detail panel scroll offset by one line,
+// respecting the rendered content height and panel dimensions.
+func (b *Board) scrollDetailDown() {
+	col := b.Columns[b.ActiveTab]
+	if len(col.Cards) == 0 {
+		return
+	}
+	card := col.Cards[col.Cursor]
+	fullMarkdown := composeDetailMarkdown(card)
+	rendered := renderBody(fullMarkdown)
+	totalLines := len(strings.Split(rendered, "\n"))
+	panelHeight, _, _ := b.layoutDimensions()
+	availableLines := panelHeight
+	if b.detailScrollOffset > 0 {
+		availableLines--
+		if availableLines < 1 {
+			availableLines = 1
+		}
+	}
+	maxOffset := totalLines - availableLines
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if b.detailScrollOffset < maxOffset {
+		b.detailScrollOffset++
+	}
 }
 
 func (b *Board) switchColumn(idx int) {
@@ -828,5 +841,142 @@ func (b *Board) closeHelp() {
 	} else {
 		b.statusBar.SetActionHints(b.normalHints)
 	}
+}
+
+func (b Board) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch msg.Button {
+	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
+		return b.handleMouseScroll(msg)
+	case tea.MouseButtonLeft:
+		if msg.Action == tea.MouseActionPress {
+			return b.handleMouseClick(msg)
+		}
+	}
+	return b, nil
+}
+
+func (b Board) handleMouseScroll(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	innerWidth := b.Width - 2
+	leftTotal := innerWidth * 2 / 5
+
+	if msg.X <= leftTotal {
+		// Left panel: scroll card list by moving cursor (like j/k).
+		col := &b.Columns[b.ActiveTab]
+		if len(col.Cards) == 0 {
+			return b, nil
+		}
+		if msg.Button == tea.MouseButtonWheelDown {
+			if col.Cursor < len(col.Cards)-1 {
+				col.Cursor++
+			}
+		} else {
+			if col.Cursor > 0 {
+				col.Cursor--
+			}
+		}
+		b.detailScrollOffset = 0
+		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
+	} else {
+		// Right panel: scroll detail body.
+		if msg.Button == tea.MouseButtonWheelDown {
+			b.scrollDetailDown()
+		} else {
+			if b.detailScrollOffset > 0 {
+				b.detailScrollOffset--
+			}
+		}
+	}
+	return b, nil
+}
+
+func (b Board) handleMouseClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Row 0 = border title bar (tab labels).
+	if msg.Y == 0 {
+		return b.handleTabClick(msg)
+	}
+
+	// Left panel card click.
+	innerWidth := b.Width - 2
+	leftTotal := innerWidth * 2 / 5
+	if msg.X <= leftTotal {
+		return b.handleCardClick(msg)
+	}
+
+	return b, nil
+}
+
+func (b Board) handleTabClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	numCols := len(b.Columns)
+	if numCols == 0 {
+		return b, nil
+	}
+
+	prefixWidth := 3  // "╭─ "
+	separatorWidth := 3 // " ─ "
+
+	x := msg.X
+	pos := prefixWidth
+	for i, col := range b.Columns {
+		countStr := fmt.Sprintf("(%d)", len(col.Cards))
+		labelText := fmt.Sprintf("[%d] %s %s", i+1, col.Title, countStr)
+		labelWidth := lipgloss.Width(labelText)
+
+		if x >= pos && x < pos+labelWidth {
+			if i != b.ActiveTab {
+				b.switchColumn(i)
+			}
+			return b, nil
+		}
+		pos += labelWidth
+		if i < numCols-1 {
+			pos += separatorWidth
+		}
+	}
+
+	return b, nil
+}
+
+func (b Board) handleCardClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if len(b.Columns) == 0 || b.ActiveTab >= len(b.Columns) {
+		return b, nil
+	}
+	col := &b.Columns[b.ActiveTab]
+	if len(col.Cards) == 0 {
+		return b, nil
+	}
+
+	// Card content starts at Y=2 (row 0=outer border title, row 1=panel top border).
+	// Account for scroll offset and up-arrow indicator.
+	contentStartY := 2
+	if col.ScrollOffset > 0 {
+		contentStartY++ // up-arrow indicator takes 1 row
+	}
+
+	// Determine card widths for line count calculation.
+	_, leftContentWidth, _ := b.layoutDimensions()
+	columnNames := make([]string, len(b.Columns))
+	for i, c := range b.Columns {
+		columnNames[i] = c.Title
+	}
+
+	// Iterate through visible cards to find which card was clicked.
+	currentY := contentStartY
+	for i := col.ScrollOffset; i < len(col.Cards); i++ {
+		lines := cardLineCount(col.Cards[i], leftContentWidth, columnNames, b.workingLabel)
+		if msg.Y >= currentY && msg.Y < currentY+lines {
+			// Clicked on this card.
+			col.Cursor = i
+			b.detailScrollOffset = 0
+			b.clampScrollOffset()
+			b.rebuildNormalHints()
+			b.statusBar.SetActionHints(b.normalHints)
+			return b, nil
+		}
+		currentY += lines
+	}
+
+	return b, nil
 }
 
