@@ -125,6 +125,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handlePRPickerModeKey(msg)
 		case searchMode:
 			return b.handleSearchModeKey(msg)
+		case helpMode:
+			return b.handleHelpModeKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -495,6 +497,12 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.clampScrollOffset()
 		b.rebuildNormalHints()
 		b.statusBar.SetActionHints(b.normalHints)
+	case "?":
+		b.helpFromDetailFocused = false
+		b.helpScrollOffset = 0
+		b.mode = helpMode
+		b.statusBar.SetActionHints(helpModeHints)
+		return b, nil
 	default:
 		// Check for number key navigation (1-9).
 		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
@@ -610,6 +618,13 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	case "o":
 		return b.handleRepoOpenKey()
+	case "?":
+		b.helpFromDetailFocused = true
+		b.detailFocused = false
+		b.helpScrollOffset = 0
+		b.mode = helpMode
+		b.statusBar.SetActionHints(helpModeHints)
+		return b, nil
 	case "h", "left":
 		b.detailFocused = false
 		b.statusBar.SetActionHints(b.normalHints)
@@ -759,5 +774,64 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, cmd
 	}
 	return b, nil
+}
+
+func (b Board) handleHelpModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "q":
+		return b, tea.Quit
+	case "?":
+		b.closeHelp()
+		return b, nil
+	case "j", "down":
+		maxOffset := b.helpMaxScrollOffset()
+		if b.helpScrollOffset < maxOffset {
+			b.helpScrollOffset++
+		}
+		return b, nil
+	case "k", "up":
+		if b.helpScrollOffset > 0 {
+			b.helpScrollOffset--
+		}
+		return b, nil
+	}
+
+	if msg.Type == tea.KeyEsc {
+		b.closeHelp()
+		return b, nil
+	}
+
+	return b, nil
+}
+
+// helpMaxScrollOffset computes the maximum scroll offset for the help modal content.
+func (b Board) helpMaxScrollOffset() int {
+	content := b.buildHelpContent()
+	contentLines := strings.Split(content, "\n")
+	// Match viewHelpModal layout: modal overhead 8, reserve 2 for hints bar + blank line.
+	modalHeight := b.Height - 8
+	if modalHeight < 5 {
+		modalHeight = 5
+	}
+	visibleLines := modalHeight - 2
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+	maxOffset := len(contentLines) - visibleLines
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	return maxOffset
+}
+
+// closeHelp exits helpMode and restores the previous mode (normal or detail-focused).
+func (b *Board) closeHelp() {
+	b.mode = normalMode
+	if b.helpFromDetailFocused {
+		b.detailFocused = true
+		b.statusBar.SetActionHints(detailFocusHints)
+	} else {
+		b.statusBar.SetActionHints(b.normalHints)
+	}
 }
 

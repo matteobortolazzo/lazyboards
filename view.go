@@ -95,6 +95,10 @@ func (b Board) View() string {
 		return b.viewPRPickerModal()
 	}
 
+	if b.mode == helpMode {
+		return b.viewHelpModal()
+	}
+
 	// Render with normal outer border, then replace the top line with the border title.
 	rendered := outerStyle.Width(innerWidth).Render(inner)
 	borderTitle := buildBorderTitle(b.Columns, b.ActiveTab, b.Width)
@@ -667,5 +671,190 @@ func (b Board) viewPRPickerModal() string {
 		prDisplay + "\n\n" +
 		pickerHints.View()
 
+	return b.renderModal(modalContent, modalWidth)
+}
+
+func (b Board) buildHelpContent() string {
+	var sb strings.Builder
+
+	sb.WriteString("Help\n\n")
+
+	// Normal Mode.
+	sb.WriteString("Normal Mode\n")
+	normalKeys := [][2]string{
+		{"?", "Help"},
+		{"q", "Quit"},
+		{"n", "New card"},
+		{"c", "Configuration"},
+		{"o", "Open repository"},
+		{"r", "Refresh"},
+		{"p", "Open PR"},
+		{"l/\u2192", "Detail panel"},
+		{"j/k", "Navigate cards"},
+		{"tab/s-tab", "Switch columns"},
+		{"1-9", "Jump to column"},
+	}
+	for _, kv := range normalKeys {
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+	}
+
+	// Detail Panel.
+	sb.WriteString("\nDetail Panel\n")
+	detailKeys := [][2]string{
+		{"j/k", "Scroll body"},
+		{"h/\u2190/esc", "Back to card list"},
+		{"tab/s-tab", "Switch columns"},
+		{"o", "Open repository"},
+		{"r", "Refresh"},
+		{"q", "Quit"},
+		{"?", "Help"},
+	}
+	for _, kv := range detailKeys {
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+	}
+
+	// Create Card.
+	sb.WriteString("\nCreate Card\n")
+	createKeys := [][2]string{
+		{"esc", "Cancel"},
+		{"tab", "Next field"},
+		{"enter", "Submit"},
+	}
+	for _, kv := range createKeys {
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+	}
+
+	// Configuration.
+	sb.WriteString("\nConfiguration\n")
+	configKeys := [][2]string{
+		{"esc", "Cancel"},
+		{"tab", "Next field"},
+		{"\u2190/\u2192", "Cycle provider"},
+		{"enter", "Save"},
+	}
+	for _, kv := range configKeys {
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+	}
+
+	// PR Picker.
+	sb.WriteString("\nPR Picker\n")
+	prKeys := [][2]string{
+		{"\u2190/\u2192", "Cycle PR"},
+		{"enter", "Select"},
+		{"esc", "Cancel"},
+	}
+	for _, kv := range prKeys {
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+	}
+
+	// Error.
+	sb.WriteString("\nError\n")
+	errorKeys := [][2]string{
+		{"r", "Retry"},
+		{"q", "Quit"},
+	}
+	for _, kv := range errorKeys {
+		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+	}
+
+	// Custom Actions (global).
+	hasGlobalActions := len(b.actions) > 0
+	hasColumnActions := false
+	for _, cc := range b.columnConfigs {
+		if len(cc.Actions) > 0 {
+			hasColumnActions = true
+			break
+		}
+	}
+
+	if hasGlobalActions || hasColumnActions {
+		sb.WriteString("\nCustom Actions\n")
+		for key, act := range b.actions {
+			sb.WriteString(fmt.Sprintf("  %-12s %s (%s)\n", key, act.Name, act.Type))
+		}
+		// Column-specific actions.
+		for _, cc := range b.columnConfigs {
+			if len(cc.Actions) == 0 {
+				continue
+			}
+			sb.WriteString(fmt.Sprintf("  %s:\n", cc.Name))
+			for key, act := range cc.Actions {
+				sb.WriteString(fmt.Sprintf("    %-10s %s (%s)\n", key, act.Name, act.Type))
+			}
+		}
+	}
+
+	// Usage.
+	sb.WriteString("\nUsage\n")
+	sb.WriteString("  Columns represent board states (e.g., New, Implementing).\n")
+	sb.WriteString("  Press l or \u2192 to view card details.\n")
+	sb.WriteString("  Custom actions are configured in .lazyboards.yml.\n")
+
+	return sb.String()
+}
+
+func (b Board) viewHelpModal() string {
+	modalWidth := 60
+	content := b.buildHelpContent()
+	contentLines := strings.Split(content, "\n")
+
+	// Compute visible area: terminal height minus modal border/padding overhead.
+	// renderModal uses Padding(1, 2) + rounded border: 1 top pad + 1 bottom pad + 1 top border + 1 bottom border = 4.
+	// Plus outer centering margin ~4 lines. Total overhead = 8.
+	// Reserve 2 lines for hints bar (blank line + hints).
+	modalHeight := b.Height - 8
+	if modalHeight < 5 {
+		modalHeight = 5
+	}
+	visibleLines := modalHeight - 2
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+
+	// Clamp scroll offset (defensive — primary clamp is in handleHelpModeKey).
+	maxOffset := len(contentLines) - visibleLines
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	scrollOffset := b.helpScrollOffset
+	if scrollOffset > maxOffset {
+		scrollOffset = maxOffset
+	}
+
+	// Compute visible window.
+	startLine := scrollOffset
+	endLine := startLine + visibleLines
+	if endLine > len(contentLines) {
+		endLine = len(contentLines)
+	}
+
+	showUp := startLine > 0
+	showDown := endLine < len(contentLines)
+
+	// Reserve space for indicators within visibleLines.
+	if showUp {
+		startLine++
+	}
+	if showDown {
+		endLine--
+	}
+	if startLine > endLine {
+		startLine = endLine
+	}
+
+	var displayLines []string
+	if showUp {
+		displayLines = append(displayLines, helpStyle.Render("\u25b2"))
+	}
+	displayLines = append(displayLines, contentLines[startLine:endLine]...)
+	if showDown {
+		displayLines = append(displayLines, helpStyle.Render("\u25bc"))
+	}
+
+	// Add hints bar.
+	hintsBar := NewStatusBar(helpModeHints)
+	displayLines = append(displayLines, "", hintsBar.View())
+
+	modalContent := strings.Join(displayLines, "\n")
 	return b.renderModal(modalContent, modalWidth)
 }
