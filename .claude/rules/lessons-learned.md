@@ -116,3 +116,19 @@ Claude reads this file automatically. Its rules are authoritative and override a
 - **Root cause**: Go imports are file-scoped. A package available in one file of a package does not automatically become available in another file. When refactoring to use a new function from an external package, the import must be added to every file that calls it.
 - **Fix**: Added `"github.com/charmbracelet/lipgloss"` to the import block in `update.go`.
 - **Rule**: After introducing a call to an external package function in any Go file, immediately verify the file's import block includes that package. Do not assume it is imported because another file in the same package imports it.
+
+### Frontmatter delimiter must match exact format used by composer
+- **Date**: 2026-02-23
+- **Ticket**: #195
+- **What happened**: `parseFrontmatter` used `strings.SplitN(content, "---", 3)` to split frontmatter from body. A title like "My --- Title" would silently corrupt data by splitting at the wrong `---` position instead of the actual content delimiter.
+- **Root cause**: `strings.SplitN(s, sep, 3)` with `sep = "---"` splits on any bare `---` substring. The frontmatter composer produces `"---\ntitle: TITLE\n---\nBODY"`, so the closing delimiter always appears as `"\n---\n"` (or `"\n---"` at EOF). Splitting on the bare `"---"` substring breaks when the title contains dashes.
+- **Fix**: Changed to split on the exact delimiter format: `strings.Index(content, "\n---\n")` to find the closing delimiter position, then extract header and body by slicing. Handle the EOF case separately with `strings.HasSuffix(content, "\n---")` for frontmatter with no trailing newline after the closing delimiter.
+- **Rule**: Always match the exact delimiter format used by the composer, not a substring. When parsing structured data with delimiters, verify the complete delimiter sequence (including surrounding whitespace) matches what the producer generates. Use `strings.Index` or `strings.LastIndex` with the full delimiter rather than `strings.Split` when user-controlled content might contain the delimiter substring.
+
+### Test assertions discarded after Update() mean test cannot fail
+- **Date**: 2026-02-23
+- **Ticket**: #195
+- **What happened**: Two tests, `TestEditMode_EditorFinishedWithChanges` and `TestEditMode_EditorFinishedBlankTitle`, had no-op assertions or discarded return values. `TestEditMode_EditorFinishedWithChanges` discarded both `m` and `cmd` with `_ = cmd; _ = b`, so it never asserted the cmd was non-nil. `TestEditMode_EditorFinishedBlankTitle` never actually sent the message through `Update()` and thus never tested the error path.
+- **Root cause**: After writing `b.Update(msg)` or `m, _ := b.Update(msg)`, a test may fail to assign or assert the results, making the test a no-op that always passes regardless of implementation. The pattern of discarding results with `_` is especially dangerous because it compiles cleanly but provides zero coverage.
+- **Fix**: `TestEditMode_EditorFinishedWithChanges` now captures both `m` and `cmd`, then asserts `cmd != nil`. `TestEditMode_EditorFinishedBlankTitle` now assigns the `editorFinishedMsg` with `editedContent: blankTitleContent` (not leaving it unset) and actually sends it through `b.Update(msg)`.
+- **Rule**: Every `Update()` call in a test must be followed by assertions on the returned model and/or cmd. Never use `_ = variable` after `Update()` — always capture both return values and assert relevant state. If a message field (like `editedContent` in `editorFinishedMsg`) is required for the handler to behave correctly, always set it in the test, do not rely on zero values.
