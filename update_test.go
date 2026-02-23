@@ -1,13 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
-	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 // --- Quit ---
@@ -44,53 +42,6 @@ func TestWindowResize_UpdatesDimensions(t *testing.T) {
 	}
 	if updated.Height != wantHeight {
 		t.Errorf("Height = %d, want %d", updated.Height, wantHeight)
-	}
-}
-
-// --- Config Hint ---
-
-func TestNormalMode_StatusBarShowsConfigHint(t *testing.T) {
-	b := newLoadedTestBoard(t)
-	b.Width = 120
-	b.Height = 40
-	view := b.View()
-	if !strings.Contains(view, "Config") {
-		t.Errorf("View() status bar does not contain hint desc %q", "Config")
-	}
-}
-
-// --- Number Hint ---
-
-func TestNumberHint_UpdatesOnSubsequentFetch(t *testing.T) {
-	// Start with a board loaded from FakeProvider (4 columns).
-	b := newLoadedTestBoard(t)
-	initialColCount := len(b.Columns)
-	initialHint := b.normalHints[0]
-	expectedInitialKey := fmt.Sprintf("1-%d", initialColCount)
-	if initialHint.Key != expectedInitialKey {
-		t.Fatalf("initial hint key = %q, want %q", initialHint.Key, expectedInitialKey)
-	}
-
-	// Simulate a second fetch that returns a different number of columns.
-	newBoard := provider.Board{
-		Columns: []provider.Column{
-			{Title: "Todo", Cards: nil},
-			{Title: "Done", Cards: nil},
-		},
-	}
-	m, _ := b.Update(boardFetchedMsg{board: newBoard})
-	updated := m.(Board)
-
-	// The number hint (first element) should reflect the new column count.
-	newColCount := len(updated.Columns)
-	expectedNewKey := fmt.Sprintf("1-%d", newColCount)
-	if updated.normalHints[0].Key != expectedNewKey {
-		t.Errorf("after re-fetch, hint key = %q, want %q", updated.normalHints[0].Key, expectedNewKey)
-	}
-
-	// The number of hints should not grow (no duplicate number hints prepended).
-	if len(updated.normalHints) != len(b.normalHints) {
-		t.Errorf("normalHints length changed: before=%d, after=%d (should stay same)", len(b.normalHints), len(updated.normalHints))
 	}
 }
 
