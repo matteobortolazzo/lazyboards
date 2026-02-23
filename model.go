@@ -106,6 +106,12 @@ var prPickerHints = []Hint{
 	{Key: "esc", Desc: "Cancel"},
 }
 
+// helpModeHints are the status bar hints shown in help mode.
+var helpModeHints = []Hint{
+	{Key: "esc/?", Desc: "Close"},
+	{Key: "j/k", Desc: "Scroll"},
+}
+
 // boardMode represents the current interaction mode of the board.
 type boardMode int
 
@@ -118,6 +124,7 @@ const (
 	configMode
 	prPickerMode
 	searchMode
+	helpMode
 )
 
 const (
@@ -244,12 +251,14 @@ type Board struct {
 	detailFocused      bool
 	detailScrollOffset int
 	prPickerIndex      int
-	refreshing         bool
-	refreshInterval    time.Duration
-	pendingAutoRefresh bool
-	prevCards          map[int]prevCardInfo
-	searchQuery        string
-	searchInput        textinput.Model
+	refreshing             bool
+	refreshInterval        time.Duration
+	pendingAutoRefresh     bool
+	prevCards              map[int]prevCardInfo
+	searchQuery            string
+	searchInput            textinput.Model
+	helpScrollOffset       int
+	helpFromDetailFocused  bool
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
