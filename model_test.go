@@ -36,7 +36,7 @@ func TestLoading_FetchSuccess_TransitionsToNormalMode(t *testing.T) {
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{{
 			Title: "Col1",
-			Cards: []provider.Card{{Number: 1, Title: "Card1", Labels: []string{"bug"}}},
+			Cards: []provider.Card{{Number: 1, Title: "Card1", Labels: []provider.Label{{Name: "bug"}}}},
 		}},
 	}}
 	m, _ := b.Update(msg)
@@ -303,24 +303,24 @@ func TestBoardFetched_MapsLinkedPRs(t *testing.T) {
 
 func TestLabelColor_SemanticLabelsGetFixedColors(t *testing.T) {
 	// Semantic labels should return their assigned color.
-	bugColor := labelColor("bug")
-	featureColor := labelColor("feature")
+	bugColor := labelColor(Label{Name: "bug"})
+	featureColor := labelColor(Label{Name: "feature"})
 
 	if bugColor == featureColor {
 		t.Error("bug and feature should have different colors")
 	}
 
 	// bug and critical share the same color (rose).
-	criticalColor := labelColor("critical")
+	criticalColor := labelColor(Label{Name: "critical"})
 	if bugColor != criticalColor {
 		t.Errorf("bug (%s) and critical (%s) should share the same color", bugColor, criticalColor)
 	}
 }
 
 func TestLabelColor_CaseInsensitive(t *testing.T) {
-	lower := labelColor("bug")
-	upper := labelColor("BUG")
-	mixed := labelColor("Bug")
+	lower := labelColor(Label{Name: "bug"})
+	upper := labelColor(Label{Name: "BUG"})
+	mixed := labelColor(Label{Name: "Bug"})
 
 	if lower != upper || lower != mixed {
 		t.Errorf("labelColor should be case-insensitive: bug=%s, BUG=%s, Bug=%s", lower, upper, mixed)
@@ -329,15 +329,15 @@ func TestLabelColor_CaseInsensitive(t *testing.T) {
 
 func TestLabelColor_Deterministic(t *testing.T) {
 	// Same label always produces the same color.
-	c1 := labelColor("custom-label")
-	c2 := labelColor("custom-label")
+	c1 := labelColor(Label{Name: "custom-label"})
+	c2 := labelColor(Label{Name: "custom-label"})
 	if c1 != c2 {
 		t.Errorf("labelColor should be deterministic: got %s then %s for same input", c1, c2)
 	}
 }
 
 func TestLabelColor_UnknownLabelsUseValidPaletteColor(t *testing.T) {
-	color := labelColor("some-unknown-label-xyz")
+	color := labelColor(Label{Name: "some-unknown-label-xyz"})
 
 	found := false
 	for _, pc := range labelPalette {
@@ -348,5 +348,58 @@ func TestLabelColor_UnknownLabelsUseValidPaletteColor(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("unknown label color %s should be from labelPalette", color)
+	}
+}
+
+func TestLabelColor_UsesGitHubColor_WhenPresent(t *testing.T) {
+	// When a label has a GitHub hex color, labelColor should use it
+	// (prepended with "#") instead of the semantic map or FNV hash.
+	color := labelColor(Label{Name: "bug", Color: "d73a4a"})
+	expected := lipgloss.Color("#d73a4a")
+	if color != expected {
+		t.Errorf("labelColor with GitHub color = %s, want %s", color, expected)
+	}
+}
+
+func TestLabelColor_FallsBackToSemanticMap_WhenNoColor(t *testing.T) {
+	// When a label has no GitHub color but matches the semantic map,
+	// it should use the semantic color.
+	withColor := labelColor(Label{Name: "bug"})
+	withoutColor := labelColor(Label{Name: "bug", Color: ""})
+	if withColor != withoutColor {
+		t.Errorf("labelColor should be the same with empty Color: got %s vs %s", withColor, withoutColor)
+	}
+	// Should still be the semantic color, not a palette color.
+	if _, ok := semanticLabelColors[strings.ToLower("bug")]; !ok {
+		t.Fatal("precondition: 'bug' should be in semanticLabelColors")
+	}
+}
+
+func TestLabelColor_FallsBackToFNVHash_WhenNoColorAndNotSemantic(t *testing.T) {
+	// When a label has no GitHub color and is not in the semantic map,
+	// it should use the FNV hash palette.
+	color := labelColor(Label{Name: "custom-xyz-label"})
+	found := false
+	for _, pc := range labelPalette {
+		if lipgloss.Color(color) == pc {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("labelColor for non-semantic label without GitHub color = %s, want a color from labelPalette", color)
+	}
+}
+
+func TestLabelColor_GitHubColorOverridesSemanticMap(t *testing.T) {
+	// Even for a label that matches the semantic map (like "bug"),
+	// a GitHub color should take priority.
+	semanticColor := labelColor(Label{Name: "bug", Color: ""})
+	githubColor := labelColor(Label{Name: "bug", Color: "ff0000"})
+	if semanticColor == githubColor {
+		t.Error("GitHub color should override semantic color, but they are the same")
+	}
+	if githubColor != lipgloss.Color("#ff0000") {
+		t.Errorf("labelColor with GitHub color = %s, want %s", githubColor, lipgloss.Color("#ff0000"))
 	}
 }

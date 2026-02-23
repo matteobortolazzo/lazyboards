@@ -65,9 +65,13 @@ var semanticLabelColors = map[string]lipgloss.Color{
 }
 
 // labelColor returns a deterministic color for a label.
-// Semantic labels get fixed colors; unknown labels use FNV-32 hash.
-func labelColor(label string) lipgloss.Color {
-	lower := strings.ToLower(label)
+// If the label has a provider-supplied hex color, it is used directly.
+// Otherwise, semantic labels get fixed colors; unknown labels use FNV-32 hash.
+func labelColor(label Label) lipgloss.Color {
+	if label.Color != "" {
+		return lipgloss.Color("#" + label.Color)
+	}
+	lower := strings.ToLower(label.Name)
 	if c, ok := semanticLabelColors[lower]; ok {
 		return c
 	}
@@ -121,11 +125,17 @@ type LinkedPR struct {
 	URL    string
 }
 
+// Label represents a card label with an optional hex color.
+type Label struct {
+	Name  string
+	Color string
+}
+
 // Card represents a single Kanban card (e.g., a GitHub issue).
 type Card struct {
 	Number    int
 	Title     string
-	Labels    []string
+	Labels    []Label
 	Body      string
 	LinkedPRs []LinkedPR
 }
@@ -405,6 +415,17 @@ func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
 	result := make([]LinkedPR, len(prs))
 	for i, pr := range prs {
 		result[i] = LinkedPR{Number: pr.Number, Title: pr.Title, URL: pr.URL}
+	}
+	return result
+}
+
+func mapLabels(labels []provider.Label) []Label {
+	if len(labels) == 0 {
+		return nil
+	}
+	result := make([]Label, len(labels))
+	for i, l := range labels {
+		result[i] = Label{Name: l.Name, Color: l.Color}
 	}
 	return result
 }

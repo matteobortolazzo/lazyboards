@@ -199,7 +199,7 @@ func TestGitHubFetchBoard_CardFieldsPopulated(t *testing.T) {
 	if card.Title != issueTitle {
 		t.Errorf("card.Title = %q, want %q", card.Title, issueTitle)
 	}
-	if len(card.Labels) == 0 || card.Labels[0] != issueLabel {
+	if len(card.Labels) == 0 || card.Labels[0].Name != issueLabel {
 		t.Errorf("card.Labels = %v, want [%q]", card.Labels, issueLabel)
 	}
 }
@@ -229,7 +229,7 @@ func TestGitHubFetchBoard_CardFieldsPopulated_UnmatchedLabel(t *testing.T) {
 	}
 
 	card := todoCol.Cards[0]
-	if len(card.Labels) != 1 || card.Labels[0] != "nonexistent" {
+	if len(card.Labels) != 1 || card.Labels[0].Name != "nonexistent" {
 		t.Errorf("card.Labels = %v, want [\"nonexistent\"] (all issue labels collected)", card.Labels)
 	}
 }
@@ -355,7 +355,7 @@ func TestGitHubFetchBoard_MultipleLabels_FurthestColumnWins(t *testing.T) {
 	if len(cardLabels) != 2 {
 		t.Fatalf("card.Labels has %d entries, want 2", len(cardLabels))
 	}
-	if cardLabels[0] != "In Progress" || cardLabels[1] != "Done" {
+	if cardLabels[0].Name != "In Progress" || cardLabels[1].Name != "Done" {
 		t.Errorf("card.Labels = %v, want [\"In Progress\", \"Done\"]", cardLabels)
 	}
 
@@ -404,7 +404,7 @@ func TestGitHubFetchBoard_MultipleLabels_NonMatchingLabelsIgnored(t *testing.T) 
 	if len(cardLabels) != 3 {
 		t.Fatalf("card.Labels has %d entries, want 3", len(cardLabels))
 	}
-	if cardLabels[0] != "unrelated-label" || cardLabels[1] != "New" || cardLabels[2] != "Done" {
+	if cardLabels[0].Name != "unrelated-label" || cardLabels[1].Name != "New" || cardLabels[2].Name != "Done" {
 		t.Errorf("card.Labels = %v, want [\"unrelated-label\", \"New\", \"Done\"]", cardLabels)
 	}
 
@@ -486,7 +486,7 @@ func TestGitHubCreateCard_WithLabel(t *testing.T) {
 	if card.Title != expectedTitle {
 		t.Errorf("card.Title = %q, want %q", card.Title, expectedTitle)
 	}
-	if len(card.Labels) == 0 || card.Labels[0] != expectedLabel {
+	if len(card.Labels) == 0 || card.Labels[0].Name != expectedLabel {
 		t.Errorf("card.Labels = %v, want [%q]", card.Labels, expectedLabel)
 	}
 }
@@ -1017,5 +1017,184 @@ func TestGitHubFetchBoard_OrderPreservedWithConcurrentFetches(t *testing.T) {
 		if card.Number != expectedNumber {
 			t.Errorf("card[%d].Number = %d, want %d (order not preserved)", i, card.Number, expectedNumber)
 		}
+	}
+}
+
+// --- Label Color Capture Tests ---
+
+// makeIssueWithColoredLabels builds a github.Issue with labels that have both
+// Name and Color fields set. Color values are hex strings without "#" prefix.
+func makeIssueWithColoredLabels(number int, title string, labels ...struct{ Name, Color string }) *github.Issue {
+	ghLabels := make([]*github.Label, len(labels))
+	for i, l := range labels {
+		ghLabels[i] = &github.Label{Name: github.Ptr(l.Name)}
+		if l.Color != "" {
+			ghLabels[i].Color = github.Ptr(l.Color)
+		}
+	}
+	return &github.Issue{
+		Number: github.Ptr(number),
+		Title:  github.Ptr(title),
+		Labels: ghLabels,
+	}
+}
+
+func TestGitHubFetchBoard_CapturesLabelColor(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := makeIssueWithColoredLabels(1, "Colored label issue",
+		struct{ Name, Color string }{"bug", "d73a4a"},
+	)
+
+	client := &mockIssuesClient{
+		issues:         []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{1: {}},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	card := board.Columns[0].Cards[0]
+	if len(card.Labels) != 1 {
+		t.Fatalf("card.Labels has %d entries, want 1", len(card.Labels))
+	}
+	if card.Labels[0].Name != "bug" {
+		t.Errorf("card.Labels[0].Name = %q, want %q", card.Labels[0].Name, "bug")
+	}
+	if card.Labels[0].Color != "d73a4a" {
+		t.Errorf("card.Labels[0].Color = %q, want %q", card.Labels[0].Color, "d73a4a")
+	}
+}
+
+func TestGitHubFetchBoard_LabelWithoutColor_EmptyColorField(t *testing.T) {
+	columns := []string{"Todo"}
+	// makeIssue creates labels without Color field.
+	issue := makeIssue(1, "No color label", "Todo")
+
+	client := &mockIssuesClient{
+		issues:         []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{1: {}},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	card := board.Columns[0].Cards[0]
+	if len(card.Labels) != 1 {
+		t.Fatalf("card.Labels has %d entries, want 1", len(card.Labels))
+	}
+	if card.Labels[0].Color != "" {
+		t.Errorf("card.Labels[0].Color = %q, want empty string for label without color", card.Labels[0].Color)
+	}
+}
+
+func TestGitHubFetchBoard_LabelColor_StripsHashPrefix(t *testing.T) {
+	columns := []string{"Todo"}
+	// Some GitHub API responses may include a "#" prefix in the color field.
+	issue := makeIssueWithColoredLabels(1, "Hash prefix issue",
+		struct{ Name, Color string }{"feature", "#0075ca"},
+	)
+
+	client := &mockIssuesClient{
+		issues:         []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{1: {}},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	card := board.Columns[0].Cards[0]
+	if len(card.Labels) != 1 {
+		t.Fatalf("card.Labels has %d entries, want 1", len(card.Labels))
+	}
+	// The stored color should NOT have the "#" prefix (it was stripped).
+	if card.Labels[0].Color != "0075ca" {
+		t.Errorf("card.Labels[0].Color = %q, want %q (should strip # prefix)", card.Labels[0].Color, "0075ca")
+	}
+}
+
+func TestGitHubFetchBoard_LabelColor_InvalidHex_FallsBackToEmpty(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := makeIssueWithColoredLabels(1, "Invalid color",
+		struct{ Name, Color string }{"bug", "xxxxxx"},
+	)
+
+	client := &mockIssuesClient{
+		issues:         []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{1: {}},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	card := board.Columns[0].Cards[0]
+	if card.Labels[0].Color != "" {
+		t.Errorf("card.Labels[0].Color = %q, want empty string for invalid hex color", card.Labels[0].Color)
+	}
+}
+
+func TestGitHubFetchBoard_LabelColor_ShortHex_FallsBackToEmpty(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := makeIssueWithColoredLabels(1, "Short color",
+		struct{ Name, Color string }{"bug", "fff"},
+	)
+
+	client := &mockIssuesClient{
+		issues:         []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{1: {}},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	card := board.Columns[0].Cards[0]
+	if card.Labels[0].Color != "" {
+		t.Errorf("card.Labels[0].Color = %q, want empty string for short hex color", card.Labels[0].Color)
+	}
+}
+
+func TestGitHubCreateCard_CapturesLabelColorFromResponse(t *testing.T) {
+	expectedLabel := "bug"
+	expectedColor := "d73a4a"
+
+	createdIssue := &github.Issue{
+		Number: github.Ptr(42),
+		Title:  github.Ptr("New feature"),
+		Labels: []*github.Label{
+			{Name: github.Ptr(expectedLabel), Color: github.Ptr(expectedColor)},
+		},
+	}
+	client := &mockIssuesClient{createdIssue: createdIssue}
+	columns := []string{"New"}
+
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	card, err := provider.CreateCard(context.Background(), "New feature", expectedLabel)
+	if err != nil {
+		t.Fatalf("CreateCard returned error: %v", err)
+	}
+
+	if len(card.Labels) != 1 {
+		t.Fatalf("card.Labels has %d entries, want 1", len(card.Labels))
+	}
+	if card.Labels[0].Name != expectedLabel {
+		t.Errorf("card.Labels[0].Name = %q, want %q", card.Labels[0].Name, expectedLabel)
+	}
+	if card.Labels[0].Color != expectedColor {
+		t.Errorf("card.Labels[0].Color = %q, want %q", card.Labels[0].Color, expectedColor)
 	}
 }

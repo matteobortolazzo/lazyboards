@@ -169,7 +169,7 @@ func TestView_BothIndicators_WhenMiddle(t *testing.T) {
 func TestView_WrapsLongTitle(t *testing.T) {
 	longTitle := "This is a very long title that should definitely be wrapped in the card list panel"
 	board := newBoardWithInlineCards(t, []provider.Card{
-		{Number: 1, Title: longTitle, Labels: []string{"test"}},
+		{Number: 1, Title: longTitle, Labels: []provider.Label{{Name: "test"}}},
 	}, 80, 30)
 
 	view := board.View()
@@ -191,8 +191,8 @@ func TestView_WrapsLongTitle(t *testing.T) {
 func TestView_WrappedTitles_SelectedCardAllLinesStyled(t *testing.T) {
 	longTitle := "This is a card title that is long enough to require wrapping across lines"
 	board := newBoardWithInlineCards(t, []provider.Card{
-		{Number: 1, Title: longTitle, Labels: []string{"test"}},
-		{Number: 2, Title: "Short", Labels: []string{"test"}},
+		{Number: 1, Title: longTitle, Labels: []provider.Label{{Name: "test"}}},
+		{Number: 2, Title: "Short", Labels: []provider.Label{{Name: "test"}}},
 	}, 80, 30)
 
 	view := board.View()
@@ -584,7 +584,7 @@ func TestView_CardList_BothPRAndWorkingIndicators(t *testing.T) {
 
 func TestView_CardList_WorkingIndicator_CaseSensitive(t *testing.T) {
 	// A card with "working" (lowercase) should NOT trigger the Working indicator.
-	b := newBoardWithCustomCard(t, "Lowercase working", []string{"working"}, "")
+	b := newBoardWithCustomCard(t, "Lowercase working", []provider.Label{{Name: "working"}}, "")
 	view := b.View()
 
 	if strings.Contains(view, "\uf110") {
@@ -650,7 +650,7 @@ func TestView_CardList_ShowsLabelDots(t *testing.T) {
 func TestView_CardList_HidesWorkingLabelDot(t *testing.T) {
 	// A card with labels ["Working", "bug"] should show the spinner icon
 	// but only 1 dot (for "bug"), not 2. The "Working" label dot is hidden.
-	b := newBoardWithCustomCard(t, "Fix crash", []string{"Working", "bug"}, "")
+	b := newBoardWithCustomCard(t, "Fix crash", []provider.Label{{Name: "Working"}, {Name: "bug"}}, "")
 	view := b.View()
 
 	// Spinner icon must still be present.
@@ -680,7 +680,7 @@ func TestView_CardList_HidesColumnNameLabelDot(t *testing.T) {
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Backlog", Cards: []provider.Card{
-				{Number: 1, Title: "Add feature", Labels: []string{"Backlog", "enhancement"}},
+				{Number: 1, Title: "Add feature", Labels: []provider.Label{{Name: "Backlog"}, {Name: "enhancement"}}},
 			}},
 		},
 	}}
@@ -706,7 +706,7 @@ func TestView_CardList_HidesColumnNameLabelDot(t *testing.T) {
 func TestView_CardList_HidesWorkingCaseInsensitive(t *testing.T) {
 	// The "working" label (lowercase) should also be hidden from the dot display,
 	// even though it does NOT trigger the spinner icon (spinner is case-sensitive).
-	b := newBoardWithCustomCard(t, "Some task", []string{"working", "bug"}, "")
+	b := newBoardWithCustomCard(t, "Some task", []provider.Label{{Name: "working"}, {Name: "bug"}}, "")
 	view := b.View()
 
 	// Count dots on the line(s) containing the card.
@@ -724,7 +724,7 @@ func TestView_CardList_HidesWorkingCaseInsensitive(t *testing.T) {
 
 func TestView_CardList_NoDots_WhenOnlyHiddenLabels(t *testing.T) {
 	// A card with only ["Working"] should show the spinner icon but NO dots at all.
-	b := newBoardWithCustomCard(t, "Solo working", []string{"Working"}, "")
+	b := newBoardWithCustomCard(t, "Solo working", []provider.Label{{Name: "Working"}}, "")
 	view := b.View()
 
 	// Spinner icon must still be present.
@@ -754,7 +754,7 @@ func TestView_CardList_MixedHiddenLabels(t *testing.T) {
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "To Do", Cards: []provider.Card{
-				{Number: 1, Title: "Important task", Labels: []string{"Working", "To Do", "bug", "urgent"}},
+				{Number: 1, Title: "Important task", Labels: []provider.Label{{Name: "Working"}, {Name: "To Do"}, {Name: "bug"}, {Name: "urgent"}}},
 			}},
 		},
 	}}
@@ -786,7 +786,7 @@ func TestView_DetailPanel_StillShowsHiddenLabels(t *testing.T) {
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Backlog", Cards: []provider.Card{
-				{Number: 1, Title: "Test card", Labels: []string{"Working", "Backlog", "bug"}},
+				{Number: 1, Title: "Test card", Labels: []provider.Label{{Name: "Working"}, {Name: "Backlog"}, {Name: "bug"}}},
 			}},
 		},
 	}}
@@ -801,5 +801,41 @@ func TestView_DetailPanel_StillShowsHiddenLabels(t *testing.T) {
 		if !strings.Contains(view, label) {
 			t.Errorf("detail panel should contain label %q, but it was not found in view", label)
 		}
+	}
+}
+
+func TestView_DetailPanel_RendersWithGitHubLabelColors(t *testing.T) {
+	// A card with labels that have GitHub hex colors should render
+	// without errors and still display the label names in the detail panel.
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Backlog", Cards: []provider.Card{
+				{Number: 1, Title: "Colored labels", Labels: []provider.Label{
+					{Name: "bug", Color: "d73a4a"},
+					{Name: "enhancement", Color: "a2eeef"},
+					{Name: "no-color-label"},
+				}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	view := board.View()
+
+	// All three label names should appear in the detail panel.
+	for _, labelName := range []string{"bug", "enhancement", "no-color-label"} {
+		if !strings.Contains(view, labelName) {
+			t.Errorf("detail panel should contain label %q, but it was not found in view", labelName)
+		}
+	}
+
+	// The view should render without being empty (no panics from color handling).
+	if strings.TrimSpace(view) == "" {
+		t.Error("View() should not be empty when rendering cards with GitHub label colors")
 	}
 }
