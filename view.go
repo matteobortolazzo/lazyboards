@@ -27,7 +27,7 @@ func (b Board) View() string {
 	}
 
 	if b.mode == errorMode {
-		errorText := "Error: " + b.loadErr + "\n\n" + b.statusBar.View()
+		errorText := "Error: " + b.loadErr + "\n\n" + b.statusBar.View(b.Width)
 		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, errorText)
 	}
 
@@ -81,7 +81,7 @@ func (b Board) View() string {
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
 	// Help bar.
-	helpBar := b.statusBar.View()
+	helpBar := b.statusBar.View(innerWidth)
 	if b.refreshing {
 		helpBar = b.spinner.View() + " Refreshing..."
 	}
@@ -686,7 +686,7 @@ func (b Board) viewCreateModal() string {
 		modalContent = "New Card\n\n" +
 			"Title:\n" + b.create.titleInput.View() + errLine + "\n\n" +
 			"Label:\n" + b.create.labelInput.View() + "\n\n" +
-			createHints.View()
+			createHints.View(modalWidth)
 	}
 
 	return b.renderModal(modalContent, modalWidth)
@@ -712,7 +712,7 @@ func (b Board) viewConfigModal() string {
 	modalContent := "Configuration\n\n" +
 		"Provider:\n" + providerDisplay + "\n\n" +
 		"Repo:\n" + repoView + errLine + "\n\n" +
-		configHints.View()
+		configHints.View(modalWidth)
 
 	return b.renderModal(modalContent, modalWidth)
 }
@@ -728,7 +728,7 @@ func (b Board) viewPRPickerModal() string {
 	pickerHints := NewStatusBar(prPickerHints)
 	modalContent := "Select PR\n\n" +
 		prDisplay + "\n\n" +
-		pickerHints.View()
+		pickerHints.View(modalWidth)
 
 	return b.renderModal(modalContent, modalWidth)
 }
@@ -912,7 +912,7 @@ func (b Board) viewHelpModal() string {
 
 	// Add hints bar.
 	hintsBar := NewStatusBar(helpModeHints)
-	displayLines = append(displayLines, "", hintsBar.View())
+	displayLines = append(displayLines, "", hintsBar.View(modalWidth))
 
 	modalContent := strings.Join(displayLines, "\n")
 	return b.renderModal(modalContent, modalWidth)
