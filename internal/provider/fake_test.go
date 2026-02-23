@@ -181,3 +181,106 @@ func TestCreateCard_MultipleCallsProduceUniqueIncrementingNumbers(t *testing.T) 
 		t.Errorf("card3 number %d is not greater than card2 number %d", card3.Number, card2.Number)
 	}
 }
+
+func TestFakeProvider_UpdateCard_Success(t *testing.T) {
+	fp := NewFakeProvider()
+
+	// Pick an existing card from the board to update.
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	existingCard := board.Columns[0].Cards[0]
+
+	updatedTitle := "Updated " + existingCard.Title
+	updatedBody := "New body content"
+	updatedLabels := []string{"updated-label"}
+
+	card, err := fp.UpdateCard(context.Background(), existingCard.Number, updatedTitle, updatedBody, updatedLabels)
+	if err != nil {
+		t.Fatalf("UpdateCard returned error: %v", err)
+	}
+
+	// Verify the returned card has the updated fields.
+	if card.Number != existingCard.Number {
+		t.Errorf("card.Number = %d, want %d", card.Number, existingCard.Number)
+	}
+	if card.Title != updatedTitle {
+		t.Errorf("card.Title = %q, want %q", card.Title, updatedTitle)
+	}
+	if card.Body != updatedBody {
+		t.Errorf("card.Body = %q, want %q", card.Body, updatedBody)
+	}
+	if len(card.Labels) != len(updatedLabels) {
+		t.Fatalf("card.Labels has %d entries, want %d", len(card.Labels), len(updatedLabels))
+	}
+	if card.Labels[0].Name != updatedLabels[0] {
+		t.Errorf("card.Labels[0].Name = %q, want %q", card.Labels[0].Name, updatedLabels[0])
+	}
+
+	// Verify the update is persisted — fetch the board again and find the card.
+	board, err = fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard after update returned error: %v", err)
+	}
+
+	found := false
+	for _, col := range board.Columns {
+		for _, c := range col.Cards {
+			if c.Number == existingCard.Number {
+				found = true
+				if c.Title != updatedTitle {
+					t.Errorf("persisted card.Title = %q, want %q", c.Title, updatedTitle)
+				}
+				if c.Body != updatedBody {
+					t.Errorf("persisted card.Body = %q, want %q", c.Body, updatedBody)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("updated card #%d not found in board after update", existingCard.Number)
+	}
+}
+
+func TestFakeProvider_UpdateCard_NotFound(t *testing.T) {
+	fp := NewFakeProvider()
+	nonExistentNumber := 9999
+
+	_, err := fp.UpdateCard(context.Background(), nonExistentNumber, "title", "body", []string{})
+	if err == nil {
+		t.Fatal("expected error for non-existent card number, got nil")
+	}
+}
+
+func TestFakeProvider_UpdateCard_EmptyTitle(t *testing.T) {
+	fp := NewFakeProvider()
+
+	// Use an existing card number from the fake board.
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	existingNumber := board.Columns[0].Cards[0].Number
+
+	// Empty string title should return an error.
+	_, err = fp.UpdateCard(context.Background(), existingNumber, "", "body", []string{})
+	if err == nil {
+		t.Fatal("expected error for empty title, got nil")
+	}
+
+	// Whitespace-only title should also return an error.
+	_, err = fp.UpdateCard(context.Background(), existingNumber, "   ", "body", []string{})
+	if err == nil {
+		t.Fatal("expected error for whitespace-only title, got nil")
+	}
+}
+
+func TestFakeProvider_CreateLabel(t *testing.T) {
+	fp := NewFakeProvider()
+
+	err := fp.CreateLabel(context.Background(), "new-label")
+	if err != nil {
+		t.Fatalf("CreateLabel returned error: %v, want nil (no-op)", err)
+	}
+}

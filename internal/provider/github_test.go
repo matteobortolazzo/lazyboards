@@ -17,6 +17,10 @@ type mockIssuesClient struct {
 	err            error
 	createdIssue   *github.Issue // returned by Create
 	createErr      error         // returned by Create
+	editedIssue    *github.Issue // returned by Edit
+	editErr        error         // returned by Edit
+	createdLabel   *github.Label // returned by CreateLabel
+	createLabelErr error         // returned by CreateLabel
 	timelineEvents map[int][]*github.Timeline // keyed by issue number
 	timelineErr    error
 	capturedOpts   *github.IssueListByRepoOptions // captured from ListByRepo
@@ -39,6 +43,25 @@ func (m *mockIssuesClient) Create(
 	_ *github.IssueRequest,
 ) (*github.Issue, *github.Response, error) {
 	return m.createdIssue, nil, m.createErr
+}
+
+func (m *mockIssuesClient) Edit(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ int,
+	_ *github.IssueRequest,
+) (*github.Issue, *github.Response, error) {
+	return m.editedIssue, nil, m.editErr
+}
+
+func (m *mockIssuesClient) CreateLabel(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ *github.Label,
+) (*github.Label, *github.Response, error) {
+	return m.createdLabel, nil, m.createLabelErr
 }
 
 func (m *mockIssuesClient) ListIssueTimeline(
@@ -1196,5 +1219,210 @@ func TestGitHubCreateCard_CapturesLabelColorFromResponse(t *testing.T) {
 	}
 	if card.Labels[0].Color != expectedColor {
 		t.Errorf("card.Labels[0].Color = %q, want %q", card.Labels[0].Color, expectedColor)
+	}
+}
+
+// --- UpdateCard Tests ---
+
+func TestGitHubUpdateCard_Success(t *testing.T) {
+	expectedNumber := 42
+	expectedTitle := "Updated title"
+	expectedBody := "Updated body content"
+	expectedLabels := []struct{ Name, Color string }{
+		{"bug", "d73a4a"},
+		{"enhancement", "a2eeef"},
+	}
+
+	ghLabels := make([]*github.Label, len(expectedLabels))
+	for i, l := range expectedLabels {
+		ghLabels[i] = &github.Label{
+			Name:  github.Ptr(l.Name),
+			Color: github.Ptr(l.Color),
+		}
+	}
+
+	client := &mockIssuesClient{
+		editedIssue: &github.Issue{
+			Number: github.Ptr(expectedNumber),
+			Title:  github.Ptr(expectedTitle),
+			Body:   github.Ptr(expectedBody),
+			Labels: ghLabels,
+		},
+	}
+	columns := []string{"New"}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	labelNames := make([]string, len(expectedLabels))
+	for i, l := range expectedLabels {
+		labelNames[i] = l.Name
+	}
+
+	card, err := provider.UpdateCard(context.Background(), expectedNumber, expectedTitle, expectedBody, labelNames)
+	if err != nil {
+		t.Fatalf("UpdateCard returned error: %v", err)
+	}
+
+	if card.Number != expectedNumber {
+		t.Errorf("card.Number = %d, want %d", card.Number, expectedNumber)
+	}
+	if card.Title != expectedTitle {
+		t.Errorf("card.Title = %q, want %q", card.Title, expectedTitle)
+	}
+	if card.Body != expectedBody {
+		t.Errorf("card.Body = %q, want %q", card.Body, expectedBody)
+	}
+
+	if len(card.Labels) != len(expectedLabels) {
+		t.Fatalf("card.Labels has %d entries, want %d", len(card.Labels), len(expectedLabels))
+	}
+	for i, expected := range expectedLabels {
+		if card.Labels[i].Name != expected.Name {
+			t.Errorf("card.Labels[%d].Name = %q, want %q", i, card.Labels[i].Name, expected.Name)
+		}
+		if card.Labels[i].Color != expected.Color {
+			t.Errorf("card.Labels[%d].Color = %q, want %q", i, card.Labels[i].Color, expected.Color)
+		}
+	}
+}
+
+func TestGitHubUpdateCard_WithEmptyLabels(t *testing.T) {
+	expectedNumber := 10
+	expectedTitle := "No labels issue"
+	expectedBody := "Body without labels"
+
+	client := &mockIssuesClient{
+		editedIssue: &github.Issue{
+			Number: github.Ptr(expectedNumber),
+			Title:  github.Ptr(expectedTitle),
+			Body:   github.Ptr(expectedBody),
+			Labels: []*github.Label{},
+		},
+	}
+	columns := []string{"New"}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	card, err := provider.UpdateCard(context.Background(), expectedNumber, expectedTitle, expectedBody, []string{})
+	if err != nil {
+		t.Fatalf("UpdateCard returned error: %v", err)
+	}
+
+	if len(card.Labels) != 0 {
+		t.Errorf("card.Labels has %d entries, want 0", len(card.Labels))
+	}
+}
+
+func TestGitHubUpdateCard_APIError(t *testing.T) {
+	apiErrMsg := "API request failed"
+	client := &mockIssuesClient{
+		editErr: errors.New(apiErrMsg),
+	}
+	columns := []string{"New"}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	_, err := provider.UpdateCard(context.Background(), 1, "title", "body", []string{"bug"})
+	if err == nil {
+		t.Fatal("expected error from UpdateCard, got nil")
+	}
+	if !strings.Contains(err.Error(), apiErrMsg) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
+	}
+}
+
+// --- UpdateCard Validation Tests ---
+
+func TestGitHubUpdateCard_EmptyTitle(t *testing.T) {
+	client := &mockIssuesClient{}
+	columns := []string{"New"}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	// Empty string title should return an error.
+	_, err := provider.UpdateCard(context.Background(), 1, "", "body", []string{"bug"})
+	if err == nil {
+		t.Fatal("expected error for empty title, got nil")
+	}
+	if !strings.Contains(err.Error(), "title") {
+		t.Errorf("error = %q, want it to mention title", err.Error())
+	}
+
+	// Whitespace-only title should also return an error.
+	_, err = provider.UpdateCard(context.Background(), 1, "   ", "body", []string{"bug"})
+	if err == nil {
+		t.Fatal("expected error for whitespace-only title, got nil")
+	}
+}
+
+func TestGitHubUpdateCard_ValidationError(t *testing.T) {
+	client := &mockIssuesClient{
+		editErr: &github.ErrorResponse{
+			Response: &http.Response{StatusCode: 422},
+			Message:  "Validation Failed",
+		},
+	}
+	columns := []string{"New"}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	_, err := provider.UpdateCard(context.Background(), 1, "title", "body", []string{"nonexistent"})
+	if err == nil {
+		t.Fatal("expected error from UpdateCard with 422 response, got nil")
+	}
+
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "validation failed") {
+		t.Errorf("error = %q, want it to contain %q", errMsg, "validation failed")
+	}
+	if !strings.Contains(errMsg, "label") {
+		t.Errorf("error = %q, want it to mention labels", errMsg)
+	}
+}
+
+// --- CreateLabel Tests ---
+
+func TestGitHubCreateLabel_Success(t *testing.T) {
+	labelName := "new-label"
+	client := &mockIssuesClient{
+		createdLabel: &github.Label{Name: github.Ptr(labelName)},
+	}
+	columns := []string{"New"}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	err := provider.CreateLabel(context.Background(), labelName)
+	if err != nil {
+		t.Fatalf("CreateLabel returned error: %v", err)
+	}
+}
+
+func TestGitHubCreateLabel_APIError(t *testing.T) {
+	apiErrMsg := "API request failed"
+	client := &mockIssuesClient{
+		createLabelErr: errors.New(apiErrMsg),
+	}
+	columns := []string{"New"}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	err := provider.CreateLabel(context.Background(), "some-label")
+	if err == nil {
+		t.Fatal("expected error from CreateLabel, got nil")
+	}
+	if !strings.Contains(err.Error(), apiErrMsg) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
+	}
+}
+
+func TestGitHubCreateLabel_AlreadyExists(t *testing.T) {
+	client := &mockIssuesClient{
+		createLabelErr: &github.ErrorResponse{
+			Response: &http.Response{StatusCode: 422},
+			Message:  "Validation Failed",
+		},
+	}
+	columns := []string{"New"}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	err := provider.CreateLabel(context.Background(), "existing-label")
+	if err == nil {
+		t.Fatal("expected error from CreateLabel for duplicate label, got nil")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "already exists")
 	}
 }

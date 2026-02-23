@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -97,4 +98,34 @@ func (f *FakeProvider) CreateCard(_ context.Context, title string, label string)
 	f.nextNumber++
 
 	return card, nil
+}
+
+// UpdateCard updates an existing card's title, body, and labels in memory.
+// Title must be non-empty after trimming whitespace.
+func (f *FakeProvider) UpdateCard(_ context.Context, number int, title string, body string, labels []string) (Card, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return Card{}, errors.New("title is required")
+	}
+
+	for ci := range f.columns {
+		for i := range f.columns[ci].Cards {
+			if f.columns[ci].Cards[i].Number == number {
+				f.columns[ci].Cards[i].Title = title
+				f.columns[ci].Cards[i].Body = body
+				cardLabels := make([]Label, len(labels))
+				for j, name := range labels {
+					cardLabels[j] = Label{Name: name}
+				}
+				f.columns[ci].Cards[i].Labels = cardLabels
+				return f.columns[ci].Cards[i], nil
+			}
+		}
+	}
+	return Card{}, fmt.Errorf("card #%d not found", number)
+}
+
+// CreateLabel is a no-op for the fake provider.
+func (f *FakeProvider) CreateLabel(_ context.Context, _ string) error {
+	return nil
 }

@@ -32,6 +32,8 @@ var _ BoardProvider = (*GitHubProvider)(nil)
 type GitHubIssuesClient interface {
 	ListByRepo(ctx context.Context, owner string, repo string, opts *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error)
 	Create(ctx context.Context, owner string, repo string, issue *github.IssueRequest) (*github.Issue, *github.Response, error)
+	Edit(ctx context.Context, owner string, repo string, number int, issue *github.IssueRequest) (*github.Issue, *github.Response, error)
+	CreateLabel(ctx context.Context, owner string, repo string, label *github.Label) (*github.Label, *github.Response, error)
 	ListIssueTimeline(ctx context.Context, owner string, repo string, number int, opts *github.ListOptions) ([]*github.Timeline, *github.Response, error)
 }
 
@@ -103,14 +105,7 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 			}
 
 			// Collect all labels with their colors.
-			allLabels := make([]Label, 0, len(issue.Labels))
-			for _, label := range issue.Labels {
-				color := strings.TrimPrefix(label.GetColor(), "#")
-				if !hexColorRE.MatchString(color) {
-					color = ""
-				}
-				allLabels = append(allLabels, Label{Name: label.GetName(), Color: color})
-			}
+			allLabels := extractLabels(issue.Labels)
 			if len(allLabels) > 0 {
 				card.Labels = allLabels
 			}
@@ -221,6 +216,20 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 	return Board{Columns: columns}, nil
 }
 
+// extractLabels converts GitHub API labels to provider Labels, stripping the
+// optional "#" prefix from color values and validating 6-character hex format.
+func extractLabels(ghLabels []*github.Label) []Label {
+	labels := make([]Label, 0, len(ghLabels))
+	for _, l := range ghLabels {
+		color := strings.TrimPrefix(l.GetColor(), "#")
+		if !hexColorRE.MatchString(color) {
+			color = ""
+		}
+		labels = append(labels, Label{Name: l.GetName(), Color: color})
+	}
+	return labels
+}
+
 // fetchLinkedPRs retrieves cross-referenced pull requests from the issue timeline.
 func (g *GitHubProvider) fetchLinkedPRs(ctx context.Context, issueNumber int) ([]LinkedPR, error) {
 	opts := &github.ListOptions{PerPage: 100}
@@ -273,7 +282,7 @@ func (g *GitHubProvider) CreateCard(ctx context.Context, title string, label str
 	issue, _, err := g.client.Create(ctx, g.owner, g.repo, req)
 	if err != nil {
 		var ghErr *github.ErrorResponse
-		if errors.As(err, &ghErr) && ghErr.Response.StatusCode == 422 {
+		if errors.As(err, &ghErr) && ghErr.Response != nil && ghErr.Response.StatusCode == 422 {
 			return Card{}, fmt.Errorf("label %q does not exist in the repository", label)
 		}
 		return Card{}, err
@@ -283,17 +292,60 @@ func (g *GitHubProvider) CreateCard(ctx context.Context, title string, label str
 		Number: issue.GetNumber(),
 		Title:  issue.GetTitle(),
 		Body:   issue.GetBody(),
-	}
-	for _, l := range issue.Labels {
-		color := strings.TrimPrefix(l.GetColor(), "#")
-		if !hexColorRE.MatchString(color) {
-			color = ""
-		}
-		card.Labels = append(card.Labels, Label{Name: l.GetName(), Color: color})
+		Labels: extractLabels(issue.Labels),
 	}
 	if len(card.Labels) == 0 && label != "" {
 		card.Labels = []Label{{Name: label}}
 	}
 
 	return card, nil
+}
+
+// UpdateCard updates a GitHub issue's title, body, and labels.
+func (g *GitHubProvider) UpdateCard(ctx context.Context, number int, title string, body string, labels []string) (Card, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return Card{}, errors.New("title is required")
+	}
+
+	req := &github.IssueRequest{
+		Title:  github.Ptr(title),
+		Body:   github.Ptr(body),
+		Labels: &labels,
+	}
+
+	issue, _, err := g.client.Edit(ctx, g.owner, g.repo, number, req)
+	if err != nil {
+		var ghErr *github.ErrorResponse
+		if errors.As(err, &ghErr) && ghErr.Response != nil && ghErr.Response.StatusCode == 422 {
+			return Card{}, fmt.Errorf("validation failed: one or more labels may not exist")
+		}
+		return Card{}, err
+	}
+
+	card := Card{
+		Number: issue.GetNumber(),
+		Title:  issue.GetTitle(),
+		Body:   issue.GetBody(),
+		Labels: extractLabels(issue.Labels),
+	}
+	return card, nil
+}
+
+// CreateLabel creates a new label in the GitHub repository.
+func (g *GitHubProvider) CreateLabel(ctx context.Context, name string) error {
+	label := &github.Label{
+		Name:  github.Ptr(name),
+		Color: github.Ptr("ededed"),
+	}
+
+	_, _, err := g.client.CreateLabel(ctx, g.owner, g.repo, label)
+	if err != nil {
+		var ghErr *github.ErrorResponse
+		if errors.As(err, &ghErr) && ghErr.Response != nil && ghErr.Response.StatusCode == 422 {
+			return fmt.Errorf("label %q already exists", name)
+		}
+		return err
+	}
+	return nil
 }
