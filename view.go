@@ -542,32 +542,45 @@ func renderBody(body string) string {
 	return body
 }
 
+// escapeMarkdown escapes markdown-special characters to prevent
+// unintended formatting when rendered by glamour.
+func escapeMarkdown(s string) string {
+	replacer := strings.NewReplacer(
+		`*`, `\*`,
+		`_`, `\_`,
+		"`", "\\`",
+		`[`, `\[`,
+		`]`, `\]`,
+		`~`, `\~`,
+	)
+	return replacer.Replace(s)
+}
+
 // composeDetailMarkdown builds a markdown string for the detail panel.
-// It always starts with a fenced YAML code block containing the card title.
-// If the card has labels, a "labels:" field is added inside the YAML block.
-// If the card has a body, it is appended after a blank line.
+// Card metadata is rendered as markdown text followed by a --- horizontal rule.
+// If the card has labels, a "labels:" field is added after the title.
+// If the card has a body, it is appended after the horizontal rule.
 func composeDetailMarkdown(card Card) string {
 	var sb strings.Builder
-	sb.WriteString("```\n")
 
-	// Escape title for YAML double-quoted string and code fence safety.
+	// Escape title for YAML double-quoted string, then escape markdown chars.
 	safeTitle := strings.ReplaceAll(card.Title, `\`, `\\`)
 	safeTitle = strings.ReplaceAll(safeTitle, `"`, `\"`)
-	safeTitle = strings.ReplaceAll(safeTitle, "```", "` ` `")
-	sb.WriteString(fmt.Sprintf("title: \"#%d %s\"\n", card.Number, safeTitle))
+	safeTitle = escapeMarkdown(safeTitle)
+	sb.WriteString(fmt.Sprintf("title: \"#%d %s\"\n\n", card.Number, safeTitle))
 
 	if len(card.Labels) > 0 {
 		labelNames := make([]string, len(card.Labels))
 		for i, l := range card.Labels {
-			// Escape label for YAML quoted string and code fence safety.
+			// Escape label for YAML quoted string, then escape markdown chars.
 			safe := strings.ReplaceAll(l.Name, `\`, `\\`)
 			safe = strings.ReplaceAll(safe, `"`, `\"`)
-			safe = strings.ReplaceAll(safe, "```", "` ` `")
+			safe = escapeMarkdown(safe)
 			labelNames[i] = `"` + safe + `"`
 		}
-		sb.WriteString("labels: [" + strings.Join(labelNames, ", ") + "]\n")
+		sb.WriteString("labels: [" + strings.Join(labelNames, ", ") + "]\n\n")
 	}
-	sb.WriteString("```")
+	sb.WriteString("---")
 	if card.Body != "" {
 		sb.WriteString("\n\n" + card.Body)
 	}
