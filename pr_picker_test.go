@@ -25,8 +25,8 @@ func TestNormalMode_P_NoPRs_ShowsMessage(t *testing.T) {
 	if b.mode != normalMode {
 		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
 	}
-	if !strings.Contains(b.statusBar.View(), "No linked PRs") {
-		t.Errorf("statusBar.View() = %q, want it to contain %q", b.statusBar.View(), "No linked PRs")
+	if !strings.Contains(b.statusBar.View(200), "No linked PRs") {
+		t.Errorf("statusBar.View() = %q, want it to contain %q", b.statusBar.View(200), "No linked PRs")
 	}
 }
 
@@ -65,8 +65,8 @@ func TestNormalMode_P_SinglePR_ShowsStatusMessage(t *testing.T) {
 	b = m.(Board)
 	execCmds(cmd)
 
-	if !strings.Contains(b.statusBar.View(), "Opened PR #10") {
-		t.Errorf("statusBar.View() = %q, want it to contain %q", b.statusBar.View(), "Opened PR #10")
+	if !strings.Contains(b.statusBar.View(200), "Opened PR #10") {
+		t.Errorf("statusBar.View() = %q, want it to contain %q", b.statusBar.View(200), "Opened PR #10")
 	}
 }
 
@@ -188,8 +188,8 @@ func TestPRPicker_Enter_ShowsStatusMessage(t *testing.T) {
 	b = m.(Board)
 	execCmds(cmd)
 
-	if !strings.Contains(b.statusBar.View(), "Opened PR #21") {
-		t.Errorf("statusBar.View() = %q, want it to contain %q", b.statusBar.View(), "Opened PR #21")
+	if !strings.Contains(b.statusBar.View(200), "Opened PR #21") {
+		t.Errorf("statusBar.View() = %q, want it to contain %q", b.statusBar.View(200), "Opened PR #21")
 	}
 }
 
@@ -203,7 +203,7 @@ func TestNormalMode_HintShowsOpenPR(t *testing.T) {
 		t.Fatalf("test setup: expected card at cursor to have LinkedPRs")
 	}
 
-	view := b.statusBar.View()
+	view := b.statusBar.View(200)
 	if !strings.Contains(view, "Open PR") {
 		t.Errorf("statusBar.View() = %q, want it to contain %q", view, "Open PR")
 	}
@@ -218,7 +218,7 @@ func TestNormalMode_HintHidesOpenPR_NoPRs(t *testing.T) {
 		t.Fatalf("test setup: expected card at cursor to have 0 LinkedPRs, got %d", len(card.LinkedPRs))
 	}
 
-	view := b.statusBar.View()
+	view := b.statusBar.View(200)
 	if strings.Contains(view, "Open PR") {
 		t.Errorf("statusBar.View() = %q, should NOT contain %q when card has no linked PRs", view, "Open PR")
 	}
@@ -228,21 +228,21 @@ func TestNormalMode_HintUpdatesOnCursorMove(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 
 	// Card 0 (cursor start): no linked PRs — hint should be absent.
-	view := b.statusBar.View()
+	view := b.statusBar.View(200)
 	if strings.Contains(view, "Open PR") {
 		t.Errorf("card with no PRs: statusBar.View() = %q, should NOT contain %q", view, "Open PR")
 	}
 
 	// Move to card 1: has linked PRs — hint should appear.
 	b = sendKey(t, b, keyMsg("j"))
-	view = b.statusBar.View()
+	view = b.statusBar.View(200)
 	if !strings.Contains(view, "Open PR") {
 		t.Errorf("card with PRs: statusBar.View() = %q, want it to contain %q", view, "Open PR")
 	}
 
 	// Move back to card 0: no linked PRs — hint should disappear.
 	b = sendKey(t, b, keyMsg("k"))
-	view = b.statusBar.View()
+	view = b.statusBar.View(200)
 	if strings.Contains(view, "Open PR") {
 		t.Errorf("back to card with no PRs: statusBar.View() = %q, should NOT contain %q", view, "Open PR")
 	}
