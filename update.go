@@ -27,6 +27,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case boardFetchErrorMsg:
 		if b.refreshing {
 			b.refreshing = false
+			b.pendingAutoRefresh = false
 			cmd := b.statusBar.SetTimedMessage("Refresh failed: "+provider.SanitizeError(msg.err), statusMessageDuration)
 			if tickCmd := b.scheduleRefreshTick(); tickCmd != nil {
 				cmd = tea.Batch(cmd, tickCmd)
@@ -66,7 +67,21 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case actionResultMsg:
 		cmd := b.statusBar.SetTimedMessage(msg.message, statusMessageDuration)
+		if msg.success {
+			b.pendingAutoRefresh = true
+			cmd = tea.Batch(cmd, tea.Tick(autoRefreshDelay, func(time.Time) tea.Msg {
+				return autoRefreshMsg{}
+			}))
+		}
 		return b, cmd
+
+	case autoRefreshMsg:
+		if !b.pendingAutoRefresh || b.refreshing {
+			return b, nil
+		}
+		b.pendingAutoRefresh = false
+		b.refreshing = true
+		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 
 	case cleanupResultMsg:
 		if msg.count == 0 {
@@ -156,6 +171,8 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	newCards := buildCardMap(cols)
 	cleanupCmd := b.detectDepartures(newCards)
 	b.prevCards = newCards
+
+	b.pendingAutoRefresh = false
 
 	if b.refreshing {
 		// Preserve ActiveTab and cursor position by card Number.
@@ -428,6 +445,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.refreshing {
 			return b, nil
 		}
+		b.pendingAutoRefresh = false
 		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	case "p":
@@ -552,6 +570,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.refreshing {
 			return b, nil
 		}
+		b.pendingAutoRefresh = false
 		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	case "h", "left":

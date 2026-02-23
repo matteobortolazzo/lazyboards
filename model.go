@@ -111,6 +111,7 @@ const (
 const (
 	statusMessageDuration     = 3 * time.Second
 	longStatusMessageDuration = 30 * time.Second
+	autoRefreshDelay          = 5 * time.Second
 )
 
 // LinkedPR represents a pull request linked to a card.
@@ -137,6 +138,9 @@ type actionResultMsg struct {
 	success bool
 	message string
 }
+
+// autoRefreshMsg is sent when the auto-refresh delay timer fires.
+type autoRefreshMsg struct{}
 
 // configSavedMsg is sent when a config file has been saved successfully.
 type configSavedMsg struct{}
@@ -224,6 +228,7 @@ type Board struct {
 	prPickerIndex      int
 	refreshing         bool
 	refreshInterval    time.Duration
+	pendingAutoRefresh bool
 	prevCards          map[int]prevCardInfo
 }
 
