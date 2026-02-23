@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/google/go-github/v68/github"
 )
+
+// hexColorRE matches a valid 6-character hex color string (e.g., "d73a4a").
+var hexColorRE = regexp.MustCompile(`^[0-9a-fA-F]{6}$`)
 
 // maxTimelineConcurrency limits the number of concurrent timeline API calls.
 const maxTimelineConcurrency = 10
@@ -98,10 +102,14 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 				Body:   issue.GetBody(),
 			}
 
-			// Collect all label names.
-			allLabels := make([]string, 0, len(issue.Labels))
+			// Collect all labels with their colors.
+			allLabels := make([]Label, 0, len(issue.Labels))
 			for _, label := range issue.Labels {
-				allLabels = append(allLabels, label.GetName())
+				color := strings.TrimPrefix(label.GetColor(), "#")
+				if !hexColorRE.MatchString(color) {
+					color = ""
+				}
+				allLabels = append(allLabels, Label{Name: label.GetName(), Color: color})
 			}
 			if len(allLabels) > 0 {
 				card.Labels = allLabels
@@ -276,8 +284,15 @@ func (g *GitHubProvider) CreateCard(ctx context.Context, title string, label str
 		Title:  issue.GetTitle(),
 		Body:   issue.GetBody(),
 	}
-	if label != "" {
-		card.Labels = []string{label}
+	for _, l := range issue.Labels {
+		color := strings.TrimPrefix(l.GetColor(), "#")
+		if !hexColorRE.MatchString(color) {
+			color = ""
+		}
+		card.Labels = append(card.Labels, Label{Name: l.GetName(), Color: color})
+	}
+	if len(card.Labels) == 0 && label != "" {
+		card.Labels = []Label{{Name: label}}
 	}
 
 	return card, nil

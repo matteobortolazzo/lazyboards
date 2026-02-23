@@ -184,14 +184,14 @@ func TestBackgroundRefresh_PreservesCardByNumber(t *testing.T) {
 		providerCards[i] = provider.Card{
 			Number: i + 1,
 			Title:  fmt.Sprintf("Card %d", i+1),
-			Labels: []string{"test"},
+			Labels: []provider.Label{{Name: "test"}},
 		}
 	}
 	fetchMsg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: providerCards},
 			{Title: "Column B", Cards: []provider.Card{
-				{Number: 100, Title: "Other card", Labels: []string{"test"}},
+				{Number: 100, Title: "Other card", Labels: []provider.Label{{Name: "test"}}},
 			}},
 		},
 	}}
@@ -229,14 +229,14 @@ func TestBackgroundRefresh_CardRemoved_ClampsCursor(t *testing.T) {
 		providerCards[i] = provider.Card{
 			Number: i + 1,
 			Title:  fmt.Sprintf("Card %d", i+1),
-			Labels: []string{"test"},
+			Labels: []provider.Label{{Name: "test"}},
 		}
 	}
 	fetchMsg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: providerCards},
 			{Title: "Column B", Cards: []provider.Card{
-				{Number: 100, Title: "Other card", Labels: []string{"test"}},
+				{Number: 100, Title: "Other card", Labels: []provider.Label{{Name: "test"}}},
 			}},
 		},
 	}}

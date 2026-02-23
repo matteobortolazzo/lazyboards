@@ -310,11 +310,11 @@ func TestSubmit_WithLabel(t *testing.T) {
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
 	// Simulate async success.
-	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Labeled task", Labels: []string{"bug"}}})
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Labeled task", Labels: []provider.Label{{Name: "bug"}}}})
 	b = m.(Board)
 
 	newCard := b.Columns[0].Cards[len(b.Columns[0].Cards)-1]
-	if len(newCard.Labels) == 0 || newCard.Labels[0] != "bug" {
+	if len(newCard.Labels) == 0 || newCard.Labels[0].Name != "bug" {
 		t.Errorf("new card Labels = %v, want [\"bug\"]", newCard.Labels)
 	}
 }
@@ -410,7 +410,7 @@ func TestSubmit_ResetsFieldsAfterCreation(t *testing.T) {
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
 	// Simulate async success.
-	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Some task", Labels: []string{"feature"}}})
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "Some task", Labels: []provider.Label{{Name: "feature"}}}})
 	b = m.(Board)
 
 	if b.create.titleInput.Value() != "" {
@@ -576,7 +576,7 @@ func TestCreatingMode_Success_AppendsCardAndClosesModal(t *testing.T) {
 	b := newCreatingTestBoard(t)
 	originalCardCount := len(b.Columns[0].Cards)
 
-	msg := cardCreatedMsg{card: provider.Card{Number: 99, Title: "New task", Labels: []string{"feature"}}}
+	msg := cardCreatedMsg{card: provider.Card{Number: 99, Title: "New task", Labels: []provider.Label{{Name: "feature"}}}}
 	m, _ := b.Update(msg)
 	updated := m.(Board)
 
@@ -596,7 +596,7 @@ func TestCreatingMode_Success_AppendsCardAndClosesModal(t *testing.T) {
 	if newCard.Title != "New task" {
 		t.Errorf("new card Title = %q, want %q", newCard.Title, "New task")
 	}
-	if len(newCard.Labels) == 0 || newCard.Labels[0] != "feature" {
+	if len(newCard.Labels) == 0 || newCard.Labels[0].Name != "feature" {
 		t.Errorf("new card Labels = %v, want [\"feature\"]", newCard.Labels)
 	}
 

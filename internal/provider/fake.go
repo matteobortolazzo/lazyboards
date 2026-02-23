@@ -22,11 +22,11 @@ func NewFakeProvider() *FakeProvider {
 			{
 				Title: "New",
 				Cards: []Card{
-					{Number: 1, Title: "Setup CI", Labels: []string{"infra"}, Body: "Configure GitHub Actions for CI pipeline."},
-					{Number: 2, Title: "Data model", Labels: []string{"design"}, Body: "Design the core data model for boards and cards.", LinkedPRs: []LinkedPR{
+					{Number: 1, Title: "Setup CI", Labels: []Label{{Name: "infra"}}, Body: "Configure GitHub Actions for CI pipeline."},
+					{Number: 2, Title: "Data model", Labels: []Label{{Name: "design"}}, Body: "Design the core data model for boards and cards.", LinkedPRs: []LinkedPR{
 						{Number: 20, Title: "feat: add data model", URL: "https://github.com/owner/repo/pull/20"},
 					}},
-					{Number: 3, Title: "Add README", Labels: []string{"docs"}, LinkedPRs: []LinkedPR{
+					{Number: 3, Title: "Add README", Labels: []Label{{Name: "docs"}}, LinkedPRs: []LinkedPR{
 						{Number: 30, Title: "docs: add README", URL: "https://github.com/owner/repo/pull/30"},
 						{Number: 31, Title: "docs: improve README", URL: "https://github.com/owner/repo/pull/31"},
 					}},
@@ -35,29 +35,29 @@ func NewFakeProvider() *FakeProvider {
 			{
 				Title: "Refined",
 				Cards: []Card{
-					{Number: 4, Title: "User auth", Labels: []string{"feature"}},
-					{Number: 5, Title: "API routes", Labels: []string{"backend"}},
-					{Number: 6, Title: "Error types", Labels: []string{"backend"}},
-					{Number: 7, Title: "DB migrate", Labels: []string{"infra"}},
+					{Number: 4, Title: "User auth", Labels: []Label{{Name: "feature"}}},
+					{Number: 5, Title: "API routes", Labels: []Label{{Name: "backend"}}},
+					{Number: 6, Title: "Error types", Labels: []Label{{Name: "backend"}}},
+					{Number: 7, Title: "DB migrate", Labels: []Label{{Name: "infra"}}},
 				},
 			},
 			{
 				Title: "Implementing",
 				Cards: []Card{
-					{Number: 8, Title: "Board view", Labels: []string{"feature"}},
-					{Number: 9, Title: "Key binds", Labels: []string{"feature"}},
-					{Number: 10, Title: "Col nav", Labels: []string{"feature"}},
-					{Number: 11, Title: "Lipgloss", Labels: []string{"ui"}},
-					{Number: 12, Title: "Config", Labels: []string{"feature"}},
+					{Number: 8, Title: "Board view", Labels: []Label{{Name: "feature"}}},
+					{Number: 9, Title: "Key binds", Labels: []Label{{Name: "feature"}}},
+					{Number: 10, Title: "Col nav", Labels: []Label{{Name: "feature"}}},
+					{Number: 11, Title: "Lipgloss", Labels: []Label{{Name: "ui"}}},
+					{Number: 12, Title: "Config", Labels: []Label{{Name: "feature"}}},
 				},
 			},
 			{
 				Title: "Implemented",
 				Cards: []Card{
-					{Number: 13, Title: "Fix clamp", Labels: []string{"bug"}},
-					{Number: 14, Title: "Refactor", Labels: []string{"chore"}},
-					{Number: 15, Title: "Go module", Labels: []string{"infra"}},
-					{Number: 16, Title: "Scaffold", Labels: []string{"feature"}},
+					{Number: 13, Title: "Fix clamp", Labels: []Label{{Name: "bug"}}},
+					{Number: 14, Title: "Refactor", Labels: []Label{{Name: "chore"}}},
+					{Number: 15, Title: "Go module", Labels: []Label{{Name: "infra"}}},
+					{Number: 16, Title: "Scaffold", Labels: []Label{{Name: "feature"}}},
 				},
 			},
 		},
@@ -84,9 +84,9 @@ func (f *FakeProvider) CreateCard(_ context.Context, title string, label string)
 		return Card{}, errors.New("title is required")
 	}
 
-	var labels []string
+	var labels []Label
 	if label != "" {
-		labels = []string{label}
+		labels = []Label{{Name: label}}
 	}
 	card := Card{
 		Number: f.nextNumber,

@@ -164,7 +164,7 @@ func newBoardWithCards(t *testing.T, cardCount, height int) Board {
 		providerCards[i] = provider.Card{
 			Number: i + 1,
 			Title:  fmt.Sprintf("Card %d", i+1),
-			Labels: []string{"test"},
+			Labels: []provider.Label{{Name: "test"}},
 		}
 	}
 
@@ -172,7 +172,7 @@ func newBoardWithCards(t *testing.T, cardCount, height int) Board {
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: providerCards},
 			{Title: "Column B", Cards: []provider.Card{
-				{Number: 100, Title: "Other card", Labels: []string{"test"}},
+				{Number: 100, Title: "Other card", Labels: []provider.Label{{Name: "test"}}},
 			}},
 		},
 	}}
@@ -203,8 +203,8 @@ func newBoardWithBody(t *testing.T, body1, body2 string) Board {
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: []provider.Card{
-				{Number: 1, Title: "Card One", Labels: []string{"bug"}, Body: body1},
-				{Number: 2, Title: "Card Two", Labels: []string{"feature"}, Body: body2},
+				{Number: 1, Title: "Card One", Labels: []provider.Label{{Name: "bug"}}, Body: body1},
+				{Number: 2, Title: "Card Two", Labels: []provider.Label{{Name: "feature"}}, Body: body2},
 			}},
 		},
 	}}
@@ -230,7 +230,7 @@ func newBoardWithLongBody(t *testing.T, lineCount int) Board {
 }
 
 // newBoardWithCustomCard creates a board with a single card using the given title, labels, and body.
-func newBoardWithCustomCard(t *testing.T, title string, labels []string, body string) Board {
+func newBoardWithCustomCard(t *testing.T, title string, labels []provider.Label, body string) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, false)
@@ -262,7 +262,7 @@ func newBoardWithGeneratedCards(t *testing.T, count int, titleFmt string, width,
 		cards[i] = provider.Card{
 			Number: i + 1,
 			Title:  fmt.Sprintf(titleFmt, i+1),
-			Labels: []string{"test"},
+			Labels: []provider.Label{{Name: "test"}},
 		}
 	}
 
@@ -346,11 +346,11 @@ func newBoardWithPRsAndExecutor(t *testing.T) (Board, *action.FakeExecutor) {
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: []provider.Card{
-				{Number: 1, Title: "No PRs", Labels: []string{"bug"}},
-				{Number: 2, Title: "One PR", Labels: []string{"feature"}, LinkedPRs: []provider.LinkedPR{
+				{Number: 1, Title: "No PRs", Labels: []provider.Label{{Name: "bug"}}},
+				{Number: 2, Title: "One PR", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
 					{Number: 10, Title: "feat: one PR", URL: "https://github.com/owner/repo/pull/10"},
 				}},
-				{Number: 3, Title: "Two PRs", Labels: []string{"feature"}, LinkedPRs: []provider.LinkedPR{
+				{Number: 3, Title: "Two PRs", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
 					{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20"},
 					{Number: 21, Title: "feat: second PR", URL: "https://github.com/owner/repo/pull/21"},
 				}},
@@ -378,12 +378,12 @@ func newBoardWithWorkingLabel(t *testing.T) Board {
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: []provider.Card{
-				{Number: 1, Title: "No indicators", Labels: []string{"bug"}},
-				{Number: 2, Title: "Working only", Labels: []string{"Working"}},
-				{Number: 3, Title: "PR only", Labels: []string{"feature"}, LinkedPRs: []provider.LinkedPR{
+				{Number: 1, Title: "No indicators", Labels: []provider.Label{{Name: "bug"}}},
+				{Number: 2, Title: "Working only", Labels: []provider.Label{{Name: "Working"}}},
+				{Number: 3, Title: "PR only", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
 					{Number: 10, Title: "feat: some PR", URL: "https://github.com/owner/repo/pull/10"},
 				}},
-				{Number: 4, Title: "Both indicators", Labels: []string{"Working", "feature"}, LinkedPRs: []provider.LinkedPR{
+				{Number: 4, Title: "Both indicators", Labels: []provider.Label{{Name: "Working"}, {Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
 					{Number: 20, Title: "feat: another PR", URL: "https://github.com/owner/repo/pull/20"},
 				}},
 			}},
