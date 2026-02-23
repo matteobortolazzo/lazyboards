@@ -11,7 +11,8 @@
         "proxy.golang.org",
         "sum.golang.org",
         "pkg.go.dev",
-        "context7.com"
+        "context7.com",
+        "raw.githubusercontent.com"
       ],
       "allowLocalBinding": true
     }
