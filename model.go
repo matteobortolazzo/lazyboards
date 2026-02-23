@@ -2,6 +2,7 @@ package main
 
 import (
 	"hash/fnv"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,6 +94,11 @@ var detailFocusHints = []Hint{
 	{Key: "esc", Desc: "Back"},
 }
 
+// searchModeHints are the status bar hints shown when search mode is active.
+var searchModeHints = []Hint{
+	{Key: "esc", Desc: "Clear"},
+}
+
 // prPickerHints are the status bar hints shown when the PR picker modal is open.
 var prPickerHints = []Hint{
 	{Key: "\u25c0/\u25b6", Desc: "Cycle"},
@@ -111,6 +117,7 @@ const (
 	errorMode
 	configMode
 	prPickerMode
+	searchMode
 )
 
 const (
@@ -241,6 +248,8 @@ type Board struct {
 	refreshInterval    time.Duration
 	pendingAutoRefresh bool
 	prevCards          map[int]prevCardInfo
+	searchQuery        string
+	searchInput        textinput.Model
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
@@ -276,6 +285,10 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 	ri.CharLimit = 100
 	ri.Width = 40
 
+	si := textinput.New()
+	si.Placeholder = "Search..."
+	si.CharLimit = 100
+
 	b := Board{
 		mode:            loadingMode,
 		provider:        p,
@@ -301,6 +314,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 			titleInput: ti,
 			labelInput: li,
 		},
+		searchInput: si,
 	}
 
 	if firstLaunch {
@@ -429,6 +443,51 @@ func mapLabels(labels []provider.Label) []Label {
 		result[i] = Label{Name: l.Name, Color: l.Color}
 	}
 	return result
+}
+
+// filteredCards returns the cards in the active column that match the current
+// search query. If the query is empty, all cards are returned.
+func (b *Board) filteredCards() []Card {
+	col := b.Columns[b.ActiveTab]
+	if b.searchQuery == "" {
+		return col.Cards
+	}
+	query := strings.ToLower(b.searchQuery)
+	var result []Card
+	for _, card := range col.Cards {
+		if matchesSearch(card, query) {
+			result = append(result, card)
+		}
+	}
+	return result
+}
+
+// matchesSearch returns true if a card matches the search query.
+// It checks the card title, card number, and label names (all case-insensitive).
+func matchesSearch(card Card, query string) bool {
+	if strings.Contains(strings.ToLower(card.Title), query) {
+		return true
+	}
+	if strings.Contains(strconv.Itoa(card.Number), query) {
+		return true
+	}
+	for _, label := range card.Labels {
+		if strings.Contains(strings.ToLower(label.Name), query) {
+			return true
+		}
+	}
+	return false
+}
+
+// clearSearch resets the search state: clears the query, input, and resets
+// cursor/scroll for the active column.
+func (b *Board) clearSearch() {
+	b.searchQuery = ""
+	b.searchInput.SetValue("")
+	b.searchInput.Blur()
+	col := &b.Columns[b.ActiveTab]
+	col.Cursor = 0
+	col.ScrollOffset = 0
 }
 
 func (b Board) Init() tea.Cmd {
