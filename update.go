@@ -457,6 +457,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b.handlePROpenKey(col.Cards[col.Cursor])
+	case "o":
+		return b.handleRepoOpenKey()
 	case "l", "right":
 		b.detailFocused = true
 		b.statusBar.SetActionHints(detailFocusHints)
@@ -525,6 +527,24 @@ func (b Board) handlePROpenKey(card Card) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (b Board) handleRepoOpenKey() (tea.Model, tea.Cmd) {
+	if b.providerName != "github" {
+		cmd := b.statusBar.SetTimedMessage("Repository URL not available for this provider", statusMessageDuration)
+		return b, cmd
+	}
+	if b.repoOwner == "" || b.repoName == "" {
+		cmd := b.statusBar.SetTimedMessage("Repository info not available", statusMessageDuration)
+		return b, cmd
+	}
+	url := "https://github.com/" + b.repoOwner + "/" + b.repoName
+	if err := b.executor.OpenURL(url); err != nil {
+		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+		return b, cmd
+	}
+	cmd := b.statusBar.SetTimedMessage("Opened repository", statusMessageDuration)
+	return b, cmd
+}
+
 func (b Board) handleActionKey(act config.Action, card Card) (tea.Model, tea.Cmd) {
 	vars := action.BuildTemplateVars(card.Number, card.Title, card.Labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
 
@@ -573,6 +593,8 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.pendingAutoRefresh = false
 		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+	case "o":
+		return b.handleRepoOpenKey()
 	case "h", "left":
 		b.detailFocused = false
 		b.statusBar.SetActionHints(b.normalHints)
