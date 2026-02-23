@@ -123,6 +123,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleConfigModeKey(msg)
 		case prPickerMode:
 			return b.handlePRPickerModeKey(msg)
+		case searchMode:
+			return b.handleSearchModeKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -461,6 +463,11 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b.handlePROpenKey(col.Cards[col.Cursor])
+	case "/":
+		b.mode = searchMode
+		cmd := b.searchInput.Focus()
+		b.statusBar.SetActionHints(searchModeHints)
+		return b, cmd
 	case "o":
 		return b.handleRepoOpenKey()
 	case "l", "right":
@@ -656,6 +663,72 @@ func (b *Board) switchColumn(idx int) {
 	b.clampScrollOffset()
 	b.rebuildNormalHints()
 	b.statusBar.SetActionHints(b.normalHints)
+}
+
+func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		b.clearSearch()
+		b.mode = normalMode
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyTab:
+		b.clearSearch()
+		b.mode = normalMode
+		b.switchColumn((b.ActiveTab + 1) % len(b.Columns))
+		return b, nil
+	case tea.KeyShiftTab:
+		b.clearSearch()
+		b.mode = normalMode
+		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
+		return b, nil
+	default:
+		// Check for number keys (1-9) for column switching.
+		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
+			colIdx := int(msg.Runes[0] - '1')
+			if colIdx < len(b.Columns) {
+				b.clearSearch()
+				b.mode = normalMode
+				b.switchColumn(colIdx)
+				return b, nil
+			}
+		}
+
+		// Handle j/k navigation on filtered list.
+		if len(msg.Runes) == 1 {
+			switch msg.Runes[0] {
+			case 'j':
+				col := &b.Columns[b.ActiveTab]
+				filtered := b.filteredCards()
+				if col.Cursor < len(filtered)-1 {
+					col.Cursor++
+				}
+				b.detailScrollOffset = 0
+				b.clampScrollOffset()
+				return b, nil
+			case 'k':
+				col := &b.Columns[b.ActiveTab]
+				if col.Cursor > 0 {
+					col.Cursor--
+				}
+				b.detailScrollOffset = 0
+				b.clampScrollOffset()
+				return b, nil
+			}
+		}
+
+		// Forward to textinput.
+		var cmd tea.Cmd
+		b.searchInput, cmd = b.searchInput.Update(msg)
+		b.searchQuery = b.searchInput.Value()
+		// Reset cursor and scroll offset when filter changes.
+		col := &b.Columns[b.ActiveTab]
+		col.Cursor = 0
+		col.ScrollOffset = 0
+		b.statusBar.SetActionHints(searchModeHints)
+		return b, cmd
+	}
 }
 
 func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
