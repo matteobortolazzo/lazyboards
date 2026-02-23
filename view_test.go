@@ -69,16 +69,24 @@ func TestView_ContainsHelpBar(t *testing.T) {
 	b.Height = 40
 	view := b.View()
 
-	// Status bar should show contextual hint keys and descriptions for normalMode.
+	// Status bar should show only the "New" hint in normalMode.
 	// Keys and descriptions are styled separately, so check each part individually.
-	expectedKeys := []string{"n", "r", "q"}
-	expectedDescs := []string{"New", "Refresh", "Quit"}
+	expectedKeys := []string{"n"}
+	expectedDescs := []string{"New"}
 	for i, key := range expectedKeys {
 		if !strings.Contains(view, key) {
 			t.Errorf("View() does not contain status bar key %q", key)
 		}
 		if !strings.Contains(view, expectedDescs[i]) {
 			t.Errorf("View() does not contain status bar desc %q", expectedDescs[i])
+		}
+	}
+
+	// Column, Quit, Config, and Refresh hints must NOT appear in the status bar.
+	statusBarView := b.statusBar.View()
+	for _, absent := range []string{"Column", "Quit", "Config", "Refresh"} {
+		if strings.Contains(statusBarView, absent) {
+			t.Errorf("statusBar.View() should NOT contain %q, but it does", absent)
 		}
 	}
 }
@@ -232,21 +240,6 @@ func TestView_BorderTitleShowsNumberPrefixes(t *testing.T) {
 		if !strings.Contains(view, prefix) {
 			t.Errorf("View() does not contain number prefix %q for column %d", prefix, i)
 		}
-	}
-}
-
-func TestView_HelpBarShowsNumberHint(t *testing.T) {
-	b := newLoadedTestBoard(t)
-	b.Width = 120
-	b.Height = 40
-	view := b.View()
-
-	// The status bar / help bar should contain a hint about number key navigation.
-	// The exact format may vary (e.g., "1-4: Columns" or "1-4" as a key hint).
-	columnCount := len(b.Columns)
-	numberRange := fmt.Sprintf("1-%d", columnCount)
-	if !strings.Contains(view, numberRange) {
-		t.Errorf("View() help bar does not contain number key hint %q", numberRange)
 	}
 }
 
