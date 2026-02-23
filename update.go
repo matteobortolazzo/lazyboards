@@ -49,6 +49,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case cardCreateErrorMsg:
 		b.validationErr = provider.SanitizeError(msg.err)
 		b.mode = createMode
+		b.recalcCreateInputs()
 		cmd := b.create.titleInput.Focus()
 		b.create.labelInput.Blur()
 		return b, cmd
@@ -141,6 +142,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		b.Width = msg.Width
 		b.Height = msg.Height
+		if b.mode == createMode {
+			b.recalcCreateInputs()
+		}
 		if len(b.Columns) > 0 {
 			b.clampScrollOffset()
 		}
@@ -386,6 +390,7 @@ func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		if b.create.titleInput.Focused() {
 			b.create.titleInput, cmd = b.create.titleInput.Update(msg)
+			b.recalcCreateInputs()
 		} else if b.create.labelInput.Focused() {
 			b.create.labelInput, cmd = b.create.labelInput.Update(msg)
 		}
@@ -451,6 +456,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = createMode
 		b.create.titleInput.SetValue("")
 		b.create.labelInput.SetValue("")
+		b.recalcCreateInputs()
 		cmd := b.create.titleInput.Focus()
 		b.create.labelInput.Blur()
 		return b, cmd
