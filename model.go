@@ -78,6 +78,7 @@ func labelColor(label string) lipgloss.Color {
 
 // normalModeHints are the default status bar hints shown in normal mode.
 var normalModeHints = []Hint{
+	{Key: "o", Desc: "Open"},
 	{Key: "n", Desc: "New"},
 }
 
