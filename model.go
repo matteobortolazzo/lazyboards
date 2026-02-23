@@ -267,16 +267,13 @@ type Board struct {
 func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
-	ti.CharLimit = 100
+	ti.CharLimit = 0
 	ti.ShowLineNumbers = false
-	ti.SetHeight(3)
-	ti.SetWidth(36)
 	ti.KeyMap.InsertNewline.SetEnabled(false)
 
 	li := textinput.New()
 	li.Placeholder = "Label"
 	li.CharLimit = 50
-	li.Width = 40
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -358,6 +355,64 @@ func (b *Board) enterConfigMode() {
 			break
 		}
 	}
+}
+
+// createModalWidth returns the modal width for the create-card dialog (60% of terminal width, min 20).
+func (b Board) createModalWidth() int {
+	w := b.Width * 60 / 100
+	if w < 20 {
+		w = 20
+	}
+	return w
+}
+
+// recalcCreateInputs updates the title textarea and label input widths and
+// the textarea height based on current terminal dimensions and content.
+func (b *Board) recalcCreateInputs() {
+	modalWidth := b.createModalWidth()
+	// renderModal uses Padding(1, 2): 2 chars left + 2 chars right = 4 chars padding
+	// Plus border: 1 char left + 1 char right = 2 chars
+	// Total horizontal overhead = 6
+	// The textarea.Width() getter subtracts the prompt width (2 chars for "> "),
+	// so we add that back when calling SetWidth to get the desired Width() value.
+	innerWidth := modalWidth - 6
+	if innerWidth < 1 {
+		innerWidth = 1
+	}
+
+	promptWidth := lipgloss.Width(b.create.titleInput.Prompt)
+	b.create.titleInput.SetWidth(innerWidth + promptWidth)
+	b.create.labelInput.Width = innerWidth
+
+	// Auto-expand textarea height based on visual (wrapped) line count.
+	// LineCount() returns logical lines (separated by newlines), but since
+	// newline insertion is disabled, we need to count wrapped visual lines.
+	contentWidth := b.create.titleInput.Width()
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+	visualLines := 0
+	value := b.create.titleInput.Value()
+	if value == "" {
+		visualLines = 1
+	} else {
+		for _, line := range strings.Split(value, "\n") {
+			w := lipgloss.Width(line)
+			if w == 0 {
+				visualLines++
+			} else {
+				visualLines += (w + contentWidth - 1) / contentWidth
+			}
+		}
+	}
+	maxHeight := b.Height * 50 / 100
+	if maxHeight < 1 {
+		maxHeight = 1
+	}
+	if visualLines > maxHeight {
+		visualLines = maxHeight
+	}
+	b.create.titleInput.SetHeight(visualLines)
 }
 
 // layoutDimensions computes the panel layout dimensions.
