@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v68/github"
@@ -52,7 +53,7 @@ func main() {
 
 	// First-launch flow: show config popup before creating provider
 	if !config.LocalExists(config.DefaultLocalPath) {
-		board := NewBoard(nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, true)
+		board := NewBoard(nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, true)
 		p := tea.NewProgram(board, tea.WithAltScreen())
 		m, err := p.Run()
 		if err != nil {
@@ -126,7 +127,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	board := NewBoard(bp, cfg.Actions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, false)
+	board := NewBoard(bp, cfg.Actions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, false)
 
 	p := tea.NewProgram(board, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

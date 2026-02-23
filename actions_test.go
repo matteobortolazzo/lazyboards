@@ -81,7 +81,7 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "", "", "", 0, false)
+	b := NewBoard(p, actions, nil, fe, "", "", "", 0, 0, false)
 
 	// Board starts in loadingMode. Press the action key.
 	b = sendKey(t, b, keyMsg("o"))
@@ -98,7 +98,7 @@ func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "", "", "", 0, false)
+	b := NewBoard(p, actions, nil, fe, "", "", "", 0, 0, false)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -345,7 +345,7 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, false)
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, false)
 
 	// Load a board with a card that has labels containing URL-special characters.
 	cardLabels := []string{"bug&fix", "feature?v2"}
