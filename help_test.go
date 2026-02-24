@@ -303,7 +303,7 @@ func TestHelpMode_ScrollResetOnReopen(t *testing.T) {
 func TestHelpMode_ViewShowsKeybindings(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
-	b.Height = 40
+	b.Height = 80
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()
@@ -316,6 +316,7 @@ func TestHelpMode_ViewShowsKeybindings(t *testing.T) {
 		"Detail Panel",
 		"Create Card",
 		"Configuration",
+		"Comment",
 	}
 	for _, text := range expectedTexts {
 		if !strings.Contains(view, text) {
@@ -379,6 +380,38 @@ func TestHelpMode_ViewShowsUsageSection(t *testing.T) {
 	}
 	if !strings.Contains(view, ".lazyboards.yml") {
 		t.Error("View() in helpMode should mention config file name")
+	}
+}
+
+func TestHelpMode_ViewShowsCommentModeSection(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 80
+
+	b = sendKey(t, b, keyMsg("?"))
+	content := b.buildHelpContent()
+
+	if !strings.Contains(content, "Comment") {
+		t.Error("buildHelpContent() should contain 'Comment' section header")
+	}
+	if !strings.Contains(content, "Submit") {
+		t.Error("buildHelpContent() Comment section should contain 'Submit' key")
+	}
+	if !strings.Contains(content, "Cancel") {
+		t.Error("buildHelpContent() Comment section should contain 'Cancel' key")
+	}
+}
+
+func TestHelpMode_ViewShowsAltKeyInNormalMode(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 80
+
+	b = sendKey(t, b, keyMsg("?"))
+	content := b.buildHelpContent()
+
+	if !strings.Contains(content, "alt+key") {
+		t.Error("buildHelpContent() Normal Mode should contain 'alt+key' entry")
 	}
 }
 

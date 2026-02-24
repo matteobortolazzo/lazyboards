@@ -771,6 +771,7 @@ func (b Board) buildHelpContent() string {
 		{"j/k", "Navigate cards"},
 		{"tab/s-tab", "Switch columns"},
 		{"1-9", "Jump to column"},
+		{"alt+key", "Comment action"},
 	}
 	for _, kv := range normalKeys {
 		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
@@ -824,6 +825,16 @@ func (b Board) buildHelpContent() string {
 		{"esc", "Cancel"},
 	}
 	for _, kv := range prKeys {
+		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
+	}
+
+	// Comment.
+	sb.WriteString("\nComment\n")
+	commentKeys := [][2]string{
+		{"esc", "Cancel"},
+		{"enter", "Submit"},
+	}
+	for _, kv := range commentKeys {
 		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
 	}
 
