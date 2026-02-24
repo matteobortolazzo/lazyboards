@@ -1,8 +1,8 @@
-# Lazyboards configuration
+# Lazyboards project configuration
 # Provider and repo are auto-detected from git remote.
-# Set these to override auto-detection:
+# Set these to override auto-detection (project-only, not inherited from global config):
 # provider: github
 # repo: owner/repo
 
-# Project name (optional)
+# Project name (optional, project-only)
 # project: my-project
