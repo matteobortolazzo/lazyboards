@@ -733,8 +733,9 @@ func TestView_DetailPanel_ShowsFrontmatterFormat(t *testing.T) {
 	}
 }
 
-func TestView_DetailPanel_FrontmatterOmitsLabelsWhenEmpty(t *testing.T) {
-	// A card with no labels should NOT have a "labels:" field in the frontmatter.
+func TestView_DetailPanel_LabelsShownAsNoneWhenEmpty(t *testing.T) {
+	// A card with no labels should still show a "labels:" field with "(none)"
+	// so the user knows they can add labels via the editor.
 	b := newBoardWithCustomCard(t, "No label card", nil, "Body content here")
 
 	view := b.View()
@@ -744,9 +745,14 @@ func TestView_DetailPanel_FrontmatterOmitsLabelsWhenEmpty(t *testing.T) {
 		t.Error("View() detail panel should contain 'title:' in YAML frontmatter")
 	}
 
-	// The "labels:" field should be absent when the card has no labels.
-	if strings.Contains(view, "labels:") {
-		t.Error("View() detail panel should NOT contain 'labels:' when card has no labels")
+	// The "labels:" field should be present even when the card has no labels.
+	if !strings.Contains(view, "labels:") {
+		t.Error("View() detail panel should contain 'labels:' even when card has no labels")
+	}
+
+	// The "(none)" placeholder should appear to indicate no labels.
+	if !strings.Contains(view, "(none)") {
+		t.Error("View() detail panel should contain '(none)' when card has no labels")
 	}
 
 	// The body should still render.
@@ -755,9 +761,10 @@ func TestView_DetailPanel_FrontmatterOmitsLabelsWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestComposeDetailMarkdown_EscapesTitleQuotesAndBackslashes(t *testing.T) {
-	// Card titles containing double quotes or backslashes must be escaped
-	// so they don't break the YAML double-quoted string.
+func TestComposeDetailMarkdown_TitleQuotesAndBackslashesUnescaped(t *testing.T) {
+	// Since the title is no longer a YAML double-quoted string, double quotes
+	// and backslashes should appear as-is in the output (only markdown chars
+	// are escaped). The title field uses a plain value format now.
 	card := Card{
 		Number: 42,
 		Title:  `Fix "login" bug with path C:\Users`,
@@ -765,15 +772,13 @@ func TestComposeDetailMarkdown_EscapesTitleQuotesAndBackslashes(t *testing.T) {
 
 	md := composeDetailMarkdown(card)
 
-	// The title must contain escaped quotes and backslashes.
-	if strings.Contains(md, `"login"`) {
-		t.Error("composeDetailMarkdown should escape double quotes in title, but found unescaped quotes")
+	// Double quotes should appear as-is (no YAML escaping needed).
+	if !strings.Contains(md, `"login"`) {
+		t.Error("composeDetailMarkdown should contain literal double quotes in title (no YAML escaping)")
 	}
-	if !strings.Contains(md, `\"login\"`) {
-		t.Error("composeDetailMarkdown should contain escaped double quotes (\\\"login\\\") in title")
-	}
-	if strings.Contains(md, `C:\Users`) && !strings.Contains(md, `C:\\Users`) {
-		t.Error("composeDetailMarkdown should escape backslashes in title")
+	// Backslashes should appear as-is (no YAML escaping needed).
+	if !strings.Contains(md, `C:\Users`) {
+		t.Error("composeDetailMarkdown should contain literal backslashes in title (no YAML escaping)")
 	}
 
 	// Output should use horizontal rule delimiters, not code fences.
@@ -995,5 +1000,61 @@ func TestComposeDetailMarkdown_LabelsUseCommaSeparatedFormat(t *testing.T) {
 		if got != expectedLabels[i] {
 			t.Errorf("round-trip label[%d] = %q, want %q", i, got, expectedLabels[i])
 		}
+	}
+}
+
+// --- Title Padding & Labels None (#217) ---
+
+func TestView_DetailPanel_TitlePaddingConsistent(t *testing.T) {
+	// The title: and labels: lines in the detail panel should start at the
+	// same column (no extra leading spaces on one but not the other).
+	card := Card{
+		Number: 5,
+		Title:  "Fix padding bug",
+		Labels: []Label{{Name: "bug"}, {Name: "ui"}},
+		Body:   "Some body text",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	// Extract the title: and labels: lines.
+	var titleLine, labelsLine string
+	for _, line := range strings.Split(md, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "title:") && titleLine == "" {
+			titleLine = line // preserve original indentation
+		}
+		if strings.HasPrefix(trimmed, "labels:") && labelsLine == "" {
+			labelsLine = line // preserve original indentation
+		}
+	}
+	if titleLine == "" {
+		t.Fatal("composeDetailMarkdown output missing 'title:' line")
+	}
+	if labelsLine == "" {
+		t.Fatal("composeDetailMarkdown output missing 'labels:' line")
+	}
+
+	// Count leading spaces on each line.
+	titleIndent := len(titleLine) - len(strings.TrimLeft(titleLine, " "))
+	labelsIndent := len(labelsLine) - len(strings.TrimLeft(labelsLine, " "))
+	if titleIndent != labelsIndent {
+		t.Errorf("title line indent = %d, labels line indent = %d, want equal padding", titleIndent, labelsIndent)
+	}
+}
+
+func TestComposeDetailMarkdown_LabelsNoneWhenEmpty(t *testing.T) {
+	// A card with no labels should produce a labels: (none) line
+	// so the user can see labels are supported and add them in the editor.
+	card := Card{
+		Number: 3,
+		Title:  "No labels card",
+		Body:   "Body text",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if !strings.Contains(md, "labels: (none)") {
+		t.Errorf("composeDetailMarkdown should contain 'labels: (none)' for cards without labels, got:\n%s", md)
 	}
 }
