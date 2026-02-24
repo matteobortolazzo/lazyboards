@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,7 +17,7 @@ func newMouseEnabledBoard(t *testing.T) Board {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, 0, "Working", true, false)
 
-	board, err := p.FetchBoard(nil)
+	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}
@@ -67,7 +68,7 @@ func newMouseDisabledBoard(t *testing.T) Board {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false)
 
-	board, err := p.FetchBoard(nil)
+	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}

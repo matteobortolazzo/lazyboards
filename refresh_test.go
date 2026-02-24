@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -450,7 +451,7 @@ func TestBoardFetched_SchedulesNextTick(t *testing.T) {
 	}
 
 	// Simulate the board being fetched (refresh completes).
-	board, err := provider.NewFakeProvider().FetchBoard(nil)
+	board, err := provider.NewFakeProvider().FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}
@@ -479,7 +480,7 @@ func TestBoardFetched_NoTickWhenIntervalZero(t *testing.T) {
 	b = m.(Board)
 
 	// Simulate the board being fetched (refresh completes).
-	board, err := provider.NewFakeProvider().FetchBoard(nil)
+	board, err := provider.NewFakeProvider().FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}
@@ -518,7 +519,7 @@ func TestManualRefresh_ResetsTimer(t *testing.T) {
 	}
 
 	// Complete the refresh with boardFetchedMsg.
-	board, err := provider.NewFakeProvider().FetchBoard(nil)
+	board, err := provider.NewFakeProvider().FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}

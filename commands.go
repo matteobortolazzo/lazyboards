@@ -82,7 +82,7 @@ func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
 	return func() tea.Msg {
 		count := 0
 		for _, cmd := range commands {
-			executor.RunShell(cmd)
+			_, _ = executor.RunShell(cmd)
 			count++
 		}
 		return cleanupResultMsg{count: count}
@@ -194,18 +194,18 @@ func openEditorCmd(card Card) tea.Cmd {
 	}
 	tmpPath := tmpFile.Name()
 	if _, err := tmpFile.WriteString(originalContent); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
 		return func() tea.Msg {
 			return editorFinishedMsg{err: fmt.Errorf("failed to write temp file: %w", err), card: card}
 		}
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	editorArgs := strings.Fields(editor)
 	c := exec.Command(editorArgs[0], append(editorArgs[1:], tmpPath)...)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
-		defer os.Remove(tmpPath)
+		defer func() { _ = os.Remove(tmpPath) }()
 		if err != nil {
 			return editorFinishedMsg{err: err, card: card}
 		}

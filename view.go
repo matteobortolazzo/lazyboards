@@ -571,7 +571,7 @@ func composeDetailMarkdown(card Card) string {
 	safeTitle := strings.ReplaceAll(card.Title, `\`, `\\`)
 	safeTitle = strings.ReplaceAll(safeTitle, `"`, `\"`)
 	safeTitle = escapeMarkdown(safeTitle)
-	sb.WriteString(fmt.Sprintf("title: \"#%d %s\"\n\n", card.Number, safeTitle))
+	fmt.Fprintf(&sb, "title: \"#%d %s\"\n\n", card.Number, safeTitle)
 
 	if len(card.Labels) > 0 {
 		labelNames := make([]string, len(card.Labels))
@@ -769,7 +769,7 @@ func (b Board) buildHelpContent() string {
 		{"1-9", "Jump to column"},
 	}
 	for _, kv := range normalKeys {
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
 	}
 
 	// Detail Panel.
@@ -786,7 +786,7 @@ func (b Board) buildHelpContent() string {
 		{"?", "Help"},
 	}
 	for _, kv := range detailKeys {
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
 	}
 
 	// Create Card.
@@ -797,7 +797,7 @@ func (b Board) buildHelpContent() string {
 		{"enter", "Submit"},
 	}
 	for _, kv := range createKeys {
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
 	}
 
 	// Configuration.
@@ -809,7 +809,7 @@ func (b Board) buildHelpContent() string {
 		{"enter", "Save"},
 	}
 	for _, kv := range configKeys {
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
 	}
 
 	// PR Picker.
@@ -820,7 +820,7 @@ func (b Board) buildHelpContent() string {
 		{"esc", "Cancel"},
 	}
 	for _, kv := range prKeys {
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
 	}
 
 	// Error.
@@ -830,7 +830,7 @@ func (b Board) buildHelpContent() string {
 		{"q", "Quit"},
 	}
 	for _, kv := range errorKeys {
-		sb.WriteString(fmt.Sprintf("  %-12s %s\n", kv[0], kv[1]))
+		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
 	}
 
 	// Custom Actions (global).
@@ -846,16 +846,16 @@ func (b Board) buildHelpContent() string {
 	if hasGlobalActions || hasColumnActions {
 		sb.WriteString("\nCustom Actions\n")
 		for key, act := range b.actions {
-			sb.WriteString(fmt.Sprintf("  %-12s %s (%s)\n", key, act.Name, act.Type))
+			fmt.Fprintf(&sb, "  %-12s %s (%s)\n", key, act.Name, act.Type)
 		}
 		// Column-specific actions.
 		for _, cc := range b.columnConfigs {
 			if len(cc.Actions) == 0 {
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("  %s:\n", cc.Name))
+			fmt.Fprintf(&sb, "  %s:\n", cc.Name)
 			for key, act := range cc.Actions {
-				sb.WriteString(fmt.Sprintf("    %-10s %s (%s)\n", key, act.Name, act.Type))
+				fmt.Fprintf(&sb, "    %-10s %s (%s)\n", key, act.Name, act.Type)
 			}
 		}
 	}

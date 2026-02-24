@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -152,8 +153,7 @@ func TestConfigMode_Enter_TriggersConfigSave(t *testing.T) {
 	}
 
 	// Press Enter to save.
-	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
-	b = m.(Board)
+	_, cmd := b.Update(arrowMsg(tea.KeyEnter))
 
 	// Enter should trigger a save command (async).
 	if cmd == nil {
@@ -373,7 +373,7 @@ func TestFirstLaunch_ViewShowsConfigModal(t *testing.T) {
 func TestConfigMode_PrePopulatesProviderFromRuntime(t *testing.T) {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, "owner", "repo", "github", 0, 0, 0, "Working", false, false)
-	board, _ := p.FetchBoard(nil)
+	board, _ := p.FetchBoard(context.TODO())
 	m, _ := b.Update(boardFetchedMsg{board: board})
 	b = m.(Board)
 
@@ -387,7 +387,7 @@ func TestConfigMode_PrePopulatesProviderFromRuntime(t *testing.T) {
 func TestConfigMode_PrePopulatesRepoFromRuntime(t *testing.T) {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, "myowner", "myrepo", "github", 0, 0, 0, "Working", false, false)
-	board, _ := p.FetchBoard(nil)
+	board, _ := p.FetchBoard(context.TODO())
 	m, _ := b.Update(boardFetchedMsg{board: board})
 	b = m.(Board)
 
