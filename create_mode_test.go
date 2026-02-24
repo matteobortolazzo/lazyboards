@@ -869,3 +869,134 @@ func TestCreateMode_EnterDoesNotInsertNewline(t *testing.T) {
 		t.Error("titleInput.Value() contains a newline; Enter should submit the form, not insert a newline")
 	}
 }
+
+// --- Textarea Viewport Scroll Bug (#223) ---
+
+func TestCreateMode_TextareaViewportResetOnWrap(t *testing.T) {
+	// When text wraps in the textarea, the viewport must keep the cursor
+	// visible. With a small terminal height, max textarea height is small
+	// (e.g., 1 line at Height=2). When wrapping occurs and the height is
+	// capped, the viewport must scroll to show the cursor line.
+	b := newLoadedTestBoard(t)
+	b.Width = 80
+	b.Height = 4 // Max textarea height = 4*50/100 = 2 lines
+	b = sendKey(t, b, keyMsg("n"))
+
+	contentWidth := b.create.titleInput.Width()
+	if contentWidth < 1 {
+		t.Fatalf("titleInput.Width() = %d, want >= 1", contentWidth)
+	}
+
+	maxHeight := b.Height * 50 / 100 // = 2
+
+	// Type enough text to wrap to exactly 3 visual lines (exceeds maxHeight of 2).
+	// Line 1: A's, Line 2: A's, Line 3: "BBBBB"
+	firstTwoLines := strings.Repeat("A", contentWidth*2)
+	thirdLine := "BBBBB"
+	fullText := firstTwoLines + thirdLine
+
+	for _, ch := range fullText {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Verify the textarea is capped at max height (2 lines, not 3).
+	if b.create.titleInput.Height() > maxHeight {
+		t.Errorf("titleInput.Height() = %d, want <= %d (max height cap)",
+			b.create.titleInput.Height(), maxHeight)
+	}
+
+	// The cursor is at the end (after "BBBBB"). The viewport MUST scroll
+	// to show the cursor line. With the bug, the viewport stays at line 1,
+	// hiding the cursor line with "BBBBB".
+	textareaView := b.create.titleInput.View()
+	if !strings.Contains(textareaView, "BBBBB") {
+		t.Errorf("textarea View() does not contain cursor-line text 'BBBBB'; "+
+			"viewport did not scroll to follow cursor after text wrap.\n"+
+			"View():\n%s", textareaView)
+	}
+}
+
+func TestCreateMode_TextareaViewportResetOnMultipleWraps(t *testing.T) {
+	// Type text that wraps to 5+ visual lines with max height of 3.
+	// The viewport must show the most recently typed text (cursor line).
+	b := newLoadedTestBoard(t)
+	b.Width = 80
+	b.Height = 6 // Max textarea height = 6*50/100 = 3 lines
+	b = sendKey(t, b, keyMsg("n"))
+
+	contentWidth := b.create.titleInput.Width()
+	if contentWidth < 1 {
+		t.Fatalf("titleInput.Width() = %d, want >= 1", contentWidth)
+	}
+
+	maxHeight := b.Height * 50 / 100 // = 3
+
+	// Build text that spans 5 visual lines, exceeding maxHeight of 3.
+	// Lines 1-4: X's, Line 5: identifiable cursor-line text.
+	fourLines := strings.Repeat("X", contentWidth*4)
+	cursorLine := "ENDTEXT"
+	fullText := fourLines + cursorLine
+
+	for _, ch := range fullText {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Verify height is capped at maxHeight.
+	if b.create.titleInput.Height() > maxHeight {
+		t.Errorf("titleInput.Height() = %d, want <= %d (max height cap)",
+			b.create.titleInput.Height(), maxHeight)
+	}
+
+	// The cursor is at the end (after "ENDTEXT"). The viewport must
+	// scroll to show the cursor line — all 3 visible lines should be
+	// from the bottom of the content, including the cursor line.
+	textareaView := b.create.titleInput.View()
+	if !strings.Contains(textareaView, "ENDTEXT") {
+		t.Errorf("textarea View() does not contain cursor-line text 'ENDTEXT'; "+
+			"viewport did not scroll to follow cursor on multiple wraps.\n"+
+			"View():\n%s", textareaView)
+	}
+}
+
+func TestCreateMode_TextareaMaxHeightScrollKeepsCursorVisible(t *testing.T) {
+	// When text exceeds the max height (50% of terminal), the textarea
+	// should cap at max height and the most recently typed characters
+	// (near the cursor) must be visible in View().
+	b := newLoadedTestBoard(t)
+	b.Width = 80
+	b.Height = 20 // Max height = 20*50/100 = 10 lines
+	b = sendKey(t, b, keyMsg("n"))
+
+	contentWidth := b.create.titleInput.Width()
+	if contentWidth < 1 {
+		t.Fatalf("titleInput.Width() = %d, want >= 1", contentWidth)
+	}
+
+	maxHeight := b.Height * 50 / 100
+
+	// Build text that requires more visual lines than maxHeight.
+	// We need (maxHeight + 5) lines worth of text to exceed the cap.
+	totalChars := contentWidth * (maxHeight + 5)
+	longText := strings.Repeat("X", totalChars)
+	// Append a unique suffix that the cursor is next to.
+	suffix := "ZZEND"
+	fullText := longText + suffix
+
+	for _, ch := range fullText {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Verify the textarea is capped at max height.
+	if b.create.titleInput.Height() != maxHeight {
+		t.Errorf("titleInput.Height() = %d, want %d (max height = 50%% of terminal height %d)",
+			b.create.titleInput.Height(), maxHeight, b.Height)
+	}
+
+	// The most recently typed text (near cursor) must be visible.
+	textareaView := b.create.titleInput.View()
+	if !strings.Contains(textareaView, "ZZEND") {
+		t.Errorf("textarea View() does not contain recently typed text 'ZZEND'; "+
+			"cursor line is not visible when textarea exceeds max height.\n"+
+			"View():\n%s", textareaView)
+	}
+}
