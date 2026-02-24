@@ -27,6 +27,7 @@ type ColumnConfig struct {
 
 const DefaultSessionMaxLength = 32
 const DefaultRefreshInterval = 5
+const DefaultActionRefreshDelay = 5
 const DefaultWorkingLabel = "Working"
 
 // Config holds the application configuration.
@@ -37,8 +38,9 @@ type Config struct {
 	Actions          map[string]Action `yaml:"actions"`
 	Columns          []ColumnConfig    `yaml:"columns"`
 	SessionMaxLength int               `yaml:"session_max_length"`
-	RefreshInterval  int               `yaml:"refresh_interval"`
-	WorkingLabel     *string           `yaml:"working_label,omitempty"`
+	RefreshInterval    int               `yaml:"refresh_interval"`
+	ActionRefreshDelay *int              `yaml:"action_refresh_delay,omitempty"`
+	WorkingLabel       *string           `yaml:"working_label,omitempty"`
 }
 
 // WorkingLabelValue returns the configured working label, or DefaultWorkingLabel if not set.
@@ -47,6 +49,18 @@ func (c Config) WorkingLabelValue() string {
 		return DefaultWorkingLabel
 	}
 	return *c.WorkingLabel
+}
+
+// ActionRefreshDelayValue returns the configured action refresh delay in seconds,
+// or DefaultActionRefreshDelay if not set. Negative values are clamped to 0.
+func (c Config) ActionRefreshDelayValue() int {
+	if c.ActionRefreshDelay == nil {
+		return DefaultActionRefreshDelay
+	}
+	if *c.ActionRefreshDelay < 0 {
+		return 0
+	}
+	return *c.ActionRefreshDelay
 }
 
 // DefaultColumns is the default set of column names when none are configured.

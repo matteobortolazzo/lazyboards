@@ -21,7 +21,7 @@ func newCleanupTestBoard(t *testing.T, cleanup string) (Board, *action.FakeExecu
 		{Name: "Implementing"},
 		{Name: "Implemented"},
 	}
-	b := NewBoard(p, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, "Working", false)
+	b := NewBoard(p, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false)
 	board, err := p.FetchBoard(nil)
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
