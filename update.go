@@ -632,29 +632,24 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		col := b.Columns[b.ActiveTab]
 		if len(col.Cards) > 0 {
 			card := col.Cards[col.Cursor]
-			if card.Body != "" {
-				rendered := renderBody(card.Body)
-				maxLines := len(strings.Split(rendered, "\n"))
-				panelHeight, _, rightContentWidth := b.layoutDimensions()
-				headerLines := detailHeaderLineCount(card, rightContentWidth)
-				availableBodyLines := panelHeight - headerLines
-				if availableBodyLines < 1 {
-					availableBodyLines = 1
+			fullMarkdown := composeDetailMarkdown(card)
+			rendered := renderBody(fullMarkdown)
+			totalLines := len(strings.Split(rendered, "\n"))
+			panelHeight, _, _ := b.layoutDimensions()
+			availableLines := panelHeight
+			// Account for up-arrow indicator when scrolled.
+			if b.detailScrollOffset > 0 {
+				availableLines--
+				if availableLines < 1 {
+					availableLines = 1
 				}
-				// Account for up-arrow indicator when scrolled.
-				if b.detailScrollOffset > 0 {
-					availableBodyLines--
-					if availableBodyLines < 1 {
-						availableBodyLines = 1
-					}
-				}
-				maxOffset := maxLines - availableBodyLines
-				if maxOffset < 0 {
-					maxOffset = 0
-				}
-				if b.detailScrollOffset < maxOffset {
-					b.detailScrollOffset++
-				}
+			}
+			maxOffset := totalLines - availableLines
+			if maxOffset < 0 {
+				maxOffset = 0
+			}
+			if b.detailScrollOffset < maxOffset {
+				b.detailScrollOffset++
 			}
 		}
 	case "k", "up":

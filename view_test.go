@@ -929,8 +929,9 @@ func TestView_DetailPanel_StillShowsHiddenLabels(t *testing.T) {
 }
 
 func TestView_DetailPanel_RendersWithGitHubLabelColors(t *testing.T) {
-	// A card with labels that have GitHub hex colors should render
-	// without errors and still display the label names in the detail panel.
+	// A card with labels should render them in YAML frontmatter format.
+	// Per-label lipgloss colors are no longer used in the detail panel;
+	// labels appear in the YAML code block rendered through glamour.
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false)
 
@@ -951,15 +952,20 @@ func TestView_DetailPanel_RendersWithGitHubLabelColors(t *testing.T) {
 	board.Height = 40
 	view := board.View()
 
-	// All three label names should appear in the detail panel.
+	// The detail panel should use YAML frontmatter format with "labels:" field.
+	if !strings.Contains(view, "labels:") {
+		t.Error("detail panel should contain 'labels:' in YAML frontmatter format")
+	}
+
+	// All three label names should appear in the detail panel (inside the YAML block).
 	for _, labelName := range []string{"bug", "enhancement", "no-color-label"} {
 		if !strings.Contains(view, labelName) {
-			t.Errorf("detail panel should contain label %q, but it was not found in view", labelName)
+			t.Errorf("detail panel should contain label %q in YAML frontmatter, but it was not found in view", labelName)
 		}
 	}
 
-	// The view should render without being empty (no panics from color handling).
+	// The view should render without being empty (no panics from rendering).
 	if strings.TrimSpace(view) == "" {
-		t.Error("View() should not be empty when rendering cards with GitHub label colors")
+		t.Error("View() should not be empty when rendering cards with labels")
 	}
 }

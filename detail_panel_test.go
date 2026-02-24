@@ -64,17 +64,15 @@ func TestView_DetailPanelEmptyBody_NoExtraSpace(t *testing.T) {
 	view := b.View()
 
 	// With an empty body, the view should still render without errors.
-	// The detail panel should show the card title and labels but no body content.
-	selectedCard := b.Columns[b.ActiveTab].Cards[0]
-	titleStr := fmt.Sprintf("#%d %s", selectedCard.Number, selectedCard.Title)
-	if !strings.Contains(view, titleStr) {
-		t.Errorf("View() detail panel does not contain card title %q", titleStr)
+	// The detail panel should show the card title in frontmatter YAML format.
+	if !strings.Contains(view, "title:") {
+		t.Error("View() detail panel should contain 'title:' in frontmatter format")
 	}
 
-	// Count occurrences of consecutive newlines in the detail area.
-	// An empty body should not produce extra blank lines (e.g., "\n\n\n").
-	if strings.Contains(view, "\n\n\n") {
-		t.Error("View() detail panel has excessive blank lines when body is empty")
+	// The card title text should still appear in the view (inside the YAML block).
+	selectedCard := b.Columns[b.ActiveTab].Cards[0]
+	if !strings.Contains(view, selectedCard.Title) {
+		t.Errorf("View() detail panel does not contain card title %q", selectedCard.Title)
 	}
 }
 
@@ -449,11 +447,10 @@ func TestDetailFocus_ShiftTab_AtFirstColumn_WrapsToLast(t *testing.T) {
 
 func TestView_DetailPanel_LongBodyTruncated(t *testing.T) {
 	// Build a body with 50 paragraphs (double-newline separated), which
-	// glamour renders as ~100 lines — well exceeding the available body area.
+	// glamour renders as ~100 lines — well exceeding the available panel area.
 	// With Height=40: panelHeight = 40 - 6 = 34
-	// headerLines = 3 (title + labels + blank separator)
-	// availableBodyLines = 34 - 3 = 31
-	// So only ~31 lines of the ~100 rendered lines should be visible.
+	// The entire rendered content (frontmatter + body) scrolls as one unit,
+	// so only ~34 lines of the ~100+ rendered lines should be visible.
 	var lines []string
 	totalBodyLines := 50
 	for i := 1; i <= totalBodyLines; i++ {
@@ -534,8 +531,9 @@ func TestView_DetailPanel_ScrollIndicatorHiddenAtBottom(t *testing.T) {
 
 func TestDetailFocus_JKey_ClampsAtMaxLines_TightBound(t *testing.T) {
 	// With a short 2-line body and Height=40:
-	// panelHeight = 34, headerLines = 3, availableBodyLines = 31
-	// The body has 2 lines, so maxOffset = max(0, 2 - 31) = 0
+	// panelHeight = 34. The entire rendered content (frontmatter + body)
+	// scrolls as one unit. A 2-line body plus frontmatter renders to far
+	// fewer than 34 lines, so maxOffset = 0.
 	// Scrolling should have no effect — offset must stay at 0.
 	shortBody := "line one\nline two"
 	b := newBoardWithBody(t, shortBody, "")
@@ -694,5 +692,148 @@ func TestDetailFocus_DynamicHeaderLines(t *testing.T) {
 	outputLines := strings.Split(view, "\n")
 	if len(outputLines) > b.Height {
 		t.Errorf("View() has %d lines at max scroll, want <= %d", len(outputLines), b.Height)
+	}
+}
+
+// --- Frontmatter Detail Panel (#198) ---
+
+func TestView_DetailPanel_ShowsFrontmatterFormat(t *testing.T) {
+	// The detail panel should render card metadata in a fenced YAML code block
+	// (frontmatter), not as raw lipgloss-styled title/labels.
+	b := newBoardWithCustomCard(t, "Fix login bug",
+		[]provider.Label{{Name: "bug"}, {Name: "urgent"}}, "Some body text")
+
+	view := b.View()
+
+	// The frontmatter should contain a "title:" field.
+	if !strings.Contains(view, "title:") {
+		t.Error("View() detail panel should contain 'title:' in YAML frontmatter format")
+	}
+
+	// The frontmatter should contain a "labels:" field when labels exist.
+	if !strings.Contains(view, "labels:") {
+		t.Error("View() detail panel should contain 'labels:' in YAML frontmatter format")
+	}
+
+	// Each label name should appear in the rendered view.
+	for _, labelName := range []string{"bug", "urgent"} {
+		if !strings.Contains(view, labelName) {
+			t.Errorf("View() detail panel should contain label name %q", labelName)
+		}
+	}
+
+	// The card title text should appear in the view.
+	if !strings.Contains(view, "Fix login bug") {
+		t.Error("View() detail panel should contain the card title text")
+	}
+
+	// The body text should still appear after the frontmatter block.
+	if !strings.Contains(view, "Some body text") {
+		t.Error("View() detail panel should contain the card body text")
+	}
+}
+
+func TestView_DetailPanel_FrontmatterOmitsLabelsWhenEmpty(t *testing.T) {
+	// A card with no labels should NOT have a "labels:" field in the frontmatter.
+	b := newBoardWithCustomCard(t, "No label card", nil, "Body content here")
+
+	view := b.View()
+
+	// The frontmatter should still contain a "title:" field.
+	if !strings.Contains(view, "title:") {
+		t.Error("View() detail panel should contain 'title:' in YAML frontmatter")
+	}
+
+	// The "labels:" field should be absent when the card has no labels.
+	if strings.Contains(view, "labels:") {
+		t.Error("View() detail panel should NOT contain 'labels:' when card has no labels")
+	}
+
+	// The body should still render.
+	if !strings.Contains(view, "Body content here") {
+		t.Error("View() detail panel should contain the card body text")
+	}
+}
+
+func TestComposeDetailMarkdown_EscapesTitleQuotesAndBackslashes(t *testing.T) {
+	// Card titles containing double quotes or backslashes must be escaped
+	// so they don't break the YAML double-quoted string.
+	card := Card{
+		Number: 42,
+		Title:  `Fix "login" bug with path C:\Users`,
+	}
+
+	md := composeDetailMarkdown(card)
+
+	// The title must contain escaped quotes and backslashes.
+	if strings.Contains(md, `"login"`) {
+		t.Error("composeDetailMarkdown should escape double quotes in title, but found unescaped quotes")
+	}
+	if !strings.Contains(md, `\"login\"`) {
+		t.Error("composeDetailMarkdown should contain escaped double quotes (\\\"login\\\") in title")
+	}
+	if strings.Contains(md, `C:\Users`) && !strings.Contains(md, `C:\\Users`) {
+		t.Error("composeDetailMarkdown should escape backslashes in title")
+	}
+}
+
+func TestComposeDetailMarkdown_EscapesTitleTripleBackticks(t *testing.T) {
+	// A title containing triple backticks could close the code fence,
+	// breaking the YAML block. Triple backticks must be neutralized.
+	card := Card{
+		Number: 10,
+		Title:  "Add ``` support to parser",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	// The raw triple backtick should not appear inside the fenced block
+	// (other than the opening/closing fence lines themselves).
+	fenceOpen := strings.Index(md, "```")
+	if fenceOpen == -1 {
+		t.Fatal("composeDetailMarkdown should start with a code fence")
+	}
+	// Content between fences should not contain unescaped triple backticks.
+	afterOpen := md[fenceOpen+3:]
+	fenceClose := strings.LastIndex(afterOpen, "```")
+	if fenceClose == -1 {
+		t.Fatal("composeDetailMarkdown should end with a code fence")
+	}
+	inner := afterOpen[:fenceClose]
+	if strings.Contains(inner, "```") {
+		t.Errorf("triple backticks in title should be neutralized inside the code fence, got inner content: %q", inner)
+	}
+}
+
+func TestComposeDetailMarkdown_EscapesLabelSpecialCharacters(t *testing.T) {
+	// Label names containing ], ", \, or triple backticks must be escaped
+	// to prevent breaking the YAML array or the code fence.
+	card := Card{
+		Number: 7,
+		Title:  "Test card",
+		Labels: []Label{
+			{Name: `label"with"quotes`},
+			{Name: `label\with\backslash`},
+			{Name: "label]breaks,array"},
+			{Name: "label```fence"},
+		},
+	}
+
+	md := composeDetailMarkdown(card)
+
+	// Unescaped double quotes in label names should not appear in YAML.
+	if strings.Contains(md, `label"with"quotes`) {
+		t.Error("composeDetailMarkdown should escape double quotes in label names")
+	}
+	// Backslashes in label names should be escaped.
+	if strings.Contains(md, `label\with\backslash`) && !strings.Contains(md, `label\\with\\backslash`) {
+		t.Error("composeDetailMarkdown should escape backslashes in label names")
+	}
+	// Triple backticks in label names should be neutralized.
+	// Count triple backticks: only the opening and closing fences should have them.
+	fenceCount := strings.Count(md, "```")
+	if fenceCount != 2 {
+		t.Errorf("composeDetailMarkdown should have exactly 2 triple-backtick sequences (fences), got %d — "+
+			"label triple backticks were not neutralized", fenceCount)
 	}
 }
