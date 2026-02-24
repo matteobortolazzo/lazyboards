@@ -344,3 +344,179 @@ func TestSearchMode_DetailPanelShowsFilteredCard(t *testing.T) {
 		t.Errorf("detail panel should show filtered card title %q, not found in view", expectedTitle)
 	}
 }
+
+// --- Search Input Rendering ---
+
+func TestSearchMode_View_ContainsSearchInput(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Fix login bug", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Add dashboard", Labels: []provider.Label{{Name: "feature"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	// Enter search mode.
+	b = sendKey(t, b, keyMsg("/"))
+
+	view := b.View()
+	// The search input's placeholder "Search..." should appear in the card list panel.
+	if !strings.Contains(view, "Search...") {
+		t.Errorf("View() in search mode should contain search input placeholder %q, not found in view", "Search...")
+	}
+}
+
+func TestSearchMode_View_NoSearchInputInNormalMode(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Fix login bug", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Add dashboard", Labels: []provider.Label{{Name: "feature"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	// Stay in normal mode (do NOT enter search mode).
+	view := b.View()
+	// The search input placeholder should NOT appear when not in search mode.
+	if strings.Contains(view, "Search...") {
+		t.Errorf("View() in normal mode should NOT contain search placeholder %q", "Search...")
+	}
+}
+
+// --- Empty State ---
+
+func TestSearchMode_View_ShowsNoMatchingCards(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Fix login bug", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Add dashboard", Labels: []provider.Label{{Name: "feature"}}},
+		{Number: 3, Title: "Update docs", Labels: []provider.Label{{Name: "docs"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	// Enter search mode and type a query that matches nothing.
+	b = sendKey(t, b, keyMsg("/"))
+	for _, ch := range "zzzznonexistent" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Verify precondition: no cards match.
+	filtered := b.filteredCards()
+	if len(filtered) != 0 {
+		t.Fatalf("precondition: filteredCards() = %d, want 0", len(filtered))
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "No matching cards") {
+		t.Errorf("View() with zero matching cards should contain %q, not found in view", "No matching cards")
+	}
+}
+
+func TestSearchMode_View_NoEmptyMessage_WhenCardsMatch(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Fix login bug", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Add dashboard", Labels: []provider.Label{{Name: "feature"}}},
+		{Number: 3, Title: "Update docs", Labels: []provider.Label{{Name: "docs"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	// Enter search mode and type a query that matches some cards.
+	b = sendKey(t, b, keyMsg("/"))
+	for _, ch := range "bug" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Verify precondition: some cards match.
+	filtered := b.filteredCards()
+	if len(filtered) == 0 {
+		t.Fatalf("precondition: filteredCards() = 0, want > 0")
+	}
+
+	view := b.View()
+	if strings.Contains(view, "No matching cards") {
+		t.Errorf("View() with matching cards should NOT contain %q", "No matching cards")
+	}
+}
+
+// --- Filtered Count in Border Title ---
+
+func TestSearchMode_View_BorderTitleShowsFilteredCount(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Fix login bug", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Add dashboard", Labels: []provider.Label{{Name: "feature"}}},
+		{Number: 3, Title: "Fix crash bug", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 4, Title: "Update docs", Labels: []provider.Label{{Name: "docs"}}},
+		{Number: 5, Title: "Fix timeout bug", Labels: []provider.Label{{Name: "bug"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	// Enter search mode and type "bug" to match cards with "bug" in the title.
+	b = sendKey(t, b, keyMsg("/"))
+	for _, ch := range "bug" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Verify precondition: 3 of 5 cards match.
+	filtered := b.filteredCards()
+	totalCards := len(b.Columns[b.ActiveTab].Cards)
+	if len(filtered) != 3 || totalCards != 5 {
+		t.Fatalf("precondition: filtered = %d (want 3), total = %d (want 5)", len(filtered), totalCards)
+	}
+
+	view := b.View()
+	// The border title should show "3/5" (filtered/total) format.
+	expectedCount := fmt.Sprintf("%d/%d", len(filtered), totalCards)
+	if !strings.Contains(view, expectedCount) {
+		t.Errorf("View() border title should contain filtered count %q, not found in view", expectedCount)
+	}
+}
+
+func TestSearchMode_View_BorderTitleShowsTotalCount_WhenNoSearch(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Fix login bug", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Add dashboard", Labels: []provider.Label{{Name: "feature"}}},
+		{Number: 3, Title: "Update docs", Labels: []provider.Label{{Name: "docs"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	// No search active -- the border title should show the total count in (N) format.
+	view := b.View()
+	totalCards := len(b.Columns[b.ActiveTab].Cards)
+	totalCount := fmt.Sprintf("(%d)", totalCards)
+	if !strings.Contains(view, totalCount) {
+		t.Errorf("View() border title without search should contain total count %q, not found in view", totalCount)
+	}
+
+	// The view should NOT contain a slash-separated count format.
+	slashCount := fmt.Sprintf("/%d)", totalCards)
+	if strings.Contains(view, slashCount) {
+		t.Errorf("View() border title without search should NOT contain filtered count format %q", slashCount)
+	}
+}
+
+// --- Status Bar Hints ---
+
+func TestSearchMode_View_StatusBarShowsSearchHints(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Enter search mode.
+	b = sendKey(t, b, keyMsg("/"))
+
+	view := b.View()
+	// The status bar should show the search mode hints: "esc" key and "Clear" description.
+	if !strings.Contains(view, "esc") {
+		t.Errorf("View() in search mode should contain hint key %q in status bar", "esc")
+	}
+	if !strings.Contains(view, "Clear") {
+		t.Errorf("View() in search mode should contain hint desc %q in status bar", "Clear")
+	}
+}
+
+// --- Search Input Prompt ---
+
+func TestSearchMode_SearchInputPrompt(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	// The search input should have "/ " as its Prompt value.
+	expectedPrompt := "/ "
+	if b.searchInput.Prompt != expectedPrompt {
+		t.Errorf("searchInput.Prompt = %q, want %q", b.searchInput.Prompt, expectedPrompt)
+	}
+}

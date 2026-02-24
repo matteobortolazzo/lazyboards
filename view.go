@@ -57,9 +57,11 @@ func (b Board) View() string {
 
 	col := b.Columns[b.ActiveTab]
 	// When a search query is active, display only filtered cards.
+	// Compute filtered cards once and reuse throughout View().
 	displayCol := col
+	var filtered []Card
 	if b.searchQuery != "" {
-		filtered := b.filteredCards()
+		filtered = b.filteredCards()
 		cursor := col.Cursor
 		if len(filtered) == 0 {
 			cursor = 0
@@ -101,7 +103,17 @@ func (b Board) View() string {
 
 	// Render with normal outer border, then replace the top line with the border title.
 	rendered := outerStyle.Width(innerWidth).Render(inner)
-	borderTitle := buildBorderTitle(b.Columns, b.ActiveTab, b.Width)
+	var borderTitle string
+	if b.searchQuery != "" {
+		fc := make([]int, len(b.Columns))
+		for i := range fc {
+			fc[i] = -1
+		}
+		fc[b.ActiveTab] = len(filtered)
+		borderTitle = buildBorderTitle(b.Columns, b.ActiveTab, b.Width, fc)
+	} else {
+		borderTitle = buildBorderTitle(b.Columns, b.ActiveTab, b.Width)
+	}
 	lines := strings.SplitN(rendered, "\n", 2)
 	if len(lines) == 2 {
 		return borderTitle + "\n" + lines[1]
@@ -113,7 +125,13 @@ func (b Board) View() string {
 // Format: ╭─ [1] Name ─ [2] Name ─...──╮
 // When the terminal is too narrow, titles are progressively truncated with "…".
 // If even truncated titles don't fit, falls back to just [N] per column.
-func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
+// filteredCounts is optional: when non-nil, filteredCounts[i] >= 0 means show
+// "filteredCounts[i]/len(col.Cards)" instead of "(len(col.Cards))" for column i.
+func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCounts ...[]int) string {
+	var fc []int
+	if len(filteredCounts) > 0 {
+		fc = filteredCounts[0]
+	}
 	borderFg := lipgloss.Color("240")
 	borderStyle := lipgloss.NewStyle().Foreground(borderFg)
 
@@ -141,10 +159,19 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
 		return joined, lipgloss.Width(joined)
 	}
 
+	// countSuffix returns "(filtered/total)" when a filtered count is set,
+	// or "(total)" otherwise.
+	countSuffix := func(i int, total int) string {
+		if fc != nil && i < len(fc) && fc[i] >= 0 {
+			return fmt.Sprintf("(%d/%d)", fc[i], total)
+		}
+		return fmt.Sprintf("(%d)", total)
+	}
+
 	// Try 1: Full titles — "[N] Title (C)"
 	fullTexts := make([]string, len(columns))
 	for i, col := range columns {
-		fullTexts[i] = fmt.Sprintf("[%d] %s (%d)", i+1, col.Title, len(col.Cards))
+		fullTexts[i] = fmt.Sprintf("[%d] %s %s", i+1, col.Title, countSuffix(i, len(col.Cards)))
 	}
 	joined, joinedWidth := renderLabels(fullTexts)
 
@@ -163,8 +190,8 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
 		for i, col := range columns {
 			numPrefix := fmt.Sprintf("[%d] ", i+1)
 			prefixLen := len([]rune(numPrefix))
-			countSuffix := fmt.Sprintf(" (%d)", len(col.Cards))
-			countLen := len([]rune(countSuffix))
+			cntSuffix := " " + countSuffix(i, len(col.Cards))
+			countLen := len([]rune(cntSuffix))
 			maxTitleChars := perLabel - prefixLen - countLen
 			if maxTitleChars < 1 {
 				canTruncate = false
@@ -172,9 +199,9 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
 			}
 			titleRunes := []rune(col.Title)
 			if len(titleRunes) > maxTitleChars {
-				truncTexts[i] = numPrefix + string(titleRunes[:maxTitleChars-1]) + "\u2026" + countSuffix
+				truncTexts[i] = numPrefix + string(titleRunes[:maxTitleChars-1]) + "\u2026" + cntSuffix
 			} else {
-				truncTexts[i] = numPrefix + col.Title + countSuffix
+				truncTexts[i] = numPrefix + col.Title + cntSuffix
 			}
 		}
 
@@ -186,7 +213,7 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int) string {
 		if !canTruncate || joinedWidth > availableForLabels {
 			numTexts := make([]string, len(columns))
 			for i, col := range columns {
-				numTexts[i] = fmt.Sprintf("[%d] (%d)", i+1, len(col.Cards))
+				numTexts[i] = fmt.Sprintf("[%d] %s", i+1, countSuffix(i, len(col.Cards)))
 			}
 			joined, joinedWidth = renderLabels(numTexts)
 		}
@@ -358,6 +385,28 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		columnNames[i] = c.Title
 	}
 
+	// When search mode is active, render the search input at the top.
+	var searchLine string
+	if b.mode == searchMode {
+		searchLine = b.searchInput.View()
+		panelHeight -= 2 // 1 for input, 1 for separator blank line
+		if panelHeight < 1 {
+			panelHeight = 1
+		}
+	}
+
+	// Show empty state when search query matches no cards.
+	if len(col.Cards) == 0 && b.mode == searchMode && b.searchQuery != "" {
+		leftContent := "No matching cards"
+		if searchLine != "" {
+			leftContent = searchLine + "\n\n" + leftContent
+		}
+		return style.
+			Width(contentWidth).
+			Height(panelHeight + 2). // restore panel height for consistent sizing
+			Render(leftContent)
+	}
+
 	// Pre-compute wrapped lines for each card.
 	type wrappedCard struct {
 		lines    []string
@@ -471,9 +520,16 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 	}
 
 	leftContent := strings.Join(leftLines, "\n")
+	if searchLine != "" {
+		leftContent = searchLine + "\n\n" + leftContent
+	}
+	actualHeight := panelHeight
+	if b.mode == searchMode {
+		actualHeight += 2 // restore the 2 lines we subtracted for search input
+	}
 	return style.
 		Width(contentWidth).
-		Height(panelHeight).
+		Height(actualHeight).
 		Render(leftContent)
 }
 

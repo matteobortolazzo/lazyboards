@@ -298,6 +298,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 	si := textinput.New()
 	si.Placeholder = "Search..."
 	si.CharLimit = 100
+	si.Prompt = "/ "
 
 	b := Board{
 		mode:            loadingMode,
