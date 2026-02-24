@@ -969,3 +969,47 @@ func TestView_DetailPanel_RendersWithGitHubLabelColors(t *testing.T) {
 		t.Error("View() should not be empty when rendering cards with labels")
 	}
 }
+
+// --- Help Modal Key Binding Tests ---
+
+func TestHelpModal_ShowsTicketOpenBinding(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Enter help mode.
+	b = sendKey(t, b, keyMsg("?"))
+
+	view := b.View()
+	// The help modal should show "o" mapped to "Open ticket" in the Normal Mode section.
+	if !strings.Contains(view, "Open ticket") {
+		t.Errorf("help modal should contain %q key binding, got:\n%s", "Open ticket", view)
+	}
+}
+
+func TestHelpModal_ShowsRepoOpenBinding(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	// Enter help mode.
+	b = sendKey(t, b, keyMsg("?"))
+
+	view := b.View()
+	// The help modal should show "O" mapped to "Open repository" in the Normal Mode section.
+	if !strings.Contains(view, "Open repository") {
+		t.Errorf("help modal should contain %q key binding, got:\n%s", "Open repository", view)
+	}
+}
+
+func TestRepoOpen_ShiftO_NotInStatusBarHints(t *testing.T) {
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+	b = loadFromFakeProvider(t, b, p)
+
+	// The status bar should NOT contain a hint for "O" (shift+o) — it is only in the help modal.
+	statusBarView := b.statusBar.View(200)
+	if strings.Contains(statusBarView, "Repo") {
+		t.Errorf("status bar should NOT contain %q hint (shift+o is help-modal-only), got:\n%s", "Repo", statusBarView)
+	}
+}

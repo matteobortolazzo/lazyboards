@@ -376,7 +376,7 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	}
 }
 
-// --- Repository Open (o key) ---
+// --- Repository Open (shift+o key) ---
 
 func TestRepoOpen_NormalMode_OpensRepoURL(t *testing.T) {
 	p := provider.NewFakeProvider()
@@ -384,8 +384,8 @@ func TestRepoOpen_NormalMode_OpensRepoURL(t *testing.T) {
 	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
 	b = loadFromFakeProvider(t, b, p)
 
-	// Press "o" in normal mode.
-	b = sendKey(t, b, keyMsg("o"))
+	// Press "O" (shift+o) in normal mode to open the repository.
+	b = sendKey(t, b, keyMsg("O"))
 
 	expectedURL := "https://github.com/matteobortolazzo/lazyboards"
 	if len(fe.OpenURLCalls) == 0 {
@@ -402,8 +402,8 @@ func TestRepoOpen_NormalMode_NonGitHubProvider_ShowsMessage(t *testing.T) {
 	b := NewBoard(p, nil, nil, fe, "owner", "repo", "azure-devops", 0, 0, 0, "Working", false, false)
 	b = loadFromFakeProvider(t, b, p)
 
-	// Press "o" with a non-GitHub provider.
-	b = sendKey(t, b, keyMsg("o"))
+	// Press "O" (shift+o) with a non-GitHub provider.
+	b = sendKey(t, b, keyMsg("O"))
 
 	view := b.View()
 	if !strings.Contains(view, "not available") {
@@ -417,8 +417,8 @@ func TestRepoOpen_NormalMode_MissingRepoInfo_ShowsMessage(t *testing.T) {
 	b := NewBoard(p, nil, nil, fe, "", "", "github", 0, 0, 0, "Working", false, false)
 	b = loadFromFakeProvider(t, b, p)
 
-	// Press "o" with missing repo owner/name.
-	b = sendKey(t, b, keyMsg("o"))
+	// Press "O" (shift+o) with missing repo owner/name.
+	b = sendKey(t, b, keyMsg("O"))
 
 	view := b.View()
 	if !strings.Contains(view, "not available") {
@@ -432,9 +432,9 @@ func TestRepoOpen_DetailFocused_OpensRepoURL(t *testing.T) {
 	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
 	b = loadFromFakeProvider(t, b, p)
 
-	// Enter detail focus, then press "o".
+	// Enter detail focus, then press "O" (shift+o) to open repo.
 	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("o"))
+	b = sendKey(t, b, keyMsg("O"))
 
 	expectedURL := "https://github.com/matteobortolazzo/lazyboards"
 	if len(fe.OpenURLCalls) == 0 {
@@ -452,8 +452,8 @@ func TestRepoOpen_OpenURLError_ShowsError(t *testing.T) {
 	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
 	b = loadFromFakeProvider(t, b, p)
 
-	// Press "o" with OpenURL error configured.
-	b = sendKey(t, b, keyMsg("o"))
+	// Press "O" (shift+o) with OpenURL error configured.
+	b = sendKey(t, b, keyMsg("O"))
 
 	view := b.View()
 	if !strings.Contains(view, "Error:") {
@@ -461,15 +461,189 @@ func TestRepoOpen_OpenURLError_ShowsError(t *testing.T) {
 	}
 }
 
-func TestRepoOpen_HintShowsInStatusBar(t *testing.T) {
+// --- Ticket Open (o key) ---
+
+func TestTicketOpen_NormalMode_OpensCardURL(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with a card that has a URL.
+	cardURL := "https://github.com/matteobortolazzo/lazyboards/issues/42"
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "New", Cards: []provider.Card{
+				{Number: 42, Title: "Add ticket open hotkey", Labels: []provider.Label{{Name: "feature"}}, URL: cardURL},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Press "o" in normal mode to open the card's ticket URL.
+	b = sendKey(t, b, keyMsg("o"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called, but no calls recorded")
+	}
+	if fe.OpenURLCalls[0] != cardURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], cardURL)
+	}
+}
+
+func TestTicketOpen_NormalMode_EmptyURL_ShowsMessage(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with a card that has no URL.
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "New", Cards: []provider.Card{
+				{Number: 1, Title: "No URL card", Labels: []provider.Label{{Name: "bug"}}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Press "o" with empty URL.
+	b = sendKey(t, b, keyMsg("o"))
+
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("expected no OpenURL calls when card URL is empty, got %d", len(fe.OpenURLCalls))
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "URL not available") {
+		t.Errorf("View() should contain %q when card URL is empty, got:\n%s", "URL not available", view)
+	}
+}
+
+func TestTicketOpen_NormalMode_NoCards_DoesNothing(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with an empty column.
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Empty", Cards: nil},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Press "o" with no cards in the column.
+	b = sendKey(t, b, keyMsg("o"))
+
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("expected no OpenURL calls when no cards, got %d", len(fe.OpenURLCalls))
+	}
+}
+
+func TestTicketOpen_DetailFocused_OpensCardURL(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with a card that has a URL.
+	cardURL := "https://github.com/matteobortolazzo/lazyboards/issues/7"
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "New", Cards: []provider.Card{
+				{Number: 7, Title: "Detail card", Labels: []provider.Label{{Name: "feature"}}, URL: cardURL},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Enter detail focus, then press "o" to open ticket.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("o"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called from detail focus, but no calls recorded")
+	}
+	if fe.OpenURLCalls[0] != cardURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], cardURL)
+	}
+}
+
+func TestTicketOpen_ShowsOpenedMessage(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with a card that has a URL.
+	cardNumber := 99
+	cardURL := "https://github.com/matteobortolazzo/lazyboards/issues/99"
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "New", Cards: []provider.Card{
+				{Number: cardNumber, Title: "Message test", Labels: []provider.Label{{Name: "feature"}}, URL: cardURL},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Press "o" to open the ticket.
+	b = sendKey(t, b, keyMsg("o"))
+
+	view := b.View()
+	expectedMsg := fmt.Sprintf("Opened #%d", cardNumber)
+	if !strings.Contains(view, expectedMsg) {
+		t.Errorf("View() should contain %q after opening ticket, got:\n%s", expectedMsg, view)
+	}
+}
+
+// --- Ticket Open hint visibility tests ---
+
+func TestTicketOpen_OpenHintHiddenOnEmptyColumn(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with an empty column.
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Empty", Cards: nil},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// The "Open" hint for the "o" key should NOT appear when there are no cards.
+	statusBarView := b.statusBar.View(200)
+	if strings.Contains(statusBarView, "Open") {
+		t.Errorf("status bar should NOT contain %q hint on empty column, got:\n%s", "Open", statusBarView)
+	}
+}
+
+func TestTicketOpen_OpenHintVisibleWithCards(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
 	b = loadFromFakeProvider(t, b, p)
 
+	// With cards loaded, the "Open" hint should be visible.
 	view := b.View()
 	if !strings.Contains(view, "Open") {
-		t.Errorf("View() should contain %q hint in the status bar, got:\n%s", "Open", view)
+		t.Errorf("View() should contain %q hint in the status bar when cards exist, got:\n%s", "Open", view)
 	}
 }
 
