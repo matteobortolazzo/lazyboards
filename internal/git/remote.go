@@ -30,7 +30,7 @@ func extractOriginURL(path string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	inOrigin := false
@@ -146,10 +146,10 @@ func parseSSHURL(rawURL string) RemoteInfo {
 	host := rest[:colonIdx]
 	path := rest[colonIdx+1:]
 
-	switch {
-	case host == "github.com":
+	switch host {
+	case "github.com":
 		return parseGitHubSSH(path)
-	case host == "ssh.dev.azure.com":
+	case "ssh.dev.azure.com":
 		return parseAzureDevOpsSSH(path)
 	default:
 		return RemoteInfo{}

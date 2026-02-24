@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -22,7 +23,7 @@ func newCleanupTestBoard(t *testing.T, cleanup string) (Board, *action.FakeExecu
 		{Name: "Implemented"},
 	}
 	b := NewBoard(p, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false, false)
-	board, err := p.FetchBoard(nil)
+	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}
@@ -50,7 +51,7 @@ func fakeRefreshBoard(movedCards ...int) provider.Board {
 
 	// Start from FakeProvider's default data.
 	base := provider.NewFakeProvider()
-	original, _ := base.FetchBoard(nil)
+	original, _ := base.FetchBoard(context.TODO())
 
 	var cols []provider.Column
 	for i, col := range original.Columns {
@@ -122,7 +123,7 @@ func TestCleanup_CardDisappears(t *testing.T) {
 func TestCleanup_CardStaysSameColumn(t *testing.T) {
 	b, fe, p := newCleanupTestBoard(t, "tmux kill-window -t {session}")
 
-	board, err := p.FetchBoard(nil)
+	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}

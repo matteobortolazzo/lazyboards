@@ -208,7 +208,7 @@ func Save(path, provider, repo string) error {
 	var cfg Config
 	data, err := os.ReadFile(path)
 	if err == nil {
-		yaml.Unmarshal(data, &cfg) // ignore error, start fresh if invalid
+		_ = yaml.Unmarshal(data, &cfg) // ignore error, start fresh if invalid
 	}
 
 	// Update provider and repo.
