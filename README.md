@@ -50,7 +50,9 @@ On first launch without a local config, an interactive configuration popup guide
 
 ### Global Config
 
-Place shared settings (like custom actions) in `~/.config/lazyboards/config.yml`. Local config merges on top, with local values taking priority.
+Place shared settings in `~/.config/lazyboards/config.yml` for options that apply across all your projects: actions, columns, refresh interval, session max length, working label, and action refresh delay. Local config (`.lazyboards.yml`) merges on top, with local values taking priority.
+
+**Note:** `provider`, `repo`, and `project` are project-specific and cannot be set in global config — they come from `.lazyboards.yml` or git remote auto-detection.
 
 ### Custom Actions
 
