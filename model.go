@@ -2,6 +2,7 @@ package main
 
 import (
 	"hash/fnv"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/muesli/termenv"
 )
 
 // Package-level styles.
@@ -30,7 +32,21 @@ var (
 	cardNumberStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	hintKeyStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	hintDescStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	// Status bar message styles use a dedicated renderer with forced ANSI256
+	// so that colored messages always render, even in non-TTY environments.
+	statusRenderer     = newStatusRenderer()
+	statusErrorStyle   = statusRenderer.NewStyle().Foreground(lipgloss.Color("196"))
+	statusWarningStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("226"))
+	statusSuccessStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("114"))
 )
+
+// newStatusRenderer creates a lipgloss renderer with ANSI256 forced,
+// so status bar messages always display colors regardless of TTY detection.
+func newStatusRenderer() *lipgloss.Renderer {
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.ANSI256)
+	return r
+}
 
 // labelPalette contains 8 muted 256-color ANSI codes for label coloring.
 var labelPalette = []lipgloss.Color{

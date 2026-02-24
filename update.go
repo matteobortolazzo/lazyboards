@@ -29,7 +29,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if b.refreshing {
 			b.refreshing = false
 			b.pendingAutoRefresh = false
-			cmd := b.statusBar.SetTimedMessage("Refresh failed: "+provider.SanitizeError(msg.err), statusMessageDuration)
+			cmd := b.statusBar.SetTimedMessage("Refresh failed: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
 			if tickCmd := b.scheduleRefreshTick(); tickCmd != nil {
 				cmd = tea.Batch(cmd, tickCmd)
 			}
@@ -68,7 +68,11 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, nil
 
 	case actionResultMsg:
-		cmd := b.statusBar.SetTimedMessage(msg.message, statusMessageDuration)
+		level := StatusSuccess
+		if !msg.success {
+			level = StatusError
+		}
+		cmd := b.statusBar.SetTimedMessage(msg.message, level, statusMessageDuration)
 		if msg.success && b.actionRefreshDelay > 0 {
 			b.pendingAutoRefresh = true
 			cmd = tea.Batch(cmd, tea.Tick(b.actionRefreshDelay, func(time.Time) tea.Msg {
@@ -89,7 +93,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.count == 0 {
 			return b, nil
 		}
-		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Cleaned up %d sessions", msg.count), statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Cleaned up %d sessions", msg.count), StatusSuccess, statusMessageDuration)
 		return b, cmd
 
 	case spinner.TickMsg:
@@ -107,7 +111,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.handleCardUpdated(msg)
 
 	case cardUpdateErrorMsg:
-		cmd := b.statusBar.SetTimedMessage("Update error: "+provider.SanitizeError(msg.err), statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Update error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
 		return b, cmd
 
 	case labelCreatedMsg:
@@ -115,7 +119,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case labelCreateErrorMsg:
 		b.mode = normalMode
-		cmd := b.statusBar.SetTimedMessage("Error: "+provider.SanitizeError(msg.err), statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
 		return b, cmd
 
 	case tea.MouseMsg:
@@ -263,7 +267,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		} else {
 			b.statusBar.SetActionHints(b.normalHints)
 		}
-		cmd := b.statusBar.SetTimedMessage("Board refreshed", statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 		if cleanupCmd != nil {
 			cmd = tea.Batch(cmd, cleanupCmd)
 		}
@@ -281,7 +285,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.rebuildNormalHints()
 	b.statusBar.SetActionHints(b.normalHints)
 	if b.loaded {
-		cmd = b.statusBar.SetTimedMessage("Board refreshed", statusMessageDuration)
+		cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 	}
 	b.loaded = true
 	if cleanupCmd != nil {
@@ -375,16 +379,16 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 
 func (b Board) handleEditorFinished(msg editorFinishedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		cmd := b.statusBar.SetTimedMessage("Error: "+msg.err.Error(), statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Error: "+msg.err.Error(), StatusError, statusMessageDuration)
 		return b, cmd
 	}
 	if msg.editedContent == "" || msg.editedContent == msg.originalContent {
-		cmd := b.statusBar.SetTimedMessage("Edit cancelled", statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Edit cancelled", StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
 	title, labels, body, err := parseFrontmatter(msg.editedContent)
 	if err != nil {
-		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
 		return b, cmd
 	}
 
@@ -416,7 +420,7 @@ func (b Board) handleEditorFinished(msg editorFinishedMsg) (tea.Model, tea.Cmd) 
 func (b Board) handleLabelConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyEsc {
 		b.mode = normalMode
-		cmd := b.statusBar.SetTimedMessage("Edit cancelled", statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Edit cancelled", StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
 	switch msg.String() {
@@ -425,7 +429,7 @@ func (b Board) handleLabelConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, createLabelCmd(b.provider, label)
 	case "n":
 		b.mode = normalMode
-		cmd := b.statusBar.SetTimedMessage("Edit cancelled", statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Edit cancelled", StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
 	return b, nil
@@ -454,12 +458,12 @@ func (b Board) handleCardUpdated(msg cardUpdatedMsg) (tea.Model, tea.Cmd) {
 					Labels:    mapLabels(msg.card.Labels),
 					LinkedPRs: b.Columns[ci].Cards[i].LinkedPRs,
 				}
-				cmd := b.statusBar.SetTimedMessage("Card updated", statusMessageDuration)
+				cmd := b.statusBar.SetTimedMessage("Card updated", StatusSuccess, statusMessageDuration)
 				return b, cmd
 			}
 		}
 	}
-	cmd := b.statusBar.SetTimedMessage("Card updated", statusMessageDuration)
+	cmd := b.statusBar.SetTimedMessage("Card updated", StatusSuccess, statusMessageDuration)
 	return b, cmd
 }
 
@@ -663,15 +667,15 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (b Board) handlePROpenKey(card Card) (tea.Model, tea.Cmd) {
 	switch len(card.LinkedPRs) {
 	case 0:
-		cmd := b.statusBar.SetTimedMessage("No linked PRs", statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("No linked PRs", StatusWarning, statusMessageDuration)
 		return b, cmd
 	case 1:
 		pr := card.LinkedPRs[0]
 		if err := b.executor.OpenURL(pr.URL); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
 			return b, cmd
 		}
-		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), StatusSuccess, statusMessageDuration)
 		return b, cmd
 	default:
 		b.prPickerIndex = 0
@@ -683,19 +687,19 @@ func (b Board) handlePROpenKey(card Card) (tea.Model, tea.Cmd) {
 
 func (b Board) handleRepoOpenKey() (tea.Model, tea.Cmd) {
 	if b.providerName != "github" {
-		cmd := b.statusBar.SetTimedMessage("Repository URL not available for this provider", statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Repository URL not available for this provider", StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
 	if b.repoOwner == "" || b.repoName == "" {
-		cmd := b.statusBar.SetTimedMessage("Repository info not available", statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Repository info not available", StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
 	url := "https://github.com/" + b.repoOwner + "/" + b.repoName
 	if err := b.executor.OpenURL(url); err != nil {
-		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
 		return b, cmd
 	}
-	cmd := b.statusBar.SetTimedMessage("Opened repository", statusMessageDuration)
+	cmd := b.statusBar.SetTimedMessage("Opened repository", StatusSuccess, statusMessageDuration)
 	return b, cmd
 }
 
@@ -710,13 +714,13 @@ func (b Board) handleActionKey(act config.Action, card Card) (tea.Model, tea.Cmd
 	case "url":
 		expanded := action.ExpandTemplate(act.URL, action.BuildURLSafeVars(vars))
 		if err := b.executor.OpenURL(expanded); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
 			return b, cmd
 		}
 		return b, nil
 	case "shell":
 		expanded := action.ExpandTemplate(act.Command, action.BuildShellSafeVars(vars))
-		cmd := b.statusBar.SetTimedMessage("Running...", longStatusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
 		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
 	}
 	return b, nil
@@ -729,13 +733,13 @@ func (b Board) handleBoardActionKey(act config.Action) (tea.Model, tea.Cmd) {
 	case "url":
 		expanded := action.ExpandTemplate(act.URL, action.BuildURLSafeVars(vars))
 		if err := b.executor.OpenURL(expanded); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
 			return b, cmd
 		}
 		return b, nil
 	case "shell":
 		expanded := action.ExpandTemplate(act.Command, action.BuildShellSafeVars(vars))
-		cmd := b.statusBar.SetTimedMessage("Running...", longStatusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
 		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
 	}
 	return b, nil
@@ -928,10 +932,10 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = normalMode
 		b.statusBar.SetActionHints(b.normalHints)
 		if err := b.executor.OpenURL(pr.URL); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
 			return b, cmd
 		}
-		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), StatusSuccess, statusMessageDuration)
 		return b, cmd
 	}
 	return b, nil
