@@ -110,6 +110,14 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := b.statusBar.SetTimedMessage("Update error: "+provider.SanitizeError(msg.err), statusMessageDuration)
 		return b, cmd
 
+	case labelCreatedMsg:
+		return b.handleLabelCreated()
+
+	case labelCreateErrorMsg:
+		b.mode = normalMode
+		cmd := b.statusBar.SetTimedMessage("Error: "+provider.SanitizeError(msg.err), statusMessageDuration)
+		return b, cmd
+
 	case tea.MouseMsg:
 		if !b.mouseEnabled || b.mode != normalMode {
 			return b, nil
@@ -145,6 +153,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleSearchModeKey(msg)
 		case helpMode:
 			return b.handleHelpModeKey(msg)
+		case labelConfirmMode:
+			return b.handleLabelConfirmModeKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -372,16 +382,65 @@ func (b Board) handleEditorFinished(msg editorFinishedMsg) (tea.Model, tea.Cmd) 
 		cmd := b.statusBar.SetTimedMessage("Edit cancelled", statusMessageDuration)
 		return b, cmd
 	}
-	title, body, err := parseFrontmatter(msg.editedContent)
+	title, labels, body, err := parseFrontmatter(msg.editedContent)
 	if err != nil {
 		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
 		return b, cmd
 	}
-	labelNames := make([]string, len(msg.card.Labels))
-	for i, l := range msg.card.Labels {
-		labelNames[i] = l.Name
+
+	// Check for unknown labels.
+	known := b.collectKnownLabels()
+	var unknownLabels []string
+	for _, l := range labels {
+		if !known[strings.ToLower(l)] {
+			unknownLabels = append(unknownLabels, l)
+		}
 	}
-	return b, updateCardCmd(b.provider, msg.card.Number, title, body, labelNames)
+
+	if len(unknownLabels) > 0 {
+		b.mode = labelConfirmMode
+		b.labelConfirm = labelConfirmState{
+			card:          msg.card,
+			title:         title,
+			body:          body,
+			allLabels:     labels,
+			unknownLabels: unknownLabels,
+			currentIdx:    0,
+		}
+		return b, nil
+	}
+
+	return b, updateCardCmd(b.provider, msg.card.Number, title, body, labels)
+}
+
+func (b Board) handleLabelConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		b.mode = normalMode
+		cmd := b.statusBar.SetTimedMessage("Edit cancelled", statusMessageDuration)
+		return b, cmd
+	}
+	switch msg.String() {
+	case "y":
+		label := b.labelConfirm.unknownLabels[b.labelConfirm.currentIdx]
+		return b, createLabelCmd(b.provider, label)
+	case "n":
+		b.mode = normalMode
+		cmd := b.statusBar.SetTimedMessage("Edit cancelled", statusMessageDuration)
+		return b, cmd
+	}
+	return b, nil
+}
+
+func (b Board) handleLabelCreated() (tea.Model, tea.Cmd) {
+	b.labelConfirm.currentIdx++
+	if b.labelConfirm.currentIdx < len(b.labelConfirm.unknownLabels) {
+		// More unknown labels to confirm.
+		return b, nil
+	}
+	// All labels created, proceed with update.
+	b.mode = normalMode
+	lc := b.labelConfirm
+	return b, updateCardCmd(b.provider, lc.card.Number, lc.title, lc.body, lc.allLabels)
 }
 
 func (b Board) handleCardUpdated(msg cardUpdatedMsg) (tea.Model, tea.Cmd) {
