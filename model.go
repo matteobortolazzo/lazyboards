@@ -316,11 +316,19 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 
-	// Build normal-mode hints: defaults + action hints.
+	// Build normal-mode hints: defaults + board-scope action hints.
+	// Card-scope hints are omitted because no columns/cards are loaded yet;
+	// rebuildNormalHints adds them after the first board fetch.
 	hints := make([]Hint, len(normalModeHints))
 	copy(hints, normalModeHints)
 	for key, act := range actions {
-		hints = append(hints, Hint{Key: key, Desc: act.Name})
+		scope := act.Scope
+		if scope == "" {
+			scope = "card"
+		}
+		if scope == "board" {
+			hints = append(hints, Hint{Key: key, Desc: act.Name})
+		}
 	}
 
 	sb := NewStatusBar(hints)
@@ -493,10 +501,16 @@ func (b *Board) resolveAction(key string) (config.Action, bool) {
 func (b *Board) rebuildNormalHints() {
 	hints := make([]Hint, 0, len(normalModeHints)+len(b.actions)+1)
 
-	// Conditional PR hint: only show when the selected card has linked PRs.
+	// Determine if the active column has cards.
+	hasCards := false
 	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
+		hasCards = len(b.Columns[b.ActiveTab].Cards) > 0
+	}
+
+	// Conditional PR hint: only show when the selected card has linked PRs.
+	if hasCards {
 		col := b.Columns[b.ActiveTab]
-		if len(col.Cards) > 0 && col.Cursor < len(col.Cards) && len(col.Cards[col.Cursor].LinkedPRs) > 0 {
+		if col.Cursor < len(col.Cards) && len(col.Cards[col.Cursor].LinkedPRs) > 0 {
 			hints = append(hints, Hint{Key: "p", Desc: "Open PR"})
 		}
 	}
@@ -504,10 +518,18 @@ func (b *Board) rebuildNormalHints() {
 	// Default mode hints.
 	hints = append(hints, normalModeHints...)
 
-	// Collect action hints: start with global, overlay column-specific.
-	actionHints := make(map[string]Hint)
+	// Collect action hints with their scopes: start with global, overlay column-specific.
+	type actionEntry struct {
+		hint  Hint
+		scope string
+	}
+	actionEntries := make(map[string]actionEntry)
 	for key, act := range b.actions {
-		actionHints[key] = Hint{Key: key, Desc: act.Name}
+		scope := act.Scope
+		if scope == "" {
+			scope = "card"
+		}
+		actionEntries[key] = actionEntry{hint: Hint{Key: key, Desc: act.Name}, scope: scope}
 	}
 
 	// Overlay active column's actions.
@@ -516,15 +538,22 @@ func (b *Board) rebuildNormalHints() {
 		for _, cc := range b.columnConfigs {
 			if strings.EqualFold(cc.Name, colTitle) {
 				for key, act := range cc.Actions {
-					actionHints[key] = Hint{Key: key, Desc: act.Name}
+					scope := act.Scope
+					if scope == "" {
+						scope = "card"
+					}
+					actionEntries[key] = actionEntry{hint: Hint{Key: key, Desc: act.Name}, scope: scope}
 				}
 				break
 			}
 		}
 	}
 
-	for _, h := range actionHints {
-		hints = append(hints, h)
+	// Filter: show board-scope hints always; card-scope hints only when column has cards.
+	for _, entry := range actionEntries {
+		if entry.scope == "board" || hasCards {
+			hints = append(hints, entry.hint)
+		}
 	}
 
 	b.normalHints = hints

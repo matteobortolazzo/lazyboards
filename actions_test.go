@@ -472,3 +472,202 @@ func TestRepoOpen_HintShowsInStatusBar(t *testing.T) {
 		t.Errorf("View() should contain %q hint in the status bar, got:\n%s", "Open", view)
 	}
 }
+
+// --- Board-scope action dispatch tests ---
+
+func TestAction_BoardScope_URLFiresWithEmptyColumn(t *testing.T) {
+	actions := map[string]config.Action{
+		"b": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with an empty column.
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Empty", Cards: nil},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Press the board-scope action key.
+	b = sendKey(t, b, keyMsg("b"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called for board-scope action on empty column, but no calls recorded")
+	}
+	expectedURL := "https://github.com/matteobortolazzo/lazyboards/issues"
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+func TestAction_BoardScope_URLFiresWithCards(t *testing.T) {
+	actions := map[string]config.Action{
+		"b": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+
+	// Press the board-scope action key (column has cards from FakeProvider).
+	b = sendKey(t, b, keyMsg("b"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called for board-scope action with cards, but no calls recorded")
+	}
+	expectedURL := "https://github.com/matteobortolazzo/lazyboards/issues"
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+func TestAction_BoardScope_UsesOnlyBoardVars(t *testing.T) {
+	// Use {number} in URL to verify board-scope does NOT expand card-specific vars.
+	// {number} should remain unexpanded (left as-is) because board vars don't include it.
+	actions := map[string]config.Action{
+		"b": {Name: "Open board", Type: "url", Scope: "board", URL: "https://example.com/{repo_owner}/{number}"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("b"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called, but no calls recorded")
+	}
+	// repo_owner should be expanded; {number} should remain literal.
+	expectedURL := "https://example.com/matteobortolazzo/{number}"
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+func TestAction_BoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
+	actions := map[string]config.Action{
+		"s": {Name: "Deploy", Type: "shell", Scope: "board", Command: "deploy --repo {repo_owner}/{repo_name}"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with an empty column.
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Empty", Cards: nil},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Press the board-scope shell action key.
+	m2, cmd := b.Update(keyMsg("s"))
+	b = m2.(Board)
+
+	// Execute the returned cmd(s) to trigger RunShell.
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called for board-scope shell action on empty column, but no calls recorded")
+	}
+	// Shell vars are shell-escaped.
+	expectedCmd := "deploy --repo " + action.ShellEscape("matteobortolazzo") + "/" + action.ShellEscape("lazyboards")
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
+	}
+}
+
+func TestAction_CardScope_StillIgnoredWhenNoCards(t *testing.T) {
+	// Explicit scope: card should preserve existing behavior: silently ignored when no cards.
+	actions := map[string]config.Action{
+		"x": {Name: "Open card", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with an empty column.
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Empty", Cards: nil},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	// Press the card-scope action key with no cards.
+	b = sendKey(t, b, keyMsg("x"))
+
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("expected no OpenURL calls for card-scope action on empty column, got %d", len(fe.OpenURLCalls))
+	}
+}
+
+// --- Hint visibility tests ---
+
+func TestAction_BoardScopeHint_VisibleOnEmptyColumn(t *testing.T) {
+	actions := map[string]config.Action{
+		"b": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with an empty column.
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Empty", Cards: nil},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	view := b.View()
+	if !strings.Contains(view, "Open board") {
+		t.Errorf("View() should contain board-scope hint %q on empty column, got:\n%s", "Open board", view)
+	}
+}
+
+func TestAction_CardScopeHint_HiddenOnEmptyColumn(t *testing.T) {
+	actions := map[string]config.Action{
+		"x": {Name: "Card action", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
+
+	// Load a board with an empty column.
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Empty", Cards: nil},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	view := b.View()
+	if strings.Contains(view, "Card action") {
+		t.Errorf("View() should NOT contain card-scope hint %q on empty column, got:\n%s", "Card action", view)
+	}
+}
+
+func TestAction_CardScopeHint_VisibleWithCards(t *testing.T) {
+	actions := map[string]config.Action{
+		"x": {Name: "Card action", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+
+	view := b.View()
+	if !strings.Contains(view, "Card action") {
+		t.Errorf("View() should contain card-scope hint %q when cards exist, got:\n%s", "Card action", view)
+	}
+}

@@ -91,6 +91,16 @@ func BuildSessionName(number int, title string, maxLen int) string {
 	return strings.TrimRight(truncated[:lastHyphen], "-")
 }
 
+// BuildBoardTemplateVars creates the variable map for board-scope template expansion.
+// Only includes board-level variables (no card-specific variables).
+func BuildBoardTemplateVars(repoOwner, repoName, providerName string) map[string]string {
+	return map[string]string{
+		"repo_owner": repoOwner,
+		"repo_name":  repoName,
+		"provider":   providerName,
+	}
+}
+
 // BuildTemplateVars creates the variable map for template expansion.
 func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, repoOwner, repoName, providerName string, sessionMaxLen int) map[string]string {
 	return map[string]string{

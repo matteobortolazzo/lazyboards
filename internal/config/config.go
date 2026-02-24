@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -16,6 +17,7 @@ type Action struct {
 	Type    string `yaml:"type"`
 	URL     string `yaml:"url"`
 	Command string `yaml:"command"`
+	Scope   string `yaml:"scope"`
 }
 
 // ColumnConfig defines a column with optional per-column actions.
@@ -287,6 +289,9 @@ func validateColumns(cfg *Config) error {
 	return nil
 }
 
+// cardSpecificVarPattern matches card-specific template variables.
+var cardSpecificVarPattern = regexp.MustCompile(`\{(number|title|tags|session)\}`)
+
 // validateActions checks that all action definitions are well-formed.
 func validateActions(actions map[string]Action) error {
 	for key, action := range actions {
@@ -313,6 +318,22 @@ func validateActions(actions map[string]Action) error {
 		// Command required for shell type.
 		if action.Type == "shell" && strings.TrimSpace(action.Command) == "" {
 			return fmt.Errorf("action %q: command is required when type is \"shell\"", key)
+		}
+		// Default empty scope to "card".
+		if action.Scope == "" {
+			action.Scope = "card"
+			actions[key] = action
+		}
+		// Validate scope value.
+		if action.Scope != "card" && action.Scope != "board" {
+			return fmt.Errorf("action %q: scope must be \"card\" or \"board\", got %q", key, action.Scope)
+		}
+		// Board-scope actions must not reference card-specific variables.
+		if action.Scope == "board" {
+			template := action.URL + action.Command
+			if cardSpecificVarPattern.MatchString(template) {
+				return fmt.Errorf("action %q: scope \"board\" cannot use card-specific variables ({number}, {title}, {tags}, {session})", key)
+			}
 		}
 	}
 	return nil
