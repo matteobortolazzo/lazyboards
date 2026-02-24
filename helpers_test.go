@@ -57,6 +57,14 @@ func (e errorProvider) CreateCard(_ context.Context, _ string, _ string) (provid
 	return provider.Card{}, errors.New("not implemented")
 }
 
+func (e errorProvider) UpdateCard(_ context.Context, _ int, _ string, _ string, _ []string) (provider.Card, error) {
+	return provider.Card{}, errors.New("not implemented")
+}
+
+func (e errorProvider) CreateLabel(_ context.Context, _ string) error {
+	return errors.New("not implemented")
+}
+
 // keyMsg builds a tea.KeyMsg for a single rune key (e.g., "h", "l", "j", "k", "q").
 func keyMsg(key string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}
