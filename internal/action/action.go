@@ -93,16 +93,17 @@ func BuildSessionName(number int, title string, maxLen int) string {
 
 // BuildBoardTemplateVars creates the variable map for board-scope template expansion.
 // Only includes board-level variables (no card-specific variables).
-func BuildBoardTemplateVars(repoOwner, repoName, providerName string) map[string]string {
+func BuildBoardTemplateVars(repoOwner, repoName, providerName, comment string) map[string]string {
 	return map[string]string{
 		"repo_owner": repoOwner,
 		"repo_name":  repoName,
 		"provider":   providerName,
+		"comment":    comment,
 	}
 }
 
 // BuildTemplateVars creates the variable map for template expansion.
-func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, repoOwner, repoName, providerName string, sessionMaxLen int) map[string]string {
+func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, repoOwner, repoName, providerName string, sessionMaxLen int, comment string) map[string]string {
 	return map[string]string{
 		"number":     fmt.Sprintf("%d", cardNumber),
 		"title":      Slugify(cardTitle),
@@ -112,10 +113,11 @@ func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, re
 		// Shell iteration like `for tag in {tags}` will NOT split into individual
 		// tags — the entire string is one argument. To iterate, users must split
 		// the value themselves, e.g.: echo {tags} | tr ',' '\n'
-		"tags": strings.Join(cardLabels, ","),
+		"tags":       strings.Join(cardLabels, ","),
 		"repo_owner": repoOwner,
 		"repo_name":  repoName,
 		"provider":   providerName,
 		"session":    BuildSessionName(cardNumber, cardTitle, sessionMaxLen),
+		"comment":    comment,
 	}
 }

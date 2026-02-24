@@ -282,10 +282,10 @@ func TestBuildURLSafeVars_EscapesAllValues(t *testing.T) {
 // --- BuildBoardTemplateVars ---
 
 func TestBuildBoardTemplateVars_ReturnsOnlyBoardVars(t *testing.T) {
-	vars := BuildBoardTemplateVars("matteobortolazzo", "lazyboards", "github")
+	vars := BuildBoardTemplateVars("matteobortolazzo", "lazyboards", "github", "")
 
-	// Should contain exactly 3 keys.
-	expectedKeys := []string{"repo_owner", "repo_name", "provider"}
+	// Should contain exactly 4 keys: repo_owner, repo_name, provider, comment.
+	expectedKeys := []string{"repo_owner", "repo_name", "provider", "comment"}
 	if len(vars) != len(expectedKeys) {
 		t.Fatalf("BuildBoardTemplateVars() returned %d keys, want %d", len(vars), len(expectedKeys))
 	}
@@ -304,5 +304,33 @@ func TestBuildBoardTemplateVars_ReturnsOnlyBoardVars(t *testing.T) {
 	}
 	if vars["provider"] != "github" {
 		t.Errorf("vars[provider] = %q, want %q", vars["provider"], "github")
+	}
+}
+
+// --- BuildTemplateVars comment parameter ---
+
+func TestBuildTemplateVars_IncludesCommentVariable(t *testing.T) {
+	comment := "this is my comment"
+	vars := BuildTemplateVars(42, "Test Title", []string{"bug"}, "owner", "repo", "github", 32, comment)
+
+	got, ok := vars["comment"]
+	if !ok {
+		t.Fatal("BuildTemplateVars() missing key \"comment\"")
+	}
+	if got != comment {
+		t.Errorf("vars[comment] = %q, want %q", got, comment)
+	}
+}
+
+func TestBuildBoardTemplateVars_IncludesCommentVariable(t *testing.T) {
+	comment := "board-level comment"
+	vars := BuildBoardTemplateVars("owner", "repo", "github", comment)
+
+	got, ok := vars["comment"]
+	if !ok {
+		t.Fatal("BuildBoardTemplateVars() missing key \"comment\"")
+	}
+	if got != comment {
+		t.Errorf("vars[comment] = %q, want %q", got, comment)
 	}
 }
