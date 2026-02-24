@@ -72,7 +72,15 @@ actions:
 
 **Template variables:** `{number}`, `{title}` (slugified), `{tags}`, `{session}`, `{repo_owner}`, `{repo_name}`, `{provider}`, `{comment}`
 
-Shell commands automatically escape template variables to prevent injection.
+Shell commands automatically escape template variables to prevent injection. Variables are wrapped in POSIX single quotes at runtime (e.g., `{comment}` becomes `'my comment'`), so **do not place variables inside single-quoted regions** in your command templates — the nested single quotes will break shell parsing. Use double quotes to group arguments that contain variables:
+
+```yaml
+# Good — double quotes allow single-quoted variables to expand correctly
+command: 'tmux new-window -d -n {session} "my-tool --comment {comment}"'
+
+# Bad — nested single quotes cause shell parse errors
+command: 'tmux new-window -d -n {session} ''my-tool --comment {comment}'''
+```
 
 Keys reserved for built-in navigation (`h`, `l`, `j`, `k`, `q`, `r`, `n`, `c`) cannot be used for actions.
 
