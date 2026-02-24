@@ -105,6 +105,10 @@ func (b Board) View() string {
 		return b.viewHelpModal()
 	}
 
+	if b.mode == commentMode {
+		return b.viewCommentModal()
+	}
+
 	// Render with normal outer border, then replace the top line with the border title.
 	rendered := outerStyle.Width(innerWidth).Render(inner)
 	var borderTitle string
@@ -932,5 +936,14 @@ func (b Board) viewHelpModal() string {
 	displayLines = append(displayLines, "", hintsBar.View(modalWidth))
 
 	modalContent := strings.Join(displayLines, "\n")
+	return b.renderModal(modalContent, modalWidth)
+}
+
+func (b Board) viewCommentModal() string {
+	modalWidth := b.createModalWidth()
+	commentHints := NewStatusBar(commentModeHints)
+	modalContent := b.comment.pendingAction.Name + "\n\n" +
+		b.comment.input.View() + "\n\n" +
+		commentHints.View(modalWidth)
 	return b.renderModal(modalContent, modalWidth)
 }
