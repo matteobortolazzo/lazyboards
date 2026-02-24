@@ -339,7 +339,7 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		}
 
 		// Card departed — expand template and collect command.
-		vars := action.BuildTemplateVars(cardNum, prev.title, prev.labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
+		vars := action.BuildTemplateVars(cardNum, prev.title, prev.labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "")
 		expanded := action.ExpandTemplate(cleanup, action.BuildShellSafeVars(vars))
 		commands = append(commands, expanded)
 	}
@@ -737,12 +737,11 @@ func (b Board) handleActionKeyWithComment(act config.Action, card Card, comment 
 	for i, l := range card.Labels {
 		labelNames[i] = l.Name
 	}
-	vars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
+	vars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, comment)
 
 	switch act.Type {
 	case "url":
 		urlVars := action.BuildURLSafeVars(vars)
-		urlVars["comment"] = action.URLEscape(comment)
 		expanded := action.ExpandTemplate(act.URL, urlVars)
 		if err := b.executor.OpenURL(expanded); err != nil {
 			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
@@ -751,7 +750,6 @@ func (b Board) handleActionKeyWithComment(act config.Action, card Card, comment 
 		return b, nil
 	case "shell":
 		shellVars := action.BuildShellSafeVars(vars)
-		shellVars["comment"] = action.ShellEscape(comment)
 		expanded := action.ExpandTemplate(act.Command, shellVars)
 		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
 		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
@@ -760,12 +758,11 @@ func (b Board) handleActionKeyWithComment(act config.Action, card Card, comment 
 }
 
 func (b Board) handleBoardActionKeyWithComment(act config.Action, comment string) (tea.Model, tea.Cmd) {
-	vars := action.BuildBoardTemplateVars(b.repoOwner, b.repoName, b.providerName)
+	vars := action.BuildBoardTemplateVars(b.repoOwner, b.repoName, b.providerName, comment)
 
 	switch act.Type {
 	case "url":
 		urlVars := action.BuildURLSafeVars(vars)
-		urlVars["comment"] = action.URLEscape(comment)
 		expanded := action.ExpandTemplate(act.URL, urlVars)
 		if err := b.executor.OpenURL(expanded); err != nil {
 			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
@@ -774,7 +771,6 @@ func (b Board) handleBoardActionKeyWithComment(act config.Action, comment string
 		return b, nil
 	case "shell":
 		shellVars := action.BuildShellSafeVars(vars)
-		shellVars["comment"] = action.ShellEscape(comment)
 		expanded := action.ExpandTemplate(act.Command, shellVars)
 		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
 		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
