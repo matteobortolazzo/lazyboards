@@ -566,16 +566,14 @@ func escapeMarkdown(s string) string {
 
 // composeDetailMarkdown builds a markdown string for the detail panel.
 // Card metadata is rendered as markdown text followed by a --- horizontal rule.
-// If the card has labels, a "labels:" field is added after the title.
+// A "labels:" field is always shown: label names when present, "(none)" when empty.
 // If the card has a body, it is appended after the horizontal rule.
 func composeDetailMarkdown(card Card) string {
 	var sb strings.Builder
 
-	// Escape title for YAML double-quoted string, then escape markdown chars.
-	safeTitle := strings.ReplaceAll(card.Title, `\`, `\\`)
-	safeTitle = strings.ReplaceAll(safeTitle, `"`, `\"`)
-	safeTitle = escapeMarkdown(safeTitle)
-	fmt.Fprintf(&sb, "title: \"#%d %s\"\n\n", card.Number, safeTitle)
+	// Escape markdown chars in title. No YAML quoting — title is displayed as-is.
+	safeTitle := escapeMarkdown(card.Title)
+	fmt.Fprintf(&sb, "title: #%d %s\n\n", card.Number, safeTitle)
 
 	if len(card.Labels) > 0 {
 		labelNames := make([]string, len(card.Labels))
@@ -583,6 +581,8 @@ func composeDetailMarkdown(card Card) string {
 			labelNames[i] = l.Name
 		}
 		sb.WriteString("labels: " + strings.Join(labelNames, ", ") + "\n\n")
+	} else {
+		sb.WriteString("labels: (none)\n\n")
 	}
 	sb.WriteString("---")
 	if card.Body != "" {

@@ -427,6 +427,47 @@ func TestEditMode_DetailHintShown(t *testing.T) {
 	}
 }
 
+// --- Frontmatter Empty Labels (#217) ---
+
+func TestComposeFrontmatter_EmptyLabelsRoundTrip(t *testing.T) {
+	// Composing with nil labels and parsing back should produce an empty
+	// labels slice and no error.
+	composed := composeFrontmatter("Title", nil, "body")
+	title, labels, body, err := parseFrontmatter(composed)
+
+	if err != nil {
+		t.Fatalf("parseFrontmatter round-trip error: %v", err)
+	}
+	if title != "Title" {
+		t.Errorf("title = %q, want %q", title, "Title")
+	}
+	if len(labels) != 0 {
+		t.Errorf("labels = %v, want empty slice", labels)
+	}
+	if body != "body" {
+		t.Errorf("body = %q, want %q", body, "body")
+	}
+}
+
+func TestParseFrontmatter_EmptyLabelsValue(t *testing.T) {
+	// A labels: key with no value should parse to an empty labels slice.
+	input := "---\ntitle: My Title\nlabels:\n---\nBody"
+	title, labels, body, err := parseFrontmatter(input)
+
+	if err != nil {
+		t.Fatalf("parseFrontmatter error: %v", err)
+	}
+	if title != "My Title" {
+		t.Errorf("title = %q, want %q", title, "My Title")
+	}
+	if len(labels) != 0 {
+		t.Errorf("labels = %v, want empty slice", labels)
+	}
+	if body != "Body" {
+		t.Errorf("body = %q, want %q", body, "Body")
+	}
+}
+
 // errEditorFailed is a sentinel error for testing editor failures.
 var errEditorFailed = errSentinel("editor failed to open")
 

@@ -19,10 +19,20 @@ func TestComposeFrontmatter_WithLabels(t *testing.T) {
 }
 
 func TestComposeFrontmatter_EmptyLabels(t *testing.T) {
-	// composeFrontmatter with empty labels should not include labels field.
+	// composeFrontmatter with empty labels should still include the labels: key
+	// (with no value after it) so the user can add labels in the editor.
 	result := composeFrontmatter("Title", nil, "body")
-	if strings.Contains(result, "labels:") {
-		t.Errorf("expected no labels field when labels empty, got:\n%s", result)
+	if !strings.Contains(result, "labels:") {
+		t.Errorf("expected labels: key present even when labels empty, got:\n%s", result)
+	}
+	// The labels: line should have no value after the colon (bare key).
+	for _, line := range strings.Split(result, "\n") {
+		if strings.HasPrefix(line, "labels:") {
+			value := strings.TrimSpace(strings.TrimPrefix(line, "labels:"))
+			if value != "" {
+				t.Errorf("labels: line should have no value when labels are empty, got value %q", value)
+			}
+		}
 	}
 }
 

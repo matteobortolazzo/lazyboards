@@ -89,13 +89,15 @@ func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
 	}
 }
 
-// composeFrontmatter builds a YAML frontmatter string with title, optional labels, and body.
+// composeFrontmatter builds a YAML frontmatter string with title, labels (always included, bare key when empty), and body.
 func composeFrontmatter(title string, labels []string, body string) string {
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString("title: " + title + "\n")
 	if len(labels) > 0 {
 		sb.WriteString("labels: " + strings.Join(labels, ", ") + "\n")
+	} else {
+		sb.WriteString("labels:\n")
 	}
 	sb.WriteString("---\n")
 	if body != "" {
