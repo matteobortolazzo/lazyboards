@@ -9,5 +9,11 @@
     "testing": ["go-test"]
   },
   "sandboxEnabled": true,
-  "context7Enabled": true
+  "claudeMdLocation": ".claude/CLAUDE.md",
+  "mcpServers": {
+    "context7": true
+  },
+  "lspServers": {
+    "gopls": true
+  }
 }
