@@ -14,6 +14,16 @@ type Hint struct {
 	Desc string
 }
 
+// StatusLevel indicates the severity/category of a timed status message.
+type StatusLevel int
+
+const (
+	StatusInfo    StatusLevel = iota // default/uncolored
+	StatusSuccess                    // green
+	StatusWarning                    // yellow
+	StatusError                      // red
+)
+
 // clearStatusMsg is sent when a timed message should be cleared.
 type clearStatusMsg struct{}
 
@@ -21,6 +31,7 @@ type clearStatusMsg struct{}
 type StatusBar struct {
 	hints   []Hint
 	message string
+	level   StatusLevel
 }
 
 // NewStatusBar creates a StatusBar with the given default hints.
@@ -30,8 +41,9 @@ func NewStatusBar(hints []Hint) StatusBar {
 
 // SetTimedMessage sets a temporary message that overrides hints.
 // It returns a tea.Cmd that will send a clearStatusMsg after the duration.
-func (s *StatusBar) SetTimedMessage(msg string, duration time.Duration) tea.Cmd {
+func (s *StatusBar) SetTimedMessage(msg string, level StatusLevel, duration time.Duration) tea.Cmd {
 	s.message = msg
+	s.level = level
 	return tea.Tick(duration, func(time.Time) tea.Msg {
 		return clearStatusMsg{}
 	})
@@ -40,6 +52,7 @@ func (s *StatusBar) SetTimedMessage(msg string, duration time.Duration) tea.Cmd 
 // ClearMessage removes the timed message and restores hints.
 func (s *StatusBar) ClearMessage() {
 	s.message = ""
+	s.level = StatusInfo
 }
 
 // SetActionHints replaces the current hints.
@@ -47,10 +60,27 @@ func (s *StatusBar) SetActionHints(hints []Hint) {
 	s.hints = hints
 }
 
+// style returns the lipgloss style for this level, or nil for unstyled (StatusInfo).
+func (l StatusLevel) style() *lipgloss.Style {
+	switch l {
+	case StatusError:
+		return &statusErrorStyle
+	case StatusWarning:
+		return &statusWarningStyle
+	case StatusSuccess:
+		return &statusSuccessStyle
+	default:
+		return nil
+	}
+}
+
 // View renders the status bar, truncating hints that exceed the given width.
 // Timed messages are returned as-is without truncation.
 func (s StatusBar) View(width int) string {
 	if s.message != "" {
+		if st := s.level.style(); st != nil {
+			return st.Render(s.message)
+		}
 		return s.message
 	}
 	if len(s.hints) == 0 {
