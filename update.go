@@ -648,6 +648,9 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Check if it's a custom action key.
 		if act, ok := b.resolveAction(msg.String()); ok {
 			col := b.Columns[b.ActiveTab]
+			if act.Scope == "board" {
+				return b.handleBoardActionKey(act)
+			}
 			if len(col.Cards) == 0 {
 				return b, nil
 			}
@@ -702,6 +705,25 @@ func (b Board) handleActionKey(act config.Action, card Card) (tea.Model, tea.Cmd
 		labelNames[i] = l.Name
 	}
 	vars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
+
+	switch act.Type {
+	case "url":
+		expanded := action.ExpandTemplate(act.URL, action.BuildURLSafeVars(vars))
+		if err := b.executor.OpenURL(expanded); err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+			return b, cmd
+		}
+		return b, nil
+	case "shell":
+		expanded := action.ExpandTemplate(act.Command, action.BuildShellSafeVars(vars))
+		cmd := b.statusBar.SetTimedMessage("Running...", longStatusMessageDuration)
+		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
+	}
+	return b, nil
+}
+
+func (b Board) handleBoardActionKey(act config.Action) (tea.Model, tea.Cmd) {
+	vars := action.BuildBoardTemplateVars(b.repoOwner, b.repoName, b.providerName)
 
 	switch act.Type {
 	case "url":

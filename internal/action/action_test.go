@@ -278,3 +278,31 @@ func TestBuildURLSafeVars_EscapesAllValues(t *testing.T) {
 		t.Errorf("tags = %q, want %q", safe["tags"], expectedTags)
 	}
 }
+
+// --- BuildBoardTemplateVars ---
+
+func TestBuildBoardTemplateVars_ReturnsOnlyBoardVars(t *testing.T) {
+	vars := BuildBoardTemplateVars("matteobortolazzo", "lazyboards", "github")
+
+	// Should contain exactly 3 keys.
+	expectedKeys := []string{"repo_owner", "repo_name", "provider"}
+	if len(vars) != len(expectedKeys) {
+		t.Fatalf("BuildBoardTemplateVars() returned %d keys, want %d", len(vars), len(expectedKeys))
+	}
+	for _, key := range expectedKeys {
+		if _, ok := vars[key]; !ok {
+			t.Errorf("BuildBoardTemplateVars() missing key %q", key)
+		}
+	}
+
+	// Verify values.
+	if vars["repo_owner"] != "matteobortolazzo" {
+		t.Errorf("vars[repo_owner] = %q, want %q", vars["repo_owner"], "matteobortolazzo")
+	}
+	if vars["repo_name"] != "lazyboards" {
+		t.Errorf("vars[repo_name] = %q, want %q", vars["repo_name"], "lazyboards")
+	}
+	if vars["provider"] != "github" {
+		t.Errorf("vars[provider] = %q, want %q", vars["provider"], "github")
+	}
+}

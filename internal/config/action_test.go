@@ -370,3 +370,184 @@ actions:
 		t.Errorf("error = %q, want it to contain 'conflict' or 'built-in'", err.Error())
 	}
 }
+
+// --- Action scope tests ---
+
+func TestLoad_ActionScopeBoard_ValidNoCardVars(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  b:
+    name: Open board
+    type: url
+    scope: board
+    url: "https://github.com/{repo_owner}/{repo_name}/issues"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	action := result.Actions["b"]
+	if action.Scope != "board" {
+		t.Errorf("Actions[b].Scope = %q, want %q", action.Scope, "board")
+	}
+}
+
+func TestLoad_ActionScopeCard_ExplicitIsValid(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  b:
+    name: Open card
+    type: url
+    scope: card
+    url: "https://example.com/{number}"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	action := result.Actions["b"]
+	if action.Scope != "card" {
+		t.Errorf("Actions[b].Scope = %q, want %q", action.Scope, "card")
+	}
+}
+
+func TestLoad_ActionScopeEmpty_DefaultsToCard(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  b:
+    name: Open card
+    type: url
+    url: "https://example.com/{number}"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	action := result.Actions["b"]
+	if action.Scope != "card" {
+		t.Errorf("Actions[b].Scope = %q, want %q (empty scope should default to card)", action.Scope, "card")
+	}
+}
+
+func TestLoad_ActionScopeInvalid_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  b:
+    name: Bad scope
+    type: url
+    scope: global
+    url: "https://example.com"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for invalid scope")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "scope") {
+		t.Errorf("error = %q, want it to contain 'scope'", err.Error())
+	}
+}
+
+func TestLoad_ActionScopeBoard_WithNumber_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  b:
+    name: Board with number
+    type: url
+    scope: board
+    url: "https://example.com/{number}"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for board-scope action using {number}")
+	}
+	errLower := strings.ToLower(err.Error())
+	if !strings.Contains(errLower, "scope") || !strings.Contains(errLower, "number") {
+		t.Errorf("error = %q, want it to contain 'scope' and 'number'", err.Error())
+	}
+}
+
+func TestLoad_ActionScopeBoard_WithTitle_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  b:
+    name: Board with title
+    type: url
+    scope: board
+    url: "https://example.com/{title}"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for board-scope action using {title}")
+	}
+	errLower := strings.ToLower(err.Error())
+	if !strings.Contains(errLower, "scope") || !strings.Contains(errLower, "title") {
+		t.Errorf("error = %q, want it to contain 'scope' and 'title'", err.Error())
+	}
+}
+
+func TestLoad_ActionScopeBoard_WithTags_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  b:
+    name: Board with tags
+    type: url
+    scope: board
+    url: "https://example.com/?tags={tags}"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for board-scope action using {tags}")
+	}
+	errLower := strings.ToLower(err.Error())
+	if !strings.Contains(errLower, "scope") || !strings.Contains(errLower, "tags") {
+		t.Errorf("error = %q, want it to contain 'scope' and 'tags'", err.Error())
+	}
+}
+
+func TestLoad_ActionScopeBoard_WithSession_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  b:
+    name: Board with session
+    type: url
+    scope: board
+    url: "https://example.com/{session}"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for board-scope action using {session}")
+	}
+	errLower := strings.ToLower(err.Error())
+	if !strings.Contains(errLower, "scope") || !strings.Contains(errLower, "session") {
+		t.Errorf("error = %q, want it to contain 'scope' and 'session'", err.Error())
+	}
+}
+
+func TestLoad_ActionScopeBoard_ShellWithCardVar_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  s:
+    name: Board shell with session
+    type: shell
+    scope: board
+    command: "deploy {session}"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for board-scope shell action using {session}")
+	}
+	errLower := strings.ToLower(err.Error())
+	if !strings.Contains(errLower, "scope") || !strings.Contains(errLower, "session") {
+		t.Errorf("error = %q, want it to contain 'scope' and 'session'", err.Error())
+	}
+}
+
+func TestLoad_ColumnActionScopeBoard_Valid(t *testing.T) {
+	yamlContent := `provider: github
+columns:
+  - name: Backlog
+    actions:
+      b:
+        name: View backlog
+        type: url
+        scope: board
+        url: "https://github.com/{repo_owner}/{repo_name}/issues"
+  - name: Done
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	colAction := result.Columns[0].Actions["b"]
+	if colAction.Scope != "board" {
+		t.Errorf("Columns[0].Actions[b].Scope = %q, want %q", colAction.Scope, "board")
+	}
+}
