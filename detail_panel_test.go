@@ -822,42 +822,178 @@ func TestComposeDetailMarkdown_EscapesTitleMarkdownChars(t *testing.T) {
 	}
 }
 
-func TestComposeDetailMarkdown_EscapesLabelSpecialCharacters(t *testing.T) {
-	// Label names containing ], ", \, markdown chars, or triple backticks
-	// must be escaped to prevent breaking the YAML array or markdown rendering.
+// --- Label Format Round-Trip (#212) ---
+
+func TestComposeDetailMarkdown_LabelFormatRoundTrip(t *testing.T) {
+	// composeDetailMarkdown produces the labels line shown in the detail panel.
+	// parseFrontmatter expects "labels: bug, feature, urgent" (comma-separated).
+	// If composeDetailMarkdown uses YAML array format (["bug", "feature"]),
+	// parseFrontmatter will parse incorrectly, producing corrupted label names.
+	card := Card{
+		Number: 99,
+		Title:  "Test round-trip",
+		Labels: []Label{
+			{Name: "bug"},
+			{Name: "feature"},
+			{Name: "urgent"},
+		},
+		Body: "Some body text",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	// Extract the title: and labels: lines from the composed output.
+	var titleLine, labelsLine string
+	for _, line := range strings.Split(md, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "title:") {
+			titleLine = trimmed
+		}
+		if strings.HasPrefix(trimmed, "labels:") {
+			labelsLine = trimmed
+		}
+	}
+	if titleLine == "" {
+		t.Fatal("composeDetailMarkdown output missing 'title:' line")
+	}
+	if labelsLine == "" {
+		t.Fatal("composeDetailMarkdown output missing 'labels:' line")
+	}
+
+	// Construct a valid frontmatter string that parseFrontmatter can process.
+	// parseFrontmatter expects "---\n...\n---\n" format.
+	frontmatter := "---\n" + titleLine + "\n" + labelsLine + "\n---\n"
+
+	_, labels, _, err := parseFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("parseFrontmatter returned error: %v\nfrontmatter:\n%s", err, frontmatter)
+	}
+
+	// The parsed labels must match the original card label names exactly.
+	expectedLabels := []string{"bug", "feature", "urgent"}
+	if len(labels) != len(expectedLabels) {
+		t.Fatalf("parseFrontmatter returned %d labels %v, want %d labels %v",
+			len(labels), labels, len(expectedLabels), expectedLabels)
+	}
+	for i, got := range labels {
+		if got != expectedLabels[i] {
+			t.Errorf("label[%d] = %q, want %q (labels may contain YAML array artifacts)",
+				i, got, expectedLabels[i])
+		}
+	}
+}
+
+func TestComposeDetailMarkdown_SingleLabelNoYAMLArray(t *testing.T) {
+	// A single label should be output in plain comma-separated format,
+	// not wrapped in YAML array syntax (["bug"]).
+	card := Card{
+		Number: 1,
+		Title:  "Single label card",
+		Labels: []Label{
+			{Name: "bug"},
+		},
+	}
+
+	md := composeDetailMarkdown(card)
+
+	// Extract the labels line.
+	var labelsLine string
+	for _, line := range strings.Split(md, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "labels:") {
+			labelsLine = trimmed
+			break
+		}
+	}
+	if labelsLine == "" {
+		t.Fatal("composeDetailMarkdown output missing 'labels:' line")
+	}
+
+	// The labels line should NOT contain YAML array brackets or quoted label names.
+	if strings.Contains(labelsLine, "[") || strings.Contains(labelsLine, "]") {
+		t.Errorf("labels line contains YAML array brackets: %q, want plain comma-separated format", labelsLine)
+	}
+	if strings.Contains(labelsLine, `"bug"`) {
+		t.Errorf("labels line contains YAML-quoted label %q: %q, want unquoted format", `"bug"`, labelsLine)
+	}
+
+	// The labels line should be in plain comma-separated format.
+	if labelsLine != "labels: bug" {
+		t.Errorf("labels line = %q, want %q", labelsLine, "labels: bug")
+	}
+}
+
+func TestComposeDetailMarkdown_LabelsUseCommaSeparatedFormat(t *testing.T) {
+	// Labels appear as raw names in comma-separated format, without
+	// YAML escaping or markdown escaping applied by composeDetailMarkdown.
+	// Note: comma-containing labels are a known limitation of the comma-separated
+	// format (they would split into multiple labels on round-trip), so this test
+	// uses labels without commas but with other special characters.
 	card := Card{
 		Number: 7,
 		Title:  "Test card",
 		Labels: []Label{
 			{Name: `label"with"quotes`},
 			{Name: `label\with\backslash`},
-			{Name: "label]breaks,array"},
+			{Name: "label]breaks-array"},
 			{Name: "*important*"},
 		},
 	}
 
 	md := composeDetailMarkdown(card)
 
-	// Unescaped double quotes in label names should not appear in YAML.
-	if strings.Contains(md, `label"with"quotes`) {
-		t.Error("composeDetailMarkdown should escape double quotes in label names")
+	// Extract the labels line.
+	var labelsLine string
+	for _, line := range strings.Split(md, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "labels:") {
+			labelsLine = trimmed
+			break
+		}
 	}
-	// Backslashes in label names should be escaped.
-	if strings.Contains(md, `label\with\backslash`) && !strings.Contains(md, `label\\with\\backslash`) {
-		t.Error("composeDetailMarkdown should escape backslashes in label names")
+	if labelsLine == "" {
+		t.Fatal("composeDetailMarkdown output missing 'labels:' line")
 	}
 
-	// Output should NOT contain code fences (uses --- delimiters now).
+	// Labels should appear as-is in comma-separated format (no escaping).
+	expectedLine := `labels: label"with"quotes, label\with\backslash, label]breaks-array, *important*`
+	if labelsLine != expectedLine {
+		t.Errorf("labels line = %q, want %q", labelsLine, expectedLine)
+	}
+
+	// Output should NOT contain code fences (uses --- delimiters).
 	if strings.Contains(md, "```") {
 		t.Error("composeDetailMarkdown should not contain triple backtick code fences")
 	}
 
-	// Labels with markdown-special characters should be escaped.
-	if !strings.Contains(md, `\*important\*`) {
-		t.Errorf("composeDetailMarkdown should escape markdown chars in label names, got:\n%s", md)
+	// Round-trip: the labels line must survive parseFrontmatter correctly.
+	// Extract the title line to construct valid frontmatter.
+	var titleLine string
+	for _, line := range strings.Split(md, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "title:") {
+			titleLine = trimmed
+			break
+		}
 	}
-	// Brackets in label names should be escaped.
-	if !strings.Contains(md, `label\]breaks`) {
-		t.Errorf("composeDetailMarkdown should escape ] in label names, got:\n%s", md)
+	if titleLine == "" {
+		t.Fatal("composeDetailMarkdown output missing 'title:' line")
+	}
+
+	frontmatter := "---\n" + titleLine + "\n" + labelsLine + "\n---\n"
+	_, parsedLabels, _, err := parseFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("parseFrontmatter returned error: %v\nfrontmatter:\n%s", err, frontmatter)
+	}
+
+	expectedLabels := []string{`label"with"quotes`, `label\with\backslash`, "label]breaks-array", "*important*"}
+	if len(parsedLabels) != len(expectedLabels) {
+		t.Fatalf("parseFrontmatter returned %d labels %v, want %d labels %v",
+			len(parsedLabels), parsedLabels, len(expectedLabels), expectedLabels)
+	}
+	for i, got := range parsedLabels {
+		if got != expectedLabels[i] {
+			t.Errorf("round-trip label[%d] = %q, want %q", i, got, expectedLabels[i])
+		}
 	}
 }
