@@ -775,39 +775,56 @@ func TestComposeDetailMarkdown_EscapesTitleQuotesAndBackslashes(t *testing.T) {
 	if strings.Contains(md, `C:\Users`) && !strings.Contains(md, `C:\\Users`) {
 		t.Error("composeDetailMarkdown should escape backslashes in title")
 	}
+
+	// Output should use horizontal rule delimiters, not code fences.
+	if !strings.Contains(md, "---") {
+		t.Error("composeDetailMarkdown should use --- horizontal rule delimiters, not code fences")
+	}
+	if strings.Contains(md, "```") {
+		t.Error("composeDetailMarkdown should not contain triple backtick code fences")
+	}
 }
 
-func TestComposeDetailMarkdown_EscapesTitleTripleBackticks(t *testing.T) {
-	// A title containing triple backticks could close the code fence,
-	// breaking the YAML block. Triple backticks must be neutralized.
+func TestComposeDetailMarkdown_EscapesTitleMarkdownChars(t *testing.T) {
+	// A title containing markdown-special characters must have them
+	// backslash-escaped so glamour renders them as literal text
+	// (since the frontmatter uses --- delimiters, not code fences).
 	card := Card{
 		Number: 10,
-		Title:  "Add ``` support to parser",
+		Title:  "Add *bold* and _italic_ and `code` and [link] and ~strike~ support",
 	}
 
 	md := composeDetailMarkdown(card)
 
-	// The raw triple backtick should not appear inside the fenced block
-	// (other than the opening/closing fence lines themselves).
-	fenceOpen := strings.Index(md, "```")
-	if fenceOpen == -1 {
-		t.Fatal("composeDetailMarkdown should start with a code fence")
+	// Each markdown-special character should be backslash-escaped.
+	escapedChars := []struct {
+		raw     string
+		escaped string
+	}{
+		{"*bold*", `\*bold\*`},
+		{"_italic_", `\_italic\_`},
+		{"`code`", "\\`code\\`"},
+		{"[link]", `\[link\]`},
+		{"~strike~", `\~strike\~`},
 	}
-	// Content between fences should not contain unescaped triple backticks.
-	afterOpen := md[fenceOpen+3:]
-	fenceClose := strings.LastIndex(afterOpen, "```")
-	if fenceClose == -1 {
-		t.Fatal("composeDetailMarkdown should end with a code fence")
+	for _, tc := range escapedChars {
+		if !strings.Contains(md, tc.escaped) {
+			t.Errorf("composeDetailMarkdown should escape %q as %q in title, got:\n%s", tc.raw, tc.escaped, md)
+		}
 	}
-	inner := afterOpen[:fenceClose]
-	if strings.Contains(inner, "```") {
-		t.Errorf("triple backticks in title should be neutralized inside the code fence, got inner content: %q", inner)
+
+	// Output should use horizontal rule delimiters, not code fences.
+	if !strings.Contains(md, "---") {
+		t.Error("composeDetailMarkdown should use --- horizontal rule delimiters")
+	}
+	if strings.Contains(md, "```") {
+		t.Error("composeDetailMarkdown should not contain triple backtick code fences")
 	}
 }
 
 func TestComposeDetailMarkdown_EscapesLabelSpecialCharacters(t *testing.T) {
-	// Label names containing ], ", \, or triple backticks must be escaped
-	// to prevent breaking the YAML array or the code fence.
+	// Label names containing ], ", \, markdown chars, or triple backticks
+	// must be escaped to prevent breaking the YAML array or markdown rendering.
 	card := Card{
 		Number: 7,
 		Title:  "Test card",
@@ -815,7 +832,7 @@ func TestComposeDetailMarkdown_EscapesLabelSpecialCharacters(t *testing.T) {
 			{Name: `label"with"quotes`},
 			{Name: `label\with\backslash`},
 			{Name: "label]breaks,array"},
-			{Name: "label```fence"},
+			{Name: "*important*"},
 		},
 	}
 
@@ -829,11 +846,18 @@ func TestComposeDetailMarkdown_EscapesLabelSpecialCharacters(t *testing.T) {
 	if strings.Contains(md, `label\with\backslash`) && !strings.Contains(md, `label\\with\\backslash`) {
 		t.Error("composeDetailMarkdown should escape backslashes in label names")
 	}
-	// Triple backticks in label names should be neutralized.
-	// Count triple backticks: only the opening and closing fences should have them.
-	fenceCount := strings.Count(md, "```")
-	if fenceCount != 2 {
-		t.Errorf("composeDetailMarkdown should have exactly 2 triple-backtick sequences (fences), got %d — "+
-			"label triple backticks were not neutralized", fenceCount)
+
+	// Output should NOT contain code fences (uses --- delimiters now).
+	if strings.Contains(md, "```") {
+		t.Error("composeDetailMarkdown should not contain triple backtick code fences")
+	}
+
+	// Labels with markdown-special characters should be escaped.
+	if !strings.Contains(md, `\*important\*`) {
+		t.Errorf("composeDetailMarkdown should escape markdown chars in label names, got:\n%s", md)
+	}
+	// Brackets in label names should be escaped.
+	if !strings.Contains(md, `label\]breaks`) {
+		t.Errorf("composeDetailMarkdown should escape ] in label names, got:\n%s", md)
 	}
 }
