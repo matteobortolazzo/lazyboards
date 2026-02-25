@@ -20,13 +20,12 @@ go.work
 go.work.sum
 
 # IDE
+.idea
 .idea/
+.vscode
 .vscode/
 *.swp
 *.swo
-
-# Configuration
-.lazyboards.yml
 
 # Environment
 .env
