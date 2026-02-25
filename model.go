@@ -83,11 +83,13 @@ func labelColor(label Label) lipgloss.Color {
 // normalModeHints are the default status bar hints shown in normal mode.
 var normalModeHints = []Hint{
 	{Key: "o", Desc: "Open"},
+	{Key: "e", Desc: "Edit"},
 	{Key: "n", Desc: "New"},
 }
 
 // detailFocusHints are the status bar hints shown when the detail panel is focused.
 var detailFocusHints = []Hint{
+	{Key: "e", Desc: "Edit"},
 	{Key: "j/k", Desc: "Scroll"},
 	{Key: "h", Desc: "Back"},
 	{Key: "esc", Desc: "Back"},
@@ -203,6 +205,24 @@ type cardCreatedMsg struct {
 
 // cardCreateErrorMsg is sent when the provider fails to create a card.
 type cardCreateErrorMsg struct {
+	err error
+}
+
+// editorFinishedMsg is sent when the external editor process closes.
+type editorFinishedMsg struct {
+	editedContent   string
+	originalContent string
+	card            Card
+	err             error
+}
+
+// cardUpdatedMsg is sent when the provider successfully updates a card.
+type cardUpdatedMsg struct {
+	card provider.Card
+}
+
+// cardUpdateErrorMsg is sent when the provider fails to update a card.
+type cardUpdateErrorMsg struct {
 	err error
 }
 

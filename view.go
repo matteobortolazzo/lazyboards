@@ -757,6 +757,7 @@ func (b Board) buildHelpContent() string {
 		{"?", "Help"},
 		{"q", "Quit"},
 		{"n", "New card"},
+		{"e", "Edit card"},
 		{"c", "Configuration"},
 		{"o", "Open repository"},
 		{"r", "Refresh"},
@@ -773,6 +774,7 @@ func (b Board) buildHelpContent() string {
 	// Detail Panel.
 	sb.WriteString("\nDetail Panel\n")
 	detailKeys := [][2]string{
+		{"e", "Edit card"},
 		{"j/k", "Scroll body"},
 		{"h/\u2190/esc", "Back to card list"},
 		{"tab/s-tab", "Switch columns"},

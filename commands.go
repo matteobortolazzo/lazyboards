@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -83,6 +87,119 @@ func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
 		}
 		return cleanupResultMsg{count: count}
 	}
+}
+
+// composeFrontmatter builds a YAML frontmatter string with title and body.
+func composeFrontmatter(title, body string) string {
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	sb.WriteString("title: " + title + "\n")
+	sb.WriteString("---\n")
+	if body != "" {
+		sb.WriteString(body)
+	}
+	return sb.String()
+}
+
+// parseFrontmatter extracts title and body from a frontmatter string.
+// Returns error if the format is invalid or title is blank.
+func parseFrontmatter(content string) (title, body string, err error) {
+	// Split on "\n---\n" to avoid breaking on "---" inside the title value.
+	// composeFrontmatter produces "---\ntitle: ...\n---\n..." so the closing
+	// delimiter always appears as "\n---\n" (or "\n---" at EOF).
+	const delim = "\n---\n"
+	idx := strings.Index(content, delim)
+	if idx < 0 {
+		// Try "\n---" at EOF (no trailing newline after closing delimiter).
+		if strings.HasSuffix(content, "\n---") {
+			idx = len(content) - 4 // len("\n---")
+		} else {
+			return "", "", errors.New("invalid frontmatter: missing closing delimiter")
+		}
+	}
+	header := content[:idx]
+	bodyStart := idx + len(delim)
+	if bodyStart > len(content) {
+		bodyStart = len(content)
+	}
+
+	for _, line := range strings.Split(header, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "title:") {
+			title = strings.TrimSpace(strings.TrimPrefix(line, "title:"))
+			break
+		}
+	}
+	if title == "" {
+		return "", "", errors.New("title is required")
+	}
+	body = strings.TrimSpace(content[bodyStart:])
+	return title, body, nil
+}
+
+// resolveEditor returns the user's preferred editor.
+// Checks $VISUAL, then $EDITOR, then falls back to "vi".
+func resolveEditor() string {
+	if v := os.Getenv("VISUAL"); v != "" {
+		return v
+	}
+	if e := os.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	return "vi"
+}
+
+// updateCardCmd returns a tea.Cmd that updates a card via the provider.
+func updateCardCmd(p provider.BoardProvider, number int, title, body string, labels []string) tea.Cmd {
+	return func() tea.Msg {
+		card, err := p.UpdateCard(context.Background(), number, title, body, labels)
+		if err != nil {
+			return cardUpdateErrorMsg{err: err}
+		}
+		return cardUpdatedMsg{card: card}
+	}
+}
+
+// openEditorCmd creates a temp file with card frontmatter, opens it in the
+// user's editor via tea.ExecProcess, and returns an editorFinishedMsg on close.
+func openEditorCmd(card Card) tea.Cmd {
+	editor := resolveEditor()
+	originalContent := composeFrontmatter(card.Title, card.Body)
+
+	tmpFile, err := os.CreateTemp("", "lazyboards-*.md")
+	if err != nil {
+		return func() tea.Msg {
+			return editorFinishedMsg{err: fmt.Errorf("failed to create temp file: %w", err), card: card}
+		}
+	}
+	tmpPath := tmpFile.Name()
+	if _, err := tmpFile.WriteString(originalContent); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		return func() tea.Msg {
+			return editorFinishedMsg{err: fmt.Errorf("failed to write temp file: %w", err), card: card}
+		}
+	}
+	tmpFile.Close()
+
+	editorArgs := strings.Fields(editor)
+	c := exec.Command(editorArgs[0], append(editorArgs[1:], tmpPath)...)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		defer os.Remove(tmpPath)
+		if err != nil {
+			return editorFinishedMsg{err: err, card: card}
+		}
+		data, readErr := os.ReadFile(tmpPath)
+		if readErr != nil {
+			return editorFinishedMsg{err: fmt.Errorf("failed to read temp file: %w", readErr), card: card}
+		}
+		editedContent := string(data)
+		return editorFinishedMsg{
+			editedContent:   editedContent,
+			originalContent: originalContent,
+			card:            card,
+		}
+	})
 }
 
 // wrapTitle wraps text at word boundaries to fit within maxWidth.
