@@ -448,3 +448,28 @@ func TestActionRefreshDelayValue_NegativeReturnsZero(t *testing.T) {
 		t.Errorf("ActionRefreshDelayValue() = %d, want 0 (negative clamped)", cfg.ActionRefreshDelayValue())
 	}
 }
+
+// --- Mouse config tests (#192) ---
+
+func TestMouseValue_NilDefaultsToTrue(t *testing.T) {
+	cfg := Config{}
+	if !cfg.MouseValue() {
+		t.Error("MouseValue() = false when Mouse is nil, want true (mouse enabled by default)")
+	}
+}
+
+func TestMouseValue_ExplicitFalseReturnsFalse(t *testing.T) {
+	enabled := false
+	cfg := Config{Mouse: &enabled}
+	if cfg.MouseValue() {
+		t.Error("MouseValue() = true when Mouse is explicitly false, want false")
+	}
+}
+
+func TestMouseValue_ExplicitTrueReturnsTrue(t *testing.T) {
+	enabled := true
+	cfg := Config{Mouse: &enabled}
+	if !cfg.MouseValue() {
+		t.Error("MouseValue() = false when Mouse is explicitly true, want true")
+	}
+}

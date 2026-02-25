@@ -41,6 +41,7 @@ type Config struct {
 	RefreshInterval    int               `yaml:"refresh_interval"`
 	ActionRefreshDelay *int              `yaml:"action_refresh_delay,omitempty"`
 	WorkingLabel       *string           `yaml:"working_label,omitempty"`
+	Mouse              *bool             `yaml:"mouse,omitempty"`
 }
 
 // WorkingLabelValue returns the configured working label, or DefaultWorkingLabel if not set.
@@ -49,6 +50,15 @@ func (c Config) WorkingLabelValue() string {
 		return DefaultWorkingLabel
 	}
 	return *c.WorkingLabel
+}
+
+// MouseValue returns true if mouse support is enabled.
+// Defaults to true (mouse enabled) when the field is not set.
+func (c Config) MouseValue() bool {
+	if c.Mouse == nil {
+		return true
+	}
+	return *c.Mouse
 }
 
 // ActionRefreshDelayValue returns the configured action refresh delay in seconds,
