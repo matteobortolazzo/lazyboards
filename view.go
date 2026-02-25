@@ -669,7 +669,7 @@ func (b Board) renderModal(content string, width int) string {
 }
 
 func (b Board) viewCreateModal() string {
-	modalWidth := 40
+	modalWidth := b.createModalWidth()
 	var modalContent string
 	if b.mode == creatingMode {
 		modalContent = "New Card\n\n" + b.spinner.View() + " Creating card..."

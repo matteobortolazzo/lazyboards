@@ -676,9 +676,9 @@ func TestCreateMode_LongTitlePreservedBeyondVisibleWidth(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))
 
-	// Build a title that is longer than the visible textarea width (36 chars)
-	// but under the CharLimit (100 chars), to verify the textarea
-	// preserves the full text and wraps visually instead of scrolling.
+	// Build a title that is longer than the visible textarea width
+	// to verify the textarea preserves the full text and wraps
+	// visually instead of scrolling.
 	longTitle := strings.Repeat("a", 80)
 	for _, ch := range longTitle {
 		b = sendKey(t, b, keyMsg(string(ch)))
@@ -688,6 +688,166 @@ func TestCreateMode_LongTitlePreservedBeyondVisibleWidth(t *testing.T) {
 	if got != longTitle {
 		t.Errorf("titleInput.Value() length = %d, want %d (full text should be preserved, not truncated)",
 			len(got), len(longTitle))
+	}
+}
+
+// --- Dynamic Textarea ---
+
+func TestCreateMode_ModalWidthScalesToTerminal(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	b = sendKey(t, b, keyMsg("n"))
+
+	// The modal width should be 60% of terminal width.
+	expectedModalWidth := b.Width * 60 / 100
+
+	// Verify through the textarea width: the textarea should fill the modal
+	// inner width (modal width minus padding). renderModal uses Padding(1,2)
+	// which adds 2 chars on each side = 4 chars horizontal padding,
+	// plus 2 chars for border = 6 total horizontal overhead.
+	modalPaddingAndBorder := 6
+	expectedInputWidth := expectedModalWidth - modalPaddingAndBorder
+
+	titleWidth := b.create.titleInput.Width()
+	if titleWidth != expectedInputWidth {
+		t.Errorf("titleInput.Width() = %d, want %d (should fill 60%% of terminal width %d minus modal padding)",
+			titleWidth, expectedInputWidth, b.Width)
+	}
+}
+
+func TestCreateMode_TextareaGrowsWithContent(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	b = sendKey(t, b, keyMsg("n"))
+
+	initialHeight := b.create.titleInput.Height()
+
+	// Type enough text to cause wrapping. The textarea width at 120-wide terminal
+	// (60% = 72, minus padding/border = 66) means we need text longer than 66 chars
+	// to wrap. Type ~200 chars to ensure multiple wraps.
+	longText := strings.Repeat("word ", 40) // 200 chars
+	for _, ch := range longText {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	grownHeight := b.create.titleInput.Height()
+	if grownHeight <= initialHeight {
+		t.Errorf("titleInput.Height() after long text = %d, want > %d (textarea should grow with content)",
+			grownHeight, initialHeight)
+	}
+}
+
+func TestCreateMode_TextareaMaxHeight(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	b = sendKey(t, b, keyMsg("n"))
+
+	initialHeight := b.create.titleInput.Height()
+
+	// Max textarea height should be 50% of terminal height.
+	maxHeight := b.Height * 50 / 100
+
+	// Type a very large amount of text to exceed the max height.
+	// At ~66 chars per line and max 20 lines, we need > 1320 chars.
+	veryLongText := strings.Repeat("x", 2000)
+	for _, ch := range veryLongText {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	textareaHeight := b.create.titleInput.Height()
+
+	// The textarea should have grown beyond its initial height (proving it grew).
+	if textareaHeight <= initialHeight {
+		t.Errorf("titleInput.Height() = %d, want > %d (textarea should grow with content before being capped)",
+			textareaHeight, initialHeight)
+	}
+
+	// But it should not exceed the max height (50% of terminal).
+	if textareaHeight > maxHeight {
+		t.Errorf("titleInput.Height() = %d, want <= %d (50%% of terminal height %d)",
+			textareaHeight, maxHeight, b.Height)
+	}
+}
+
+func TestCreateMode_NoCharLimit(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+
+	// Type more than 200 characters — well beyond the current CharLimit of 100.
+	longTitle := strings.Repeat("z", 250)
+	for _, ch := range longTitle {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	got := b.create.titleInput.Value()
+	if len(got) != len(longTitle) {
+		t.Errorf("titleInput.Value() length = %d, want %d (no character limit should be enforced)",
+			len(got), len(longTitle))
+	}
+}
+
+func TestCreateMode_ResizeDuringCreateMode(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	b = sendKey(t, b, keyMsg("n"))
+
+	// Record initial textarea width.
+	initialWidth := b.create.titleInput.Width()
+
+	// Simulate a terminal resize to a wider terminal.
+	newWidth := 200
+	b = sendKey(t, b, tea.WindowSizeMsg{Width: newWidth, Height: 50})
+
+	// After resize, the textarea should adapt to the new terminal width.
+	// New expected modal width = 200 * 60 / 100 = 120.
+	// Modal padding+border = 6, so new input width = 114.
+	resizedWidth := b.create.titleInput.Width()
+	if resizedWidth == initialWidth {
+		t.Errorf("titleInput.Width() after resize = %d, want different from initial %d (should adapt to new terminal width)",
+			resizedWidth, initialWidth)
+	}
+
+	expectedModalWidth := newWidth * 60 / 100
+	modalPaddingAndBorder := 6
+	expectedInputWidth := expectedModalWidth - modalPaddingAndBorder
+
+	if resizedWidth != expectedInputWidth {
+		t.Errorf("titleInput.Width() after resize = %d, want %d (60%% of new width %d minus padding)",
+			resizedWidth, expectedInputWidth, newWidth)
+	}
+}
+
+func TestCreateMode_InputsFillModalWidth(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	b = sendKey(t, b, keyMsg("n"))
+
+	// Both inputs should have the same width, matching the modal inner width.
+	// Modal width = 120 * 60 / 100 = 72.
+	// renderModal uses Padding(1,2) + border: 2*2 padding + 2 border = 6 total horizontal.
+	expectedModalWidth := b.Width * 60 / 100
+	modalPaddingAndBorder := 6
+	expectedInputWidth := expectedModalWidth - modalPaddingAndBorder
+
+	titleWidth := b.create.titleInput.Width()
+	labelWidth := b.create.labelInput.Width
+
+	if titleWidth != expectedInputWidth {
+		t.Errorf("titleInput.Width() = %d, want %d (should fill modal inner width)",
+			titleWidth, expectedInputWidth)
+	}
+	if labelWidth != expectedInputWidth {
+		t.Errorf("labelInput.Width = %d, want %d (should fill modal inner width)",
+			labelWidth, expectedInputWidth)
+	}
+	if titleWidth != labelWidth {
+		t.Errorf("titleInput.Width() = %d, labelInput.Width = %d, want equal (both should fill modal inner width)",
+			titleWidth, labelWidth)
 	}
 }
 
