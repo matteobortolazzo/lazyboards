@@ -39,4 +39,6 @@ type Board struct {
 type BoardProvider interface {
 	FetchBoard(ctx context.Context) (Board, error)
 	CreateCard(ctx context.Context, title string, label string) (Card, error)
+	UpdateCard(ctx context.Context, number int, title string, body string, labels []string) (Card, error)
+	CreateLabel(ctx context.Context, name string) error
 }
