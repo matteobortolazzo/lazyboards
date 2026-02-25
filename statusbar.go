@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Hint represents a single key-description pair shown in the status bar.
@@ -46,17 +47,50 @@ func (s *StatusBar) SetActionHints(hints []Hint) {
 	s.hints = hints
 }
 
-// View renders the status bar.
-func (s StatusBar) View() string {
+// View renders the status bar, truncating hints that exceed the given width.
+// Timed messages are returned as-is without truncation.
+func (s StatusBar) View(width int) string {
 	if s.message != "" {
 		return s.message
 	}
 	if len(s.hints) == 0 {
 		return ""
 	}
-	parts := make([]string, len(s.hints))
+
+	separator := hintDescStyle.Render(" | ")
+	separatorWidth := lipgloss.Width(separator)
+	ellipsis := hintDescStyle.Render(" ...")
+	ellipsisWidth := lipgloss.Width(ellipsis)
+
+	var parts []string
+	currentWidth := 0
+
 	for i, h := range s.hints {
-		parts[i] = hintKeyStyle.Render(h.Key) + hintDescStyle.Render(": "+h.Desc)
+		part := hintKeyStyle.Render(h.Key) + hintDescStyle.Render(": "+h.Desc)
+		partWidth := lipgloss.Width(part)
+
+		addedWidth := partWidth
+		if i > 0 {
+			addedWidth += separatorWidth
+		}
+
+		// For non-last hints, reserve space for the ellipsis that would be
+		// appended if a later hint doesn't fit.
+		spaceNeeded := currentWidth + addedWidth
+		if i < len(s.hints)-1 {
+			spaceNeeded += ellipsisWidth
+		}
+
+		if spaceNeeded > width {
+			if len(parts) > 0 {
+				return strings.Join(parts, separator) + ellipsis
+			}
+			return ellipsis
+		}
+
+		parts = append(parts, part)
+		currentWidth += addedWidth
 	}
-	return strings.Join(parts, hintDescStyle.Render(" | "))
+
+	return strings.Join(parts, separator)
 }
