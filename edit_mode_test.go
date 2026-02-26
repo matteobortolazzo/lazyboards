@@ -12,7 +12,7 @@ import (
 func TestComposeFrontmatter_BasicTitleAndBody(t *testing.T) {
 	title := "My Title"
 	body := "Some body"
-	result := composeFrontmatter(title, body)
+	result := composeFrontmatter(title, nil, body)
 
 	if !strings.HasPrefix(result, "---\n") {
 		t.Error("composeFrontmatter should start with opening ---")
@@ -33,7 +33,7 @@ func TestComposeFrontmatter_BasicTitleAndBody(t *testing.T) {
 
 func TestComposeFrontmatter_EmptyBody(t *testing.T) {
 	title := "My Title"
-	result := composeFrontmatter(title, "")
+	result := composeFrontmatter(title, nil, "")
 
 	if !strings.Contains(result, "title: My Title") {
 		t.Errorf("composeFrontmatter should contain title field, got:\n%s", result)
@@ -52,7 +52,7 @@ func TestComposeFrontmatter_EmptyBody(t *testing.T) {
 func TestComposeFrontmatter_SpecialCharsInTitle(t *testing.T) {
 	// Titles with colons and quotes should be preserved in the output.
 	title := `Fix: handle "edge" case`
-	result := composeFrontmatter(title, "body")
+	result := composeFrontmatter(title, nil, "body")
 
 	if !strings.Contains(result, "Fix") {
 		t.Errorf("composeFrontmatter should preserve title content, got:\n%s", result)
@@ -66,8 +66,8 @@ func TestParseFrontmatter_RoundTrip(t *testing.T) {
 	originalTitle := "My Title"
 	originalBody := "Some body content"
 
-	composed := composeFrontmatter(originalTitle, originalBody)
-	title, body, err := parseFrontmatter(composed)
+	composed := composeFrontmatter(originalTitle, nil, originalBody)
+	title, _, body, err := parseFrontmatter(composed)
 
 	if err != nil {
 		t.Fatalf("parseFrontmatter round-trip error: %v", err)
@@ -85,8 +85,8 @@ func TestParseFrontmatter_TitleWithDashes(t *testing.T) {
 	originalTitle := "My --- Title"
 	originalBody := "Some body"
 
-	composed := composeFrontmatter(originalTitle, originalBody)
-	title, body, err := parseFrontmatter(composed)
+	composed := composeFrontmatter(originalTitle, nil, originalBody)
+	title, _, body, err := parseFrontmatter(composed)
 
 	if err != nil {
 		t.Fatalf("parseFrontmatter round-trip error with dashes in title: %v", err)
@@ -100,8 +100,8 @@ func TestParseFrontmatter_TitleWithDashes(t *testing.T) {
 }
 
 func TestParseFrontmatter_EmptyBody(t *testing.T) {
-	composed := composeFrontmatter("Title Only", "")
-	title, body, err := parseFrontmatter(composed)
+	composed := composeFrontmatter("Title Only", nil, "")
+	title, _, body, err := parseFrontmatter(composed)
 
 	if err != nil {
 		t.Fatalf("parseFrontmatter error: %v", err)
@@ -117,7 +117,7 @@ func TestParseFrontmatter_EmptyBody(t *testing.T) {
 func TestParseFrontmatter_MissingClosingDelimiter(t *testing.T) {
 	// Missing closing --- should return an error.
 	input := "---\ntitle: Bad\nNo closing delimiter"
-	_, _, err := parseFrontmatter(input)
+	_, _, _, err := parseFrontmatter(input)
 
 	if err == nil {
 		t.Error("parseFrontmatter should return an error when closing --- is missing")
@@ -127,7 +127,7 @@ func TestParseFrontmatter_MissingClosingDelimiter(t *testing.T) {
 func TestParseFrontmatter_BlankTitle(t *testing.T) {
 	// A blank title should return an error.
 	input := "---\ntitle: \n---\nSome body"
-	_, _, err := parseFrontmatter(input)
+	_, _, _, err := parseFrontmatter(input)
 
 	if err == nil {
 		t.Error("parseFrontmatter should return an error when title is blank")
@@ -137,7 +137,7 @@ func TestParseFrontmatter_BlankTitle(t *testing.T) {
 func TestParseFrontmatter_ExtraWhitespace(t *testing.T) {
 	// Title with leading/trailing whitespace should be trimmed.
 	input := "---\ntitle:   Spaced Title   \n---\nBody here"
-	title, body, err := parseFrontmatter(input)
+	title, _, body, err := parseFrontmatter(input)
 
 	if err != nil {
 		t.Fatalf("parseFrontmatter error: %v", err)
@@ -256,7 +256,11 @@ func TestEditMode_EditorFinishedNoChanges(t *testing.T) {
 	b := newBoardWithBody(t, "Original body", "Other body")
 
 	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
-	content := composeFrontmatter(card.Title, card.Body)
+	labelNames := make([]string, len(card.Labels))
+	for i, l := range card.Labels {
+		labelNames[i] = l.Name
+	}
+	content := composeFrontmatter(card.Title, labelNames, card.Body)
 
 	// Send editorFinishedMsg with unchanged content.
 	msg := editorFinishedMsg{
@@ -277,7 +281,11 @@ func TestEditMode_EditorFinishedBlankTitle(t *testing.T) {
 	b := newBoardWithBody(t, "Original body", "Other body")
 
 	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
-	originalContent := composeFrontmatter(card.Title, card.Body)
+	labelNames := make([]string, len(card.Labels))
+	for i, l := range card.Labels {
+		labelNames[i] = l.Name
+	}
+	originalContent := composeFrontmatter(card.Title, labelNames, card.Body)
 
 	// Send editorFinishedMsg with edited content that has a blank title.
 	blankTitleContent := "---\ntitle: \n---\nnew body"
@@ -300,10 +308,14 @@ func TestEditMode_EditorFinishedWithChanges(t *testing.T) {
 	b := newBoardWithBody(t, "Original body", "Other body")
 
 	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
-	originalContent := composeFrontmatter(card.Title, card.Body)
+	labelNames := make([]string, len(card.Labels))
+	for i, l := range card.Labels {
+		labelNames[i] = l.Name
+	}
+	originalContent := composeFrontmatter(card.Title, labelNames, card.Body)
 
 	// Create a modified version of the content.
-	modifiedContent := composeFrontmatter("Updated Title", "Updated body")
+	modifiedContent := composeFrontmatter("Updated Title", labelNames, "Updated body")
 
 	// When edited content differs from original, the handler should return
 	// a non-nil cmd (updateCardCmd) to persist the changes.
