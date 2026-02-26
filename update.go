@@ -100,6 +100,16 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return b, nil
 
+	case editorFinishedMsg:
+		return b.handleEditorFinished(msg)
+
+	case cardUpdatedMsg:
+		return b.handleCardUpdated(msg)
+
+	case cardUpdateErrorMsg:
+		cmd := b.statusBar.SetTimedMessage("Update error: "+provider.SanitizeError(msg.err), statusMessageDuration)
+		return b, cmd
+
 	case tea.MouseMsg:
 		if !b.mouseEnabled || b.mode != normalMode {
 			return b, nil
@@ -353,6 +363,47 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+func (b Board) handleEditorFinished(msg editorFinishedMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		cmd := b.statusBar.SetTimedMessage("Error: "+msg.err.Error(), statusMessageDuration)
+		return b, cmd
+	}
+	if msg.editedContent == "" || msg.editedContent == msg.originalContent {
+		cmd := b.statusBar.SetTimedMessage("Edit cancelled", statusMessageDuration)
+		return b, cmd
+	}
+	title, body, err := parseFrontmatter(msg.editedContent)
+	if err != nil {
+		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+		return b, cmd
+	}
+	labelNames := make([]string, len(msg.card.Labels))
+	for i, l := range msg.card.Labels {
+		labelNames[i] = l.Name
+	}
+	return b, updateCardCmd(b.provider, msg.card.Number, title, body, labelNames)
+}
+
+func (b Board) handleCardUpdated(msg cardUpdatedMsg) (tea.Model, tea.Cmd) {
+	for ci := range b.Columns {
+		for i := range b.Columns[ci].Cards {
+			if b.Columns[ci].Cards[i].Number == msg.card.Number {
+				b.Columns[ci].Cards[i] = Card{
+					Number:    msg.card.Number,
+					Title:     msg.card.Title,
+					Body:      msg.card.Body,
+					Labels:    mapLabels(msg.card.Labels),
+					LinkedPRs: b.Columns[ci].Cards[i].LinkedPRs,
+				}
+				cmd := b.statusBar.SetTimedMessage("Card updated", statusMessageDuration)
+				return b, cmd
+			}
+		}
+	}
+	cmd := b.statusBar.SetTimedMessage("Card updated", statusMessageDuration)
+	return b, cmd
+}
+
 func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
@@ -460,6 +511,15 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := b.create.titleInput.Focus()
 		b.create.labelInput.Blur()
 		return b, cmd
+	case "e":
+		if len(b.Columns) == 0 {
+			return b, nil
+		}
+		col := b.Columns[b.ActiveTab]
+		if len(col.Cards) == 0 {
+			return b, nil
+		}
+		return b, openEditorCmd(col.Cards[col.Cursor])
 	case "c":
 		b.enterConfigMode()
 	case "r":
@@ -622,6 +682,12 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
 		return b, tea.Quit
+	case "e":
+		col := b.Columns[b.ActiveTab]
+		if len(col.Cards) == 0 {
+			return b, nil
+		}
+		return b, openEditorCmd(col.Cards[col.Cursor])
 	case "r":
 		if b.refreshing {
 			return b, nil
