@@ -89,11 +89,14 @@ func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
 	}
 }
 
-// composeFrontmatter builds a YAML frontmatter string with title and body.
-func composeFrontmatter(title, body string) string {
+// composeFrontmatter builds a YAML frontmatter string with title, optional labels, and body.
+func composeFrontmatter(title string, labels []string, body string) string {
 	var sb strings.Builder
 	sb.WriteString("---\n")
 	sb.WriteString("title: " + title + "\n")
+	if len(labels) > 0 {
+		sb.WriteString("labels: " + strings.Join(labels, ", ") + "\n")
+	}
 	sb.WriteString("---\n")
 	if body != "" {
 		sb.WriteString(body)
@@ -101,9 +104,9 @@ func composeFrontmatter(title, body string) string {
 	return sb.String()
 }
 
-// parseFrontmatter extracts title and body from a frontmatter string.
+// parseFrontmatter extracts title, labels, and body from a frontmatter string.
 // Returns error if the format is invalid or title is blank.
-func parseFrontmatter(content string) (title, body string, err error) {
+func parseFrontmatter(content string) (title string, labels []string, body string, err error) {
 	// Split on "\n---\n" to avoid breaking on "---" inside the title value.
 	// composeFrontmatter produces "---\ntitle: ...\n---\n..." so the closing
 	// delimiter always appears as "\n---\n" (or "\n---" at EOF).
@@ -114,7 +117,7 @@ func parseFrontmatter(content string) (title, body string, err error) {
 		if strings.HasSuffix(content, "\n---") {
 			idx = len(content) - 4 // len("\n---")
 		} else {
-			return "", "", errors.New("invalid frontmatter: missing closing delimiter")
+			return "", nil, "", errors.New("invalid frontmatter: missing closing delimiter")
 		}
 	}
 	header := content[:idx]
@@ -127,14 +130,27 @@ func parseFrontmatter(content string) (title, body string, err error) {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "title:") {
 			title = strings.TrimSpace(strings.TrimPrefix(line, "title:"))
-			break
+		}
+		if strings.HasPrefix(line, "labels:") {
+			labelsVal := strings.TrimSpace(strings.TrimPrefix(line, "labels:"))
+			if labelsVal != "" {
+				for _, l := range strings.Split(labelsVal, ",") {
+					trimmed := strings.TrimSpace(l)
+					if trimmed != "" {
+						labels = append(labels, trimmed)
+					}
+				}
+			}
 		}
 	}
+	if labels == nil {
+		labels = []string{}
+	}
 	if title == "" {
-		return "", "", errors.New("title is required")
+		return "", nil, "", errors.New("title is required")
 	}
 	body = strings.TrimSpace(content[bodyStart:])
-	return title, body, nil
+	return title, labels, body, nil
 }
 
 // resolveEditor returns the user's preferred editor.
@@ -164,7 +180,11 @@ func updateCardCmd(p provider.BoardProvider, number int, title, body string, lab
 // user's editor via tea.ExecProcess, and returns an editorFinishedMsg on close.
 func openEditorCmd(card Card) tea.Cmd {
 	editor := resolveEditor()
-	originalContent := composeFrontmatter(card.Title, card.Body)
+	labelNames := make([]string, len(card.Labels))
+	for i, l := range card.Labels {
+		labelNames[i] = l.Name
+	}
+	originalContent := composeFrontmatter(card.Title, labelNames, card.Body)
 
 	tmpFile, err := os.CreateTemp("", "lazyboards-*.md")
 	if err != nil {
@@ -200,6 +220,17 @@ func openEditorCmd(card Card) tea.Cmd {
 			card:            card,
 		}
 	})
+}
+
+// createLabelCmd returns a tea.Cmd that creates a label via the provider.
+func createLabelCmd(p provider.BoardProvider, name string) tea.Cmd {
+	return func() tea.Msg {
+		err := p.CreateLabel(context.Background(), name)
+		if err != nil {
+			return labelCreateErrorMsg{err: err}
+		}
+		return labelCreatedMsg{}
+	}
 }
 
 // wrapTitle wraps text at word boundaries to fit within maxWidth.

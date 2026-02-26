@@ -85,6 +85,10 @@ func (b Board) View() string {
 	if b.refreshing {
 		helpBar = b.spinner.View() + " Refreshing..."
 	}
+	if b.mode == labelConfirmMode && b.labelConfirm.currentIdx < len(b.labelConfirm.unknownLabels) {
+		label := b.labelConfirm.unknownLabels[b.labelConfirm.currentIdx]
+		helpBar = fmt.Sprintf("Label %q doesn't exist. Create it? (y/n)", label)
+	}
 
 	// Assemble inner content.
 	inner := lipgloss.JoinVertical(lipgloss.Left, panels, helpBar)

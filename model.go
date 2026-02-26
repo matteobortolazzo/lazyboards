@@ -126,6 +126,7 @@ const (
 	prPickerMode
 	searchMode
 	helpMode
+	labelConfirmMode
 )
 
 const (
@@ -226,6 +227,22 @@ type cardUpdateErrorMsg struct {
 	err error
 }
 
+// labelCreatedMsg is sent when a label has been created successfully.
+type labelCreatedMsg struct{}
+
+// labelCreateErrorMsg is sent when creating a label fails.
+type labelCreateErrorMsg struct{ err error }
+
+// labelConfirmState groups fields related to the label confirmation prompt.
+type labelConfirmState struct {
+	card          Card
+	title         string
+	body          string
+	allLabels     []string
+	unknownLabels []string
+	currentIdx    int
+}
+
 // configState groups fields related to the config modal.
 type configState struct {
 	providerOptions []string
@@ -280,6 +297,7 @@ type Board struct {
 	helpFromDetailFocused  bool
 	workingLabel           string
 	mouseEnabled           bool
+	labelConfirm           labelConfirmState
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
@@ -577,6 +595,19 @@ func (b *Board) clearSearch() {
 	col := &b.Columns[b.ActiveTab]
 	col.Cursor = 0
 	col.ScrollOffset = 0
+}
+
+// collectKnownLabels returns a set of all label names (lowercased) across the board.
+func (b *Board) collectKnownLabels() map[string]bool {
+	known := make(map[string]bool)
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			for _, label := range card.Labels {
+				known[strings.ToLower(label.Name)] = true
+			}
+		}
+	}
+	return known
 }
 
 func (b Board) Init() tea.Cmd {
