@@ -197,7 +197,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	for i, pc := range msg.board.Columns {
 		cards := make([]Card, len(pc.Cards))
 		for j, c := range pc.Cards {
-			cards[j] = Card{Number: c.Number, Title: c.Title, Labels: mapLabels(c.Labels), Body: c.Body, LinkedPRs: mapLinkedPRs(c.LinkedPRs)}
+			cards[j] = Card{Number: c.Number, Title: c.Title, Labels: mapLabels(c.Labels), Body: c.Body, URL: c.URL, LinkedPRs: mapLinkedPRs(c.LinkedPRs)}
 		}
 		cols[i] = Column{Title: pc.Title, Cards: cards}
 	}
@@ -363,6 +363,7 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 		Title:     msg.card.Title,
 		Labels:    mapLabels(msg.card.Labels),
 		Body:      msg.card.Body,
+		URL:       msg.card.URL,
 		LinkedPRs: mapLinkedPRs(msg.card.LinkedPRs),
 	}
 	b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
@@ -451,6 +452,7 @@ func (b Board) handleCardUpdated(msg cardUpdatedMsg) (tea.Model, tea.Cmd) {
 					Number:    msg.card.Number,
 					Title:     msg.card.Title,
 					Body:      msg.card.Body,
+					URL:       msg.card.URL,
 					Labels:    mapLabels(msg.card.Labels),
 					LinkedPRs: b.Columns[ci].Cards[i].LinkedPRs,
 				}
@@ -603,6 +605,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.statusBar.SetActionHints(searchModeHints)
 		return b, cmd
 	case "o":
+		return b.handleTicketOpenKey()
+	case "O":
 		return b.handleRepoOpenKey()
 	case "l", "right":
 		b.detailFocused = true
@@ -699,6 +703,31 @@ func (b Board) handleRepoOpenKey() (tea.Model, tea.Cmd) {
 	return b, cmd
 }
 
+func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
+	if len(b.Columns) == 0 {
+		return b, nil
+	}
+	col := b.Columns[b.ActiveTab]
+	if len(col.Cards) == 0 {
+		return b, nil
+	}
+	card := col.Cards[col.Cursor]
+
+	if card.URL == "" {
+		cmd := b.statusBar.SetTimedMessage("URL not available", statusMessageDuration)
+		return b, cmd
+	}
+
+	if err := b.executor.OpenURL(card.URL); err != nil {
+		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+		return b, cmd
+	}
+
+	msg := fmt.Sprintf("Opened #%d", card.Number)
+	cmd := b.statusBar.SetTimedMessage(msg, statusMessageDuration)
+	return b, cmd
+}
+
 func (b Board) handleActionKey(act config.Action, card Card) (tea.Model, tea.Cmd) {
 	labelNames := make([]string, len(card.Labels))
 	for i, l := range card.Labels {
@@ -777,6 +806,8 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	case "o":
+		return b.handleTicketOpenKey()
+	case "O":
 		return b.handleRepoOpenKey()
 	case "?":
 		b.helpFromDetailFocused = true
