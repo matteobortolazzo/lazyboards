@@ -576,13 +576,9 @@ func composeDetailMarkdown(card Card) string {
 	if len(card.Labels) > 0 {
 		labelNames := make([]string, len(card.Labels))
 		for i, l := range card.Labels {
-			// Escape label for YAML quoted string, then escape markdown chars.
-			safe := strings.ReplaceAll(l.Name, `\`, `\\`)
-			safe = strings.ReplaceAll(safe, `"`, `\"`)
-			safe = escapeMarkdown(safe)
-			labelNames[i] = `"` + safe + `"`
+			labelNames[i] = l.Name
 		}
-		sb.WriteString("labels: [" + strings.Join(labelNames, ", ") + "]\n\n")
+		sb.WriteString("labels: " + strings.Join(labelNames, ", ") + "\n\n")
 	}
 	sb.WriteString("---")
 	if card.Body != "" {
