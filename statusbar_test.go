@@ -52,7 +52,7 @@ func TestStatusBar_TimedMessage_OverridesHints(t *testing.T) {
 		{Key: "q", Desc: "Quit"},
 	}
 	sb := NewStatusBar(hints)
-	sb.SetTimedMessage("Board refreshed", 3*time.Second)
+	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
 	view := sb.View(200)
 
 	if !strings.Contains(view, "Board refreshed") {
@@ -71,7 +71,7 @@ func TestStatusBar_ClearMessage_RestoresHints(t *testing.T) {
 		{Key: "q", Desc: "Quit"},
 	}
 	sb := NewStatusBar(hints)
-	sb.SetTimedMessage("Temporary message", 3*time.Second)
+	sb.SetTimedMessage("Temporary message", StatusInfo, 3*time.Second)
 	sb.ClearMessage()
 	view := sb.View(200)
 
@@ -85,9 +85,70 @@ func TestStatusBar_ClearMessage_RestoresHints(t *testing.T) {
 
 func TestStatusBar_SetTimedMessage_ReturnsCmd(t *testing.T) {
 	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
-	cmd := sb.SetTimedMessage("Done!", 3*time.Second)
+	cmd := sb.SetTimedMessage("Done!", StatusSuccess, 3*time.Second)
 	if cmd == nil {
 		t.Error("SetTimedMessage() should return a non-nil tea.Cmd")
+	}
+}
+
+// --- StatusBar: Timed Message Levels ---
+
+func TestStatusBar_TimedMessage_ErrorLevel_RendersRed(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetTimedMessage("Refresh failed", StatusError, 3*time.Second)
+	view := sb.View(200)
+
+	// The message text must appear in the output.
+	if !strings.Contains(view, "Refresh failed") {
+		t.Errorf("View() = %q, want it to contain %q", view, "Refresh failed")
+	}
+	// Error-level messages should be styled (contain ANSI escape sequences),
+	// so the rendered output must differ from the raw message text.
+	if view == "Refresh failed" {
+		t.Errorf("View() = %q, want error-level message to be styled (not raw text)", view)
+	}
+}
+
+func TestStatusBar_TimedMessage_WarningLevel_RendersYellow(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetTimedMessage("No linked PRs", StatusWarning, 3*time.Second)
+	view := sb.View(200)
+
+	// The message text must appear in the output.
+	if !strings.Contains(view, "No linked PRs") {
+		t.Errorf("View() = %q, want it to contain %q", view, "No linked PRs")
+	}
+	// Warning-level messages should be styled (contain ANSI escape sequences),
+	// so the rendered output must differ from the raw message text.
+	if view == "No linked PRs" {
+		t.Errorf("View() = %q, want warning-level message to be styled (not raw text)", view)
+	}
+}
+
+func TestStatusBar_TimedMessage_SuccessLevel_RendersGreen(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
+	view := sb.View(200)
+
+	// The message text must appear in the output.
+	if !strings.Contains(view, "Board refreshed") {
+		t.Errorf("View() = %q, want it to contain %q", view, "Board refreshed")
+	}
+	// Success-level messages should be styled (contain ANSI escape sequences),
+	// so the rendered output must differ from the raw message text.
+	if view == "Board refreshed" {
+		t.Errorf("View() = %q, want success-level message to be styled (not raw text)", view)
+	}
+}
+
+func TestStatusBar_TimedMessage_InfoLevel_RendersUnstyled(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetTimedMessage("Running...", StatusInfo, 3*time.Second)
+	view := sb.View(200)
+
+	// Info-level messages should be returned as raw text without styling.
+	if view != "Running..." {
+		t.Errorf("View() = %q, want info-level message to be unstyled raw text %q", view, "Running...")
 	}
 }
 
@@ -206,7 +267,7 @@ func TestStatusBar_ViewNoTruncationWhenAllFit(t *testing.T) {
 
 func TestStatusBar_ViewTimedMessageIgnoresWidth(t *testing.T) {
 	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
-	sb.SetTimedMessage("Board refreshed", 3*time.Second)
+	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
 
 	// Call with a tiny width -- the timed message should still appear in full.
 	view := sb.View(1)
