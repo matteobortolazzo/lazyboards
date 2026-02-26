@@ -263,7 +263,7 @@ func TestCommentMode_Enter_URLAction_ExpandsComment(t *testing.T) {
 	}
 
 	// Press Enter to submit.
-	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	sendKey(t, b, arrowMsg(tea.KeyEnter))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called after submitting comment URL action, but no calls recorded")
@@ -290,8 +290,7 @@ func TestCommentMode_Enter_ShellAction_ShellEscapesComment(t *testing.T) {
 	}
 
 	// Press Enter to submit.
-	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
-	b = m.(Board)
+	_, cmd := b.Update(arrowMsg(tea.KeyEnter))
 	execCmds(cmd)
 
 	if len(fe.RunShellCalls) == 0 {
