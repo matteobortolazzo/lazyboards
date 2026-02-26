@@ -82,7 +82,6 @@ func labelColor(label Label) lipgloss.Color {
 
 // normalModeHints are the default status bar hints shown in normal mode.
 var normalModeHints = []Hint{
-	{Key: "o", Desc: "Open"},
 	{Key: "e", Desc: "Edit"},
 	{Key: "n", Desc: "New"},
 }
@@ -153,6 +152,7 @@ type Card struct {
 	Title     string
 	Labels    []Label
 	Body      string
+	URL       string
 	LinkedPRs []LinkedPR
 }
 
@@ -507,8 +507,9 @@ func (b *Board) rebuildNormalHints() {
 		hasCards = len(b.Columns[b.ActiveTab].Cards) > 0
 	}
 
-	// Conditional PR hint: only show when the selected card has linked PRs.
+	// Conditional hints: only show when the active column has cards.
 	if hasCards {
+		hints = append(hints, Hint{Key: "o", Desc: "Open"})
 		col := b.Columns[b.ActiveTab]
 		if col.Cursor < len(col.Cards) && len(col.Cards[col.Cursor].LinkedPRs) > 0 {
 			hints = append(hints, Hint{Key: "p", Desc: "Open PR"})

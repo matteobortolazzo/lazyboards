@@ -102,6 +102,7 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 				Number: issue.GetNumber(),
 				Title:  issue.GetTitle(),
 				Body:   issue.GetBody(),
+				URL:    issue.GetHTMLURL(),
 			}
 
 			// Collect all labels with their colors.
@@ -292,6 +293,7 @@ func (g *GitHubProvider) CreateCard(ctx context.Context, title string, label str
 		Number: issue.GetNumber(),
 		Title:  issue.GetTitle(),
 		Body:   issue.GetBody(),
+		URL:    issue.GetHTMLURL(),
 		Labels: extractLabels(issue.Labels),
 	}
 	if len(card.Labels) == 0 && label != "" {
@@ -327,6 +329,7 @@ func (g *GitHubProvider) UpdateCard(ctx context.Context, number int, title strin
 		Number: issue.GetNumber(),
 		Title:  issue.GetTitle(),
 		Body:   issue.GetBody(),
+		URL:    issue.GetHTMLURL(),
 		Labels: extractLabels(issue.Labels),
 	}
 	return card, nil

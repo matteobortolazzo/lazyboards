@@ -21,6 +21,7 @@ type Card struct {
 	Title     string
 	Labels    []Label
 	Body      string
+	URL       string
 	LinkedPRs []LinkedPR
 }
 
