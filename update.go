@@ -718,17 +718,17 @@ func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
 	card := col.Cards[col.Cursor]
 
 	if card.URL == "" {
-		cmd := b.statusBar.SetTimedMessage("URL not available", statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("URL not available", StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
 
 	if err := b.executor.OpenURL(card.URL); err != nil {
-		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), statusMessageDuration)
+		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
 		return b, cmd
 	}
 
 	msg := fmt.Sprintf("Opened #%d", card.Number)
-	cmd := b.statusBar.SetTimedMessage(msg, statusMessageDuration)
+	cmd := b.statusBar.SetTimedMessage(msg, StatusSuccess, statusMessageDuration)
 	return b, cmd
 }
 
