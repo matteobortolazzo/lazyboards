@@ -15,6 +15,9 @@ lazyboards
 # Output
 *.out
 
+# GoReleaser
+dist/
+
 # Go workspace
 go.work
 go.work.sum

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -34,7 +33,7 @@ func newLoadedTestBoard(t *testing.T) Board {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false)
 	// Simulate the provider returning board data.
-	board, err := p.FetchBoard(nil)
+	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}
@@ -44,25 +43,6 @@ func newLoadedTestBoard(t *testing.T) Board {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	return updated
-}
-
-// errorProvider is a test-only provider that always returns errors.
-type errorProvider struct{}
-
-func (e errorProvider) FetchBoard(_ context.Context) (provider.Board, error) {
-	return provider.Board{}, errors.New("connection failed")
-}
-
-func (e errorProvider) CreateCard(_ context.Context, _ string, _ string) (provider.Card, error) {
-	return provider.Card{}, errors.New("not implemented")
-}
-
-func (e errorProvider) UpdateCard(_ context.Context, _ int, _ string, _ string, _ []string) (provider.Card, error) {
-	return provider.Card{}, errors.New("not implemented")
-}
-
-func (e errorProvider) CreateLabel(_ context.Context, _ string) error {
-	return errors.New("not implemented")
 }
 
 // keyMsg builds a tea.KeyMsg for a single rune key (e.g., "h", "l", "j", "k", "q").
@@ -90,7 +70,7 @@ func sendKey(t *testing.T, b Board, msg tea.Msg) Board {
 // default board data from a FakeProvider and sending a boardFetchedMsg.
 func simulateRefresh(t *testing.T, b Board) Board {
 	t.Helper()
-	board, err := provider.NewFakeProvider().FetchBoard(nil)
+	board, err := provider.NewFakeProvider().FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}
@@ -136,7 +116,7 @@ func requireColumns(t *testing.T, b Board) {
 // sends it through Update, and sets standard test dimensions (120x40).
 func loadFromFakeProvider(t *testing.T, b Board, p *provider.FakeProvider) Board {
 	t.Helper()
-	board, err := p.FetchBoard(nil)
+	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}

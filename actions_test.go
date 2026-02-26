@@ -236,7 +236,7 @@ func TestAction_ColumnActionOverridesGlobal(t *testing.T) {
 	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
 
 	// Board starts on column 0 ("New") which has the column-level override.
-	b = sendKey(t, b, keyMsg("x"))
+	sendKey(t, b, keyMsg("x"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called, but no calls recorded")
@@ -260,7 +260,7 @@ func TestAction_FallbackToGlobalWhenColumnHasNoAction(t *testing.T) {
 	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
 
 	// Board starts on column 0 ("New") which has no column-level actions.
-	b = sendKey(t, b, keyMsg("x"))
+	sendKey(t, b, keyMsg("x"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called via global fallback, but no calls recorded")
@@ -287,14 +287,14 @@ func TestAction_ColumnActionOnlyFiresInMatchingColumn(t *testing.T) {
 	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
 
 	// Start on column 0 ("New"). Press "x" — should have no effect.
-	b = sendKey(t, b, keyMsg("x"))
+	sendKey(t, b, keyMsg("x"))
 	if len(fe.OpenURLCalls) != 0 {
 		t.Errorf("expected no OpenURL calls on column 0, got %d", len(fe.OpenURLCalls))
 	}
 
 	// Tab to column 1 ("Refined"). Press "x" — should trigger the deploy action.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
-	b = sendKey(t, b, keyMsg("x"))
+	sendKey(t, b, keyMsg("x"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called on column 1 ('Refined'), but no calls recorded")
@@ -385,7 +385,7 @@ func TestRepoOpen_NormalMode_OpensRepoURL(t *testing.T) {
 	b = loadFromFakeProvider(t, b, p)
 
 	// Press "O" (shift+o) in normal mode to open the repository.
-	b = sendKey(t, b, keyMsg("O"))
+	sendKey(t, b, keyMsg("O"))
 
 	expectedURL := "https://github.com/matteobortolazzo/lazyboards"
 	if len(fe.OpenURLCalls) == 0 {
@@ -434,7 +434,7 @@ func TestRepoOpen_DetailFocused_OpensRepoURL(t *testing.T) {
 
 	// Enter detail focus, then press "O" (shift+o) to open repo.
 	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("O"))
+	sendKey(t, b, keyMsg("O"))
 
 	expectedURL := "https://github.com/matteobortolazzo/lazyboards"
 	if len(fe.OpenURLCalls) == 0 {
@@ -687,7 +687,7 @@ func TestAction_BoardScope_URLFiresWithCards(t *testing.T) {
 	b, fe := newActionTestBoard(t, actions)
 
 	// Press the board-scope action key (column has cards from FakeProvider).
-	b = sendKey(t, b, keyMsg("b"))
+	sendKey(t, b, keyMsg("b"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called for board-scope action with cards, but no calls recorded")
@@ -706,7 +706,7 @@ func TestAction_BoardScope_UsesOnlyBoardVars(t *testing.T) {
 	}
 	b, fe := newActionTestBoard(t, actions)
 
-	b = sendKey(t, b, keyMsg("b"))
+	sendKey(t, b, keyMsg("b"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called, but no calls recorded")
