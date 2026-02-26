@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
@@ -159,6 +160,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleHelpModeKey(msg)
 		case labelConfirmMode:
 			return b.handleLabelConfirmModeKey(msg)
+		case commentMode:
+			return b.handleCommentModeKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -644,6 +647,45 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.statusBar.SetActionHints(helpModeHints)
 		return b, nil
 	default:
+		// Alt+key: check for comment mode trigger.
+		if msg.Alt && len(msg.Runes) == 1 {
+			baseKey := string(msg.Runes)
+			if act, ok := b.resolveAction(baseKey); ok {
+				template := act.URL + act.Command
+				if strings.Contains(template, "{comment}") {
+					// Enter comment mode.
+					ci := textinput.New()
+					ci.Placeholder = "Comment..."
+					ci.CharLimit = 2000
+					b.comment = commentState{
+						input:         ci,
+						pendingAction: act,
+						boardScope:    act.Scope == "board",
+					}
+					// Store pending card if card-scope; refuse if column is empty.
+					if act.Scope != "board" {
+						col := b.Columns[b.ActiveTab]
+						if len(col.Cards) == 0 {
+							return b, nil
+						}
+						b.comment.pendingCard = col.Cards[col.Cursor]
+					}
+					b.mode = commentMode
+					b.statusBar.SetActionHints(commentModeHints)
+					return b, b.comment.input.Focus()
+				}
+				// Alt on action without {comment} -- execute normally.
+				col := b.Columns[b.ActiveTab]
+				if act.Scope == "board" {
+					return b.handleBoardActionKey(act)
+				}
+				if len(col.Cards) == 0 {
+					return b, nil
+				}
+				return b.handleActionKey(act, col.Cards[col.Cursor])
+			}
+			return b, nil
+		}
 		// Check for number key navigation (1-9).
 		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
 			idx := int(msg.Runes[0] - '1')
@@ -664,6 +706,78 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return b.handleActionKey(act, col.Cards[col.Cursor])
 		}
+	}
+	return b, nil
+}
+
+func (b Board) handleCommentModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyEnter:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		comment := b.comment.input.Value()
+		act := b.comment.pendingAction
+		if b.comment.boardScope {
+			return b.handleBoardActionKeyWithComment(act, comment)
+		}
+		return b.handleActionKeyWithComment(act, b.comment.pendingCard, comment)
+	default:
+		var cmd tea.Cmd
+		b.comment.input, cmd = b.comment.input.Update(msg)
+		return b, cmd
+	}
+}
+
+func (b Board) handleActionKeyWithComment(act config.Action, card Card, comment string) (tea.Model, tea.Cmd) {
+	labelNames := make([]string, len(card.Labels))
+	for i, l := range card.Labels {
+		labelNames[i] = l.Name
+	}
+	vars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
+
+	switch act.Type {
+	case "url":
+		urlVars := action.BuildURLSafeVars(vars)
+		urlVars["comment"] = action.URLEscape(comment)
+		expanded := action.ExpandTemplate(act.URL, urlVars)
+		if err := b.executor.OpenURL(expanded); err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+			return b, cmd
+		}
+		return b, nil
+	case "shell":
+		shellVars := action.BuildShellSafeVars(vars)
+		shellVars["comment"] = action.ShellEscape(comment)
+		expanded := action.ExpandTemplate(act.Command, shellVars)
+		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
+		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
+	}
+	return b, nil
+}
+
+func (b Board) handleBoardActionKeyWithComment(act config.Action, comment string) (tea.Model, tea.Cmd) {
+	vars := action.BuildBoardTemplateVars(b.repoOwner, b.repoName, b.providerName)
+
+	switch act.Type {
+	case "url":
+		urlVars := action.BuildURLSafeVars(vars)
+		urlVars["comment"] = action.URLEscape(comment)
+		expanded := action.ExpandTemplate(act.URL, urlVars)
+		if err := b.executor.OpenURL(expanded); err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+			return b, cmd
+		}
+		return b, nil
+	case "shell":
+		shellVars := action.BuildShellSafeVars(vars)
+		shellVars["comment"] = action.ShellEscape(comment)
+		expanded := action.ExpandTemplate(act.Command, shellVars)
+		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
+		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
 	}
 	return b, nil
 }
@@ -733,45 +847,11 @@ func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleActionKey(act config.Action, card Card) (tea.Model, tea.Cmd) {
-	labelNames := make([]string, len(card.Labels))
-	for i, l := range card.Labels {
-		labelNames[i] = l.Name
-	}
-	vars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen)
-
-	switch act.Type {
-	case "url":
-		expanded := action.ExpandTemplate(act.URL, action.BuildURLSafeVars(vars))
-		if err := b.executor.OpenURL(expanded); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
-			return b, cmd
-		}
-		return b, nil
-	case "shell":
-		expanded := action.ExpandTemplate(act.Command, action.BuildShellSafeVars(vars))
-		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
-		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
-	}
-	return b, nil
+	return b.handleActionKeyWithComment(act, card, "")
 }
 
 func (b Board) handleBoardActionKey(act config.Action) (tea.Model, tea.Cmd) {
-	vars := action.BuildBoardTemplateVars(b.repoOwner, b.repoName, b.providerName)
-
-	switch act.Type {
-	case "url":
-		expanded := action.ExpandTemplate(act.URL, action.BuildURLSafeVars(vars))
-		if err := b.executor.OpenURL(expanded); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
-			return b, cmd
-		}
-		return b, nil
-	case "shell":
-		expanded := action.ExpandTemplate(act.Command, action.BuildShellSafeVars(vars))
-		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
-		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
-	}
-	return b, nil
+	return b.handleBoardActionKeyWithComment(act, "")
 }
 
 func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

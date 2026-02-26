@@ -122,6 +122,12 @@ var prPickerHints = []Hint{
 	{Key: "esc", Desc: "Cancel"},
 }
 
+// commentModeHints are the status bar hints shown when the comment input is active.
+var commentModeHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+	{Key: "enter", Desc: "Submit"},
+}
+
 // helpModeHints are the status bar hints shown in help mode.
 var helpModeHints = []Hint{
 	{Key: "esc/?", Desc: "Close"},
@@ -142,6 +148,7 @@ const (
 	searchMode
 	helpMode
 	labelConfirmMode
+	commentMode
 )
 
 const (
@@ -259,6 +266,14 @@ type labelConfirmState struct {
 	currentIdx    int
 }
 
+// commentState groups fields related to the comment input modal.
+type commentState struct {
+	input         textinput.Model
+	pendingAction config.Action
+	pendingCard   Card
+	boardScope    bool
+}
+
 // configState groups fields related to the config modal.
 type configState struct {
 	providerOptions []string
@@ -297,6 +312,7 @@ type Board struct {
 	providerName    string
 	sessionMaxLen   int
 	normalHints     []Hint
+	comment         commentState
 	config          configState
 	create          createState
 	detailFocused      bool
