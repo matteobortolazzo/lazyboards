@@ -376,6 +376,58 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	}
 }
 
+// --- Comment template variable expansion ---
+
+func TestAction_CommentVariableExpansion(t *testing.T) {
+	// End-to-end: Alt+key enters comment mode, user types text, submits,
+	// and the {comment} variable is expanded in the shell command via
+	// BuildTemplateVars (not manual post-injection).
+	actions := map[string]config.Action{
+		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+
+	// Get the selected card's number for verification.
+	col := b.Columns[b.ActiveTab]
+	selectedCard := col.Cards[col.Cursor]
+
+	// Press Alt+x to enter comment mode.
+	b = sendKey(t, b, altKeyMsg("x"))
+	if b.mode != commentMode {
+		t.Fatalf("expected commentMode after Alt+x, got mode = %d", b.mode)
+	}
+
+	// Type a comment.
+	commentText := "fix applied"
+	for _, ch := range commentText {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Press Enter to submit the comment and execute the action.
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	// Verify the board returned to normalMode.
+	if b.mode != normalMode {
+		t.Errorf("after submit: mode = %d, want %d (normalMode)", b.mode, normalMode)
+	}
+
+	// Verify RunShell was called with the comment expanded and shell-escaped.
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called after comment submission, but no calls recorded")
+	}
+	expandedCmd := fe.RunShellCalls[0]
+	expectedNumber := action.ShellEscape(fmt.Sprintf("%d", selectedCard.Number))
+	expectedComment := action.ShellEscape(commentText)
+	if !strings.Contains(expandedCmd, expectedNumber) {
+		t.Errorf("RunShell command = %q, want it to contain shell-escaped number %q", expandedCmd, expectedNumber)
+	}
+	if !strings.Contains(expandedCmd, expectedComment) {
+		t.Errorf("RunShell command = %q, want it to contain shell-escaped comment %q", expandedCmd, expectedComment)
+	}
+}
+
 // --- Repository Open (shift+o key) ---
 
 func TestRepoOpen_NormalMode_OpensRepoURL(t *testing.T) {
