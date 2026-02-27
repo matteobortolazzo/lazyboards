@@ -169,12 +169,17 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		b.Width = msg.Width
 		b.Height = msg.Height
+		var cmd tea.Cmd
 		if b.mode == createMode {
 			b.recalcCreateInputs()
+			// Reset viewport after height change (see keystroke path comment).
+			_ = b.create.titleInput.View()
+			b.create.titleInput, cmd = b.create.titleInput.Update(nil)
 		}
 		if len(b.Columns) > 0 {
 			b.clampScrollOffset()
 		}
+		return b, cmd
 	}
 	return b, nil
 }
@@ -510,6 +515,17 @@ func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.create.titleInput.Focused() {
 			b.create.titleInput, cmd = b.create.titleInput.Update(msg)
 			b.recalcCreateInputs()
+			// After recalcCreateInputs changes the textarea height, the
+			// internal viewport's content lines may be stale, preventing
+			// repositionView from scrolling correctly. Call View() to
+			// update the viewport content (via the shared pointer), then
+			// send a nil message through Update to trigger
+			// repositionView, which scrolls the viewport to keep the
+			// cursor visible.
+			_ = b.create.titleInput.View()
+			var repositionCmd tea.Cmd
+			b.create.titleInput, repositionCmd = b.create.titleInput.Update(nil)
+			cmd = tea.Batch(cmd, repositionCmd)
 		} else if b.create.labelInput.Focused() {
 			b.create.labelInput, cmd = b.create.labelInput.Update(msg)
 		}
