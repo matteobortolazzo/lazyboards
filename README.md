@@ -70,7 +70,7 @@ actions:
     command: "git checkout -b {number}-{title}"
 ```
 
-**Template variables:** `{number}`, `{title}` (slugified), `{tags}`, `{session}`, `{repo_owner}`, `{repo_name}`, `{provider}`
+**Template variables:** `{number}`, `{title}` (slugified), `{tags}`, `{session}`, `{repo_owner}`, `{repo_name}`, `{provider}`, `{comment}`
 
 Shell commands automatically escape template variables to prevent injection.
 
@@ -101,12 +101,26 @@ columns:
       R:
         name: Refine ticket
         type: shell
-        command: 'tmux new-window -d -n {session} "claude"'
+        command: 'tmux new-window -d -n {session} "claude --comment {comment}"'
     cleanup: 'tmux kill-window -t {session} 2>/dev/null || true'
   - name: Refined
 ```
 
 The `cleanup` command uses the same template variables as actions. It runs when a card moves to another column or disappears.
+
+#### Comment Mode
+
+Actions that include `{comment}` in their URL or shell template open a text input modal when triggered with `Alt+key` instead of executing immediately. This lets you type a comment before the action runs:
+
+```yaml
+actions:
+  a:
+    name: Annotate
+    type: shell
+    command: 'gh issue comment {number} --body {comment}'
+```
+
+Press `a` to run the command with an empty comment. Press `Alt+a` to open the comment modal, type your text, and press `Enter` to submit.
 
 ### Action Refresh Delay
 
@@ -154,6 +168,13 @@ action_refresh_delay: 0
 | `Tab` | Switch between Provider and Repo fields |
 | `Enter` | Save configuration |
 | `Esc` | Cancel (quit on first launch) |
+
+### Comment Mode
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Submit comment |
+| `Esc` | Cancel |
 
 ### Error Mode
 
