@@ -416,3 +416,36 @@ func newBoardWithCustomWorkingLabel(t *testing.T, workingLabel string, cards []p
 	board.Height = 40
 	return board
 }
+
+// newBoardWithAssignees creates a Board with one column containing one card.
+// The card has the given assignee logins. If no logins are provided, the card
+// has no assignees.
+func newBoardWithAssignees(t *testing.T, assigneeLogins ...string) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false)
+
+	assignees := make([]provider.Assignee, len(assigneeLogins))
+	for i, login := range assigneeLogins {
+		assignees[i] = provider.Assignee{Login: login}
+	}
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{
+					Number:    1,
+					Title:     "Test card",
+					Labels:    []provider.Label{{Name: "bug"}},
+					Body:      "Card body text",
+					Assignees: assignees,
+				},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board
+}

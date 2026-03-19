@@ -15,6 +15,11 @@ type Label struct {
 	Color string
 }
 
+// Assignee represents a user assigned to a card.
+type Assignee struct {
+	Login string
+}
+
 // Card represents a single Kanban card (e.g., a GitHub issue).
 type Card struct {
 	Number    int
@@ -23,6 +28,7 @@ type Card struct {
 	Body      string
 	URL       string
 	LinkedPRs []LinkedPR
+	Assignees []Assignee
 }
 
 // Column represents a Kanban column containing cards.

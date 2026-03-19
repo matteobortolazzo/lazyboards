@@ -111,6 +111,12 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 				card.Labels = allLabels
 			}
 
+			// Collect assignees.
+			allAssignees := extractAssignees(issue.Assignees)
+			if len(allAssignees) > 0 {
+				card.Assignees = allAssignees
+			}
+
 			// Find the furthest (rightmost) column matching any label.
 			bestIdx := -1
 			for _, label := range issue.Labels {
@@ -231,6 +237,15 @@ func extractLabels(ghLabels []*github.Label) []Label {
 	return labels
 }
 
+// extractAssignees converts GitHub API users to provider Assignees.
+func extractAssignees(ghAssignees []*github.User) []Assignee {
+	assignees := make([]Assignee, 0, len(ghAssignees))
+	for _, u := range ghAssignees {
+		assignees = append(assignees, Assignee{Login: u.GetLogin()})
+	}
+	return assignees
+}
+
 // fetchLinkedPRs retrieves cross-referenced pull requests from the issue timeline.
 func (g *GitHubProvider) fetchLinkedPRs(ctx context.Context, issueNumber int) ([]LinkedPR, error) {
 	opts := &github.ListOptions{PerPage: 100}
@@ -290,11 +305,12 @@ func (g *GitHubProvider) CreateCard(ctx context.Context, title string, label str
 	}
 
 	card := Card{
-		Number: issue.GetNumber(),
-		Title:  issue.GetTitle(),
-		Body:   issue.GetBody(),
-		URL:    issue.GetHTMLURL(),
-		Labels: extractLabels(issue.Labels),
+		Number:    issue.GetNumber(),
+		Title:     issue.GetTitle(),
+		Body:      issue.GetBody(),
+		URL:       issue.GetHTMLURL(),
+		Labels:    extractLabels(issue.Labels),
+		Assignees: extractAssignees(issue.Assignees),
 	}
 	if len(card.Labels) == 0 && label != "" {
 		card.Labels = []Label{{Name: label}}
@@ -326,11 +342,12 @@ func (g *GitHubProvider) UpdateCard(ctx context.Context, number int, title strin
 	}
 
 	card := Card{
-		Number: issue.GetNumber(),
-		Title:  issue.GetTitle(),
-		Body:   issue.GetBody(),
-		URL:    issue.GetHTMLURL(),
-		Labels: extractLabels(issue.Labels),
+		Number:    issue.GetNumber(),
+		Title:     issue.GetTitle(),
+		Body:      issue.GetBody(),
+		URL:       issue.GetHTMLURL(),
+		Labels:    extractLabels(issue.Labels),
+		Assignees: extractAssignees(issue.Assignees),
 	}
 	return card, nil
 }

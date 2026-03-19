@@ -209,7 +209,15 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	for i, pc := range msg.board.Columns {
 		cards := make([]Card, len(pc.Cards))
 		for j, c := range pc.Cards {
-			cards[j] = Card{Number: c.Number, Title: c.Title, Labels: mapLabels(c.Labels), Body: c.Body, URL: c.URL, LinkedPRs: mapLinkedPRs(c.LinkedPRs)}
+			cards[j] = Card{
+				Number:    c.Number,
+				Title:     c.Title,
+				Labels:    mapLabels(c.Labels),
+				Body:      c.Body,
+				URL:       c.URL,
+				LinkedPRs: mapLinkedPRs(c.LinkedPRs),
+				Assignees: mapAssignees(c.Assignees),
+			}
 		}
 		cols[i] = Column{Title: pc.Title, Cards: cards}
 	}
@@ -377,6 +385,7 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 		Body:      msg.card.Body,
 		URL:       msg.card.URL,
 		LinkedPRs: mapLinkedPRs(msg.card.LinkedPRs),
+		Assignees: mapAssignees(msg.card.Assignees),
 	}
 	b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
 	b.create.titleInput.SetValue("")
@@ -467,6 +476,7 @@ func (b Board) handleCardUpdated(msg cardUpdatedMsg) (tea.Model, tea.Cmd) {
 					URL:       msg.card.URL,
 					Labels:    mapLabels(msg.card.Labels),
 					LinkedPRs: b.Columns[ci].Cards[i].LinkedPRs,
+					Assignees: b.Columns[ci].Cards[i].Assignees,
 				}
 				cmd := b.statusBar.SetTimedMessage("Card updated", StatusSuccess, statusMessageDuration)
 				return b, cmd
