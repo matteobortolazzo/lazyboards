@@ -584,6 +584,17 @@ func composeDetailMarkdown(card Card) string {
 	} else {
 		sb.WriteString("labels: (none)\n\n")
 	}
+
+	if len(card.Assignees) > 0 {
+		logins := make([]string, len(card.Assignees))
+		for i, a := range card.Assignees {
+			logins[i] = a.Login
+		}
+		sb.WriteString("assignees: " + strings.Join(logins, ", ") + "\n\n")
+	} else {
+		sb.WriteString("assignees: (none)\n\n")
+	}
+
 	sb.WriteString("---")
 	if card.Body != "" {
 		sb.WriteString("\n\n" + card.Body)
