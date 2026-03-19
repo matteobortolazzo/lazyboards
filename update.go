@@ -231,6 +231,10 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 
 	b.pendingAutoRefresh = false
 
+	// Reset global filter on board refresh — new data may change available labels/assignees.
+	b.activeFilterType = filterTypeNone
+	b.activeFilterValue = ""
+
 	if b.refreshing {
 		// Preserve ActiveTab and cursor position by card Number.
 		savedTab := b.ActiveTab
@@ -615,7 +619,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(col.Cards) == 0 {
 			return b, nil
 		}
-		return b, openEditorCmd(col.Cards[col.Cursor])
+		return b, openEditorCmd(b.selectedCard())
 	case "c":
 		b.enterConfigMode()
 	case "r":
@@ -633,7 +637,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(col.Cards) == 0 {
 			return b, nil
 		}
-		return b.handlePROpenKey(col.Cards[col.Cursor])
+		return b.handlePROpenKey(b.selectedCard())
 	case "/":
 		b.mode = searchMode
 		cmd := b.searchInput.Focus()
@@ -652,7 +656,11 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.switchColumn((b.ActiveTab + 1) % len(b.Columns))
 	case "j", "down":
 		col := &b.Columns[b.ActiveTab]
-		if col.Cursor < len(col.Cards)-1 {
+		maxIdx := len(col.Cards) - 1
+		if b.activeFilterType != filterTypeNone {
+			maxIdx = len(b.filteredCards()) - 1
+		}
+		if col.Cursor < maxIdx {
 			col.Cursor++
 		}
 		b.detailScrollOffset = 0
@@ -686,8 +694,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.statusBar.SetActionHints(filterModeHints)
 		return b, nil
 	case "F":
-		b.activeFilterType = filterTypeNone
-		b.activeFilterValue = ""
+		b.clearFilter()
+		b.clampScrollOffset()
 		cmd := b.statusBar.SetTimedMessage("Filter cleared", StatusSuccess, statusMessageDuration)
 		return b, cmd
 	case "?":
@@ -718,7 +726,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						if len(col.Cards) == 0 {
 							return b, nil
 						}
-						b.comment.pendingCard = col.Cards[col.Cursor]
+						b.comment.pendingCard = b.selectedCard()
 					}
 					b.mode = commentMode
 					b.statusBar.SetActionHints(commentModeHints)
@@ -732,7 +740,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if len(col.Cards) == 0 {
 					return b, nil
 				}
-				return b.handleActionKey(act, col.Cards[col.Cursor])
+				return b.handleActionKey(act, b.selectedCard())
 			}
 			return b, nil
 		}
@@ -754,7 +762,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if len(col.Cards) == 0 {
 				return b, nil
 			}
-			return b.handleActionKey(act, col.Cards[col.Cursor])
+			return b.handleActionKey(act, b.selectedCard())
 		}
 	}
 	return b, nil
@@ -793,6 +801,16 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			item := b.filterItems[b.filterCursor]
 			b.activeFilterType = item.itemType
 			b.activeFilterValue = item.value
+			// Clamp cursor to filtered card count.
+			filtered := b.filteredCards()
+			col := &b.Columns[b.ActiveTab]
+			if len(filtered) == 0 {
+				col.Cursor = 0
+			} else if col.Cursor >= len(filtered) {
+				col.Cursor = len(filtered) - 1
+			}
+			col.ScrollOffset = 0
+			b.clampScrollOffset()
 		}
 		b.mode = normalMode
 		b.statusBar.SetActionHints(b.normalHints)
@@ -921,7 +939,7 @@ func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
 	if len(col.Cards) == 0 {
 		return b, nil
 	}
-	card := col.Cards[col.Cursor]
+	card := b.selectedCard()
 
 	if card.URL == "" {
 		cmd := b.statusBar.SetTimedMessage("URL not available", StatusWarning, statusMessageDuration)
@@ -973,7 +991,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(col.Cards) == 0 {
 			return b, nil
 		}
-		return b, openEditorCmd(col.Cards[col.Cursor])
+		return b, openEditorCmd(b.selectedCard())
 	case "r":
 		if b.refreshing {
 			return b, nil
@@ -1018,7 +1036,7 @@ func (b *Board) scrollDetailDown() {
 	if len(col.Cards) == 0 {
 		return
 	}
-	card := col.Cards[col.Cursor]
+	card := b.selectedCard()
 	fullMarkdown := composeDetailMarkdown(card)
 	rendered := renderBody(fullMarkdown)
 	totalLines := len(strings.Split(rendered, "\n"))
@@ -1115,8 +1133,7 @@ func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	col := b.Columns[b.ActiveTab]
-	card := col.Cards[col.Cursor]
+	card := b.selectedCard()
 	prCount := len(card.LinkedPRs)
 
 	switch msg.Type {
@@ -1226,7 +1243,11 @@ func (b Board) handleMouseScroll(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		if msg.Button == tea.MouseButtonWheelDown {
-			if col.Cursor < len(col.Cards)-1 {
+			maxIdx := len(col.Cards) - 1
+			if b.activeFilterType != filterTypeNone {
+				maxIdx = len(b.filteredCards()) - 1
+			}
+			if col.Cursor < maxIdx {
 				col.Cursor++
 			}
 		} else {
@@ -1280,6 +1301,10 @@ func (b Board) handleTabClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	pos := prefixWidth
 	for i, col := range b.Columns {
 		countStr := fmt.Sprintf("(%d)", len(col.Cards))
+		if b.activeFilterType != filterTypeNone {
+			fc := b.filteredCardsForColumn(i)
+			countStr = fmt.Sprintf("(%d/%d) \u25cf", fc, len(col.Cards))
+		}
 		labelText := fmt.Sprintf("[%d] %s %s", i+1, col.Title, countStr)
 		labelWidth := lipgloss.Width(labelText)
 
@@ -1303,7 +1328,13 @@ func (b Board) handleCardClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 	col := &b.Columns[b.ActiveTab]
-	if len(col.Cards) == 0 {
+
+	// Use filtered cards when a filter is active.
+	cards := col.Cards
+	if b.activeFilterType != filterTypeNone {
+		cards = b.filteredCards()
+	}
+	if len(cards) == 0 {
 		return b, nil
 	}
 
@@ -1323,10 +1354,9 @@ func (b Board) handleCardClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Iterate through visible cards to find which card was clicked.
 	currentY := contentStartY
-	for i := col.ScrollOffset; i < len(col.Cards); i++ {
-		lines := cardLineCount(col.Cards[i], leftContentWidth, columnNames, b.workingLabel)
+	for i := col.ScrollOffset; i < len(cards); i++ {
+		lines := cardLineCount(cards[i], leftContentWidth, columnNames, b.workingLabel)
 		if msg.Y >= currentY && msg.Y < currentY+lines {
-			// Clicked on this card.
 			col.Cursor = i
 			b.detailScrollOffset = 0
 			b.clampScrollOffset()
