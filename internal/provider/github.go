@@ -28,25 +28,27 @@ type cardLocation struct {
 // Compile-time check: *GitHubProvider implements BoardProvider.
 var _ BoardProvider = (*GitHubProvider)(nil)
 
-// GitHubIssuesClient abstracts the GitHub Issues API for testing.
-type GitHubIssuesClient interface {
+// GitHubClient abstracts the GitHub API for testing.
+type GitHubClient interface {
 	ListByRepo(ctx context.Context, owner string, repo string, opts *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error)
 	Create(ctx context.Context, owner string, repo string, issue *github.IssueRequest) (*github.Issue, *github.Response, error)
 	Edit(ctx context.Context, owner string, repo string, number int, issue *github.IssueRequest) (*github.Issue, *github.Response, error)
 	CreateLabel(ctx context.Context, owner string, repo string, label *github.Label) (*github.Label, *github.Response, error)
 	ListIssueTimeline(ctx context.Context, owner string, repo string, number int, opts *github.ListOptions) ([]*github.Timeline, *github.Response, error)
+	ListCollaborators(ctx context.Context, owner string, repo string, opts *github.ListCollaboratorsOptions) ([]*github.User, *github.Response, error)
+	GetUser(ctx context.Context, user string) (*github.User, *github.Response, error)
 }
 
 // GitHubProvider fetches board data from GitHub Issues.
 type GitHubProvider struct {
-	client  GitHubIssuesClient
+	client  GitHubClient
 	owner   string
 	repo    string
 	columns []string
 }
 
 // NewGitHubProvider creates a GitHubProvider with the given client, repository, and column names.
-func NewGitHubProvider(client GitHubIssuesClient, owner, repo string, columns []string) *GitHubProvider {
+func NewGitHubProvider(client GitHubClient, owner, repo string, columns []string) *GitHubProvider {
 	return &GitHubProvider{
 		client:  client,
 		owner:   owner,
@@ -98,24 +100,7 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 				continue
 			}
 
-			card := Card{
-				Number: issue.GetNumber(),
-				Title:  issue.GetTitle(),
-				Body:   issue.GetBody(),
-				URL:    issue.GetHTMLURL(),
-			}
-
-			// Collect all labels with their colors.
-			allLabels := extractLabels(issue.Labels)
-			if len(allLabels) > 0 {
-				card.Labels = allLabels
-			}
-
-			// Collect assignees.
-			allAssignees := extractAssignees(issue.Assignees)
-			if len(allAssignees) > 0 {
-				card.Assignees = allAssignees
-			}
+			card := issueToCard(issue)
 
 			// Find the furthest (rightmost) column matching any label.
 			bestIdx := -1
@@ -246,6 +231,18 @@ func extractAssignees(ghAssignees []*github.User) []Assignee {
 	return assignees
 }
 
+// issueToCard converts a github.Issue to a provider.Card, extracting labels and assignees.
+func issueToCard(issue *github.Issue) Card {
+	return Card{
+		Number:    issue.GetNumber(),
+		Title:     issue.GetTitle(),
+		Body:      issue.GetBody(),
+		URL:       issue.GetHTMLURL(),
+		Labels:    extractLabels(issue.Labels),
+		Assignees: extractAssignees(issue.Assignees),
+	}
+}
+
 // fetchLinkedPRs retrieves cross-referenced pull requests from the issue timeline.
 func (g *GitHubProvider) fetchLinkedPRs(ctx context.Context, issueNumber int) ([]LinkedPR, error) {
 	opts := &github.ListOptions{PerPage: 100}
@@ -304,14 +301,7 @@ func (g *GitHubProvider) CreateCard(ctx context.Context, title string, label str
 		return Card{}, err
 	}
 
-	card := Card{
-		Number:    issue.GetNumber(),
-		Title:     issue.GetTitle(),
-		Body:      issue.GetBody(),
-		URL:       issue.GetHTMLURL(),
-		Labels:    extractLabels(issue.Labels),
-		Assignees: extractAssignees(issue.Assignees),
-	}
+	card := issueToCard(issue)
 	if len(card.Labels) == 0 && label != "" {
 		card.Labels = []Label{{Name: label}}
 	}
@@ -341,15 +331,51 @@ func (g *GitHubProvider) UpdateCard(ctx context.Context, number int, title strin
 		return Card{}, err
 	}
 
-	card := Card{
-		Number:    issue.GetNumber(),
-		Title:     issue.GetTitle(),
-		Body:      issue.GetBody(),
-		URL:       issue.GetHTMLURL(),
-		Labels:    extractLabels(issue.Labels),
-		Assignees: extractAssignees(issue.Assignees),
+	return issueToCard(issue), nil
+}
+
+// FetchCollaborators retrieves all collaborators for the repository.
+func (g *GitHubProvider) FetchCollaborators(ctx context.Context) ([]Assignee, error) {
+	var allCollaborators []Assignee
+	opts := &github.ListCollaboratorsOptions{
+		ListOptions: github.ListOptions{PerPage: 100},
 	}
-	return card, nil
+	for {
+		users, resp, err := g.client.ListCollaborators(ctx, g.owner, g.repo, opts)
+		if err != nil {
+			return nil, err
+		}
+		allCollaborators = append(allCollaborators, extractAssignees(users)...)
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	if allCollaborators == nil {
+		allCollaborators = []Assignee{}
+	}
+	return allCollaborators, nil
+}
+
+// SetAssignees atomically replaces the assignees on a GitHub issue.
+func (g *GitHubProvider) SetAssignees(ctx context.Context, number int, logins []string) (Card, error) {
+	req := &github.IssueRequest{
+		Assignees: &logins,
+	}
+	issue, _, err := g.client.Edit(ctx, g.owner, g.repo, number, req)
+	if err != nil {
+		return Card{}, err
+	}
+	return issueToCard(issue), nil
+}
+
+// GetAuthenticatedUser returns the login of the currently authenticated user.
+func (g *GitHubProvider) GetAuthenticatedUser(ctx context.Context) (string, error) {
+	user, _, err := g.client.GetUser(ctx, "")
+	if err != nil {
+		return "", err
+	}
+	return user.GetLogin(), nil
 }
 
 // CreateLabel creates a new label in the GitHub repository.
