@@ -109,6 +109,10 @@ func (b Board) View() string {
 		return b.viewCommentModal()
 	}
 
+	if b.mode == filterMode {
+		return b.viewFilterModal()
+	}
+
 	// Render with normal outer border, then replace the top line with the border title.
 	rendered := outerStyle.Width(innerWidth).Render(inner)
 	var borderTitle string
@@ -849,6 +853,19 @@ func (b Board) buildHelpContent() string {
 		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
 	}
 
+	// Filter.
+	sb.WriteString("\nFilter\n")
+	filterKeys := [][2]string{
+		{"f", "Open filter picker"},
+		{"j/k", "Navigate"},
+		{"enter", "Select"},
+		{"esc", "Cancel"},
+		{"F", "Clear filter"},
+	}
+	for _, kv := range filterKeys {
+		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
+	}
+
 	// Error.
 	sb.WriteString("\nError\n")
 	errorKeys := [][2]string{
@@ -967,5 +984,32 @@ func (b Board) viewCommentModal() string {
 	modalContent := b.comment.pendingAction.Name + "\n\n" +
 		b.comment.input.View() + "\n\n" +
 		commentHints.View(modalWidth)
+	return b.renderModal(modalContent, modalWidth)
+}
+
+func (b Board) viewFilterModal() string {
+	modalWidth := 50
+
+	var lines []string
+	lines = append(lines, "Filter")
+	lines = append(lines, "")
+
+	for i, item := range b.filterItems {
+		if item.isHeader {
+			lines = append(lines, helpStyle.Render(item.value))
+			continue
+		}
+		display := "  " + item.value
+		if i == b.filterCursor {
+			display = selectedCardStyle.Render(display)
+		}
+		lines = append(lines, display)
+	}
+
+	lines = append(lines, "")
+	filterHints := NewStatusBar(filterModeHints)
+	lines = append(lines, filterHints.View(modalWidth))
+
+	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
 }
