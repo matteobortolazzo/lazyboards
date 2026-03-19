@@ -128,6 +128,13 @@ var commentModeHints = []Hint{
 	{Key: "enter", Desc: "Submit"},
 }
 
+// filterModeHints are the status bar hints shown in filter mode.
+var filterModeHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+	{Key: "j/k", Desc: "Navigate"},
+	{Key: "enter", Desc: "Select"},
+}
+
 // helpModeHints are the status bar hints shown in help mode.
 var helpModeHints = []Hint{
 	{Key: "esc/?", Desc: "Close"},
@@ -149,12 +156,29 @@ const (
 	helpMode
 	labelConfirmMode
 	commentMode
+	filterMode
 )
 
 const (
 	statusMessageDuration     = 3 * time.Second
 	longStatusMessageDuration = 30 * time.Second
 )
+
+// filterType represents the category of a filter selection.
+type filterType int
+
+const (
+	filterTypeNone   filterType = iota
+	filterByLabel
+	filterByAssignee
+)
+
+// filterItem represents a single entry in the filter picker list.
+type filterItem struct {
+	itemType filterType
+	value    string
+	isHeader bool
+}
 
 // LinkedPR represents a pull request linked to a card.
 type LinkedPR struct {
@@ -336,6 +360,10 @@ type Board struct {
 	workingLabel           string
 	mouseEnabled           bool
 	labelConfirm           labelConfirmState
+	filterItems            []filterItem
+	filterCursor           int
+	activeFilterType       filterType
+	activeFilterValue      string
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
@@ -554,6 +582,9 @@ func (b *Board) rebuildNormalHints() {
 		}
 	}
 
+	// Filter hint.
+	hints = append(hints, Hint{Key: "f", Desc: "Filter"})
+
 	// Default mode hints.
 	hints = append(hints, normalModeHints...)
 
@@ -674,6 +705,62 @@ func (b *Board) clearSearch() {
 	col := &b.Columns[b.ActiveTab]
 	col.Cursor = 0
 	col.ScrollOffset = 0
+}
+
+// collectFilterItems scans all columns for unique labels and assignees,
+// returning a list of filterItems with section headers.
+func (b *Board) collectFilterItems() []filterItem {
+	// Collect unique labels (case-insensitive dedup).
+	labelSeen := make(map[string]bool)
+	var labels []string
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			for _, label := range card.Labels {
+				lower := strings.ToLower(label.Name)
+				if !labelSeen[lower] {
+					labelSeen[lower] = true
+					labels = append(labels, label.Name)
+				}
+			}
+		}
+	}
+
+	// Collect unique assignees (case-insensitive dedup).
+	assigneeSeen := make(map[string]bool)
+	var assignees []string
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			for _, a := range card.Assignees {
+				lower := strings.ToLower(a.Login)
+				if !assigneeSeen[lower] {
+					assigneeSeen[lower] = true
+					assignees = append(assignees, a.Login)
+				}
+			}
+		}
+	}
+
+	if len(labels) == 0 && len(assignees) == 0 {
+		return nil
+	}
+
+	var items []filterItem
+
+	if len(labels) > 0 {
+		items = append(items, filterItem{isHeader: true, value: "Labels"})
+		for _, name := range labels {
+			items = append(items, filterItem{itemType: filterByLabel, value: name})
+		}
+	}
+
+	if len(assignees) > 0 {
+		items = append(items, filterItem{isHeader: true, value: "Assignees"})
+		for _, login := range assignees {
+			items = append(items, filterItem{itemType: filterByAssignee, value: login})
+		}
+	}
+
+	return items
 }
 
 // collectKnownLabels returns a set of all label names (lowercased) across the board.

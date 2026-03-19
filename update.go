@@ -162,6 +162,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleLabelConfirmModeKey(msg)
 		case commentMode:
 			return b.handleCommentModeKey(msg)
+		case filterMode:
+			return b.handleFilterModeKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -666,6 +668,28 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.clampScrollOffset()
 		b.rebuildNormalHints()
 		b.statusBar.SetActionHints(b.normalHints)
+	case "f":
+		items := b.collectFilterItems()
+		if len(items) == 0 {
+			return b, nil
+		}
+		b.filterItems = items
+		// Set cursor to first selectable (non-header) item.
+		b.filterCursor = 0
+		for i, item := range items {
+			if !item.isHeader {
+				b.filterCursor = i
+				break
+			}
+		}
+		b.mode = filterMode
+		b.statusBar.SetActionHints(filterModeHints)
+		return b, nil
+	case "F":
+		b.activeFilterType = filterTypeNone
+		b.activeFilterValue = ""
+		cmd := b.statusBar.SetTimedMessage("Filter cleared", StatusSuccess, statusMessageDuration)
+		return b, cmd
 	case "?":
 		b.helpFromDetailFocused = false
 		b.helpScrollOffset = 0
@@ -755,6 +779,52 @@ func (b Board) handleCommentModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		b.comment.input, cmd = b.comment.input.Update(msg)
 		return b, cmd
+	}
+}
+
+func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyEnter:
+		if b.filterCursor < len(b.filterItems) && !b.filterItems[b.filterCursor].isHeader {
+			item := b.filterItems[b.filterCursor]
+			b.activeFilterType = item.itemType
+			b.activeFilterValue = item.value
+		}
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	}
+
+	switch msg.String() {
+	case "j", "down":
+		b.filterMoveDown()
+	case "k", "up":
+		b.filterMoveUp()
+	}
+	return b, nil
+}
+
+// filterMoveDown moves the filter cursor to the next selectable (non-header) item.
+func (b *Board) filterMoveDown() {
+	for i := b.filterCursor + 1; i < len(b.filterItems); i++ {
+		if !b.filterItems[i].isHeader {
+			b.filterCursor = i
+			return
+		}
+	}
+}
+
+// filterMoveUp moves the filter cursor to the previous selectable (non-header) item.
+func (b *Board) filterMoveUp() {
+	for i := b.filterCursor - 1; i >= 0; i-- {
+		if !b.filterItems[i].isHeader {
+			b.filterCursor = i
+			return
+		}
 	}
 }
 
