@@ -168,7 +168,8 @@ const (
 type filterType int
 
 const (
-	filterByLabel    filterType = iota
+	filterTypeNone   filterType = iota
+	filterByLabel
 	filterByAssignee
 )
 

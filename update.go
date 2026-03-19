@@ -686,7 +686,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.statusBar.SetActionHints(filterModeHints)
 		return b, nil
 	case "F":
-		b.activeFilterType = filterByLabel
+		b.activeFilterType = filterTypeNone
 		b.activeFilterValue = ""
 		cmd := b.statusBar.SetTimedMessage("Filter cleared", StatusSuccess, statusMessageDuration)
 		return b, cmd
