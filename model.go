@@ -577,7 +577,7 @@ func (b *Board) rebuildNormalHints() {
 	if hasCards {
 		hints = append(hints, Hint{Key: "o", Desc: "Open"})
 		col := b.Columns[b.ActiveTab]
-		if col.Cursor < len(col.Cards) && len(col.Cards[col.Cursor].LinkedPRs) > 0 {
+		if col.Cursor < len(col.Cards) && len(b.selectedCard().LinkedPRs) > 0 {
 			hints = append(hints, Hint{Key: "p", Desc: "Open PR"})
 		}
 	}
@@ -662,21 +662,106 @@ func mapAssignees(assignees []provider.Assignee) []Assignee {
 	return result
 }
 
+// selectedCard returns the card currently under the cursor, accounting for
+// active global filter. When a filter is active, the cursor indexes into
+// the filtered list; otherwise it indexes into the raw column cards.
+func (b *Board) selectedCard() Card {
+	col := b.Columns[b.ActiveTab]
+	if b.activeFilterType != filterTypeNone {
+		filtered := b.filteredCards()
+		if col.Cursor < len(filtered) {
+			return filtered[col.Cursor]
+		}
+	}
+	return col.Cards[col.Cursor]
+}
+
+// matchesGlobalFilter returns true if a card matches the active global filter.
+// Uses case-insensitive comparison (strings.EqualFold) per lessons-learned.
+func (b *Board) matchesGlobalFilter(card Card) bool {
+	switch b.activeFilterType {
+	case filterByLabel:
+		for _, label := range card.Labels {
+			if strings.EqualFold(label.Name, b.activeFilterValue) {
+				return true
+			}
+		}
+		return false
+	case filterByAssignee:
+		for _, a := range card.Assignees {
+			if strings.EqualFold(a.Login, b.activeFilterValue) {
+				return true
+			}
+		}
+		return false
+	default:
+		return true
+	}
+}
+
 // filteredCards returns the cards in the active column that match the current
-// search query. If the query is empty, all cards are returned.
+// global filter and search query. If neither is active, all cards are returned.
 func (b *Board) filteredCards() []Card {
 	col := b.Columns[b.ActiveTab]
+	cards := col.Cards
+
+	// Apply global filter first.
+	if b.activeFilterType != filterTypeNone {
+		var filtered []Card
+		for _, card := range cards {
+			if b.matchesGlobalFilter(card) {
+				filtered = append(filtered, card)
+			}
+		}
+		cards = filtered
+	}
+
+	// Then apply search filter.
 	if b.searchQuery == "" {
-		return col.Cards
+		return cards
 	}
 	query := strings.ToLower(b.searchQuery)
 	var result []Card
-	for _, card := range col.Cards {
+	for _, card := range cards {
 		if matchesSearch(card, query) {
 			result = append(result, card)
 		}
 	}
 	return result
+}
+
+// filteredCardsForColumn returns the number of cards in the given column
+// that match the active global filter. Returns -1 if no filter is active.
+func (b *Board) filteredCardsForColumn(colIdx int) int {
+	if b.activeFilterType == filterTypeNone {
+		return -1
+	}
+	if colIdx < 0 || colIdx >= len(b.Columns) {
+		return 0
+	}
+	count := 0
+	for _, card := range b.Columns[colIdx].Cards {
+		if b.matchesGlobalFilter(card) {
+			count++
+		}
+	}
+	return count
+}
+
+// clearFilter resets the global filter state and clamps cursor/scroll for the active column.
+func (b *Board) clearFilter() {
+	b.activeFilterType = filterTypeNone
+	b.activeFilterValue = ""
+	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
+		col := &b.Columns[b.ActiveTab]
+		if col.Cursor >= len(col.Cards) {
+			col.Cursor = len(col.Cards) - 1
+			if col.Cursor < 0 {
+				col.Cursor = 0
+			}
+		}
+		col.ScrollOffset = 0
+	}
 }
 
 // matchesSearch returns true if a card matches the search query.
