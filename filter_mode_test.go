@@ -689,3 +689,198 @@ func TestFilterMode_BlocksNavigation(t *testing.T) {
 		t.Errorf("cursor changed in filterMode, should not change")
 	}
 }
+
+// --- Column-name label exclusion tests ---
+
+// newBoardWithColumnNameLabels creates a board where column titles overlap with
+// card labels. This verifies that collectFilterItems excludes labels that match
+// column names.
+//
+// Columns: "To Do", "In Progress"
+// Card 1 (in "To Do"):     labels ["bug", "To Do"],       assignees ["alice"]
+// Card 2 (in "In Progress"): labels ["In Progress", "feature"], assignees ["bob"]
+func newBoardWithColumnNameLabels(t *testing.T) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "To Do", Cards: []provider.Card{
+				{
+					Number: 1,
+					Title:  "Card One",
+					Labels: []provider.Label{{Name: "bug"}, {Name: "To Do"}},
+					Assignees: []provider.Assignee{
+						{Login: "alice"},
+					},
+				},
+			}},
+			{Title: "In Progress", Cards: []provider.Card{
+				{
+					Number: 2,
+					Title:  "Card Two",
+					Labels: []provider.Label{{Name: "In Progress"}, {Name: "feature"}},
+					Assignees: []provider.Assignee{
+						{Login: "bob"},
+					},
+				},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
+func TestFilterMode_CollectFilterItems_ExcludesColumnNameLabels(t *testing.T) {
+	b := newBoardWithColumnNameLabels(t)
+	items := b.collectFilterItems()
+
+	// Only "bug" and "feature" should appear as label items.
+	// "To Do" and "In Progress" should be excluded because they match column titles.
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByLabel {
+			lower := strings.ToLower(item.value)
+			if lower == "to do" || lower == "in progress" {
+				t.Errorf("label %q should be excluded because it matches a column name", item.value)
+			}
+		}
+	}
+
+	labelCount := 0
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByLabel {
+			labelCount++
+		}
+	}
+	if labelCount != 2 {
+		t.Errorf("label items = %d, want 2 (bug, feature); column-name labels should be excluded", labelCount)
+	}
+}
+
+func TestFilterMode_CollectFilterItems_ExcludesColumnNamesCaseInsensitive(t *testing.T) {
+	// Create a board where card labels use different casing than column titles.
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "To Do", Cards: []provider.Card{
+				{
+					Number: 1,
+					Title:  "Card One",
+					Labels: []provider.Label{{Name: "bug"}, {Name: "to do"}},
+				},
+			}},
+			{Title: "In Progress", Cards: []provider.Card{
+				{
+					Number: 2,
+					Title:  "Card Two",
+					Labels: []provider.Label{{Name: "IN PROGRESS"}, {Name: "feature"}},
+				},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+
+	items := board.collectFilterItems()
+
+	// "to do" (lowercase) and "IN PROGRESS" (uppercase) should still be excluded
+	// because column name matching is case-insensitive.
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByLabel {
+			lower := strings.ToLower(item.value)
+			if lower == "to do" || lower == "in progress" {
+				t.Errorf("label %q should be excluded (case-insensitive match to column name)", item.value)
+			}
+		}
+	}
+
+	labelCount := 0
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByLabel {
+			labelCount++
+		}
+	}
+	if labelCount != 2 {
+		t.Errorf("label items = %d, want 2 (bug, feature); case-variant column-name labels should be excluded", labelCount)
+	}
+}
+
+func TestFilterMode_CollectFilterItems_AllLabelsAreColumnNames_OmitsLabelSection(t *testing.T) {
+	// Board where every label is a column name — no labels should remain after exclusion.
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "To Do", Cards: []provider.Card{
+				{
+					Number:    1,
+					Title:     "Card One",
+					Labels:    []provider.Label{{Name: "To Do"}},
+					Assignees: []provider.Assignee{{Login: "alice"}},
+				},
+			}},
+			{Title: "Done", Cards: []provider.Card{
+				{
+					Number:    2,
+					Title:     "Card Two",
+					Labels:    []provider.Label{{Name: "Done"}},
+					Assignees: []provider.Assignee{{Login: "bob"}},
+				},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+
+	items := board.collectFilterItems()
+
+	// No "Labels" header should exist since all labels are column names.
+	for _, item := range items {
+		if item.isHeader && item.value == "Labels" {
+			t.Error("expected no 'Labels' header when all labels match column names")
+		}
+		if !item.isHeader && item.itemType == filterByLabel {
+			t.Errorf("unexpected label item %q; all labels should be excluded as column names", item.value)
+		}
+	}
+
+	// Assignees should still be present.
+	hasAssigneesHeader := false
+	for _, item := range items {
+		if item.isHeader && item.value == "Assignees" {
+			hasAssigneesHeader = true
+			break
+		}
+	}
+	if !hasAssigneesHeader {
+		t.Error("expected 'Assignees' header even when all labels are excluded")
+	}
+}
+
+func TestFilterMode_CollectFilterItems_AssigneesUnaffectedByColumnExclusion(t *testing.T) {
+	b := newBoardWithColumnNameLabels(t)
+	items := b.collectFilterItems()
+
+	// Assignees should be unaffected by column-name label exclusion.
+	// The board has "alice" and "bob" as assignees.
+	assigneeCount := 0
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByAssignee {
+			assigneeCount++
+		}
+	}
+	if assigneeCount != 2 {
+		t.Errorf("assignee items = %d, want 2 (alice, bob); assignees should not be affected by column-name exclusion", assigneeCount)
+	}
+}
