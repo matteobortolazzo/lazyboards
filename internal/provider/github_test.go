@@ -1426,3 +1426,173 @@ func TestGitHubCreateLabel_AlreadyExists(t *testing.T) {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), "already exists")
 	}
 }
+
+// --- Assignee Extraction Tests ---
+
+// makeIssueWithAssignees builds a github.Issue with the given number, title,
+// labels, and assignee logins.
+func makeIssueWithAssignees(number int, title string, labels []string, assigneeLogins ...string) *github.Issue {
+	ghLabels := make([]*github.Label, len(labels))
+	for i, name := range labels {
+		ghLabels[i] = &github.Label{Name: github.Ptr(name)}
+	}
+	assignees := make([]*github.User, len(assigneeLogins))
+	for i, login := range assigneeLogins {
+		assignees[i] = &github.User{Login: github.Ptr(login)}
+	}
+	return &github.Issue{
+		Number:    github.Ptr(number),
+		Title:     github.Ptr(title),
+		Labels:    ghLabels,
+		Assignees: assignees,
+	}
+}
+
+func TestExtractAssignees_MultipleAssignees(t *testing.T) {
+	assigneeLogin1 := "alice"
+	assigneeLogin2 := "bob"
+	ghAssignees := []*github.User{
+		{Login: github.Ptr(assigneeLogin1)},
+		{Login: github.Ptr(assigneeLogin2)},
+	}
+
+	assignees := extractAssignees(ghAssignees)
+
+	if len(assignees) != 2 {
+		t.Fatalf("extractAssignees returned %d assignees, want 2", len(assignees))
+	}
+	if assignees[0].Login != assigneeLogin1 {
+		t.Errorf("assignees[0].Login = %q, want %q", assignees[0].Login, assigneeLogin1)
+	}
+	if assignees[1].Login != assigneeLogin2 {
+		t.Errorf("assignees[1].Login = %q, want %q", assignees[1].Login, assigneeLogin2)
+	}
+}
+
+func TestExtractAssignees_NoAssignees(t *testing.T) {
+	assignees := extractAssignees([]*github.User{})
+
+	if len(assignees) != 0 {
+		t.Errorf("extractAssignees returned %d assignees for empty input, want 0", len(assignees))
+	}
+}
+
+func TestExtractAssignees_NilAssignees(t *testing.T) {
+	assignees := extractAssignees(nil)
+
+	if len(assignees) != 0 {
+		t.Errorf("extractAssignees returned %d assignees for nil input, want 0", len(assignees))
+	}
+}
+
+// --- FetchBoard Assignee Integration Tests ---
+
+func TestGitHubFetchBoard_AssigneesPopulated(t *testing.T) {
+	columns := []string{"Todo"}
+	assigneeLogin1 := "alice"
+	assigneeLogin2 := "bob"
+	issue := makeIssueWithAssignees(1, "Assigned issue", []string{"Todo"}, assigneeLogin1, assigneeLogin2)
+
+	client := &mockIssuesClient{
+		issues:         []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{1: {}},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if len(card.Assignees) != 2 {
+		t.Fatalf("card.Assignees has %d entries, want 2", len(card.Assignees))
+	}
+	if card.Assignees[0].Login != assigneeLogin1 {
+		t.Errorf("card.Assignees[0].Login = %q, want %q", card.Assignees[0].Login, assigneeLogin1)
+	}
+	if card.Assignees[1].Login != assigneeLogin2 {
+		t.Errorf("card.Assignees[1].Login = %q, want %q", card.Assignees[1].Login, assigneeLogin2)
+	}
+}
+
+func TestGitHubFetchBoard_NoAssignees_EmptySlice(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := makeIssue(1, "Unassigned issue", "Todo")
+
+	client := &mockIssuesClient{
+		issues:         []*github.Issue{issue},
+		timelineEvents: map[int][]*github.Timeline{1: {}},
+	}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	card := board.Columns[0].Cards[0]
+	if len(card.Assignees) != 0 {
+		t.Errorf("card.Assignees has %d entries for unassigned issue, want 0", len(card.Assignees))
+	}
+}
+
+func TestGitHubCreateCard_AssigneesPopulated(t *testing.T) {
+	assigneeLogin := "charlie"
+	createdIssue := &github.Issue{
+		Number: github.Ptr(42),
+		Title:  github.Ptr("New feature"),
+		Labels: []*github.Label{},
+		Assignees: []*github.User{
+			{Login: github.Ptr(assigneeLogin)},
+		},
+	}
+	client := &mockIssuesClient{createdIssue: createdIssue}
+	columns := []string{"New"}
+
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	card, err := provider.CreateCard(context.Background(), "New feature", "")
+	if err != nil {
+		t.Fatalf("CreateCard returned error: %v", err)
+	}
+
+	if len(card.Assignees) != 1 {
+		t.Fatalf("card.Assignees has %d entries, want 1", len(card.Assignees))
+	}
+	if card.Assignees[0].Login != assigneeLogin {
+		t.Errorf("card.Assignees[0].Login = %q, want %q", card.Assignees[0].Login, assigneeLogin)
+	}
+}
+
+func TestGitHubUpdateCard_AssigneesPreserved(t *testing.T) {
+	assigneeLogin := "dana"
+	editedIssue := &github.Issue{
+		Number: github.Ptr(10),
+		Title:  github.Ptr("Updated title"),
+		Body:   github.Ptr("Updated body"),
+		Labels: []*github.Label{},
+		Assignees: []*github.User{
+			{Login: github.Ptr(assigneeLogin)},
+		},
+	}
+	client := &mockIssuesClient{editedIssue: editedIssue}
+	columns := []string{"New"}
+	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	card, err := provider.UpdateCard(context.Background(), 10, "Updated title", "Updated body", []string{})
+	if err != nil {
+		t.Fatalf("UpdateCard returned error: %v", err)
+	}
+
+	if len(card.Assignees) != 1 {
+		t.Fatalf("card.Assignees has %d entries, want 1", len(card.Assignees))
+	}
+	if card.Assignees[0].Login != assigneeLogin {
+		t.Errorf("card.Assignees[0].Login = %q, want %q", card.Assignees[0].Login, assigneeLogin)
+	}
+}

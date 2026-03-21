@@ -169,6 +169,11 @@ type Label struct {
 	Color string
 }
 
+// Assignee represents a user assigned to a card.
+type Assignee struct {
+	Login string
+}
+
 // Card represents a single Kanban card (e.g., a GitHub issue).
 type Card struct {
 	Number    int
@@ -177,6 +182,7 @@ type Card struct {
 	Body      string
 	URL       string
 	LinkedPRs []LinkedPR
+	Assignees []Assignee
 }
 
 // refreshTickMsg is sent when the periodic refresh timer fires.
@@ -610,6 +616,17 @@ func mapLabels(labels []provider.Label) []Label {
 	result := make([]Label, len(labels))
 	for i, l := range labels {
 		result[i] = Label{Name: l.Name, Color: l.Color}
+	}
+	return result
+}
+
+func mapAssignees(assignees []provider.Assignee) []Assignee {
+	if len(assignees) == 0 {
+		return nil
+	}
+	result := make([]Assignee, len(assignees))
+	for i, a := range assignees {
+		result[i] = Assignee{Login: a.Login}
 	}
 	return result
 }

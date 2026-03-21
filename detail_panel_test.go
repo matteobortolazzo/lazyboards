@@ -1058,3 +1058,75 @@ func TestComposeDetailMarkdown_LabelsNoneWhenEmpty(t *testing.T) {
 		t.Errorf("composeDetailMarkdown should contain 'labels: (none)' for cards without labels, got:\n%s", md)
 	}
 }
+
+// --- Assignee Display in Detail Panel ---
+
+func TestView_DetailPanel_ShowsAssignees(t *testing.T) {
+	// A card with two assignees should display both login names in the detail panel.
+	b := newBoardWithAssignees(t, "alice", "bob")
+
+	view := b.View()
+
+	if !strings.Contains(view, "alice") {
+		t.Error("View() detail panel should contain assignee login 'alice'")
+	}
+	if !strings.Contains(view, "bob") {
+		t.Error("View() detail panel should contain assignee login 'bob'")
+	}
+	// The assignees field label should appear.
+	if !strings.Contains(view, "assignees:") {
+		t.Error("View() detail panel should contain 'assignees:' field label")
+	}
+}
+
+func TestView_DetailPanel_NoAssignees_ShowsNone(t *testing.T) {
+	// A card with no assignees should show "(none)" for the assignees field.
+	b := newBoardWithAssignees(t)
+
+	view := b.View()
+
+	// The assignees field should still be present.
+	if !strings.Contains(view, "assignees:") {
+		t.Error("View() detail panel should contain 'assignees:' even when card has no assignees")
+	}
+}
+
+func TestComposeDetailMarkdown_AssigneesField(t *testing.T) {
+	// composeDetailMarkdown should include an "assignees:" field with comma-separated logins.
+	card := Card{
+		Number: 5,
+		Title:  "Assigned card",
+		Assignees: []Assignee{
+			{Login: "alice"},
+			{Login: "bob"},
+		},
+		Body: "Some body",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if !strings.Contains(md, "assignees:") {
+		t.Errorf("composeDetailMarkdown should contain 'assignees:' field, got:\n%s", md)
+	}
+	if !strings.Contains(md, "alice") {
+		t.Errorf("composeDetailMarkdown should contain assignee login 'alice', got:\n%s", md)
+	}
+	if !strings.Contains(md, "bob") {
+		t.Errorf("composeDetailMarkdown should contain assignee login 'bob', got:\n%s", md)
+	}
+}
+
+func TestComposeDetailMarkdown_NoAssignees_ShowsNone(t *testing.T) {
+	// A card with no assignees should produce an "assignees: (none)" line.
+	card := Card{
+		Number: 3,
+		Title:  "Unassigned card",
+		Body:   "Body text",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if !strings.Contains(md, "assignees: (none)") {
+		t.Errorf("composeDetailMarkdown should contain 'assignees: (none)' for cards without assignees, got:\n%s", md)
+	}
+}
