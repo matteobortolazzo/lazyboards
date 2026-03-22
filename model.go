@@ -795,13 +795,22 @@ func (b *Board) clearSearch() {
 // collectFilterItems scans all columns for unique labels and assignees,
 // returning a list of filterItems with section headers.
 func (b *Board) collectFilterItems() []filterItem {
-	// Collect unique labels (case-insensitive dedup).
+	// Build a set of column titles for exclusion (case-insensitive).
+	columnNames := make(map[string]bool, len(b.Columns))
+	for _, col := range b.Columns {
+		columnNames[strings.ToLower(col.Title)] = true
+	}
+
+	// Collect unique labels (case-insensitive dedup), excluding column names.
 	labelSeen := make(map[string]bool)
 	var labels []string
 	for _, col := range b.Columns {
 		for _, card := range col.Cards {
 			for _, label := range card.Labels {
 				lower := strings.ToLower(label.Name)
+				if columnNames[lower] {
+					continue
+				}
 				if !labelSeen[lower] {
 					labelSeen[lower] = true
 					labels = append(labels, label.Name)
