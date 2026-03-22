@@ -56,11 +56,11 @@ func (b Board) View() string {
 	}
 
 	col := b.Columns[b.ActiveTab]
-	// When a search query is active, display only filtered cards.
+	// When a search query or global filter is active, display only filtered cards.
 	// Compute filtered cards once and reuse throughout View().
 	displayCol := col
 	var filtered []Card
-	if b.searchQuery != "" {
+	if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
 		filtered = b.filteredCards()
 		cursor := col.Cursor
 		if len(filtered) == 0 {
@@ -123,6 +123,12 @@ func (b Board) View() string {
 		}
 		fc[b.ActiveTab] = len(filtered)
 		borderTitle = buildBorderTitle(b.Columns, b.ActiveTab, b.Width, fc)
+	} else if b.activeFilterType != filterTypeNone {
+		fc := make([]int, len(b.Columns))
+		for i := range b.Columns {
+			fc[i] = b.filteredCardsForColumn(i)
+		}
+		borderTitle = buildBorderTitle(b.Columns, b.ActiveTab, b.Width, fc)
 	} else {
 		borderTitle = buildBorderTitle(b.Columns, b.ActiveTab, b.Width)
 	}
@@ -171,11 +177,11 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCount
 		return joined, lipgloss.Width(joined)
 	}
 
-	// countSuffix returns "(filtered/total)" when a filtered count is set,
+	// countSuffix returns "(filtered/total) ●" when a filtered count is set,
 	// or "(total)" otherwise.
 	countSuffix := func(i int, total int) string {
 		if fc != nil && i < len(fc) && fc[i] >= 0 {
-			return fmt.Sprintf("(%d/%d)", fc[i], total)
+			return fmt.Sprintf("(%d/%d) \u25cf", fc[i], total)
 		}
 		return fmt.Sprintf("(%d)", total)
 	}
@@ -299,9 +305,9 @@ func (b *Board) clampScrollOffset() {
 	}
 	col := &b.Columns[b.ActiveTab]
 
-	// Use filtered cards when a search is active.
+	// Use filtered cards when a search or global filter is active.
 	cards := col.Cards
-	if b.searchQuery != "" {
+	if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
 		cards = b.filteredCards()
 	}
 	totalCards := len(cards)
@@ -407,15 +413,17 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		}
 	}
 
-	// Show empty state when search query matches no cards.
-	if len(col.Cards) == 0 && b.mode == searchMode && b.searchQuery != "" {
+	// Show empty state when search or global filter matches no cards.
+	if len(col.Cards) == 0 && ((b.mode == searchMode && b.searchQuery != "") || b.activeFilterType != filterTypeNone) {
 		leftContent := "No matching cards"
+		actualHeight := panelHeight
 		if searchLine != "" {
 			leftContent = searchLine + "\n\n" + leftContent
+			actualHeight += 2
 		}
 		return style.
 			Width(contentWidth).
-			Height(panelHeight + 2). // restore panel height for consistent sizing
+			Height(actualHeight).
 			Render(leftContent)
 	}
 
