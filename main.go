@@ -18,6 +18,41 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// gitHubClient combines GitHub API services into a single client satisfying provider.GitHubClient.
+type gitHubClient struct {
+	issues *github.IssuesService
+	repos  *github.RepositoriesService
+	users  *github.UsersService
+}
+
+func (c *gitHubClient) ListByRepo(ctx context.Context, owner string, repo string, opts *github.IssueListByRepoOptions) ([]*github.Issue, *github.Response, error) {
+	return c.issues.ListByRepo(ctx, owner, repo, opts)
+}
+
+func (c *gitHubClient) Create(ctx context.Context, owner string, repo string, issue *github.IssueRequest) (*github.Issue, *github.Response, error) {
+	return c.issues.Create(ctx, owner, repo, issue)
+}
+
+func (c *gitHubClient) Edit(ctx context.Context, owner string, repo string, number int, issue *github.IssueRequest) (*github.Issue, *github.Response, error) {
+	return c.issues.Edit(ctx, owner, repo, number, issue)
+}
+
+func (c *gitHubClient) CreateLabel(ctx context.Context, owner string, repo string, label *github.Label) (*github.Label, *github.Response, error) {
+	return c.issues.CreateLabel(ctx, owner, repo, label)
+}
+
+func (c *gitHubClient) ListIssueTimeline(ctx context.Context, owner string, repo string, number int, opts *github.ListOptions) ([]*github.Timeline, *github.Response, error) {
+	return c.issues.ListIssueTimeline(ctx, owner, repo, number, opts)
+}
+
+func (c *gitHubClient) ListCollaborators(ctx context.Context, owner string, repo string, opts *github.ListCollaboratorsOptions) ([]*github.User, *github.Response, error) {
+	return c.repos.ListCollaborators(ctx, owner, repo, opts)
+}
+
+func (c *gitHubClient) GetUser(ctx context.Context, user string) (*github.User, *github.Response, error) {
+	return c.users.Get(ctx, user)
+}
+
 func main() {
 	globalPath, err := config.DefaultGlobalPath()
 	if err != nil {
@@ -122,7 +157,12 @@ func main() {
 		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 		tc := oauth2.NewClient(context.Background(), ts)
 		ghClient := github.NewClient(tc)
-		bp = provider.NewGitHubProvider(ghClient.Issues, parts[0], parts[1], cfg.ColumnNames())
+		ghc := &gitHubClient{
+			issues: ghClient.Issues,
+			repos:  ghClient.Repositories,
+			users:  ghClient.Users,
+		}
+		bp = provider.NewGitHubProvider(ghc, parts[0], parts[1], cfg.ColumnNames())
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown provider: %q\n", prov)
 		os.Exit(1)

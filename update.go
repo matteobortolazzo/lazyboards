@@ -211,15 +211,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	for i, pc := range msg.board.Columns {
 		cards := make([]Card, len(pc.Cards))
 		for j, c := range pc.Cards {
-			cards[j] = Card{
-				Number:    c.Number,
-				Title:     c.Title,
-				Labels:    mapLabels(c.Labels),
-				Body:      c.Body,
-				URL:       c.URL,
-				LinkedPRs: mapLinkedPRs(c.LinkedPRs),
-				Assignees: mapAssignees(c.Assignees),
-			}
+			cards[j] = mapProviderCard(c)
 		}
 		cols[i] = Column{Title: pc.Title, Cards: cards}
 	}
@@ -228,6 +220,14 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	newCards := buildCardMap(cols)
 	cleanupCmd := b.detectDepartures(newCards)
 	b.prevCards = newCards
+
+	// Store collaborators if provided (non-fatal error handling).
+	if msg.collaboratorErr == nil && msg.collaborators != nil {
+		b.collaborators = mapAssignees(msg.collaborators)
+	}
+	if msg.authenticatedUser != "" {
+		b.authenticatedUser = msg.authenticatedUser
+	}
 
 	b.pendingAutoRefresh = false
 
@@ -384,16 +384,7 @@ func (b *Board) columnCleanup(colIdx int) string {
 }
 
 func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
-	newCard := Card{
-		Number:    msg.card.Number,
-		Title:     msg.card.Title,
-		Labels:    mapLabels(msg.card.Labels),
-		Body:      msg.card.Body,
-		URL:       msg.card.URL,
-		LinkedPRs: mapLinkedPRs(msg.card.LinkedPRs),
-		Assignees: mapAssignees(msg.card.Assignees),
-	}
-	b.Columns[0].Cards = append(b.Columns[0].Cards, newCard)
+	b.Columns[0].Cards = append(b.Columns[0].Cards, mapProviderCard(msg.card))
 	b.create.titleInput.SetValue("")
 	b.create.labelInput.SetValue("")
 	b.validationErr = ""

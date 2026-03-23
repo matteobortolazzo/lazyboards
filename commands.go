@@ -14,14 +14,61 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
-// fetchBoardCmd returns a tea.Cmd that fetches board data from the provider.
+// fetchBoardCmd returns a tea.Cmd that fetches board data, collaborators,
+// and the authenticated user concurrently from the provider.
 func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
 	return func() tea.Msg {
-		board, err := p.FetchBoard(context.Background())
-		if err != nil {
-			return boardFetchErrorMsg{err: err}
+		type boardResult struct {
+			board provider.Board
+			err   error
 		}
-		return boardFetchedMsg{board: board}
+		type collabResult struct {
+			collaborators []provider.Assignee
+			err           error
+		}
+		type authResult struct {
+			user string
+			err  error
+		}
+
+		boardCh := make(chan boardResult, 1)
+		collabCh := make(chan collabResult, 1)
+		authCh := make(chan authResult, 1)
+
+		go func() {
+			board, err := p.FetchBoard(context.Background())
+			boardCh <- boardResult{board: board, err: err}
+		}()
+		go func() {
+			collabs, err := p.FetchCollaborators(context.Background())
+			collabCh <- collabResult{collaborators: collabs, err: err}
+		}()
+		go func() {
+			user, err := p.GetAuthenticatedUser(context.Background())
+			authCh <- authResult{user: user, err: err}
+		}()
+
+		br := <-boardCh
+		if br.err != nil {
+			return boardFetchErrorMsg{err: br.err}
+		}
+
+		cr := <-collabCh
+		ar := <-authCh
+
+		msg := boardFetchedMsg{board: br.board}
+
+		if cr.err == nil {
+			msg.collaborators = cr.collaborators
+		} else {
+			msg.collaboratorErr = cr.err
+		}
+
+		if ar.err == nil {
+			msg.authenticatedUser = ar.user
+		}
+
+		return msg
 	}
 }
 
