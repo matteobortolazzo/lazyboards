@@ -129,3 +129,30 @@ func (f *FakeProvider) UpdateCard(_ context.Context, number int, title string, b
 func (f *FakeProvider) CreateLabel(_ context.Context, _ string) error {
 	return nil
 }
+
+// FetchCollaborators returns a hardcoded list of collaborators for the fake provider.
+func (f *FakeProvider) FetchCollaborators(_ context.Context) ([]Assignee, error) {
+	return []Assignee{{Login: "alice"}, {Login: "bob"}, {Login: "charlie"}}, nil
+}
+
+// SetAssignees updates the assignees of a card in the fake provider.
+func (f *FakeProvider) SetAssignees(_ context.Context, number int, logins []string) (Card, error) {
+	for ci := range f.columns {
+		for i := range f.columns[ci].Cards {
+			if f.columns[ci].Cards[i].Number == number {
+				assignees := make([]Assignee, len(logins))
+				for j, login := range logins {
+					assignees[j] = Assignee{Login: login}
+				}
+				f.columns[ci].Cards[i].Assignees = assignees
+				return f.columns[ci].Cards[i], nil
+			}
+		}
+	}
+	return Card{}, fmt.Errorf("card #%d not found", number)
+}
+
+// GetAuthenticatedUser returns a hardcoded username for the fake provider.
+func (f *FakeProvider) GetAuthenticatedUser(_ context.Context) (string, error) {
+	return "fake-user", nil
+}

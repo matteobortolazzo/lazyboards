@@ -403,3 +403,140 @@ func TestLabelColor_GitHubColorOverridesSemanticMap(t *testing.T) {
 		t.Errorf("labelColor with GitHub color = %s, want %s", githubColor, lipgloss.Color("#ff0000"))
 	}
 }
+
+// --- Collaborator Data in Board ---
+
+func TestBoardFetched_StoresCollaborators(t *testing.T) {
+	b := newTestBoard(t)
+
+	collaborators := []provider.Assignee{
+		{Login: "alice"},
+		{Login: "bob"},
+	}
+	msg := boardFetchedMsg{
+		board: provider.Board{
+			Columns: []provider.Column{{
+				Title: "Col1",
+				Cards: []provider.Card{{Number: 1, Title: "Card1", Labels: []provider.Label{{Name: "bug"}}}},
+			}},
+		},
+		collaborators: collaborators,
+	}
+	m, _ := b.Update(msg)
+	updated := m.(Board)
+
+	if len(updated.collaborators) != 2 {
+		t.Fatalf("collaborators count = %d, want 2", len(updated.collaborators))
+	}
+	if updated.collaborators[0].Login != "alice" {
+		t.Errorf("collaborators[0].Login = %q, want %q", updated.collaborators[0].Login, "alice")
+	}
+	if updated.collaborators[1].Login != "bob" {
+		t.Errorf("collaborators[1].Login = %q, want %q", updated.collaborators[1].Login, "bob")
+	}
+}
+
+func TestBoardFetched_StoresAuthenticatedUser(t *testing.T) {
+	b := newTestBoard(t)
+
+	msg := boardFetchedMsg{
+		board: provider.Board{
+			Columns: []provider.Column{{
+				Title: "Col1",
+				Cards: []provider.Card{{Number: 1, Title: "Card1", Labels: []provider.Label{{Name: "bug"}}}},
+			}},
+		},
+		authenticatedUser: "testuser",
+	}
+	m, _ := b.Update(msg)
+	updated := m.(Board)
+
+	if updated.authenticatedUser != "testuser" {
+		t.Errorf("authenticatedUser = %q, want %q", updated.authenticatedUser, "testuser")
+	}
+}
+
+func TestBoardFetched_CollaboratorErrorNonFatal(t *testing.T) {
+	b := newTestBoard(t)
+
+	// When collaborator fetch fails, the board should still load normally.
+	msg := boardFetchedMsg{
+		board: provider.Board{
+			Columns: []provider.Column{{
+				Title: "Col1",
+				Cards: []provider.Card{{Number: 1, Title: "Card1", Labels: []provider.Label{{Name: "bug"}}}},
+			}},
+		},
+		collaboratorErr: fmt.Errorf("collaborator API failed"),
+	}
+	m, _ := b.Update(msg)
+	updated := m.(Board)
+
+	// Board should be in normalMode despite collaborator error.
+	if updated.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode after collaborator error", updated.mode)
+	}
+
+	// Columns should be populated (board data was fine).
+	if len(updated.Columns) == 0 {
+		t.Error("Columns should be populated even when collaborator fetch fails")
+	}
+
+	// Collaborator list should be empty (fetch failed).
+	if len(updated.collaborators) != 0 {
+		t.Errorf("collaborators = %v, want empty after collaborator error", updated.collaborators)
+	}
+}
+
+func TestBoardRefresh_RefreshesCollaborators(t *testing.T) {
+	b := newTestBoard(t)
+
+	// Initial load with collaborators.
+	initialCollaborators := []provider.Assignee{{Login: "alice"}}
+	msg := boardFetchedMsg{
+		board: provider.Board{
+			Columns: []provider.Column{{
+				Title: "Col1",
+				Cards: []provider.Card{{Number: 1, Title: "Card1", Labels: []provider.Label{{Name: "bug"}}}},
+			}},
+		},
+		collaborators: initialCollaborators,
+	}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	if len(b.collaborators) != 1 {
+		t.Fatalf("precondition: collaborators count = %d, want 1", len(b.collaborators))
+	}
+
+	// Start background refresh.
+	m, _ = b.Update(keyMsg("r"))
+	b = m.(Board)
+
+	// Simulate refresh completing with updated collaborators.
+	updatedCollaborators := []provider.Assignee{{Login: "alice"}, {Login: "charlie"}}
+	refreshMsg := boardFetchedMsg{
+		board: provider.Board{
+			Columns: []provider.Column{{
+				Title: "Col1",
+				Cards: []provider.Card{{Number: 1, Title: "Card1", Labels: []provider.Label{{Name: "bug"}}}},
+			}},
+		},
+		collaborators: updatedCollaborators,
+	}
+	m, _ = b.Update(refreshMsg)
+	b = m.(Board)
+
+	// Collaborators should be updated to the new list.
+	if len(b.collaborators) != 2 {
+		t.Fatalf("collaborators count after refresh = %d, want 2", len(b.collaborators))
+	}
+	if b.collaborators[0].Login != "alice" {
+		t.Errorf("collaborators[0].Login = %q, want %q", b.collaborators[0].Login, "alice")
+	}
+	if b.collaborators[1].Login != "charlie" {
+		t.Errorf("collaborators[1].Login = %q, want %q", b.collaborators[1].Login, "charlie")
+	}
+}

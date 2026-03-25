@@ -244,7 +244,10 @@ type Column struct {
 
 // boardFetchedMsg is sent when the provider successfully returns board data.
 type boardFetchedMsg struct {
-	board provider.Board
+	board             provider.Board
+	collaborators     []provider.Assignee
+	authenticatedUser string
+	collaboratorErr   error
 }
 
 // boardFetchErrorMsg is sent when the provider fails to fetch board data.
@@ -364,6 +367,8 @@ type Board struct {
 	filterCursor           int
 	activeFilterType       filterType
 	activeFilterValue      string
+	collaborators     []Assignee
+	authenticatedUser string
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
@@ -660,6 +665,19 @@ func mapAssignees(assignees []provider.Assignee) []Assignee {
 		result[i] = Assignee{Login: a.Login}
 	}
 	return result
+}
+
+// mapProviderCard converts a provider.Card to a main-package Card.
+func mapProviderCard(c provider.Card) Card {
+	return Card{
+		Number:    c.Number,
+		Title:     c.Title,
+		Labels:    mapLabels(c.Labels),
+		Body:      c.Body,
+		URL:       c.URL,
+		LinkedPRs: mapLinkedPRs(c.LinkedPRs),
+		Assignees: mapAssignees(c.Assignees),
+	}
 }
 
 // selectedCard returns the card currently under the cursor, accounting for
