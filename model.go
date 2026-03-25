@@ -730,6 +730,20 @@ func (b *Board) filteredCards() []Card {
 	return result
 }
 
+// totalFilteredCards returns the total number of cards across all columns
+// that match the active global filter. Returns 0 if no filter is active
+// or no cards match.
+func (b *Board) totalFilteredCards() int {
+	total := 0
+	for i := range b.Columns {
+		count := b.filteredCardsForColumn(i)
+		if count > 0 {
+			total += count
+		}
+	}
+	return total
+}
+
 // filteredCardsForColumn returns the number of cards in the given column
 // that match the active global filter. Returns -1 if no filter is active.
 func (b *Board) filteredCardsForColumn(colIdx int) int {
