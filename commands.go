@@ -271,6 +271,17 @@ func openEditorCmd(card Card) tea.Cmd {
 	})
 }
 
+// setAssigneesCmd returns a tea.Cmd that sets assignees on a card via the provider.
+func setAssigneesCmd(p provider.BoardProvider, number int, logins []string) tea.Cmd {
+	return func() tea.Msg {
+		card, err := p.SetAssignees(context.Background(), number, logins)
+		if err != nil {
+			return assigneesUpdateErrorMsg{err: err}
+		}
+		return assigneesUpdatedMsg{card: card}
+	}
+}
+
 // createLabelCmd returns a tea.Cmd that creates a label via the provider.
 func createLabelCmd(p provider.BoardProvider, name string) tea.Cmd {
 	return func() tea.Msg {

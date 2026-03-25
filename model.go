@@ -157,6 +157,7 @@ const (
 	labelConfirmMode
 	commentMode
 	filterMode
+	assignMode
 )
 
 const (
@@ -307,6 +308,36 @@ type commentState struct {
 	boardScope    bool
 }
 
+// assignItem represents a single entry in the assignee picker list.
+type assignItem struct {
+	login      string
+	isAssigned bool
+	isMe       bool
+}
+
+// assignState groups fields related to the assignee picker modal.
+type assignState struct {
+	items  []assignItem
+	cursor int
+}
+
+// assigneesUpdatedMsg is sent when assignees have been updated successfully.
+type assigneesUpdatedMsg struct {
+	card provider.Card
+}
+
+// assigneesUpdateErrorMsg is sent when updating assignees fails.
+type assigneesUpdateErrorMsg struct {
+	err error
+}
+
+// assignModeHints are the status bar hints shown in assign mode.
+var assignModeHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+	{Key: "j/k", Desc: "Navigate"},
+	{Key: "enter", Desc: "Toggle"},
+}
+
 // configState groups fields related to the config modal.
 type configState struct {
 	providerOptions []string
@@ -346,6 +377,7 @@ type Board struct {
 	sessionMaxLen   int
 	normalHints     []Hint
 	comment         commentState
+	assign          assignState
 	config          configState
 	create          createState
 	detailFocused      bool
@@ -585,6 +617,10 @@ func (b *Board) rebuildNormalHints() {
 		if col.Cursor < len(col.Cards) && len(b.selectedCard().LinkedPRs) > 0 {
 			hints = append(hints, Hint{Key: "p", Desc: "Open PR"})
 		}
+	}
+
+	if hasCards && len(b.collaborators) > 0 {
+		hints = append(hints, Hint{Key: "a", Desc: "Assign"})
 	}
 
 	// Filter hint.
