@@ -260,3 +260,7 @@ go build
 ```
 go test ./...
 ```
+
+## License
+
+[MIT](LICENSE)
