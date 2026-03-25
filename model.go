@@ -163,6 +163,7 @@ const (
 const (
 	statusMessageDuration     = 3 * time.Second
 	longStatusMessageDuration = 30 * time.Second
+	noneAssignee              = "(none)"
 )
 
 // filterType represents the category of a filter selection.
@@ -351,8 +352,12 @@ type configState struct {
 
 // createState groups fields related to the create-card modal.
 type createState struct {
-	titleInput textarea.Model
-	labelInput textinput.Model
+	titleInput      textarea.Model
+	labelInput      textinput.Model
+	assigneeOptions []string // ["(none)", "user (me)", "collab1", ...]
+	assigneeIndex   int      // currently selected index
+	pendingAssignee string   // login to assign after card creation
+	focus           int      // 0=title, 1=label, 2=assignee
 }
 
 // Board is the top-level model implementing tea.Model.

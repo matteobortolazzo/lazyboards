@@ -722,14 +722,26 @@ func (b Board) viewCreateModal() string {
 		if b.validationErr != "" {
 			errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
 		}
-		createHints := NewStatusBar([]Hint{
+		hints := []Hint{
 			{Key: "esc", Desc: "Cancel"},
 			{Key: "tab", Desc: "Next"},
-			{Key: "enter", Desc: "Submit"},
-		})
+		}
+		if b.create.focus == 2 {
+			hints = append(hints, Hint{Key: "\u25c0/\u25b6", Desc: "Cycle"})
+		}
+		hints = append(hints, Hint{Key: "enter", Desc: "Submit"})
+		createHints := NewStatusBar(hints)
+
+		var assigneeLine string
+		if len(b.create.assigneeOptions) > 1 {
+			assigneeDisplay := "< " + b.create.assigneeOptions[b.create.assigneeIndex] + " >"
+			assigneeLine = "\n\nAssignee:\n" + assigneeDisplay
+		}
+
 		modalContent = "New Card\n\n" +
 			"Title:\n" + b.create.titleInput.View() + errLine + "\n\n" +
-			"Label:\n" + b.create.labelInput.View() + "\n\n" +
+			"Label:\n" + b.create.labelInput.View() +
+			assigneeLine + "\n\n" +
 			createHints.View(modalWidth)
 	}
 
