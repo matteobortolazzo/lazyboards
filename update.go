@@ -896,7 +896,7 @@ func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		item := b.assign.items[b.assign.cursor]
 		card := b.selectedCard()
 
-		var newLogins []string
+		newLogins := []string{}
 		if item.isAssigned {
 			for _, a := range card.Assignees {
 				if !strings.EqualFold(a.Login, item.login) {

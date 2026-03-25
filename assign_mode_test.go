@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -282,8 +283,11 @@ func TestAssignMode_Enter_AssignUser(t *testing.T) {
 	// Execute the command and feed result back.
 	msgs := collectAssignMsgs(cmd)
 	for _, msg := range msgs {
-		m, _ = b.Update(msg)
+		m, cmd = b.Update(msg)
 		b = m.(Board)
+	}
+	if cmd == nil {
+		t.Error("assigneesUpdatedMsg should return a non-nil cmd (status bar timer)")
 	}
 
 	// After the update, the card's assignees should include "charlie".
@@ -326,8 +330,11 @@ func TestAssignMode_Enter_UnassignUser(t *testing.T) {
 	// Execute the command and feed result back.
 	msgs := collectAssignMsgs(cmd)
 	for _, msg := range msgs {
-		m, _ = b.Update(msg)
+		m, cmd = b.Update(msg)
 		b = m.(Board)
+	}
+	if cmd == nil {
+		t.Error("assigneesUpdatedMsg should return a non-nil cmd (status bar timer)")
 	}
 
 	// After the update, the card's assignees should NOT include "alice".
@@ -344,7 +351,7 @@ func TestAssignMode_Enter_UnassignUser(t *testing.T) {
 func TestAssignMode_ErrorMsg_ShowsStatusBar(t *testing.T) {
 	b := newBoardWithCollaborators(t)
 
-	m, cmd := b.Update(assigneesUpdateErrorMsg{err: errForTest("assign failed")})
+	m, cmd := b.Update(assigneesUpdateErrorMsg{err: errors.New("assign failed")})
 	b = m.(Board)
 
 	// Should show error in status bar.
@@ -454,11 +461,6 @@ func TestAssignMode_HintShown_WhenCollaboratorsAvailable(t *testing.T) {
 }
 
 // --- Helpers ---
-
-// errForTest creates a simple error for test assertions.
-type errForTest string
-
-func (e errForTest) Error() string { return string(e) }
 
 // collectAssignMsgs executes a tea.Cmd and collects resulting messages.
 // Uses goroutine+timeout per lessons-learned to avoid blocking on tea.Tick.
