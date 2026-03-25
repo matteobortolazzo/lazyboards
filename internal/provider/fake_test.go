@@ -284,3 +284,101 @@ func TestFakeProvider_CreateLabel(t *testing.T) {
 		t.Fatalf("CreateLabel returned error: %v, want nil (no-op)", err)
 	}
 }
+
+// --- FetchCollaborators Tests ---
+
+func TestFakeProvider_FetchCollaborators(t *testing.T) {
+	fp := NewFakeProvider()
+
+	collaborators, err := fp.FetchCollaborators(context.Background())
+	if err != nil {
+		t.Fatalf("FetchCollaborators returned error: %v", err)
+	}
+
+	// Fake provider should return a non-empty hardcoded collaborator list.
+	if len(collaborators) == 0 {
+		t.Error("FetchCollaborators returned empty list, want hardcoded collaborators")
+	}
+
+	// Each collaborator should have a non-empty login.
+	for i, c := range collaborators {
+		if c.Login == "" {
+			t.Errorf("collaborators[%d].Login is empty, want non-empty login", i)
+		}
+	}
+}
+
+// --- SetAssignees Tests ---
+
+func TestFakeProvider_SetAssignees_Success(t *testing.T) {
+	fp := NewFakeProvider()
+
+	// Get an existing card number from the board.
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	existingCard := board.Columns[0].Cards[0]
+
+	newAssignees := []string{"charlie", "dave"}
+	card, err := fp.SetAssignees(context.Background(), existingCard.Number, newAssignees)
+	if err != nil {
+		t.Fatalf("SetAssignees returned error: %v", err)
+	}
+
+	// Verify the returned card has the updated assignees.
+	if len(card.Assignees) != len(newAssignees) {
+		t.Fatalf("card.Assignees has %d entries, want %d", len(card.Assignees), len(newAssignees))
+	}
+	for i, login := range newAssignees {
+		if card.Assignees[i].Login != login {
+			t.Errorf("card.Assignees[%d].Login = %q, want %q", i, card.Assignees[i].Login, login)
+		}
+	}
+
+	// Verify the update is persisted — fetch the board again and check.
+	board, err = fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard after SetAssignees returned error: %v", err)
+	}
+	found := false
+	for _, col := range board.Columns {
+		for _, c := range col.Cards {
+			if c.Number == existingCard.Number {
+				found = true
+				if len(c.Assignees) != len(newAssignees) {
+					t.Errorf("persisted card.Assignees has %d entries, want %d", len(c.Assignees), len(newAssignees))
+				}
+			}
+		}
+	}
+	if !found {
+		t.Errorf("card #%d not found after SetAssignees", existingCard.Number)
+	}
+}
+
+func TestFakeProvider_SetAssignees_NotFound(t *testing.T) {
+	fp := NewFakeProvider()
+	nonExistentNumber := 9999
+
+	_, err := fp.SetAssignees(context.Background(), nonExistentNumber, []string{"alice"})
+	if err == nil {
+		t.Fatal("expected error for non-existent card number, got nil")
+	}
+}
+
+// --- GetAuthenticatedUser Tests ---
+
+func TestFakeProvider_GetAuthenticatedUser(t *testing.T) {
+	fp := NewFakeProvider()
+
+	login, err := fp.GetAuthenticatedUser(context.Background())
+	if err != nil {
+		t.Fatalf("GetAuthenticatedUser returned error: %v", err)
+	}
+
+	// Fake provider should return a hardcoded non-empty login.
+	if login == "" {
+		t.Error("GetAuthenticatedUser returned empty login, want hardcoded user")
+	}
+}

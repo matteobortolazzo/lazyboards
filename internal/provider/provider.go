@@ -48,4 +48,7 @@ type BoardProvider interface {
 	CreateCard(ctx context.Context, title string, label string) (Card, error)
 	UpdateCard(ctx context.Context, number int, title string, body string, labels []string) (Card, error)
 	CreateLabel(ctx context.Context, name string) error
+	FetchCollaborators(ctx context.Context) ([]Assignee, error)
+	SetAssignees(ctx context.Context, number int, logins []string) (Card, error)
+	GetAuthenticatedUser(ctx context.Context) (string, error)
 }

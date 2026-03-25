@@ -11,8 +11,8 @@ import (
 	"github.com/google/go-github/v68/github"
 )
 
-// mockIssuesClient implements GitHubIssuesClient with configurable return values.
-type mockIssuesClient struct {
+// mockGitHubClient implements GitHubClient with configurable return values.
+type mockGitHubClient struct {
 	issues         []*github.Issue
 	err            error
 	createdIssue   *github.Issue // returned by Create
@@ -24,9 +24,14 @@ type mockIssuesClient struct {
 	timelineEvents map[int][]*github.Timeline // keyed by issue number
 	timelineErr    error
 	capturedOpts   *github.IssueListByRepoOptions // captured from ListByRepo
+	collaborators     []*github.User   // returned by ListCollaborators
+	collaboratorsErr  error            // returned by ListCollaborators
+	authenticatedUser *github.User     // returned by GetUser
+	authUserErr       error            // returned by GetUser
+	capturedEditReq   *github.IssueRequest // captured from Edit for assertion
 }
 
-func (m *mockIssuesClient) ListByRepo(
+func (m *mockGitHubClient) ListByRepo(
 	_ context.Context,
 	_ string,
 	_ string,
@@ -36,7 +41,7 @@ func (m *mockIssuesClient) ListByRepo(
 	return m.issues, nil, m.err
 }
 
-func (m *mockIssuesClient) Create(
+func (m *mockGitHubClient) Create(
 	_ context.Context,
 	_ string,
 	_ string,
@@ -45,17 +50,18 @@ func (m *mockIssuesClient) Create(
 	return m.createdIssue, nil, m.createErr
 }
 
-func (m *mockIssuesClient) Edit(
+func (m *mockGitHubClient) Edit(
 	_ context.Context,
 	_ string,
 	_ string,
 	_ int,
-	_ *github.IssueRequest,
+	req *github.IssueRequest,
 ) (*github.Issue, *github.Response, error) {
+	m.capturedEditReq = req
 	return m.editedIssue, nil, m.editErr
 }
 
-func (m *mockIssuesClient) CreateLabel(
+func (m *mockGitHubClient) CreateLabel(
 	_ context.Context,
 	_ string,
 	_ string,
@@ -64,7 +70,7 @@ func (m *mockIssuesClient) CreateLabel(
 	return m.createdLabel, nil, m.createLabelErr
 }
 
-func (m *mockIssuesClient) ListIssueTimeline(
+func (m *mockGitHubClient) ListIssueTimeline(
 	_ context.Context,
 	_ string,
 	_ string,
@@ -72,6 +78,22 @@ func (m *mockIssuesClient) ListIssueTimeline(
 	_ *github.ListOptions,
 ) ([]*github.Timeline, *github.Response, error) {
 	return m.timelineEvents[number], nil, m.timelineErr
+}
+
+func (m *mockGitHubClient) ListCollaborators(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ *github.ListCollaboratorsOptions,
+) ([]*github.User, *github.Response, error) {
+	return m.collaborators, nil, m.collaboratorsErr
+}
+
+func (m *mockGitHubClient) GetUser(
+	_ context.Context,
+	_ string,
+) (*github.User, *github.Response, error) {
+	return m.authenticatedUser, nil, m.authUserErr
 }
 
 // makeIssue builds a github.Issue with the given number, title, and label names.
@@ -95,7 +117,7 @@ func TestGitHubFetchBoard_SortsIssuesToMatchingColumns(t *testing.T) {
 		makeIssue(3, "Deploy to prod", "Done"),
 	}
 
-	client := &mockIssuesClient{issues: issues}
+	client := &mockGitHubClient{issues: issues}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -147,7 +169,7 @@ func TestGitHubFetchBoard_UnlabeledIssuesGoToFirstColumn(t *testing.T) {
 		makeIssue(12, "Recognized label goes elsewhere", "Review"), // should go to "Review"
 	}
 
-	client := &mockIssuesClient{issues: issues}
+	client := &mockGitHubClient{issues: issues}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -197,7 +219,7 @@ func TestGitHubFetchBoard_CardFieldsPopulated(t *testing.T) {
 		makeIssue(issueNumber, issueTitle, issueLabel),
 	}
 
-	client := &mockIssuesClient{issues: issues}
+	client := &mockGitHubClient{issues: issues}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -233,7 +255,7 @@ func TestGitHubFetchBoard_CardFieldsPopulated_UnmatchedLabel(t *testing.T) {
 		makeIssue(7, "Orphan issue", "nonexistent"),
 	}
 
-	client := &mockIssuesClient{issues: issues}
+	client := &mockGitHubClient{issues: issues}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -260,7 +282,7 @@ func TestGitHubFetchBoard_CardFieldsPopulated_UnmatchedLabel(t *testing.T) {
 func TestGitHubFetchBoard_NoIssues_ReturnsEmptyColumns(t *testing.T) {
 	columns := []string{"New", "In Progress", "Done"}
 
-	client := &mockIssuesClient{issues: []*github.Issue{}}
+	client := &mockGitHubClient{issues: []*github.Issue{}}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -284,7 +306,7 @@ func TestGitHubFetchBoard_NoIssues_ReturnsEmptyColumns(t *testing.T) {
 
 func TestGitHubFetchBoard_APIError_ReturnsError(t *testing.T) {
 	apiErr := errors.New("GitHub API rate limit exceeded")
-	client := &mockIssuesClient{err: apiErr}
+	client := &mockGitHubClient{err: apiErr}
 	columns := []string{"New", "Done"}
 
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
@@ -306,7 +328,7 @@ func TestGitHubFetchBoard_LabelMatchingIsCaseInsensitive(t *testing.T) {
 		makeIssue(3, "Lowercase label", "docs"),
 	}
 
-	client := &mockIssuesClient{issues: issues}
+	client := &mockGitHubClient{issues: issues}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -352,7 +374,7 @@ func TestGitHubFetchBoard_MultipleLabels_FurthestColumnWins(t *testing.T) {
 		makeIssue(5, "Multi-labeled issue", "In Progress", "Done"),
 	}
 
-	client := &mockIssuesClient{issues: issues}
+	client := &mockGitHubClient{issues: issues}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -401,7 +423,7 @@ func TestGitHubFetchBoard_MultipleLabels_NonMatchingLabelsIgnored(t *testing.T) 
 		makeIssue(6, "Mixed labels issue", "unrelated-label", "New", "Done"),
 	}
 
-	client := &mockIssuesClient{issues: issues}
+	client := &mockGitHubClient{issues: issues}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -441,7 +463,7 @@ func TestGitHubFetchBoard_MultipleLabels_NonMatchingLabelsIgnored(t *testing.T) 
 }
 
 func TestGitHubFetchBoard_EmptyColumnsReturnsError(t *testing.T) {
-	client := &mockIssuesClient{}
+	client := &mockGitHubClient{}
 	provider := NewGitHubProvider(client, "owner", "repo", nil)
 
 	_, err := provider.FetchBoard(context.Background())
@@ -465,7 +487,7 @@ func TestGitHubFetchBoard_SkipsPullRequests(t *testing.T) {
 		},
 	}
 
-	client := &mockIssuesClient{issues: issues}
+	client := &mockGitHubClient{issues: issues}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -491,7 +513,7 @@ func TestGitHubCreateCard_WithLabel(t *testing.T) {
 	expectedTitle := "New feature"
 	expectedLabel := "bug"
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		createdIssue: makeIssue(expectedNumber, expectedTitle, expectedLabel),
 	}
 	columns := []string{"New"}
@@ -518,7 +540,7 @@ func TestGitHubCreateCard_WithoutLabel(t *testing.T) {
 	expectedNumber := 7
 	expectedTitle := "No label issue"
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		createdIssue: makeIssue(expectedNumber, expectedTitle),
 	}
 	columns := []string{"New"}
@@ -543,7 +565,7 @@ func TestGitHubCreateCard_WithoutLabel(t *testing.T) {
 
 func TestGitHubCreateCard_InvalidLabel_ReturnsFriendlyError(t *testing.T) {
 	invalidLabel := "nonexistent"
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		createErr: &github.ErrorResponse{
 			Response: &http.Response{StatusCode: 422},
 			Message:  "Validation Failed",
@@ -569,7 +591,7 @@ func TestGitHubCreateCard_InvalidLabel_ReturnsFriendlyError(t *testing.T) {
 
 func TestGitHubCreateCard_GenericAPIError_PassesThrough(t *testing.T) {
 	apiErrMsg := "server error"
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		createErr: errors.New(apiErrMsg),
 	}
 	columns := []string{"New"}
@@ -593,7 +615,7 @@ func TestGitHubFetchBoard_CardBodyPopulatedFromIssueBody(t *testing.T) {
 	issue := makeIssue(1, "Issue with body", "Todo")
 	issue.Body = github.Ptr(issueBody)
 
-	client := &mockIssuesClient{issues: []*github.Issue{issue}}
+	client := &mockGitHubClient{issues: []*github.Issue{issue}}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -616,7 +638,7 @@ func TestGitHubFetchBoard_NilIssueBody_ResultsInEmptyCardBody(t *testing.T) {
 	// makeIssue does not set Body, so issue.Body is nil.
 	issue := makeIssue(1, "Issue without body", "Todo")
 
-	client := &mockIssuesClient{issues: []*github.Issue{issue}}
+	client := &mockGitHubClient{issues: []*github.Issue{issue}}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
@@ -675,7 +697,7 @@ func TestGitHubFetchBoard_LinkedPRsPopulatedFromTimeline(t *testing.T) {
 	prTitle := "Fix bug"
 	prURL := "https://github.com/owner/repo/pull/89"
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues: []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{
 			10: {makeCrossReferencedPREvent(prNumber, prTitle, prURL)},
@@ -713,7 +735,7 @@ func TestGitHubFetchBoard_NoLinkedPRs_EmptyTimeline(t *testing.T) {
 	columns := []string{"Todo"}
 	issue := makeIssue(20, "Solo issue", "Todo")
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues: []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{
 			20: {}, // empty timeline
@@ -740,7 +762,7 @@ func TestGitHubFetchBoard_CrossReferencedNonPR_Ignored(t *testing.T) {
 	columns := []string{"Todo"}
 	issue := makeIssue(30, "Referenced issue", "Todo")
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues: []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{
 			30: {makeCrossReferencedIssueEvent(31, "Related issue")},
@@ -767,7 +789,7 @@ func TestGitHubFetchBoard_MultipleLinkedPRs(t *testing.T) {
 	columns := []string{"Todo"}
 	issue := makeIssue(40, "Complex issue", "Todo")
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues: []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{
 			40: {
@@ -808,7 +830,7 @@ func TestGitHubFetchBoard_DuplicateLinkedPRs_Deduplicated(t *testing.T) {
 	// Same PR cross-referenced multiple times in timeline.
 	prEvent := makeCrossReferencedPREvent(60, "Fix", "https://github.com/owner/repo/pull/60")
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues: []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{
 			45: {prEvent, prEvent, prEvent},
@@ -832,7 +854,7 @@ func TestGitHubFetchBoard_DuplicateLinkedPRs_Deduplicated(t *testing.T) {
 
 func TestGitHubFetchBoard_RequestsIssuesSortedByCreatedAsc(t *testing.T) {
 	columns := []string{"Todo"}
-	client := &mockIssuesClient{issues: []*github.Issue{}}
+	client := &mockGitHubClient{issues: []*github.Issue{}}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
 	_, err := provider.FetchBoard(context.Background())
@@ -856,7 +878,7 @@ func TestGitHubFetchBoard_TimelineAPIError_ReturnsError(t *testing.T) {
 	issue := makeIssue(50, "Issue", "Todo")
 
 	apiErr := errors.New("timeline API rate limit exceeded")
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues:      []*github.Issue{issue},
 		timelineErr: apiErr,
 	}
@@ -873,10 +895,10 @@ func TestGitHubFetchBoard_TimelineAPIError_ReturnsError(t *testing.T) {
 
 // --- Concurrent Timeline Fetch Tests ---
 
-// perIssueErrorMockClient extends mockIssuesClient with per-issue timeline
+// perIssueErrorMockClient extends mockGitHubClient with per-issue timeline
 // errors for testing error propagation in concurrent fetches.
 type perIssueErrorMockClient struct {
-	mockIssuesClient
+	mockGitHubClient
 	timelineErrs map[int]error // per-issue errors
 }
 
@@ -918,7 +940,7 @@ func TestGitHubFetchBoard_MultipleIssues_AllLinkedPRsPopulated(t *testing.T) {
 		5: {makeCrossReferencedPREvent(105, "PR for issue 5", "https://github.com/o/r/pull/105")},
 	}
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues:         issues,
 		timelineEvents: timelineEvents,
 	}
@@ -985,7 +1007,7 @@ func TestGitHubFetchBoard_TimelineErrorPropagated(t *testing.T) {
 
 	expectedErr := "timeline fetch failed for issue 2"
 	client := &perIssueErrorMockClient{
-		mockIssuesClient: mockIssuesClient{
+		mockGitHubClient: mockGitHubClient{
 			issues:         issues,
 			timelineEvents: timelineEvents,
 		},
@@ -1018,7 +1040,7 @@ func TestGitHubFetchBoard_OrderPreservedWithConcurrentFetches(t *testing.T) {
 		timelineEvents[num] = []*github.Timeline{}
 	}
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues:         issues,
 		timelineEvents: timelineEvents,
 	}
@@ -1068,7 +1090,7 @@ func TestGitHubFetchBoard_CapturesLabelColor(t *testing.T) {
 		struct{ Name, Color string }{"bug", "d73a4a"},
 	)
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues:         []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{1: {}},
 	}
@@ -1096,7 +1118,7 @@ func TestGitHubFetchBoard_LabelWithoutColor_EmptyColorField(t *testing.T) {
 	// makeIssue creates labels without Color field.
 	issue := makeIssue(1, "No color label", "Todo")
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues:         []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{1: {}},
 	}
@@ -1123,7 +1145,7 @@ func TestGitHubFetchBoard_LabelColor_StripsHashPrefix(t *testing.T) {
 		struct{ Name, Color string }{"feature", "#0075ca"},
 	)
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues:         []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{1: {}},
 	}
@@ -1150,7 +1172,7 @@ func TestGitHubFetchBoard_LabelColor_InvalidHex_FallsBackToEmpty(t *testing.T) {
 		struct{ Name, Color string }{"bug", "xxxxxx"},
 	)
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues:         []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{1: {}},
 	}
@@ -1173,7 +1195,7 @@ func TestGitHubFetchBoard_LabelColor_ShortHex_FallsBackToEmpty(t *testing.T) {
 		struct{ Name, Color string }{"bug", "fff"},
 	)
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues:         []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{1: {}},
 	}
@@ -1201,7 +1223,7 @@ func TestGitHubCreateCard_CapturesLabelColorFromResponse(t *testing.T) {
 			{Name: github.Ptr(expectedLabel), Color: github.Ptr(expectedColor)},
 		},
 	}
-	client := &mockIssuesClient{createdIssue: createdIssue}
+	client := &mockGitHubClient{createdIssue: createdIssue}
 	columns := []string{"New"}
 
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
@@ -1241,7 +1263,7 @@ func TestGitHubUpdateCard_Success(t *testing.T) {
 		}
 	}
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		editedIssue: &github.Issue{
 			Number: github.Ptr(expectedNumber),
 			Title:  github.Ptr(expectedTitle),
@@ -1290,7 +1312,7 @@ func TestGitHubUpdateCard_WithEmptyLabels(t *testing.T) {
 	expectedTitle := "No labels issue"
 	expectedBody := "Body without labels"
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		editedIssue: &github.Issue{
 			Number: github.Ptr(expectedNumber),
 			Title:  github.Ptr(expectedTitle),
@@ -1313,7 +1335,7 @@ func TestGitHubUpdateCard_WithEmptyLabels(t *testing.T) {
 
 func TestGitHubUpdateCard_APIError(t *testing.T) {
 	apiErrMsg := "API request failed"
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		editErr: errors.New(apiErrMsg),
 	}
 	columns := []string{"New"}
@@ -1331,7 +1353,7 @@ func TestGitHubUpdateCard_APIError(t *testing.T) {
 // --- UpdateCard Validation Tests ---
 
 func TestGitHubUpdateCard_EmptyTitle(t *testing.T) {
-	client := &mockIssuesClient{}
+	client := &mockGitHubClient{}
 	columns := []string{"New"}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
@@ -1352,7 +1374,7 @@ func TestGitHubUpdateCard_EmptyTitle(t *testing.T) {
 }
 
 func TestGitHubUpdateCard_ValidationError(t *testing.T) {
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		editErr: &github.ErrorResponse{
 			Response: &http.Response{StatusCode: 422},
 			Message:  "Validation Failed",
@@ -1379,7 +1401,7 @@ func TestGitHubUpdateCard_ValidationError(t *testing.T) {
 
 func TestGitHubCreateLabel_Success(t *testing.T) {
 	labelName := "new-label"
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		createdLabel: &github.Label{Name: github.Ptr(labelName)},
 	}
 	columns := []string{"New"}
@@ -1393,7 +1415,7 @@ func TestGitHubCreateLabel_Success(t *testing.T) {
 
 func TestGitHubCreateLabel_APIError(t *testing.T) {
 	apiErrMsg := "API request failed"
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		createLabelErr: errors.New(apiErrMsg),
 	}
 	columns := []string{"New"}
@@ -1409,7 +1431,7 @@ func TestGitHubCreateLabel_APIError(t *testing.T) {
 }
 
 func TestGitHubCreateLabel_AlreadyExists(t *testing.T) {
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		createLabelErr: &github.ErrorResponse{
 			Response: &http.Response{StatusCode: 422},
 			Message:  "Validation Failed",
@@ -1493,7 +1515,7 @@ func TestGitHubFetchBoard_AssigneesPopulated(t *testing.T) {
 	assigneeLogin2 := "bob"
 	issue := makeIssueWithAssignees(1, "Assigned issue", []string{"Todo"}, assigneeLogin1, assigneeLogin2)
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues:         []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{1: {}},
 	}
@@ -1524,7 +1546,7 @@ func TestGitHubFetchBoard_NoAssignees_EmptySlice(t *testing.T) {
 	columns := []string{"Todo"}
 	issue := makeIssue(1, "Unassigned issue", "Todo")
 
-	client := &mockIssuesClient{
+	client := &mockGitHubClient{
 		issues:         []*github.Issue{issue},
 		timelineEvents: map[int][]*github.Timeline{1: {}},
 	}
@@ -1551,7 +1573,7 @@ func TestGitHubCreateCard_AssigneesPopulated(t *testing.T) {
 			{Login: github.Ptr(assigneeLogin)},
 		},
 	}
-	client := &mockIssuesClient{createdIssue: createdIssue}
+	client := &mockGitHubClient{createdIssue: createdIssue}
 	columns := []string{"New"}
 
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
@@ -1580,7 +1602,7 @@ func TestGitHubUpdateCard_AssigneesPreserved(t *testing.T) {
 			{Login: github.Ptr(assigneeLogin)},
 		},
 	}
-	client := &mockIssuesClient{editedIssue: editedIssue}
+	client := &mockGitHubClient{editedIssue: editedIssue}
 	columns := []string{"New"}
 	provider := NewGitHubProvider(client, "owner", "repo", columns)
 
@@ -1594,5 +1616,209 @@ func TestGitHubUpdateCard_AssigneesPreserved(t *testing.T) {
 	}
 	if card.Assignees[0].Login != assigneeLogin {
 		t.Errorf("card.Assignees[0].Login = %q, want %q", card.Assignees[0].Login, assigneeLogin)
+	}
+}
+
+// --- FetchCollaborators Tests ---
+
+func TestGitHubFetchCollaborators_Success(t *testing.T) {
+	login1 := "alice"
+	login2 := "bob"
+	client := &mockGitHubClient{
+		collaborators: []*github.User{
+			{Login: github.Ptr(login1)},
+			{Login: github.Ptr(login2)},
+		},
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, "owner", "repo", columns)
+
+	collaborators, err := p.FetchCollaborators(context.Background())
+	if err != nil {
+		t.Fatalf("FetchCollaborators returned error: %v", err)
+	}
+
+	if len(collaborators) != 2 {
+		t.Fatalf("got %d collaborators, want 2", len(collaborators))
+	}
+	if collaborators[0].Login != login1 {
+		t.Errorf("collaborators[0].Login = %q, want %q", collaborators[0].Login, login1)
+	}
+	if collaborators[1].Login != login2 {
+		t.Errorf("collaborators[1].Login = %q, want %q", collaborators[1].Login, login2)
+	}
+}
+
+func TestGitHubFetchCollaborators_APIError(t *testing.T) {
+	apiErrMsg := "API rate limit exceeded"
+	client := &mockGitHubClient{
+		collaboratorsErr: errors.New(apiErrMsg),
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, "owner", "repo", columns)
+
+	_, err := p.FetchCollaborators(context.Background())
+	if err == nil {
+		t.Fatal("expected error from FetchCollaborators, got nil")
+	}
+	if !strings.Contains(err.Error(), apiErrMsg) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
+	}
+}
+
+func TestGitHubFetchCollaborators_EmptyList(t *testing.T) {
+	client := &mockGitHubClient{
+		collaborators: []*github.User{},
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, "owner", "repo", columns)
+
+	collaborators, err := p.FetchCollaborators(context.Background())
+	if err != nil {
+		t.Fatalf("FetchCollaborators returned error: %v", err)
+	}
+
+	if len(collaborators) != 0 {
+		t.Errorf("got %d collaborators for empty repo, want 0", len(collaborators))
+	}
+}
+
+// --- SetAssignees Tests ---
+
+func TestGitHubSetAssignees_Success(t *testing.T) {
+	assigneeLogin1 := "alice"
+	assigneeLogin2 := "bob"
+	issueNumber := 42
+
+	client := &mockGitHubClient{
+		editedIssue: &github.Issue{
+			Number: github.Ptr(issueNumber),
+			Title:  github.Ptr("Test issue"),
+			Labels: []*github.Label{{Name: github.Ptr("bug")}},
+			Assignees: []*github.User{
+				{Login: github.Ptr(assigneeLogin1)},
+				{Login: github.Ptr(assigneeLogin2)},
+			},
+		},
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, "owner", "repo", columns)
+
+	logins := []string{assigneeLogin1, assigneeLogin2}
+	card, err := p.SetAssignees(context.Background(), issueNumber, logins)
+	if err != nil {
+		t.Fatalf("SetAssignees returned error: %v", err)
+	}
+
+	// Verify the returned card has the correct assignees.
+	if len(card.Assignees) != 2 {
+		t.Fatalf("card.Assignees has %d entries, want 2", len(card.Assignees))
+	}
+	if card.Assignees[0].Login != assigneeLogin1 {
+		t.Errorf("card.Assignees[0].Login = %q, want %q", card.Assignees[0].Login, assigneeLogin1)
+	}
+	if card.Assignees[1].Login != assigneeLogin2 {
+		t.Errorf("card.Assignees[1].Login = %q, want %q", card.Assignees[1].Login, assigneeLogin2)
+	}
+
+	// Verify the Edit call used Assignees field (atomic replace).
+	if client.capturedEditReq == nil {
+		t.Fatal("Edit was not called")
+	}
+	if client.capturedEditReq.Assignees == nil {
+		t.Fatal("Edit request Assignees should be non-nil")
+	}
+	if len(*client.capturedEditReq.Assignees) != 2 {
+		t.Errorf("Edit request Assignees has %d entries, want 2", len(*client.capturedEditReq.Assignees))
+	}
+}
+
+func TestGitHubSetAssignees_APIError(t *testing.T) {
+	apiErrMsg := "API request failed"
+	client := &mockGitHubClient{
+		editErr: errors.New(apiErrMsg),
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, "owner", "repo", columns)
+
+	_, err := p.SetAssignees(context.Background(), 1, []string{"alice"})
+	if err == nil {
+		t.Fatal("expected error from SetAssignees, got nil")
+	}
+	if !strings.Contains(err.Error(), apiErrMsg) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
+	}
+}
+
+func TestGitHubSetAssignees_EmptyLogins(t *testing.T) {
+	issueNumber := 10
+
+	client := &mockGitHubClient{
+		editedIssue: &github.Issue{
+			Number:    github.Ptr(issueNumber),
+			Title:     github.Ptr("Test issue"),
+			Labels:    []*github.Label{},
+			Assignees: []*github.User{}, // cleared
+		},
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, "owner", "repo", columns)
+
+	card, err := p.SetAssignees(context.Background(), issueNumber, []string{})
+	if err != nil {
+		t.Fatalf("SetAssignees with empty logins returned error: %v", err)
+	}
+
+	// Setting empty logins should clear assignees.
+	if len(card.Assignees) != 0 {
+		t.Errorf("card.Assignees has %d entries after clearing, want 0", len(card.Assignees))
+	}
+
+	// Verify the Edit call sent an empty Assignees list (atomic replace to clear).
+	if client.capturedEditReq == nil {
+		t.Fatal("Edit was not called")
+	}
+	if client.capturedEditReq.Assignees == nil {
+		t.Fatal("Edit request Assignees should be non-nil (explicit empty list)")
+	}
+	if len(*client.capturedEditReq.Assignees) != 0 {
+		t.Errorf("Edit request Assignees has %d entries, want 0", len(*client.capturedEditReq.Assignees))
+	}
+}
+
+// --- GetAuthenticatedUser Tests ---
+
+func TestGitHubGetAuthenticatedUser_Success(t *testing.T) {
+	expectedLogin := "testuser"
+	client := &mockGitHubClient{
+		authenticatedUser: &github.User{Login: github.Ptr(expectedLogin)},
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, "owner", "repo", columns)
+
+	login, err := p.GetAuthenticatedUser(context.Background())
+	if err != nil {
+		t.Fatalf("GetAuthenticatedUser returned error: %v", err)
+	}
+
+	if login != expectedLogin {
+		t.Errorf("login = %q, want %q", login, expectedLogin)
+	}
+}
+
+func TestGitHubGetAuthenticatedUser_APIError(t *testing.T) {
+	apiErrMsg := "unauthorized"
+	client := &mockGitHubClient{
+		authUserErr: errors.New(apiErrMsg),
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, "owner", "repo", columns)
+
+	_, err := p.GetAuthenticatedUser(context.Background())
+	if err == nil {
+		t.Fatal("expected error from GetAuthenticatedUser, got nil")
+	}
+	if !strings.Contains(err.Error(), apiErrMsg) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
 	}
 }
