@@ -113,6 +113,10 @@ func (b Board) View() string {
 		return b.viewFilterModal()
 	}
 
+	if b.mode == assignMode {
+		return b.viewAssignModal()
+	}
+
 	// Render with normal outer border, then replace the top line with the border title.
 	rendered := outerStyle.Width(innerWidth).Render(inner)
 	var borderTitle string
@@ -1017,6 +1021,33 @@ func (b Board) viewFilterModal() string {
 	lines = append(lines, "")
 	filterHints := NewStatusBar(filterModeHints)
 	lines = append(lines, filterHints.View(modalWidth))
+
+	modalContent := strings.Join(lines, "\n")
+	return b.renderModal(modalContent, modalWidth)
+}
+
+func (b Board) viewAssignModal() string {
+	modalWidth := 50
+
+	var lines []string
+	lines = append(lines, "Assign")
+	lines = append(lines, "")
+
+	for i, item := range b.assign.items {
+		prefix := "  "
+		if item.isAssigned {
+			prefix = "* "
+		}
+		display := prefix + item.login
+		if i == b.assign.cursor {
+			display = selectedCardStyle.Render(display)
+		}
+		lines = append(lines, display)
+	}
+
+	lines = append(lines, "")
+	assignHints := NewStatusBar(assignModeHints)
+	lines = append(lines, assignHints.View(modalWidth))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)

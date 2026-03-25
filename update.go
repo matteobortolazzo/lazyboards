@@ -123,6 +123,13 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := b.statusBar.SetTimedMessage("Error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
 		return b, cmd
 
+	case assigneesUpdatedMsg:
+		return b.handleAssigneesUpdated(msg)
+
+	case assigneesUpdateErrorMsg:
+		cmd := b.statusBar.SetTimedMessage("Assign error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
+		return b, cmd
+
 	case tea.MouseMsg:
 		if !b.mouseEnabled || b.mode != normalMode {
 			return b, nil
@@ -164,6 +171,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleCommentModeKey(msg)
 		case filterMode:
 			return b.handleFilterModeKey(msg)
+		case assignMode:
+			return b.handleAssignModeKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -697,6 +706,43 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.clampScrollOffset()
 		b.rebuildNormalHints()
 		b.statusBar.SetActionHints(b.normalHints)
+	case "a":
+		if len(b.Columns) == 0 || b.ActiveTab >= len(b.Columns) {
+			return b, nil
+		}
+		cards := b.filteredCards()
+		if len(cards) == 0 || len(b.collaborators) == 0 {
+			return b, nil
+		}
+
+		card := b.selectedCard()
+		assignedSet := make(map[string]bool)
+		for _, a := range card.Assignees {
+			assignedSet[strings.ToLower(a.Login)] = true
+		}
+
+		var items []assignItem
+		if b.authenticatedUser != "" {
+			items = append(items, assignItem{
+				login:      b.authenticatedUser,
+				isAssigned: assignedSet[strings.ToLower(b.authenticatedUser)],
+				isMe:       true,
+			})
+		}
+		for _, c := range b.collaborators {
+			if strings.EqualFold(c.Login, b.authenticatedUser) {
+				continue
+			}
+			items = append(items, assignItem{
+				login:      c.Login,
+				isAssigned: assignedSet[strings.ToLower(c.Login)],
+			})
+		}
+
+		b.assign = assignState{items: items, cursor: 0}
+		b.mode = assignMode
+		b.statusBar.SetActionHints(assignModeHints)
+		return b, nil
 	case "f":
 		items := b.collectFilterItems()
 		if len(items) == 0 {
@@ -865,6 +911,67 @@ func (b *Board) filterMoveUp() {
 			return
 		}
 	}
+}
+
+func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyEnter:
+		if len(b.assign.items) == 0 || b.assign.cursor >= len(b.assign.items) {
+			return b, nil
+		}
+		item := b.assign.items[b.assign.cursor]
+		card := b.selectedCard()
+
+		newLogins := []string{}
+		if item.isAssigned {
+			for _, a := range card.Assignees {
+				if !strings.EqualFold(a.Login, item.login) {
+					newLogins = append(newLogins, a.Login)
+				}
+			}
+		} else {
+			for _, a := range card.Assignees {
+				newLogins = append(newLogins, a.Login)
+			}
+			newLogins = append(newLogins, item.login)
+		}
+
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		statusCmd := b.statusBar.SetTimedMessage("Updating assignees...", StatusInfo, longStatusMessageDuration)
+		return b, tea.Batch(statusCmd, setAssigneesCmd(b.provider, card.Number, newLogins))
+	}
+
+	switch msg.String() {
+	case "j", "down":
+		if b.assign.cursor < len(b.assign.items)-1 {
+			b.assign.cursor++
+		}
+	case "k", "up":
+		if b.assign.cursor > 0 {
+			b.assign.cursor--
+		}
+	}
+	return b, nil
+}
+
+func (b Board) handleAssigneesUpdated(msg assigneesUpdatedMsg) (tea.Model, tea.Cmd) {
+	updated := mapProviderCard(msg.card)
+	for ci := range b.Columns {
+		for i := range b.Columns[ci].Cards {
+			if b.Columns[ci].Cards[i].Number == updated.Number {
+				b.Columns[ci].Cards[i].Assignees = updated.Assignees
+				cmd := b.statusBar.SetTimedMessage("Assignees updated", StatusSuccess, statusMessageDuration)
+				return b, cmd
+			}
+		}
+	}
+	cmd := b.statusBar.SetTimedMessage("Assignees updated", StatusSuccess, statusMessageDuration)
+	return b, cmd
 }
 
 func (b Board) handleActionKeyWithComment(act config.Action, card Card, comment string) (tea.Model, tea.Cmd) {
