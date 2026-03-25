@@ -8,6 +8,7 @@ GitHub Issues for tracking. GitHub for code and PRs.
 - Test-first: write tests that assert behavior, not implementation details.
 - No PR should exceed ~300 lines. Split into stacked PRs if larger.
 - Use git worktrees for all feature work. Never modify code in main worktree.
+- When adding a new mode or keybinding, update `helpSections` in `view.go` and the README Keybindings section.
 
 ## File Structure
 
