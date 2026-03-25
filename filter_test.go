@@ -174,21 +174,192 @@ func TestFilter_PlusSearch_Coexist(t *testing.T) {
 	}
 }
 
-func TestFilter_ResetOnRefresh(t *testing.T) {
+// simulateRefreshWithCards sends a boardFetchedMsg with the given columns,
+// simulating a refresh that returns specific card data (not the default FakeProvider data).
+func simulateRefreshWithCards(t *testing.T, b Board, columns []provider.Column) Board {
+	t.Helper()
+	b.refreshing = true
+	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	return updated
+}
+
+// refreshColumnsWithBugCards returns columns matching the filterable board layout
+// but with cards that include "bug" labels, suitable for testing filter persistence.
+func refreshColumnsWithBugCards() []provider.Column {
+	return []provider.Column{
+		{Title: "Backlog", Cards: []provider.Card{
+			{Number: 1, Title: "Bug fix", Labels: []provider.Label{{Name: "bug"}}, Assignees: []provider.Assignee{{Login: "alice"}}},
+			{Number: 2, Title: "Feature work", Labels: []provider.Label{{Name: "feature"}}, Assignees: []provider.Assignee{{Login: "bob"}}},
+			{Number: 3, Title: "Another bug", Labels: []provider.Label{{Name: "bug"}}, Assignees: []provider.Assignee{{Login: "alice"}}},
+			{Number: 4, Title: "Docs update", Labels: []provider.Label{{Name: "docs"}}, Assignees: []provider.Assignee{{Login: "charlie"}}},
+			{Number: 5, Title: "Specific bug", Labels: []provider.Label{{Name: "bug"}}, Assignees: []provider.Assignee{{Login: "bob"}}},
+		}},
+		{Title: "In Progress", Cards: []provider.Card{
+			{Number: 6, Title: "Active feature", Labels: []provider.Label{{Name: "feature"}}, Assignees: []provider.Assignee{{Login: "alice"}}},
+			{Number: 7, Title: "Active bug", Labels: []provider.Label{{Name: "bug"}}, Assignees: []provider.Assignee{{Login: "bob"}}},
+		}},
+	}
+}
+
+func TestFilter_PersistsAcrossRefresh(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
-	// Set a filter.
+	// Set a label filter for "bug".
 	b.activeFilterType = filterByLabel
 	b.activeFilterValue = "bug"
 
-	// Simulate a board refresh.
-	b = simulateRefresh(t, b)
+	// Simulate a refresh with data that still contains "bug" cards.
+	b = simulateRefreshWithCards(t, b, refreshColumnsWithBugCards())
 
-	if b.activeFilterType != filterTypeNone {
-		t.Errorf("after refresh: activeFilterType = %d, want %d (filterTypeNone)", b.activeFilterType, filterTypeNone)
+	// The filter should persist — not be cleared.
+	if b.activeFilterType != filterByLabel {
+		t.Errorf("after refresh: activeFilterType = %d, want %d (filterByLabel)", b.activeFilterType, filterByLabel)
 	}
-	if b.activeFilterValue != "" {
-		t.Errorf("after refresh: activeFilterValue = %q, want empty", b.activeFilterValue)
+	if b.activeFilterValue != "bug" {
+		t.Errorf("after refresh: activeFilterValue = %q, want %q", b.activeFilterValue, "bug")
+	}
+}
+
+func TestFilter_CursorResetsToZeroOnRefresh(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	// Set a label filter for "bug" (3 matching cards in Backlog: #1, #3, #5).
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+
+	// Move cursor down within filtered list.
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	if b.Columns[b.ActiveTab].Cursor < 1 {
+		t.Fatalf("precondition: cursor should be > 0 after j navigation, got %d", b.Columns[b.ActiveTab].Cursor)
+	}
+
+	// Simulate a refresh with same data.
+	b = simulateRefreshWithCards(t, b, refreshColumnsWithBugCards())
+
+	// After refresh, cursor and scroll offset should reset to 0 in each column.
+	for i, col := range b.Columns {
+		if col.Cursor != 0 {
+			t.Errorf("column %d (%q): Cursor = %d after refresh, want 0", i, col.Title, col.Cursor)
+		}
+		if col.ScrollOffset != 0 {
+			t.Errorf("column %d (%q): ScrollOffset = %d after refresh, want 0", i, col.Title, col.ScrollOffset)
+		}
+	}
+}
+
+func TestFilter_CursorClampedAfterRefreshShrinks(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	// Set a label filter for "bug" (3 matching cards in Backlog: #1, #3, #5).
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+
+	// Move cursor to last filtered card (index 2).
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+
+	// Refresh with data that has fewer "bug" cards — only 1 bug card in Backlog.
+	shrunkColumns := []provider.Column{
+		{Title: "Backlog", Cards: []provider.Card{
+			{Number: 1, Title: "Bug fix", Labels: []provider.Label{{Name: "bug"}}, Assignees: []provider.Assignee{{Login: "alice"}}},
+			{Number: 2, Title: "Feature work", Labels: []provider.Label{{Name: "feature"}}, Assignees: []provider.Assignee{{Login: "bob"}}},
+			{Number: 4, Title: "Docs update", Labels: []provider.Label{{Name: "docs"}}, Assignees: []provider.Assignee{{Login: "charlie"}}},
+		}},
+		{Title: "In Progress", Cards: []provider.Card{
+			{Number: 6, Title: "Active feature", Labels: []provider.Label{{Name: "feature"}}, Assignees: []provider.Assignee{{Login: "alice"}}},
+		}},
+	}
+	b = simulateRefreshWithCards(t, b, shrunkColumns)
+
+	// The filter must persist after refresh.
+	if b.activeFilterType != filterByLabel {
+		t.Fatalf("after refresh: activeFilterType = %d, want %d (filterByLabel) — filter should persist", b.activeFilterType, filterByLabel)
+	}
+
+	// After refresh, filtered list in Backlog has only 1 bug card.
+	filtered := b.filteredCards()
+	if len(filtered) == 0 {
+		t.Fatal("precondition: filteredCards() should have at least 1 card after refresh")
+	}
+
+	// Cursor must be clamped to len(filteredCards()) - 1.
+	col := b.Columns[b.ActiveTab]
+	maxValid := len(filtered) - 1
+	if col.Cursor > maxValid {
+		t.Errorf("cursor = %d after refresh with shrunk filtered list, want <= %d (filtered count = %d)",
+			col.Cursor, maxValid, len(filtered))
+	}
+}
+
+func TestFilter_NoMatchesHintAfterRefresh(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	// Set a label filter for "bug".
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+
+	// Refresh with data that has zero "bug" labels anywhere.
+	noBugColumns := []provider.Column{
+		{Title: "Backlog", Cards: []provider.Card{
+			{Number: 1, Title: "Feature work", Labels: []provider.Label{{Name: "feature"}}, Assignees: []provider.Assignee{{Login: "bob"}}},
+			{Number: 2, Title: "Docs update", Labels: []provider.Label{{Name: "docs"}}, Assignees: []provider.Assignee{{Login: "charlie"}}},
+		}},
+		{Title: "In Progress", Cards: []provider.Card{
+			{Number: 3, Title: "Active feature", Labels: []provider.Label{{Name: "feature"}}, Assignees: []provider.Assignee{{Login: "alice"}}},
+		}},
+	}
+	b = simulateRefreshWithCards(t, b, noBugColumns)
+
+	// The status bar should show a hint about no matches.
+	view := b.View()
+	if !strings.Contains(view, "Filter has no matches") {
+		t.Errorf("View() after refresh with zero filter matches should contain %q, got:\n%s", "Filter has no matches", view)
+	}
+}
+
+func TestFilter_FilterItemsRebuiltOnRefresh(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	// Set a label filter.
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+
+	// Verify "urgent" label is NOT in the current filter items.
+	b.filterItems = b.collectFilterItems()
+	for _, item := range b.filterItems {
+		if !item.isHeader && item.value == "urgent" {
+			t.Fatal("precondition: 'urgent' label should not exist before refresh")
+		}
+	}
+
+	// Refresh with data that introduces a new "urgent" label.
+	columnsWithUrgent := []provider.Column{
+		{Title: "Backlog", Cards: []provider.Card{
+			{Number: 1, Title: "Bug fix", Labels: []provider.Label{{Name: "bug"}}, Assignees: []provider.Assignee{{Login: "alice"}}},
+			{Number: 2, Title: "Urgent task", Labels: []provider.Label{{Name: "urgent"}}, Assignees: []provider.Assignee{{Login: "bob"}}},
+			{Number: 3, Title: "Another bug", Labels: []provider.Label{{Name: "bug"}}, Assignees: []provider.Assignee{{Login: "alice"}}},
+		}},
+		{Title: "In Progress", Cards: []provider.Card{
+			{Number: 6, Title: "Active feature", Labels: []provider.Label{{Name: "feature"}}, Assignees: []provider.Assignee{{Login: "alice"}}},
+		}},
+	}
+	b = simulateRefreshWithCards(t, b, columnsWithUrgent)
+
+	// The filterItems should be rebuilt from the new data and include "urgent".
+	foundUrgent := false
+	for _, item := range b.filterItems {
+		if !item.isHeader && item.value == "urgent" {
+			foundUrgent = true
+			break
+		}
+	}
+	if !foundUrgent {
+		t.Errorf("filterItems after refresh should include new label 'urgent', got items: %v", b.filterItems)
 	}
 }
 
