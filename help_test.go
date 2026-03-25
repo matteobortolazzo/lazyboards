@@ -317,6 +317,8 @@ func TestHelpMode_ViewShowsKeybindings(t *testing.T) {
 		"Create Card",
 		"Configuration",
 		"Comment",
+		"Search",
+		"Assign",
 	}
 	for _, text := range expectedTexts {
 		if !strings.Contains(view, text) {
@@ -325,12 +327,104 @@ func TestHelpMode_ViewShowsKeybindings(t *testing.T) {
 	}
 }
 
+func TestHelpContent_AllSectionsPresent(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	sections := []string{
+		"Normal Mode",
+		"Detail Panel",
+		"Create Card",
+		"Configuration",
+		"PR Picker",
+		"Comment",
+		"Filter",
+		"Search",
+		"Assign",
+		"Error",
+		"Usage",
+	}
+	for _, section := range sections {
+		if !strings.Contains(content, section) {
+			t.Errorf("buildHelpContent() should contain section %q", section)
+		}
+	}
+}
+
+func TestHelpContent_ContainsSearchSection(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	searchIdx := strings.Index(content, "\nSearch\n")
+	if searchIdx == -1 {
+		t.Fatal("buildHelpContent() should contain 'Search' section header")
+	}
+
+	// Find the section content (between Search header and next section).
+	sectionContent := content[searchIdx:]
+	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
+		sectionContent = sectionContent[:nextSection+1]
+	}
+
+	if !strings.Contains(sectionContent, "esc") {
+		t.Error("Search section should contain 'esc' key")
+	}
+	if !strings.Contains(sectionContent, "Clear") {
+		t.Error("Search section should contain 'Clear' description")
+	}
+}
+
+func TestHelpContent_ContainsAssignSection(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	assignIdx := strings.Index(content, "\nAssign\n")
+	if assignIdx == -1 {
+		t.Fatal("buildHelpContent() should contain 'Assign' section header")
+	}
+
+	sectionContent := content[assignIdx:]
+	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
+		sectionContent = sectionContent[:nextSection+1]
+	}
+
+	expectedKeys := []string{"Navigate", "Toggle", "Cancel"}
+	for _, key := range expectedKeys {
+		if !strings.Contains(sectionContent, key) {
+			t.Errorf("Assign section should contain %q", key)
+		}
+	}
+}
+
+func TestHelpContent_NormalModeIncludesSearchAndAssign(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	// Extract Normal Mode section (between "Normal Mode" and "Detail Panel").
+	normalStart := strings.Index(content, "Normal Mode\n")
+	detailStart := strings.Index(content, "\nDetail Panel\n")
+	if normalStart == -1 || detailStart == -1 {
+		t.Fatal("buildHelpContent() should contain Normal Mode and Detail Panel sections")
+	}
+	normalSection := content[normalStart:detailStart]
+
+	if !strings.Contains(normalSection, "/") {
+		t.Error("Normal Mode section should contain '/' for Search")
+	}
+	if !strings.Contains(normalSection, "Assign") {
+		t.Error("Normal Mode section should contain 'Assign'")
+	}
+	if !strings.Contains(normalSection, "Filter") {
+		t.Error("Normal Mode section should contain 'Filter'")
+	}
+}
+
 func TestHelpMode_ViewShowsCustomActions(t *testing.T) {
 	actions := map[string]config.Action{
 		"x": {Name: "Deploy App", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
-	b.Height = 80
+	b.Height = 120
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()
@@ -357,7 +451,7 @@ func TestHelpMode_ViewShowsColumnActions(t *testing.T) {
 		{Name: "Implemented"},
 	}
 	b, _ := newColumnActionTestBoard(t, globalActions, columnConfigs)
-	b.Height = 80
+	b.Height = 120
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()
@@ -370,7 +464,7 @@ func TestHelpMode_ViewShowsColumnActions(t *testing.T) {
 func TestHelpMode_ViewShowsUsageSection(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
-	b.Height = 80
+	b.Height = 120
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()

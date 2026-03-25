@@ -789,14 +789,17 @@ func (b Board) viewPRPickerModal() string {
 	return b.renderModal(modalContent, modalWidth)
 }
 
-func (b Board) buildHelpContent() string {
-	var sb strings.Builder
+// helpSection groups a display name with its keybinding entries for the help popup.
+type helpSection struct {
+	title string
+	keys  [][2]string
+}
 
-	sb.WriteString("Help\n\n")
-
-	// Normal Mode.
-	sb.WriteString("Normal Mode\n")
-	normalKeys := [][2]string{
+// helpSections is the ordered list of static help sections.
+// Custom Actions and Usage are appended dynamically by buildHelpContent().
+// When adding a new mode, add its section here so keybindings appear in the help popup.
+var helpSections = []helpSection{
+	{"Normal Mode", [][2]string{
 		{"?", "Help"},
 		{"q", "Quit"},
 		{"n", "New card"},
@@ -806,19 +809,17 @@ func (b Board) buildHelpContent() string {
 		{"O", "Open repository"},
 		{"r", "Refresh"},
 		{"p", "Open PR"},
+		{"/", "Search"},
+		{"a", "Assign"},
+		{"f", "Filter picker"},
+		{"F", "Clear filter"},
 		{"l/\u2192", "Detail panel"},
 		{"j/k", "Navigate cards"},
 		{"tab/s-tab", "Switch columns"},
 		{"1-9", "Jump to column"},
 		{"alt+key", "Comment action"},
-	}
-	for _, kv := range normalKeys {
-		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
-	}
-
-	// Detail Panel.
-	sb.WriteString("\nDetail Panel\n")
-	detailKeys := [][2]string{
+	}},
+	{"Detail Panel", [][2]string{
 		{"e", "Edit card"},
 		{"j/k", "Scroll body"},
 		{"h/\u2190/esc", "Back to card list"},
@@ -828,76 +829,61 @@ func (b Board) buildHelpContent() string {
 		{"r", "Refresh"},
 		{"q", "Quit"},
 		{"?", "Help"},
-	}
-	for _, kv := range detailKeys {
-		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
-	}
-
-	// Create Card.
-	sb.WriteString("\nCreate Card\n")
-	createKeys := [][2]string{
+	}},
+	{"Create Card", [][2]string{
 		{"esc", "Cancel"},
 		{"tab", "Next field"},
 		{"enter", "Submit"},
-	}
-	for _, kv := range createKeys {
-		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
-	}
-
-	// Configuration.
-	sb.WriteString("\nConfiguration\n")
-	configKeys := [][2]string{
+	}},
+	{"Configuration", [][2]string{
 		{"esc", "Cancel"},
 		{"tab", "Next field"},
 		{"\u2190/\u2192", "Cycle provider"},
 		{"enter", "Save"},
-	}
-	for _, kv := range configKeys {
-		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
-	}
-
-	// PR Picker.
-	sb.WriteString("\nPR Picker\n")
-	prKeys := [][2]string{
+	}},
+	{"PR Picker", [][2]string{
 		{"\u2190/\u2192", "Cycle PR"},
 		{"enter", "Select"},
 		{"esc", "Cancel"},
-	}
-	for _, kv := range prKeys {
-		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
-	}
-
-	// Comment.
-	sb.WriteString("\nComment\n")
-	commentKeys := [][2]string{
+	}},
+	{"Comment", [][2]string{
 		{"esc", "Cancel"},
 		{"enter", "Submit"},
-	}
-	for _, kv := range commentKeys {
-		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
-	}
-
-	// Filter.
-	sb.WriteString("\nFilter\n")
-	filterKeys := [][2]string{
+	}},
+	{"Filter", [][2]string{
 		{"f", "Open filter picker"},
 		{"j/k", "Navigate"},
 		{"enter", "Select"},
 		{"esc", "Cancel"},
 		{"F", "Clear filter"},
-	}
-	for _, kv := range filterKeys {
-		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
-	}
-
-	// Error.
-	sb.WriteString("\nError\n")
-	errorKeys := [][2]string{
+	}},
+	{"Search", [][2]string{
+		{"esc", "Clear search"},
+	}},
+	{"Assign", [][2]string{
+		{"j/k", "Navigate"},
+		{"enter", "Toggle assignee"},
+		{"esc", "Cancel"},
+	}},
+	{"Error", [][2]string{
 		{"r", "Retry"},
 		{"q", "Quit"},
-	}
-	for _, kv := range errorKeys {
-		fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
+	}},
+}
+
+func (b Board) buildHelpContent() string {
+	var sb strings.Builder
+
+	sb.WriteString("Help\n\n")
+
+	for i, section := range helpSections {
+		if i > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(section.title + "\n")
+		for _, kv := range section.keys {
+			fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
+		}
 	}
 
 	// Custom Actions (global).
