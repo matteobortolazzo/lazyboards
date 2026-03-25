@@ -428,7 +428,16 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 	b.create.labelInput.SetValue("")
 	b.validationErr = ""
 	b.mode = normalMode
-	return b, nil
+
+	var cmd tea.Cmd
+	if b.create.pendingAssignee != "" {
+		cmd = tea.Batch(
+			b.statusBar.SetTimedMessage("Setting assignee...", StatusInfo, longStatusMessageDuration),
+			setAssigneesCmd(b.provider, msg.card.Number, []string{b.create.pendingAssignee}),
+		)
+		b.create.pendingAssignee = ""
+	}
+	return b, cmd
 }
 
 func (b Board) handleEditorFinished(msg editorFinishedMsg) (tea.Model, tea.Cmd) {
@@ -541,24 +550,44 @@ func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return b, nil
 			}
 		}
+		// Store pending assignee if a real collaborator is selected (not "(none)").
+		if len(b.create.assigneeOptions) > 1 && b.create.assigneeOptions[b.create.assigneeIndex] != noneAssignee {
+			login := b.create.assigneeOptions[b.create.assigneeIndex]
+			login = strings.TrimSuffix(login, " (me)")
+			b.create.pendingAssignee = login
+		} else {
+			b.create.pendingAssignee = ""
+		}
 		b.mode = creatingMode
 		b.create.titleInput.Blur()
 		b.create.labelInput.Blur()
 		return b, tea.Batch(b.spinner.Tick, createCardCmd(b.provider, title, label))
 	case tea.KeyTab:
 		var cmd tea.Cmd
-		if b.create.titleInput.Focused() {
+		hasAssignee := len(b.create.assigneeOptions) > 1
+		switch b.create.focus {
+		case 0: // title -> label
+			b.create.focus = 1
 			b.create.titleInput.Blur()
 			cmd = b.create.labelInput.Focus()
-		} else {
+		case 1: // label -> assignee (if available) or title
 			b.create.labelInput.Blur()
+			if hasAssignee {
+				b.create.focus = 2
+			} else {
+				b.create.focus = 0
+				cmd = b.create.titleInput.Focus()
+			}
+		case 2: // assignee -> title
+			b.create.focus = 0
 			cmd = b.create.titleInput.Focus()
 		}
 		return b, cmd
 	default:
 		b.validationErr = ""
 		var cmd tea.Cmd
-		if b.create.titleInput.Focused() {
+		switch b.create.focus {
+		case 0: // title focused
 			b.create.titleInput, cmd = b.create.titleInput.Update(msg)
 			b.recalcCreateInputs()
 			// After recalcCreateInputs changes the textarea height, the
@@ -572,8 +601,24 @@ func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			var repositionCmd tea.Cmd
 			b.create.titleInput, repositionCmd = b.create.titleInput.Update(nil)
 			cmd = tea.Batch(cmd, repositionCmd)
-		} else if b.create.labelInput.Focused() {
+		case 1: // label focused
 			b.create.labelInput, cmd = b.create.labelInput.Update(msg)
+		case 2: // assignee focused
+			if len(b.create.assigneeOptions) == 0 {
+				return b, nil
+			}
+			switch msg.String() {
+			case "left":
+				b.create.assigneeIndex--
+				if b.create.assigneeIndex < 0 {
+					b.create.assigneeIndex = len(b.create.assigneeOptions) - 1
+				}
+			case "right":
+				b.create.assigneeIndex++
+				if b.create.assigneeIndex >= len(b.create.assigneeOptions) {
+					b.create.assigneeIndex = 0
+				}
+			}
 		}
 		return b, cmd
 	}
@@ -637,6 +682,23 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = createMode
 		b.create.titleInput.SetValue("")
 		b.create.labelInput.SetValue("")
+		b.create.focus = 0
+		b.create.assigneeIndex = 0
+		b.create.pendingAssignee = ""
+		if len(b.collaborators) > 0 {
+			options := []string{noneAssignee}
+			if b.authenticatedUser != "" {
+				options = append(options, b.authenticatedUser+" (me)")
+			}
+			for _, c := range b.collaborators {
+				if !strings.EqualFold(c.Login, b.authenticatedUser) {
+					options = append(options, c.Login)
+				}
+			}
+			b.create.assigneeOptions = options
+		} else {
+			b.create.assigneeOptions = nil
+		}
 		b.recalcCreateInputs()
 		cmd := b.create.titleInput.Focus()
 		b.create.labelInput.Blur()
