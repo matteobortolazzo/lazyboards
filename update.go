@@ -231,15 +231,11 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 
 	b.pendingAutoRefresh = false
 
-	// Reset global filter on board refresh — new data may change available labels/assignees.
-	b.activeFilterType = filterTypeNone
-	b.activeFilterValue = ""
-
 	if b.refreshing {
-		// Preserve ActiveTab and cursor position by card Number.
+		// Preserve ActiveTab and cursor position by card Number (only used when no filter active).
 		savedTab := b.ActiveTab
 		savedNumber := -1
-		if savedTab < len(b.Columns) {
+		if b.activeFilterType == filterTypeNone && savedTab < len(b.Columns) {
 			oldCol := b.Columns[savedTab]
 			if len(oldCol.Cards) > 0 && oldCol.Cursor < len(oldCol.Cards) {
 				savedNumber = oldCol.Cards[oldCol.Cursor].Number
@@ -250,6 +246,9 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		b.refreshing = false
 		b.detailScrollOffset = 0
 
+		// Rebuild filter items from refreshed data (labels/assignees may have changed).
+		b.filterItems = b.collectFilterItems()
+
 		// Clamp ActiveTab if columns were reduced.
 		if b.ActiveTab >= len(b.Columns) {
 			b.ActiveTab = len(b.Columns) - 1
@@ -258,25 +257,33 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Restore cursor by card Number in the active column.
-		if b.ActiveTab < len(b.Columns) {
-			col := &b.Columns[b.ActiveTab]
-			found := false
-			if savedNumber >= 0 {
-				for i, card := range col.Cards {
-					if card.Number == savedNumber {
-						col.Cursor = i
-						found = true
-						break
+		if b.activeFilterType != filterTypeNone {
+			// When filter is active, reset cursor and scroll to top for all columns.
+			for i := range b.Columns {
+				b.Columns[i].Cursor = 0
+				b.Columns[i].ScrollOffset = 0
+			}
+		} else {
+			// Restore cursor by card Number in the active column.
+			if b.ActiveTab < len(b.Columns) {
+				col := &b.Columns[b.ActiveTab]
+				found := false
+				if savedNumber >= 0 {
+					for i, card := range col.Cards {
+						if card.Number == savedNumber {
+							col.Cursor = i
+							found = true
+							break
+						}
 					}
 				}
-			}
-			if !found {
-				// Clamp cursor to valid range.
-				if col.Cursor >= len(col.Cards) {
-					col.Cursor = len(col.Cards) - 1
-					if col.Cursor < 0 {
-						col.Cursor = 0
+				if !found {
+					// Clamp cursor to valid range.
+					if col.Cursor >= len(col.Cards) {
+						col.Cursor = len(col.Cards) - 1
+						if col.Cursor < 0 {
+							col.Cursor = 0
+						}
 					}
 				}
 			}
@@ -289,7 +296,14 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		} else {
 			b.statusBar.SetActionHints(b.normalHints)
 		}
-		cmd := b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
+
+		// Show no-matches hint if filter is active and zero cards match across all columns.
+		var cmd tea.Cmd
+		if b.activeFilterType != filterTypeNone && b.totalFilteredCards() == 0 {
+			cmd = b.statusBar.SetTimedMessage("Filter has no matches \u2014 press F to clear", StatusWarning, statusMessageDuration)
+		} else {
+			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
+		}
 		if cleanupCmd != nil {
 			cmd = tea.Batch(cmd, cleanupCmd)
 		}
@@ -303,11 +317,27 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.mode = normalMode
 	b.detailScrollOffset = 0
 	b.detailFocused = false
+
+	// Rebuild filter items from new data.
+	b.filterItems = b.collectFilterItems()
+
+	// Reset cursor/scroll for all columns when filter is active.
+	if b.activeFilterType != filterTypeNone {
+		for i := range b.Columns {
+			b.Columns[i].Cursor = 0
+			b.Columns[i].ScrollOffset = 0
+		}
+	}
+
 	var cmd tea.Cmd
 	b.rebuildNormalHints()
 	b.statusBar.SetActionHints(b.normalHints)
 	if b.loaded {
-		cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
+		if b.activeFilterType != filterTypeNone && b.totalFilteredCards() == 0 {
+			cmd = b.statusBar.SetTimedMessage("Filter has no matches \u2014 press F to clear", StatusWarning, statusMessageDuration)
+		} else {
+			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
+		}
 	}
 	b.loaded = true
 	if cleanupCmd != nil {
