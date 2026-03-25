@@ -7,13 +7,17 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 ## Features
 
 - Vim-style navigation across columns and cards
-- Split-pane layout: card list + detail view
+- Split-pane layout: card list + detail panel with markdown rendering
 - Scrollable card lists with overflow indicators
-- Card creation via modal form with validation
+- Card creation via modal form with label and assignee fields
+- Assign and unassign collaborators to cards
+- Search cards by title and filter by label or assignee
+- PR linking with picker modal
 - Custom actions: open URLs or run shell commands bound to any key, with column cleanup on departure
 - Auto-detection of provider and repo from git remote
 - In-app configuration UI (first-launch flow or press `c`)
-- Board refresh without restarting
+- Board refresh (manual and periodic background refresh)
+- Help popup with full keybinding reference (`?`)
 - Error screen with retry support
 - Responsive terminal resizing
 
@@ -138,42 +142,102 @@ action_refresh_delay: 0
 
 ## Keybindings
 
+Press `?` at any time to open the in-app help popup with all keybindings.
+
 ### Normal Mode
 
 | Key | Action |
 |-----|--------|
-| `h` / `←` | Previous column |
-| `l` / `→` | Next column |
-| `k` / `↑` | Previous card |
-| `j` / `↓` | Next card |
-| `n` | Create new card |
-| `c` | Open configuration |
-| `r` | Refresh board |
+| `?` | Help |
 | `q` | Quit |
 | `Ctrl+C` | Force quit |
+| `n` | New card |
+| `e` | Edit card |
+| `c` | Configuration |
+| `o` | Open ticket |
+| `O` | Open repository |
+| `r` | Refresh board |
+| `p` | Open PR |
+| `/` | Search |
+| `a` | Assign collaborator |
+| `f` | Filter picker |
+| `F` | Clear filter |
+| `l` / `→` | Detail panel |
+| `h` / `←` | Previous column |
+| `j` / `↓` | Next card |
+| `k` / `↑` | Previous card |
+| `Tab` / `Shift+Tab` | Switch columns |
+| `1-9` | Jump to column |
+| `Alt+key` | Comment action |
+
+### Detail Panel
+
+| Key | Action |
+|-----|--------|
+| `e` | Edit card |
+| `j` / `k` | Scroll body |
+| `h` / `←` / `Esc` | Back to card list |
+| `Tab` / `Shift+Tab` | Switch columns |
+| `o` | Open ticket |
+| `O` | Open repository |
+| `r` | Refresh |
+| `q` | Quit |
+| `?` | Help |
 
 ### Create Mode
 
 | Key | Action |
 |-----|--------|
-| `Tab` | Switch between Title and Label fields |
-| `Enter` | Submit card |
 | `Esc` | Cancel |
+| `Tab` | Next field |
+| `Enter` | Submit |
 
 ### Config Mode
 
 | Key | Action |
 |-----|--------|
-| `←` / `→` | Cycle provider |
-| `Tab` | Switch between Provider and Repo fields |
-| `Enter` | Save configuration |
 | `Esc` | Cancel (quit on first launch) |
+| `Tab` | Next field |
+| `←` / `→` | Cycle provider |
+| `Enter` | Save |
+
+### PR Picker
+
+| Key | Action |
+|-----|--------|
+| `←` / `→` | Cycle PR |
+| `Enter` | Select |
+| `Esc` | Cancel |
 
 ### Comment Mode
 
 | Key | Action |
 |-----|--------|
-| `Enter` | Submit comment |
+| `Esc` | Cancel |
+| `Enter` | Submit |
+
+### Filter
+
+| Key | Action |
+|-----|--------|
+| `f` | Open filter picker |
+| `j` / `k` | Navigate |
+| `Enter` | Select |
+| `Esc` | Cancel |
+| `F` | Clear filter |
+
+### Search
+
+| Key | Action |
+|-----|--------|
+| `Esc` | Clear search |
+
+### Assign
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate |
+| `Enter` | Toggle assignee |
 | `Esc` | Cancel |
 
 ### Error Mode
