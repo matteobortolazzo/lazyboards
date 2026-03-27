@@ -629,7 +629,7 @@ func (b *Board) rebuildNormalHints() {
 	}
 
 	// Filter hint.
-	hints = append(hints, Hint{Key: "f", Desc: "Filter"})
+	hints = append(hints, Hint{Key: "f", Desc: "Filter (toggle)"})
 
 	// Default mode hints.
 	hints = append(hints, normalModeHints...)
