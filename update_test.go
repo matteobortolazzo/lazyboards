@@ -49,14 +49,14 @@ func TestWindowResize_UpdatesDimensions(t *testing.T) {
 
 func TestStatusBar_HintsUpdateOnColumnSwitch(t *testing.T) {
 	globalActions := map[string]config.Action{
-		"x": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
+		"X": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
 	}
 	columnConfigs := []config.ColumnConfig{
 		{Name: "New"}, // No column-level actions.
 		{
 			Name: "Refined",
 			Actions: map[string]config.Action{
-				"x": {Name: "Deploy", Type: "url", URL: "https://deploy.com/{number}"},
+				"X": {Name: "Deploy", Type: "url", URL: "https://deploy.com/{number}"},
 			},
 		},
 		{Name: "Implementing"},
@@ -89,13 +89,13 @@ func TestStatusBar_HintsUpdateOnColumnSwitch(t *testing.T) {
 }
 
 func TestStatusBar_ColumnOnlyActionAppearsOnlyInColumn(t *testing.T) {
-	// No global action for "x".
+	// No global action for "X".
 	globalActions := map[string]config.Action{}
 	columnConfigs := []config.ColumnConfig{
 		{
 			Name: "New",
 			Actions: map[string]config.Action{
-				"x": {Name: "Special", Type: "url", URL: "https://special.com/{number}"},
+				"X": {Name: "Special", Type: "url", URL: "https://special.com/{number}"},
 			},
 		},
 		{Name: "Refined"},

@@ -155,20 +155,18 @@ Press `?` at any time to open the in-app help popup with all keybindings.
 | `e` | Edit card |
 | `c` | Configuration |
 | `o` | Open ticket |
-| `O` | Open repository |
 | `r` | Refresh board |
 | `p` | Open PR |
 | `/` | Search |
 | `a` | Assign collaborator |
-| `f` | Filter picker |
-| `F` | Clear filter |
+| `f` | Filter (toggle) |
 | `l` / `→` | Detail panel |
 | `h` / `←` | Previous column |
 | `j` / `↓` | Next card |
 | `k` / `↑` | Previous card |
 | `Tab` / `Shift+Tab` | Switch columns |
 | `1-9` | Jump to column |
-| `Alt+key` | Comment action |
+| `Alt+Shift+key` | Comment action |
 
 ### Detail Panel
 
@@ -179,7 +177,6 @@ Press `?` at any time to open the in-app help popup with all keybindings.
 | `h` / `←` / `Esc` | Back to card list |
 | `Tab` / `Shift+Tab` | Switch columns |
 | `o` | Open ticket |
-| `O` | Open repository |
 | `r` | Refresh |
 | `q` | Quit |
 | `?` | Help |
@@ -220,11 +217,10 @@ Press `?` at any time to open the in-app help popup with all keybindings.
 
 | Key | Action |
 |-----|--------|
-| `f` | Open filter picker |
+| `f` | Filter (toggle) |
 | `j` / `k` | Navigate |
 | `Enter` | Select |
 | `Esc` | Cancel |
-| `F` | Clear filter |
 
 ### Search
 

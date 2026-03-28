@@ -92,14 +92,6 @@ func (c Config) ColumnNames() []string {
 	return names
 }
 
-// builtinKeys is the set of single-character keys reserved for built-in navigation.
-var builtinKeys = map[string]bool{
-	"j": true, "k": true,
-	"q": true, "r": true, "n": true, "c": true, "p": true, "o": true,
-	"?": true,
-	"1": true, "2": true, "3": true, "4": true,
-	"5": true, "6": true, "7": true, "8": true, "9": true,
-}
 
 const DefaultLocalPath = ".lazyboards.yml"
 
@@ -295,13 +287,10 @@ var cardSpecificVarPattern = regexp.MustCompile(`\{(number|title|tags|session)\}
 // validateActions checks that all action definitions are well-formed.
 func validateActions(actions map[string]Action) error {
 	for key, action := range actions {
-		// Key must be a single character.
-		if len([]rune(key)) != 1 {
-			return fmt.Errorf("action key %q must be a single character", key)
-		}
-		// Key must not conflict with built-in keys.
-		if builtinKeys[key] {
-			return fmt.Errorf("action key %q conflicts with built-in key", key)
+		// Key must be a single uppercase letter A-Z.
+		runes := []rune(key)
+		if len(runes) != 1 || runes[0] < 'A' || runes[0] > 'Z' {
+			return fmt.Errorf("action key %q must be an uppercase letter (A-Z)", key)
 		}
 		// Name is required.
 		if strings.TrimSpace(action.Name) == "" {

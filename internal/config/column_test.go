@@ -34,7 +34,7 @@ columns:
   - name: New
   - name: Implementing
     actions:
-      b:
+      B:
         name: Create branch
         type: shell
         command: "git checkout -b {title}"
@@ -61,18 +61,18 @@ columns:
 	if len(result.Columns[1].Actions) != 1 {
 		t.Fatalf("Columns[1].Actions count = %d, want 1", len(result.Columns[1].Actions))
 	}
-	act, ok := result.Columns[1].Actions["b"]
+	act, ok := result.Columns[1].Actions["B"]
 	if !ok {
-		t.Fatal("Columns[1].Actions missing key 'b'")
+		t.Fatal("Columns[1].Actions missing key 'B'")
 	}
 	if act.Name != "Create branch" {
-		t.Errorf("Columns[1].Actions[b].Name = %q, want %q", act.Name, "Create branch")
+		t.Errorf("Columns[1].Actions[B].Name = %q, want %q", act.Name, "Create branch")
 	}
 	if act.Type != "shell" {
-		t.Errorf("Columns[1].Actions[b].Type = %q, want %q", act.Type, "shell")
+		t.Errorf("Columns[1].Actions[B].Type = %q, want %q", act.Type, "shell")
 	}
 	if act.Command != "git checkout -b {title}" {
-		t.Errorf("Columns[1].Actions[b].Command = %q, want %q", act.Command, "git checkout -b {title}")
+		t.Errorf("Columns[1].Actions[B].Command = %q, want %q", act.Command, "git checkout -b {title}")
 	}
 }
 
@@ -81,7 +81,7 @@ func TestLoad_ColumnActionInvalidType_ReturnsError(t *testing.T) {
 columns:
   - name: Implementing
     actions:
-      b:
+      B:
         name: Bad action
         type: webhook
         command: "echo hello"
@@ -97,40 +97,40 @@ columns:
 	}
 }
 
-func TestLoad_ColumnActionConflictsWithBuiltinKey_ReturnsError(t *testing.T) {
+func TestLoad_ColumnActionLowercaseKey_ReturnsError(t *testing.T) {
 	yamlContent := `provider: github
 columns:
   - name: Implementing
     actions:
       j:
-        name: Conflicting action
+        name: Lowercase action
         type: url
         url: "https://example.com"
 `
 
 	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
-		t.Fatal("Load() returned nil error, want error for column action with built-in key")
+		t.Fatal("Load() returned nil error, want error for column action with lowercase key")
 	}
 	errLower := strings.ToLower(err.Error())
-	if !strings.Contains(errLower, "conflict") && !strings.Contains(errLower, "built-in") {
-		t.Errorf("error = %q, want it to contain 'conflict' or 'built-in'", err.Error())
+	if !strings.Contains(errLower, "uppercase") {
+		t.Errorf("error = %q, want it to contain 'uppercase'", err.Error())
 	}
 }
 
 func TestLoad_ColumnActionValidKey_AcceptsGlobalActionOverlap(t *testing.T) {
-	// Column action key "b" overlaps with a global action key "b".
+	// Column action key "B" overlaps with a global action key "B".
 	// This should be allowed -- column overrides at runtime (PR 2).
 	yamlContent := `provider: github
 actions:
-  b:
+  B:
     name: Global open
     type: url
     url: "https://global.example.com"
 columns:
   - name: Implementing
     actions:
-      b:
+      B:
         name: Column open
         type: url
         url: "https://column.example.com"
@@ -332,7 +332,7 @@ func TestLoad_ColumnActionsMerge_LocalOverridesGlobal(t *testing.T) {
 columns:
   - name: Implementing
     actions:
-      b:
+      B:
         name: Create branch
         type: shell
         command: "git checkout -b {title}"
@@ -340,7 +340,7 @@ columns:
 	localYAML := `columns:
   - name: Implementing
     actions:
-      b:
+      B:
         name: Local branch
         type: shell
         command: "git switch -c {title}"
@@ -356,16 +356,16 @@ columns:
 	if len(col.Actions) != 1 {
 		t.Fatalf("Implementing actions count = %d, want 1", len(col.Actions))
 	}
-	act, ok := col.Actions["b"]
+	act, ok := col.Actions["B"]
 	if !ok {
-		t.Fatal("Implementing actions missing key 'b'")
+		t.Fatal("Implementing actions missing key 'B'")
 	}
-	// Local "b" should win over global "b".
+	// Local "B" should win over global "B".
 	if act.Name != "Local branch" {
-		t.Errorf("Actions[b].Name = %q, want %q (local should override global)", act.Name, "Local branch")
+		t.Errorf("Actions[B].Name = %q, want %q (local should override global)", act.Name, "Local branch")
 	}
 	if act.Command != "git switch -c {title}" {
-		t.Errorf("Actions[b].Command = %q, want %q (local should override global)", act.Command, "git switch -c {title}")
+		t.Errorf("Actions[B].Command = %q, want %q (local should override global)", act.Command, "git switch -c {title}")
 	}
 }
 
@@ -374,11 +374,11 @@ func TestLoad_ColumnActionsMerge_GlobalOnlyKeysPreserved(t *testing.T) {
 columns:
   - name: Implementing
     actions:
-      b:
+      B:
         name: Create branch
         type: shell
         command: "git checkout -b {title}"
-      d:
+      D:
         name: Delete branch
         type: shell
         command: "git branch -d {title}"
@@ -386,7 +386,7 @@ columns:
 	localYAML := `columns:
   - name: Implementing
     actions:
-      b:
+      B:
         name: Local branch
         type: shell
         command: "git switch -c {title}"
@@ -400,25 +400,25 @@ columns:
 
 	col := result.Columns[0]
 	if len(col.Actions) != 2 {
-		t.Fatalf("Implementing actions count = %d, want 2 (local 'b' + global 'd')", len(col.Actions))
+		t.Fatalf("Implementing actions count = %d, want 2 (local 'B' + global 'D')", len(col.Actions))
 	}
 
-	// "b" from local should win.
-	actB, ok := col.Actions["b"]
+	// "B" from local should win.
+	actB, ok := col.Actions["B"]
 	if !ok {
-		t.Fatal("Implementing actions missing key 'b'")
+		t.Fatal("Implementing actions missing key 'B'")
 	}
 	if actB.Name != "Local branch" {
-		t.Errorf("Actions[b].Name = %q, want %q (local should override)", actB.Name, "Local branch")
+		t.Errorf("Actions[B].Name = %q, want %q (local should override)", actB.Name, "Local branch")
 	}
 
-	// "d" from global should be preserved.
-	actD, ok := col.Actions["d"]
+	// "D" from global should be preserved.
+	actD, ok := col.Actions["D"]
 	if !ok {
-		t.Fatal("Implementing actions missing key 'd' (global-only key should be preserved)")
+		t.Fatal("Implementing actions missing key 'D' (global-only key should be preserved)")
 	}
 	if actD.Name != "Delete branch" {
-		t.Errorf("Actions[d].Name = %q, want %q (global-only key should be preserved)", actD.Name, "Delete branch")
+		t.Errorf("Actions[D].Name = %q, want %q (global-only key should be preserved)", actD.Name, "Delete branch")
 	}
 }
 
@@ -427,11 +427,11 @@ func TestLoad_ColumnActionsMerge_NilActionsInheritsGlobal(t *testing.T) {
 columns:
   - name: Implementing
     actions:
-      b:
+      B:
         name: Create branch
         type: shell
         command: "git checkout -b {title}"
-      d:
+      D:
         name: Delete branch
         type: shell
         command: "git branch -d {title}"
@@ -452,11 +452,11 @@ columns:
 	if len(col.Actions) != 2 {
 		t.Fatalf("Implementing actions count = %d, want 2 (should inherit both global actions)", len(col.Actions))
 	}
-	if _, ok := col.Actions["b"]; !ok {
-		t.Error("Implementing actions missing key 'b' (should be inherited from global)")
+	if _, ok := col.Actions["B"]; !ok {
+		t.Error("Implementing actions missing key 'B' (should be inherited from global)")
 	}
-	if _, ok := col.Actions["d"]; !ok {
-		t.Error("Implementing actions missing key 'd' (should be inherited from global)")
+	if _, ok := col.Actions["D"]; !ok {
+		t.Error("Implementing actions missing key 'D' (should be inherited from global)")
 	}
 }
 
@@ -465,7 +465,7 @@ func TestLoad_ColumnActionsMerge_EmptyActionsGetsNone(t *testing.T) {
 columns:
   - name: Implementing
     actions:
-      b:
+      B:
         name: Create branch
         type: shell
         command: "git checkout -b {title}"
@@ -494,7 +494,7 @@ func TestLoad_ColumnActionsMerge_NoGlobalMatch(t *testing.T) {
 columns:
   - name: Backlog
     actions:
-      b:
+      B:
         name: Global backlog action
         type: shell
         command: "echo backlog"
@@ -503,7 +503,7 @@ columns:
 	localYAML := `columns:
   - name: Custom
     actions:
-      x:
+      X:
         name: Custom action
         type: shell
         command: "echo custom"
@@ -524,11 +524,11 @@ columns:
 	if len(col.Actions) != 1 {
 		t.Fatalf("Custom actions count = %d, want 1", len(col.Actions))
 	}
-	if _, ok := col.Actions["x"]; !ok {
-		t.Error("Custom actions missing key 'x'")
+	if _, ok := col.Actions["X"]; !ok {
+		t.Error("Custom actions missing key 'X'")
 	}
-	if _, ok := col.Actions["b"]; ok {
-		t.Error("Custom actions should not have key 'b' from unmatched global column")
+	if _, ok := col.Actions["B"]; ok {
+		t.Error("Custom actions should not have key 'B' from unmatched global column")
 	}
 }
 
@@ -538,11 +538,11 @@ func TestLoad_ColumnActionsMerge_CaseInsensitiveMatch(t *testing.T) {
 columns:
   - name: implementing
     actions:
-      b:
+      B:
         name: Global branch
         type: shell
         command: "git checkout -b {title}"
-      d:
+      D:
         name: Delete branch
         type: shell
         command: "git branch -d {title}"
@@ -551,7 +551,7 @@ columns:
 	localYAML := `columns:
   - name: Implementing
     actions:
-      b:
+      B:
         name: Local branch
         type: shell
         command: "git switch -c {title}"
@@ -566,23 +566,23 @@ columns:
 	col := result.Columns[0]
 	// Should match case-insensitively and merge actions.
 	if len(col.Actions) != 2 {
-		t.Fatalf("Implementing actions count = %d, want 2 (local 'b' + global 'd' via case-insensitive match)", len(col.Actions))
+		t.Fatalf("Implementing actions count = %d, want 2 (local 'B' + global 'D' via case-insensitive match)", len(col.Actions))
 	}
 
-	actB, ok := col.Actions["b"]
+	actB, ok := col.Actions["B"]
 	if !ok {
-		t.Fatal("Implementing actions missing key 'b'")
+		t.Fatal("Implementing actions missing key 'B'")
 	}
 	if actB.Name != "Local branch" {
-		t.Errorf("Actions[b].Name = %q, want %q (local should override)", actB.Name, "Local branch")
+		t.Errorf("Actions[B].Name = %q, want %q (local should override)", actB.Name, "Local branch")
 	}
 
-	actD, ok := col.Actions["d"]
+	actD, ok := col.Actions["D"]
 	if !ok {
-		t.Fatal("Implementing actions missing key 'd' (global-only key should be preserved via case-insensitive match)")
+		t.Fatal("Implementing actions missing key 'D' (global-only key should be preserved via case-insensitive match)")
 	}
 	if actD.Name != "Delete branch" {
-		t.Errorf("Actions[d].Name = %q, want %q (global-only key should be preserved)", actD.Name, "Delete branch")
+		t.Errorf("Actions[D].Name = %q, want %q (global-only key should be preserved)", actD.Name, "Delete branch")
 	}
 }
 
@@ -591,7 +591,7 @@ func TestLoad_ColumnActionsMerge_GlobalColumnsWithActionsNoLocal(t *testing.T) {
 columns:
   - name: Implementing
     actions:
-      b:
+      B:
         name: Create branch
         type: shell
         command: "git checkout -b {title}"
@@ -616,12 +616,12 @@ columns:
 	if len(result.Columns[0].Actions) != 1 {
 		t.Fatalf("Implementing actions count = %d, want 1 (global actions should be preserved)", len(result.Columns[0].Actions))
 	}
-	act, ok := result.Columns[0].Actions["b"]
+	act, ok := result.Columns[0].Actions["B"]
 	if !ok {
-		t.Fatal("Implementing actions missing key 'b' (global actions should be preserved)")
+		t.Fatal("Implementing actions missing key 'B' (global actions should be preserved)")
 	}
 	if act.Name != "Create branch" {
-		t.Errorf("Actions[b].Name = %q, want %q (global actions should be preserved)", act.Name, "Create branch")
+		t.Errorf("Actions[B].Name = %q, want %q (global actions should be preserved)", act.Name, "Create branch")
 	}
 
 	if result.Columns[1].Name != "Done" {

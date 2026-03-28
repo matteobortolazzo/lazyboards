@@ -14,7 +14,7 @@ import (
 
 func TestAction_URLTriggersOpenURL(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"X": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
@@ -23,7 +23,7 @@ func TestAction_URLTriggersOpenURL(t *testing.T) {
 	expectedURL := fmt.Sprintf("https://example.com/%d", selectedCard.Number)
 
 	// Press the action key in normalMode.
-	b = sendKey(t, b, keyMsg("x"))
+	b = sendKey(t, b, keyMsg("X"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called, but no calls recorded")
@@ -35,7 +35,7 @@ func TestAction_URLTriggersOpenURL(t *testing.T) {
 
 func TestAction_ShellTriggersRunShell(t *testing.T) {
 	actions := map[string]config.Action{
-		"s": {Name: "Shell", Type: "shell", Command: "echo {title}"},
+		"S": {Name: "Shell", Type: "shell", Command: "echo {title}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
@@ -44,7 +44,7 @@ func TestAction_ShellTriggersRunShell(t *testing.T) {
 	expectedCmd := "echo " + action.ShellEscape(action.Slugify(selectedCard.Title))
 
 	// Press the action key in normalMode -- shell runs async via tea.Cmd.
-	m, cmd := b.Update(keyMsg("s"))
+	m, cmd := b.Update(keyMsg("S"))
 	b = m.(Board)
 	_ = b
 
@@ -61,13 +61,13 @@ func TestAction_ShellTriggersRunShell(t *testing.T) {
 
 func TestAction_IgnoredInCreateMode(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"X": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
 	// Enter createMode, then press the action key.
 	b = sendKey(t, b, keyMsg("n"))
-	b = sendKey(t, b, keyMsg("x"))
+	b = sendKey(t, b, keyMsg("X"))
 	_ = b
 
 	if len(fe.OpenURLCalls) != 0 {
@@ -77,14 +77,14 @@ func TestAction_IgnoredInCreateMode(t *testing.T) {
 
 func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"X": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, actions, nil, fe, "", "", "", 0, 0, 0, "Working", false, false)
 
 	// Board starts in loadingMode. Press the action key.
-	b = sendKey(t, b, keyMsg("x"))
+	b = sendKey(t, b, keyMsg("X"))
 	_ = b
 
 	if len(fe.OpenURLCalls) != 0 {
@@ -94,7 +94,7 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 
 func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"X": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -112,7 +112,7 @@ func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	b.Height = 40
 
 	// Press the action key with no cards in the column.
-	b = sendKey(t, b, keyMsg("x"))
+	b = sendKey(t, b, keyMsg("X"))
 	_ = b
 
 	if len(fe.OpenURLCalls) != 0 {
@@ -122,12 +122,12 @@ func TestAction_IgnoredWhenNoCards(t *testing.T) {
 
 func TestAction_ShellSuccess_ShowsDone(t *testing.T) {
 	actions := map[string]config.Action{
-		"s": {Name: "Shell", Type: "shell", Command: "echo {title}"},
+		"S": {Name: "Shell", Type: "shell", Command: "echo {title}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
 	// Trigger the shell action.
-	b = sendKey(t, b, keyMsg("s"))
+	b = sendKey(t, b, keyMsg("S"))
 
 	// Simulate the async result with success.
 	m, _ := b.Update(actionResultMsg{success: true, message: "Done"})
@@ -141,12 +141,12 @@ func TestAction_ShellSuccess_ShowsDone(t *testing.T) {
 
 func TestAction_ShellError_ShowsError(t *testing.T) {
 	actions := map[string]config.Action{
-		"s": {Name: "Shell", Type: "shell", Command: "failing-cmd"},
+		"S": {Name: "Shell", Type: "shell", Command: "failing-cmd"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
 	// Trigger the shell action.
-	b = sendKey(t, b, keyMsg("s"))
+	b = sendKey(t, b, keyMsg("S"))
 
 	// Simulate the async result with failure.
 	m, _ := b.Update(actionResultMsg{success: false, message: "Error: exit 1"})
@@ -160,7 +160,7 @@ func TestAction_ShellError_ShowsError(t *testing.T) {
 
 func TestAction_HintsShowInStatusBar(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"X": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
@@ -172,13 +172,13 @@ func TestAction_HintsShowInStatusBar(t *testing.T) {
 
 func TestAction_URLError_ShowsErrorInStatusBar(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"X": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 	fe.OpenURLErr = errors.New("failed to open browser")
 
 	// Press the action key.
-	m, cmd := b.Update(keyMsg("x"))
+	m, cmd := b.Update(keyMsg("X"))
 	b = m.(Board)
 
 	// Should return a cmd for the timed status message.
@@ -194,7 +194,7 @@ func TestAction_URLError_ShowsErrorInStatusBar(t *testing.T) {
 
 func TestAction_TemplateVarsExpanded(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Open", Type: "url", URL: "https://gh.com/{repo_owner}/{repo_name}/issues/{number}"},
+		"X": {Name: "Open", Type: "url", URL: "https://gh.com/{repo_owner}/{repo_name}/issues/{number}"},
 	}
 	cardNumber := 42
 	cardTitle := "Add custom actions"
@@ -206,7 +206,7 @@ func TestAction_TemplateVarsExpanded(t *testing.T) {
 	})
 
 	// Press the action key.
-	b = sendKey(t, b, keyMsg("x"))
+	b = sendKey(t, b, keyMsg("X"))
 	_ = b
 
 	expectedURL := fmt.Sprintf("https://gh.com/matteobortolazzo/lazyboards/issues/%d", cardNumber)
@@ -220,13 +220,13 @@ func TestAction_TemplateVarsExpanded(t *testing.T) {
 
 func TestAction_ColumnActionOverridesGlobal(t *testing.T) {
 	globalActions := map[string]config.Action{
-		"x": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
+		"X": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
 	}
 	columnConfigs := []config.ColumnConfig{
 		{
 			Name: "New",
 			Actions: map[string]config.Action{
-				"x": {Name: "Column Open", Type: "url", URL: "https://column.com/{number}"},
+				"X": {Name: "Column Open", Type: "url", URL: "https://column.com/{number}"},
 			},
 		},
 		{Name: "Refined"},
@@ -236,7 +236,7 @@ func TestAction_ColumnActionOverridesGlobal(t *testing.T) {
 	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
 
 	// Board starts on column 0 ("New") which has the column-level override.
-	sendKey(t, b, keyMsg("x"))
+	sendKey(t, b, keyMsg("X"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called, but no calls recorded")
@@ -249,10 +249,10 @@ func TestAction_ColumnActionOverridesGlobal(t *testing.T) {
 
 func TestAction_FallbackToGlobalWhenColumnHasNoAction(t *testing.T) {
 	globalActions := map[string]config.Action{
-		"x": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
+		"X": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
 	}
 	columnConfigs := []config.ColumnConfig{
-		{Name: "New"}, // No column-level actions for "x".
+		{Name: "New"}, // No column-level actions for "X".
 		{Name: "Refined"},
 		{Name: "Implementing"},
 		{Name: "Implemented"},
@@ -260,7 +260,7 @@ func TestAction_FallbackToGlobalWhenColumnHasNoAction(t *testing.T) {
 	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
 
 	// Board starts on column 0 ("New") which has no column-level actions.
-	sendKey(t, b, keyMsg("x"))
+	sendKey(t, b, keyMsg("X"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called via global fallback, but no calls recorded")
@@ -271,14 +271,14 @@ func TestAction_FallbackToGlobalWhenColumnHasNoAction(t *testing.T) {
 }
 
 func TestAction_ColumnActionOnlyFiresInMatchingColumn(t *testing.T) {
-	// No global action for key "x".
+	// No global action for key "X".
 	globalActions := map[string]config.Action{}
 	columnConfigs := []config.ColumnConfig{
 		{Name: "New"}, // No actions for column 0.
 		{
 			Name: "Refined",
 			Actions: map[string]config.Action{
-				"x": {Name: "Deploy", Type: "url", URL: "https://deploy.com/{number}"},
+				"X": {Name: "Deploy", Type: "url", URL: "https://deploy.com/{number}"},
 			},
 		},
 		{Name: "Implementing"},
@@ -286,15 +286,15 @@ func TestAction_ColumnActionOnlyFiresInMatchingColumn(t *testing.T) {
 	}
 	b, fe := newColumnActionTestBoard(t, globalActions, columnConfigs)
 
-	// Start on column 0 ("New"). Press "x" — should have no effect.
-	sendKey(t, b, keyMsg("x"))
+	// Start on column 0 ("New"). Press "X" — should have no effect.
+	sendKey(t, b, keyMsg("X"))
 	if len(fe.OpenURLCalls) != 0 {
 		t.Errorf("expected no OpenURL calls on column 0, got %d", len(fe.OpenURLCalls))
 	}
 
-	// Tab to column 1 ("Refined"). Press "x" — should trigger the deploy action.
+	// Tab to column 1 ("Refined"). Press "X" — should trigger the deploy action.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
-	sendKey(t, b, keyMsg("x"))
+	sendKey(t, b, keyMsg("X"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called on column 1 ('Refined'), but no calls recorded")
@@ -310,7 +310,7 @@ func TestAction_ColumnShellUsesShellEscape(t *testing.T) {
 		{
 			Name: "New",
 			Actions: map[string]config.Action{
-				"s": {Name: "Run", Type: "shell", Command: "echo {title}"},
+				"S": {Name: "Run", Type: "shell", Command: "echo {title}"},
 			},
 		},
 		{Name: "Refined"},
@@ -324,7 +324,7 @@ func TestAction_ColumnShellUsesShellEscape(t *testing.T) {
 	expectedCmd := "echo " + action.ShellEscape(action.Slugify(selectedCard.Title))
 
 	// Press the column shell action key.
-	m, cmd := b.Update(keyMsg("s"))
+	m, cmd := b.Update(keyMsg("S"))
 	b = m.(Board)
 	_ = b
 
@@ -341,7 +341,7 @@ func TestAction_ColumnShellUsesShellEscape(t *testing.T) {
 
 func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Open", Type: "url", URL: "https://example.com/search?tags={tags}"},
+		"X": {Name: "Open", Type: "url", URL: "https://example.com/search?tags={tags}"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -362,7 +362,7 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	b.Height = 40
 
 	// Press the action key.
-	b = sendKey(t, b, keyMsg("x"))
+	b = sendKey(t, b, keyMsg("X"))
 
 	// The tags value is "bug&fix,feature?v2" (joined with comma by BuildTemplateVars).
 	// After URL escaping, &, ?, and , should be percent-encoded.
@@ -383,7 +383,7 @@ func TestAction_CommentVariableExpansion(t *testing.T) {
 	// and the {comment} variable is expanded in the shell command via
 	// BuildTemplateVars (not manual post-injection).
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
@@ -391,8 +391,8 @@ func TestAction_CommentVariableExpansion(t *testing.T) {
 	col := b.Columns[b.ActiveTab]
 	selectedCard := col.Cards[col.Cursor]
 
-	// Press Alt+x to enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	// Press Alt+X to enter comment mode.
+	b = sendKey(t, b, altKeyMsg("X"))
 	if b.mode != commentMode {
 		t.Fatalf("expected commentMode after Alt+x, got mode = %d", b.mode)
 	}
@@ -425,91 +425,6 @@ func TestAction_CommentVariableExpansion(t *testing.T) {
 	}
 	if !strings.Contains(expandedCmd, expectedComment) {
 		t.Errorf("RunShell command = %q, want it to contain shell-escaped comment %q", expandedCmd, expectedComment)
-	}
-}
-
-// --- Repository Open (shift+o key) ---
-
-func TestRepoOpen_NormalMode_OpensRepoURL(t *testing.T) {
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
-	b = loadFromFakeProvider(t, b, p)
-
-	// Press "O" (shift+o) in normal mode to open the repository.
-	sendKey(t, b, keyMsg("O"))
-
-	expectedURL := "https://github.com/matteobortolazzo/lazyboards"
-	if len(fe.OpenURLCalls) == 0 {
-		t.Fatal("expected OpenURL to be called, but no calls recorded")
-	}
-	if fe.OpenURLCalls[0] != expectedURL {
-		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
-	}
-}
-
-func TestRepoOpen_NormalMode_NonGitHubProvider_ShowsMessage(t *testing.T) {
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, fe, "owner", "repo", "azure-devops", 0, 0, 0, "Working", false, false)
-	b = loadFromFakeProvider(t, b, p)
-
-	// Press "O" (shift+o) with a non-GitHub provider.
-	b = sendKey(t, b, keyMsg("O"))
-
-	view := b.View()
-	if !strings.Contains(view, "not available") {
-		t.Errorf("View() should contain %q for non-GitHub provider, got:\n%s", "not available", view)
-	}
-}
-
-func TestRepoOpen_NormalMode_MissingRepoInfo_ShowsMessage(t *testing.T) {
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, fe, "", "", "github", 0, 0, 0, "Working", false, false)
-	b = loadFromFakeProvider(t, b, p)
-
-	// Press "O" (shift+o) with missing repo owner/name.
-	b = sendKey(t, b, keyMsg("O"))
-
-	view := b.View()
-	if !strings.Contains(view, "not available") {
-		t.Errorf("View() should contain %q for missing repo info, got:\n%s", "not available", view)
-	}
-}
-
-func TestRepoOpen_DetailFocused_OpensRepoURL(t *testing.T) {
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
-	b = loadFromFakeProvider(t, b, p)
-
-	// Enter detail focus, then press "O" (shift+o) to open repo.
-	b = sendKey(t, b, keyMsg("l"))
-	sendKey(t, b, keyMsg("O"))
-
-	expectedURL := "https://github.com/matteobortolazzo/lazyboards"
-	if len(fe.OpenURLCalls) == 0 {
-		t.Fatal("expected OpenURL to be called from detail focus, but no calls recorded")
-	}
-	if fe.OpenURLCalls[0] != expectedURL {
-		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
-	}
-}
-
-func TestRepoOpen_OpenURLError_ShowsError(t *testing.T) {
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	fe.OpenURLErr = errors.New("browser not found")
-	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false)
-	b = loadFromFakeProvider(t, b, p)
-
-	// Press "O" (shift+o) with OpenURL error configured.
-	b = sendKey(t, b, keyMsg("O"))
-
-	view := b.View()
-	if !strings.Contains(view, "Error:") {
-		t.Errorf("View() after OpenURL error should contain %q, got:\n%s", "Error:", view)
 	}
 }
 
@@ -703,7 +618,7 @@ func TestTicketOpen_OpenHintVisibleWithCards(t *testing.T) {
 
 func TestAction_BoardScope_URLFiresWithEmptyColumn(t *testing.T) {
 	actions := map[string]config.Action{
-		"b": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
+		"B": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -721,7 +636,7 @@ func TestAction_BoardScope_URLFiresWithEmptyColumn(t *testing.T) {
 	b.Height = 40
 
 	// Press the board-scope action key.
-	b = sendKey(t, b, keyMsg("b"))
+	b = sendKey(t, b, keyMsg("B"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called for board-scope action on empty column, but no calls recorded")
@@ -734,12 +649,12 @@ func TestAction_BoardScope_URLFiresWithEmptyColumn(t *testing.T) {
 
 func TestAction_BoardScope_URLFiresWithCards(t *testing.T) {
 	actions := map[string]config.Action{
-		"b": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
+		"B": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
 	// Press the board-scope action key (column has cards from FakeProvider).
-	sendKey(t, b, keyMsg("b"))
+	sendKey(t, b, keyMsg("B"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called for board-scope action with cards, but no calls recorded")
@@ -754,11 +669,11 @@ func TestAction_BoardScope_UsesOnlyBoardVars(t *testing.T) {
 	// Use {number} in URL to verify board-scope does NOT expand card-specific vars.
 	// {number} should remain unexpanded (left as-is) because board vars don't include it.
 	actions := map[string]config.Action{
-		"b": {Name: "Open board", Type: "url", Scope: "board", URL: "https://example.com/{repo_owner}/{number}"},
+		"B": {Name: "Open board", Type: "url", Scope: "board", URL: "https://example.com/{repo_owner}/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
-	sendKey(t, b, keyMsg("b"))
+	sendKey(t, b, keyMsg("B"))
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called, but no calls recorded")
@@ -772,7 +687,7 @@ func TestAction_BoardScope_UsesOnlyBoardVars(t *testing.T) {
 
 func TestAction_BoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
 	actions := map[string]config.Action{
-		"s": {Name: "Deploy", Type: "shell", Scope: "board", Command: "deploy --repo {repo_owner}/{repo_name}"},
+		"S": {Name: "Deploy", Type: "shell", Scope: "board", Command: "deploy --repo {repo_owner}/{repo_name}"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -790,7 +705,7 @@ func TestAction_BoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
 	b.Height = 40
 
 	// Press the board-scope shell action key.
-	m2, cmd := b.Update(keyMsg("s"))
+	m2, cmd := b.Update(keyMsg("S"))
 	b = m2.(Board)
 
 	// Execute the returned cmd(s) to trigger RunShell.
@@ -809,7 +724,7 @@ func TestAction_BoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
 func TestAction_CardScope_StillIgnoredWhenNoCards(t *testing.T) {
 	// Explicit scope: card should preserve existing behavior: silently ignored when no cards.
 	actions := map[string]config.Action{
-		"x": {Name: "Open card", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
+		"X": {Name: "Open card", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -827,7 +742,7 @@ func TestAction_CardScope_StillIgnoredWhenNoCards(t *testing.T) {
 	b.Height = 40
 
 	// Press the card-scope action key with no cards.
-	b = sendKey(t, b, keyMsg("x"))
+	b = sendKey(t, b, keyMsg("X"))
 
 	if len(fe.OpenURLCalls) != 0 {
 		t.Errorf("expected no OpenURL calls for card-scope action on empty column, got %d", len(fe.OpenURLCalls))
@@ -838,7 +753,7 @@ func TestAction_CardScope_StillIgnoredWhenNoCards(t *testing.T) {
 
 func TestAction_BoardScopeHint_VisibleOnEmptyColumn(t *testing.T) {
 	actions := map[string]config.Action{
-		"b": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
+		"B": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -863,7 +778,7 @@ func TestAction_BoardScopeHint_VisibleOnEmptyColumn(t *testing.T) {
 
 func TestAction_CardScopeHint_HiddenOnEmptyColumn(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Card action", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
+		"X": {Name: "Card action", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -888,7 +803,7 @@ func TestAction_CardScopeHint_HiddenOnEmptyColumn(t *testing.T) {
 
 func TestAction_CardScopeHint_VisibleWithCards(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Card action", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
+		"X": {Name: "Card action", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
