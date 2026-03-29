@@ -421,7 +421,7 @@ func TestHelpContent_NormalModeIncludesSearchAndAssign(t *testing.T) {
 
 func TestHelpMode_ViewShowsCustomActions(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Deploy App", Type: "url", URL: "https://example.com/{number}"},
+		"X": {Name: "Deploy App", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 	b.Height = 120
@@ -443,7 +443,7 @@ func TestHelpMode_ViewShowsColumnActions(t *testing.T) {
 		{
 			Name: "New",
 			Actions: map[string]config.Action{
-				"d": {Name: "Deploy Column", Type: "url", URL: "https://deploy.com/{number}"},
+				"D": {Name: "Deploy Column", Type: "url", URL: "https://deploy.com/{number}"},
 			},
 		},
 		{Name: "Refined"},
@@ -504,8 +504,8 @@ func TestHelpMode_ViewShowsAltKeyInNormalMode(t *testing.T) {
 	b = sendKey(t, b, keyMsg("?"))
 	content := b.buildHelpContent()
 
-	if !strings.Contains(content, "alt+key") {
-		t.Error("buildHelpContent() Normal Mode should contain 'alt+key' entry")
+	if !strings.Contains(content, "alt+Shift+key") {
+		t.Error("buildHelpContent() Normal Mode should contain 'alt+Shift+key' entry")
 	}
 }
 

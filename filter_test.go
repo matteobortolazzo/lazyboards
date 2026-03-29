@@ -539,20 +539,20 @@ func TestFilter_ClearFilter_RestoresAllCards(t *testing.T) {
 	b.activeFilterType = filterByLabel
 	b.activeFilterValue = "bug"
 
-	// Press 'F' to clear the filter.
-	m, cmd := b.Update(keyMsg("F"))
+	// Press 'f' to clear the filter (toggle behavior: clears when active).
+	m, cmd := b.Update(keyMsg("f"))
 	b = m.(Board)
 
 	// The cmd should be non-nil (timed message).
 	if cmd == nil {
-		t.Error("'F' key should return a non-nil cmd for timed message")
+		t.Error("'f' key should return a non-nil cmd for timed message")
 	}
 
 	if b.activeFilterType != filterTypeNone {
-		t.Errorf("after 'F': activeFilterType = %d, want %d (filterTypeNone)", b.activeFilterType, filterTypeNone)
+		t.Errorf("after 'f': activeFilterType = %d, want %d (filterTypeNone)", b.activeFilterType, filterTypeNone)
 	}
 	if b.activeFilterValue != "" {
-		t.Errorf("after 'F': activeFilterValue = %q, want empty", b.activeFilterValue)
+		t.Errorf("after 'f': activeFilterValue = %q, want empty", b.activeFilterValue)
 	}
 
 	// All cards should now be returned.

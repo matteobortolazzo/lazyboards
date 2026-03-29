@@ -289,21 +289,38 @@ func TestFilterMode_EscapeReturnsToNormalMode(t *testing.T) {
 func TestFilterMode_EscapeDoesNotChangeFilter(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
-	// Set an active filter first.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
-
-	// Enter filter mode and press Escape.
+	// Enter filter mode first (no active filter).
 	b = sendKey(t, b, keyMsg("f"))
+	if b.mode != filterMode {
+		t.Fatalf("expected filterMode after 'f', got %d", b.mode)
+	}
+
+	// Select a filter item to set an active filter.
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.activeFilterValue == "" {
+		t.Fatal("expected active filter after selecting an item")
+	}
+	savedValue := b.activeFilterValue
+	savedType := b.activeFilterType
+
+	// Now clear filter with 'f' to get back to no-filter state.
+	b = sendKey(t, b, keyMsg("f"))
+
+	// Enter filter mode again (no active filter).
+	b = sendKey(t, b, keyMsg("f"))
+	if b.mode != filterMode {
+		t.Fatalf("expected filterMode after second 'f', got %d", b.mode)
+	}
+
+	// Press Escape to leave filter mode without selecting.
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
-	// Filter should remain unchanged.
-	if b.activeFilterValue != "bug" {
-		t.Errorf("after Escape: activeFilterValue = %q, want %q (should not change)", b.activeFilterValue, "bug")
+	// Filter should remain cleared (Escape does not change filter).
+	if b.activeFilterValue != "" {
+		t.Errorf("after Escape: activeFilterValue = %q, want empty (Escape should not change filter)", b.activeFilterValue)
 	}
-	if b.activeFilterType != filterByLabel {
-		t.Errorf("after Escape: activeFilterType changed, should not change")
-	}
+	_ = savedValue
+	_ = savedType
 }
 
 func TestFilterMode_EnterSelectsItemAndReturnsToNormalMode(t *testing.T) {
@@ -492,37 +509,52 @@ func TestFilterMode_SelectAssignee_SetsFilterByAssignee(t *testing.T) {
 
 // --- Clear filter tests ---
 
-func TestFilterMode_ShiftFClearsFilter(t *testing.T) {
+func TestFilterMode_FToggleClearsActiveFilter(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	// Set an active filter.
 	b.activeFilterType = filterByLabel
 	b.activeFilterValue = "bug"
 
-	b = sendKey(t, b, keyMsg("F"))
+	b = sendKey(t, b, keyMsg("f"))
 
 	if b.activeFilterValue != "" {
-		t.Errorf("after 'F': activeFilterValue = %q, want empty", b.activeFilterValue)
+		t.Errorf("after 'f' with active filter: activeFilterValue = %q, want empty", b.activeFilterValue)
 	}
 }
 
-func TestFilterMode_ShiftFShowsTimedMessage(t *testing.T) {
+func TestFilterMode_FToggleShowsTimedMessage(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	// Set an active filter.
 	b.activeFilterType = filterByLabel
 	b.activeFilterValue = "bug"
 
-	m, cmd := b.Update(keyMsg("F"))
+	m, cmd := b.Update(keyMsg("f"))
 	b = m.(Board)
 
 	// The command should be non-nil (timed message for "Filter cleared").
 	if cmd == nil {
-		t.Error("after 'F': expected non-nil cmd for timed message")
+		t.Error("after 'f' with active filter: expected non-nil cmd for timed message")
 	}
 
 	if b.statusBar.message == "" {
-		t.Error("after 'F': expected a status bar message about filter cleared")
+		t.Error("after 'f' with active filter: expected a status bar message about filter cleared")
+	}
+}
+
+func TestFilterMode_FToggleOpensPickerWhenNoFilter(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+
+	// Ensure no filter is active.
+	if b.activeFilterType != filterTypeNone {
+		t.Fatal("precondition: expected no active filter")
+	}
+
+	b = sendKey(t, b, keyMsg("f"))
+
+	if b.mode != filterMode {
+		t.Errorf("after 'f' with no active filter: mode = %d, want filterMode", b.mode)
 	}
 }
 
@@ -613,11 +645,14 @@ func TestFilterMode_ShowsFilterModeHints(t *testing.T) {
 func TestFilterMode_NormalModeHintsIncludeF(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
-	// Check that normal mode hints include a filter-related hint.
+	// Check that normal mode hints include a filter-related hint with "toggle".
 	foundFilter := false
 	for _, hint := range b.normalHints {
 		if hint.Key == "f" {
 			foundFilter = true
+			if !strings.Contains(strings.ToLower(hint.Desc), "toggle") {
+				t.Errorf("hint for 'f' should contain 'toggle', got %q", hint.Desc)
+			}
 			break
 		}
 	}
@@ -639,8 +674,8 @@ func TestFilterMode_HelpContentIncludesFilterSection(t *testing.T) {
 	if !strings.Contains(content, "f") {
 		t.Error("buildHelpContent() Filter section should mention 'f' key")
 	}
-	if !strings.Contains(content, "F") {
-		t.Error("buildHelpContent() Filter section should mention 'F' key")
+	if !strings.Contains(content, "toggle") {
+		t.Error("buildHelpContent() Filter section should mention 'toggle'")
 	}
 }
 

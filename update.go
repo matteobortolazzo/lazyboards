@@ -737,8 +737,6 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, cmd
 	case "o":
 		return b.handleTicketOpenKey()
-	case "O":
-		return b.handleRepoOpenKey()
 	case "l", "right":
 		b.detailFocused = true
 		b.statusBar.SetActionHints(detailFocusHints)
@@ -806,6 +804,12 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.statusBar.SetActionHints(assignModeHints)
 		return b, nil
 	case "f":
+		if b.activeFilterType != filterTypeNone {
+			b.clearFilter()
+			b.clampScrollOffset()
+			cmd := b.statusBar.SetTimedMessage("Filter cleared", StatusSuccess, statusMessageDuration)
+			return b, cmd
+		}
 		items := b.collectFilterItems()
 		if len(items) == 0 {
 			return b, nil
@@ -822,11 +826,6 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = filterMode
 		b.statusBar.SetActionHints(filterModeHints)
 		return b, nil
-	case "F":
-		b.clearFilter()
-		b.clampScrollOffset()
-		cmd := b.statusBar.SetTimedMessage("Filter cleared", StatusSuccess, statusMessageDuration)
-		return b, cmd
 	case "?":
 		b.helpFromDetailFocused = false
 		b.helpScrollOffset = 0
@@ -834,8 +833,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.statusBar.SetActionHints(helpModeHints)
 		return b, nil
 	default:
-		// Alt+key: check for comment mode trigger.
-		if msg.Alt && len(msg.Runes) == 1 {
+		// Alt+Shift+key: check for comment mode trigger (uppercase A-Z only).
+		if msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
 			baseKey := string(msg.Runes)
 			if act, ok := b.resolveAction(baseKey); ok {
 				template := act.URL + act.Command
@@ -882,16 +881,18 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return b, nil
 		}
-		// Check if it's a custom action key.
-		if act, ok := b.resolveAction(msg.String()); ok {
-			col := b.Columns[b.ActiveTab]
-			if act.Scope == "board" {
-				return b.handleBoardActionKey(act)
+		// Check if it's a custom action key (uppercase A-Z only).
+		if len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
+			if act, ok := b.resolveAction(msg.String()); ok {
+				col := b.Columns[b.ActiveTab]
+				if act.Scope == "board" {
+					return b.handleBoardActionKey(act)
+				}
+				if len(col.Cards) == 0 {
+					return b, nil
+				}
+				return b.handleActionKey(act, b.selectedCard())
 			}
-			if len(col.Cards) == 0 {
-				return b, nil
-			}
-			return b.handleActionKey(act, b.selectedCard())
 		}
 	}
 	return b, nil
@@ -1103,24 +1104,6 @@ func (b Board) handlePROpenKey(card Card) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (b Board) handleRepoOpenKey() (tea.Model, tea.Cmd) {
-	if b.providerName != "github" {
-		cmd := b.statusBar.SetTimedMessage("Repository URL not available for this provider", StatusWarning, statusMessageDuration)
-		return b, cmd
-	}
-	if b.repoOwner == "" || b.repoName == "" {
-		cmd := b.statusBar.SetTimedMessage("Repository info not available", StatusWarning, statusMessageDuration)
-		return b, cmd
-	}
-	url := "https://github.com/" + b.repoOwner + "/" + b.repoName
-	if err := b.executor.OpenURL(url); err != nil {
-		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
-		return b, cmd
-	}
-	cmd := b.statusBar.SetTimedMessage("Opened repository", StatusSuccess, statusMessageDuration)
-	return b, cmd
-}
-
 func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
 	if len(b.Columns) == 0 {
 		return b, nil
@@ -1191,8 +1174,6 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	case "o":
 		return b.handleTicketOpenKey()
-	case "O":
-		return b.handleRepoOpenKey()
 	case "?":
 		b.helpFromDetailFocused = true
 		b.detailFocused = false

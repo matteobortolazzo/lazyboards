@@ -19,12 +19,12 @@ func altKeyMsg(key string) tea.KeyMsg {
 func TestCommentMode_AltKeyEntersCommentMode(t *testing.T) {
 	// An action whose template contains {comment} should enter commentMode when Alt is held.
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
 	// Press Alt+x — should enter commentMode because the action uses {comment}.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	if b.mode != commentMode {
 		t.Errorf("after Alt+x on action with {comment}: mode = %d, want %d (commentMode)", b.mode, commentMode)
@@ -34,12 +34,12 @@ func TestCommentMode_AltKeyEntersCommentMode(t *testing.T) {
 func TestCommentMode_AltKeyWithoutComment_ExecutesNormally(t *testing.T) {
 	// An action without {comment} should execute normally even with Alt held.
 	actions := map[string]config.Action{
-		"x": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"X": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
 	// Press Alt+x on an action without {comment} — should execute the action, not enter commentMode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	if b.mode == commentMode {
 		t.Error("Alt+key on action without {comment} should NOT enter commentMode")
@@ -52,12 +52,12 @@ func TestCommentMode_AltKeyWithoutComment_ExecutesNormally(t *testing.T) {
 func TestCommentMode_RegularKeyOnCommentAction_ExecutesImmediately(t *testing.T) {
 	// A regular key (no Alt) on an action with {comment} should execute immediately.
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
-	// Press x (no Alt) — should execute immediately, not enter commentMode.
-	m, cmd := b.Update(keyMsg("x"))
+	// Press X (no Alt) — should execute immediately, not enter commentMode.
+	m, cmd := b.Update(keyMsg("X"))
 	b = m.(Board)
 	execCmds(cmd)
 
@@ -69,12 +69,12 @@ func TestCommentMode_RegularKeyOnCommentAction_ExecutesImmediately(t *testing.T)
 func TestCommentMode_BoardScopeAction(t *testing.T) {
 	// An Alt+key on a board-scope action with {comment} should set boardScope=true.
 	actions := map[string]config.Action{
-		"x": {Name: "Deploy Note", Type: "shell", Scope: "board", Command: "deploy --comment {comment}"},
+		"X": {Name: "Deploy Note", Type: "shell", Scope: "board", Command: "deploy --comment {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
 	// Press Alt+x on a board-scope action.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	if b.mode != commentMode {
 		t.Errorf("after Alt+x on board-scope action with {comment}: mode = %d, want %d (commentMode)", b.mode, commentMode)
@@ -88,7 +88,7 @@ func TestCommentMode_StoresPendingAction(t *testing.T) {
 	// commentState should store the correct pending action and card info.
 	actionName := "Annotate"
 	actions := map[string]config.Action{
-		"x": {Name: actionName, Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: actionName, Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
@@ -97,7 +97,7 @@ func TestCommentMode_StoresPendingAction(t *testing.T) {
 	expectedCard := col.Cards[col.Cursor]
 
 	// Press Alt+x.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	if b.comment.pendingAction.Name != actionName {
 		t.Errorf("comment.pendingAction.Name = %q, want %q", b.comment.pendingAction.Name, actionName)
@@ -114,14 +114,14 @@ func TestCommentMode_StoresPendingAction(t *testing.T) {
 
 func TestCommentMode_ViewShowsModal(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 	b.Width = 120
 	b.Height = 40
 
 	// Enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	view := b.View()
 	if !strings.Contains(view, "Annotate") {
@@ -131,14 +131,14 @@ func TestCommentMode_ViewShowsModal(t *testing.T) {
 
 func TestCommentMode_ViewShowsHints(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 	b.Width = 120
 	b.Height = 40
 
 	// Enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	view := b.View()
 	if !strings.Contains(view, "Cancel") {
@@ -153,12 +153,12 @@ func TestCommentMode_ViewShowsHints(t *testing.T) {
 
 func TestCommentMode_Escape_ReturnsToNormalMode(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
 	// Enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 	if b.mode != commentMode {
 		t.Fatalf("expected commentMode after Alt+x, got mode = %d", b.mode)
 	}
@@ -173,12 +173,12 @@ func TestCommentMode_Escape_ReturnsToNormalMode(t *testing.T) {
 
 func TestCommentMode_Enter_SubmitsAndReturnsToNormalMode(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
 	// Enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	// Type a comment.
 	for _, ch := range "my comment text" {
@@ -206,12 +206,12 @@ func TestCommentMode_Enter_SubmitsAndReturnsToNormalMode(t *testing.T) {
 
 func TestCommentMode_TypingUpdatesInput(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
 	// Enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	// Type characters.
 	for _, ch := range "hello" {
@@ -225,12 +225,12 @@ func TestCommentMode_TypingUpdatesInput(t *testing.T) {
 
 func TestCommentMode_InputResetOnReopen(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
 	// Enter comment mode and type something.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 	for _, ch := range "old text" {
 		b = sendKey(t, b, keyMsg(string(ch)))
 	}
@@ -239,7 +239,7 @@ func TestCommentMode_InputResetOnReopen(t *testing.T) {
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
 	// Re-enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	if b.comment.input.Value() != "" {
 		t.Errorf("comment.input.Value() after reopen = %q, want empty string (should reset on reopen)", b.comment.input.Value())
@@ -250,12 +250,12 @@ func TestCommentMode_InputResetOnReopen(t *testing.T) {
 
 func TestCommentMode_Enter_URLAction_ExpandsComment(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate URL", Type: "url", URL: "https://example.com/{number}?comment={comment}"},
+		"X": {Name: "Annotate URL", Type: "url", URL: "https://example.com/{number}?comment={comment}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
 	// Enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	// Type a comment.
 	for _, ch := range "test comment" {
@@ -276,12 +276,12 @@ func TestCommentMode_Enter_URLAction_ExpandsComment(t *testing.T) {
 
 func TestCommentMode_Enter_ShellAction_ShellEscapesComment(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "echo {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "echo {comment}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
 	// Enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	// Type text that would be dangerous without shell escaping.
 	dangerousText := "hello; rm -rf /"
@@ -307,12 +307,12 @@ func TestCommentMode_Enter_ShellAction_ShellEscapesComment(t *testing.T) {
 
 func TestCommentMode_CtrlCQuits(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
 	// Enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	// Ctrl+C should still quit.
 	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
@@ -323,13 +323,13 @@ func TestCommentMode_CtrlCQuits(t *testing.T) {
 
 func TestCommentMode_BlocksNavigation(t *testing.T) {
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 	requireColumns(t, b)
 
 	// Enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	origTab := b.ActiveTab
 	origCursor := b.Columns[b.ActiveTab].Cursor
@@ -353,12 +353,12 @@ func TestCommentMode_EmptyCommentStillSubmits(t *testing.T) {
 	// An empty comment is valid — the user may want to pass an empty string.
 	// The action should execute with {comment} expanded to an empty shell-escaped value.
 	actions := map[string]config.Action{
-		"x": {Name: "Annotate", Type: "shell", Command: "echo {comment}"},
+		"X": {Name: "Annotate", Type: "shell", Command: "echo {comment}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
 	// Enter comment mode.
-	b = sendKey(t, b, altKeyMsg("x"))
+	b = sendKey(t, b, altKeyMsg("X"))
 
 	// Press Enter without typing anything.
 	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
