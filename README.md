@@ -4,6 +4,8 @@ A terminal Kanban board inspired by [lazygit](https://github.com/jesseduffield/l
 
 Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss](https://github.com/charmbracelet/lipgloss).
 
+![lazyboards demo](docs/demo.gif)
+
 ## Features
 
 - Vim-style navigation across columns and cards
