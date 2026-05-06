@@ -59,6 +59,29 @@ func TestSearchMode_Escape_ExitsAndClearsQuery(t *testing.T) {
 	}
 }
 
+func TestSearchMode_Enter_ExitsAndPreservesQuery(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	b = sendKey(t, b, keyMsg("/"))
+	for _, ch := range "bug" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	if b.mode != normalMode {
+		t.Errorf("after Enter in search mode: mode = %d, want %d (normalMode)", b.mode, normalMode)
+	}
+	if b.searchQuery != "bug" {
+		t.Errorf("after Enter in search mode: searchQuery = %q, want %q", b.searchQuery, "bug")
+	}
+	if b.searchInput.Focused() {
+		t.Error("after Enter in search mode: search input is still focused")
+	}
+}
+
 func TestSearchMode_Tab_ExitsAndSwitchesColumn(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
@@ -310,6 +333,39 @@ func TestSearchMode_JK_NavigatesFilteredCards(t *testing.T) {
 	b = sendKey(t, b, keyMsg("k"))
 	if b.Columns[b.ActiveTab].Cursor < 0 {
 		t.Errorf("cursor = %d after k, want >= 0", b.Columns[b.ActiveTab].Cursor)
+	}
+}
+
+func TestSearchMode_Enter_AllowsNormalNavigationAndTicketOpen(t *testing.T) {
+	firstURL := "https://github.com/owner/repo/issues/1"
+	secondURL := "https://github.com/owner/repo/issues/3"
+	cards := []provider.Card{
+		{Number: 1, Title: "Bug: first", Labels: []provider.Label{{Name: "bug"}}, URL: firstURL},
+		{Number: 2, Title: "Feature: skipped", Labels: []provider.Label{{Name: "feature"}}, URL: "https://github.com/owner/repo/issues/2"},
+		{Number: 3, Title: "Bug: second", Labels: []provider.Label{{Name: "bug"}}, URL: secondURL},
+	}
+	b, fe := newActionTestBoardWithColumns(t, nil, []provider.Column{
+		{Title: "Column A", Cards: cards},
+	})
+
+	b = sendKey(t, b, keyMsg("/"))
+	for _, ch := range "Bug" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	b = sendKey(t, b, keyMsg("j"))
+
+	if got := b.selectedCard().Number; got != 3 {
+		t.Fatalf("after applying search and pressing j: selected card #%d, want #3", got)
+	}
+
+	b = sendKey(t, b, keyMsg("o"))
+
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
+	}
+	if fe.OpenURLCalls[0] != secondURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], secondURL)
 	}
 }
 

@@ -304,6 +304,7 @@ Press `?` at any time to open the in-app help popup.
 
 | Key | Action |
 |-----|--------|
+| `Enter` | Apply search |
 | `Esc` | Clear search |
 
 ### Assign

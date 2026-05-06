@@ -112,6 +112,7 @@ var detailFocusHints = []Hint{
 
 // searchModeHints are the status bar hints shown when search mode is active.
 var searchModeHints = []Hint{
+	{Key: "enter", Desc: "Apply"},
 	{Key: "esc", Desc: "Clear"},
 }
 
@@ -722,17 +723,33 @@ func mapProviderCard(c provider.Card) Card {
 }
 
 // selectedCard returns the card currently under the cursor, accounting for
-// active global filter. When a filter is active, the cursor indexes into
-// the filtered list; otherwise it indexes into the raw column cards.
+// active search and global filters. When either is active, the cursor indexes
+// into the filtered list; otherwise it indexes into the raw column cards.
 func (b *Board) selectedCard() Card {
-	col := b.Columns[b.ActiveTab]
-	if b.activeFilterType != filterTypeNone {
-		filtered := b.filteredCards()
-		if col.Cursor < len(filtered) {
-			return filtered[col.Cursor]
-		}
+	cards := b.visibleCards()
+	if len(cards) == 0 {
+		return Card{}
 	}
-	return col.Cards[col.Cursor]
+	cursor := b.Columns[b.ActiveTab].Cursor
+	if cursor >= len(cards) {
+		return cards[len(cards)-1]
+	}
+	if cursor < 0 {
+		return cards[0]
+	}
+	return cards[cursor]
+}
+
+// visibleCards returns the active column's cards after applying any active
+// search query or global filter.
+func (b *Board) visibleCards() []Card {
+	if len(b.Columns) == 0 || b.ActiveTab < 0 || b.ActiveTab >= len(b.Columns) {
+		return nil
+	}
+	if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
+		return b.filteredCards()
+	}
+	return b.Columns[b.ActiveTab].Cards
 }
 
 // matchesGlobalFilter returns true if a card matches the active global filter.

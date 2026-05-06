@@ -854,6 +854,7 @@ var helpSections = []helpSection{
 		{"esc", "Cancel"},
 	}},
 	{"Search", [][2]string{
+		{"enter", "Apply search"},
 		{"esc", "Clear search"},
 	}},
 	{"Assign", [][2]string{

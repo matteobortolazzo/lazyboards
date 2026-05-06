@@ -195,6 +195,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+
 func (b Board) handleRefreshTick() (tea.Model, tea.Cmd) {
 	if b.refreshInterval <= 0 {
 		return b, nil
@@ -707,8 +708,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(b.Columns) == 0 {
 			return b, nil
 		}
-		col := b.Columns[b.ActiveTab]
-		if len(col.Cards) == 0 {
+		if len(b.visibleCards()) == 0 {
 			return b, nil
 		}
 		return b, openEditorCmd(b.selectedCard())
@@ -725,8 +725,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(b.Columns) == 0 {
 			return b, nil
 		}
-		col := b.Columns[b.ActiveTab]
-		if len(col.Cards) == 0 {
+		if len(b.visibleCards()) == 0 {
 			return b, nil
 		}
 		return b.handlePROpenKey(b.selectedCard())
@@ -747,7 +746,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "j", "down":
 		col := &b.Columns[b.ActiveTab]
 		maxIdx := len(col.Cards) - 1
-		if b.activeFilterType != filterTypeNone {
+		if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
 			maxIdx = len(b.filteredCards()) - 1
 		}
 		if col.Cursor < maxIdx {
@@ -848,10 +847,9 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						pendingAction: act,
 						boardScope:    act.Scope == "board",
 					}
-					// Store pending card if card-scope; refuse if column is empty.
+					// Store pending card if card-scope; refuse if no card is visible.
 					if act.Scope != "board" {
-						col := b.Columns[b.ActiveTab]
-						if len(col.Cards) == 0 {
+						if len(b.visibleCards()) == 0 {
 							return b, nil
 						}
 						b.comment.pendingCard = b.selectedCard()
@@ -861,11 +859,10 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return b, b.comment.input.Focus()
 				}
 				// Alt on action without {comment} -- execute normally.
-				col := b.Columns[b.ActiveTab]
 				if act.Scope == "board" {
 					return b.handleBoardActionKey(act)
 				}
-				if len(col.Cards) == 0 {
+				if len(b.visibleCards()) == 0 {
 					return b, nil
 				}
 				return b.handleActionKey(act, b.selectedCard())
@@ -884,11 +881,10 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Check if it's a custom action key (uppercase A-Z only).
 		if len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
 			if act, ok := b.resolveAction(msg.String()); ok {
-				col := b.Columns[b.ActiveTab]
 				if act.Scope == "board" {
 					return b.handleBoardActionKey(act)
 				}
-				if len(col.Cards) == 0 {
+				if len(b.visibleCards()) == 0 {
 					return b, nil
 				}
 				return b.handleActionKey(act, b.selectedCard())
@@ -1108,8 +1104,7 @@ func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
 	if len(b.Columns) == 0 {
 		return b, nil
 	}
-	col := b.Columns[b.ActiveTab]
-	if len(col.Cards) == 0 {
+	if len(b.visibleCards()) == 0 {
 		return b, nil
 	}
 	card := b.selectedCard()
@@ -1160,8 +1155,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		return b, tea.Quit
 	case "e":
-		col := b.Columns[b.ActiveTab]
-		if len(col.Cards) == 0 {
+		if len(b.visibleCards()) == 0 {
 			return b, nil
 		}
 		return b, openEditorCmd(b.selectedCard())
@@ -1203,8 +1197,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // scrollDetailDown increments the detail panel scroll offset by one line,
 // respecting the rendered content height and panel dimensions.
 func (b *Board) scrollDetailDown() {
-	col := b.Columns[b.ActiveTab]
-	if len(col.Cards) == 0 {
+	if len(b.visibleCards()) == 0 {
 		return
 	}
 	card := b.selectedCard()
@@ -1242,6 +1235,13 @@ func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEsc:
 		b.clearSearch()
 		b.mode = normalMode
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyEnter:
+		b.searchInput.Blur()
+		b.mode = normalMode
+		b.clampScrollOffset()
 		b.rebuildNormalHints()
 		b.statusBar.SetActionHints(b.normalHints)
 		return b, nil
@@ -1415,7 +1415,7 @@ func (b Board) handleMouseScroll(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Button == tea.MouseButtonWheelDown {
 			maxIdx := len(col.Cards) - 1
-			if b.activeFilterType != filterTypeNone {
+			if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
 				maxIdx = len(b.filteredCards()) - 1
 			}
 			if col.Cursor < maxIdx {
@@ -1500,9 +1500,9 @@ func (b Board) handleCardClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	col := &b.Columns[b.ActiveTab]
 
-	// Use filtered cards when a filter is active.
+	// Use filtered cards when search or a filter is active.
 	cards := col.Cards
-	if b.activeFilterType != filterTypeNone {
+	if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
 		cards = b.filteredCards()
 	}
 	if len(cards) == 0 {
@@ -1540,4 +1540,3 @@ func (b Board) handleCardClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	return b, nil
 }
-
