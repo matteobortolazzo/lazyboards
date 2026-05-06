@@ -101,6 +101,26 @@ func TestView_IsNotEmpty(t *testing.T) {
 	}
 }
 
+func TestView_LeavesBottomRowFreeForOuterBorderVisibility(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	view := b.View()
+	lines := strings.Split(view, "\n")
+
+	if got, want := len(lines), b.Height-1; got != want {
+		t.Fatalf("View() rendered %d lines, want %d so the terminal bottom row stays free", got, want)
+	}
+	lastLine := lines[len(lines)-1]
+	if lipgloss.Width(lastLine) != b.Width {
+		t.Fatalf("bottom border width = %d, want %d", lipgloss.Width(lastLine), b.Width)
+	}
+	if !strings.Contains(lastLine, "\u2570") || !strings.Contains(lastLine, "\u256f") {
+		t.Fatalf("last rendered line should be the outer bottom border, got %q", lastLine)
+	}
+}
+
 func TestView_NoScrollIndicators_WhenAllCardsFit(t *testing.T) {
 	cardCount := 3
 	height := cardCount + 6 + 10 // plenty of room

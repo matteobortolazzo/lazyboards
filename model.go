@@ -571,7 +571,7 @@ func (b *Board) recalcCreateInputs() {
 }
 
 // layoutDimensions computes the panel layout dimensions.
-// panelHeight = terminal height - outer border (2) - help bar (1) - panel borders (2) = Height - 5.
+// panelHeight = terminal height - outer border (2) - help bar (1) - panel borders (2) - bottom row guard (1) = Height - 6.
 // leftContentWidth = left panel content area (40% of inner width, minus border).
 // rightContentWidth = right panel content area (remaining width, minus border).
 func (b Board) layoutDimensions() (panelHeight, leftContentWidth, rightContentWidth int) {
@@ -580,7 +580,7 @@ func (b Board) layoutDimensions() (panelHeight, leftContentWidth, rightContentWi
 	leftContentWidth = leftTotal - 2
 	rightTotal := innerWidth - leftTotal
 	rightContentWidth = rightTotal - 2
-	panelHeight = b.Height - 5
+	panelHeight = b.Height - 6
 	if panelHeight < 1 {
 		panelHeight = 1
 	}
