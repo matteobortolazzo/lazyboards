@@ -31,9 +31,15 @@ var (
 	helpStyle                = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	prIndicatorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 	workingIndicatorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
-	cardNumberStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	hintKeyStyle             = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-	hintDescStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	// Agent status badge styles (agentwatch card badges).
+	agentRunningStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))
+	agentDoneStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
+	agentStoppedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	agentNeedInputStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Reverse(true).Bold(true)
+	agentFailedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	cardNumberStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	hintKeyStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	hintDescStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	// Status bar message styles use a dedicated renderer with forced ANSI256
 	// so that colored messages always render, even in non-TTY environments.
 	statusRenderer     = newStatusRenderer()
@@ -1022,6 +1028,16 @@ func (b Board) agentStatusFor(card Card) *watch.WindowState {
 		}
 	}
 	return nil
+}
+
+// agentBadgeFor returns the fixed-width badge text for the card's live agent
+// window, or "" when there is no match or the status is idle/unknown.
+func (b Board) agentBadgeFor(card Card) string {
+	ws := b.agentStatusFor(card)
+	if ws == nil {
+		return ""
+	}
+	return agentBadgeText(ws.Status, ws.Agent)
 }
 
 func (b Board) Init() tea.Cmd {

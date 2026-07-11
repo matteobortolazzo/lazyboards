@@ -1572,7 +1572,7 @@ func (b Board) handleCardClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Iterate through visible cards to find which card was clicked.
 	currentY := contentStartY
 	for i := col.ScrollOffset; i < len(cards); i++ {
-		lines := cardLineCount(cards[i], leftContentWidth, columnNames, b.workingLabel)
+		lines := cardLineCount(cards[i], leftContentWidth, columnNames, b.workingLabel, b.agentBadgeFor(cards[i]))
 		if msg.Y >= currentY && msg.Y < currentY+lines {
 			col.Cursor = i
 			b.detailScrollOffset = 0
