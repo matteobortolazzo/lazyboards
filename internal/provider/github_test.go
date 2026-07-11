@@ -1447,6 +1447,9 @@ func TestGitHubCreateLabel_AlreadyExists(t *testing.T) {
 	if !strings.Contains(err.Error(), "already exists") {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), "already exists")
 	}
+	if !errors.Is(err, ErrLabelExists) {
+		t.Errorf("error = %v, want it to wrap ErrLabelExists", err)
+	}
 }
 
 // --- Assignee Extraction Tests ---
