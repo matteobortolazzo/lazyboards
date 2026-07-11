@@ -88,6 +88,64 @@ func TestStatusBar_HintsUpdateOnColumnSwitch(t *testing.T) {
 	}
 }
 
+// hintIndex returns the position of the first hint with the given key, or -1.
+func hintIndex(hints []Hint, key string) int {
+	for i, h := range hints {
+		if h.Key == key {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestHelpHint_PresentAndLeftmostOnNewBoard(t *testing.T) {
+	b := newTestBoard(t)
+
+	help := hintIndex(b.normalHints, "?")
+	if help == -1 {
+		t.Fatalf("normalHints should contain a %q hint, got: %+v", "?", b.normalHints)
+	}
+	if b.normalHints[help].Desc != "Help" {
+		t.Errorf("? hint Desc = %q, want %q", b.normalHints[help].Desc, "Help")
+	}
+	if e := hintIndex(b.normalHints, "e"); e != -1 && help > e {
+		t.Errorf("? hint (index %d) should appear before e (index %d)", help, e)
+	}
+	if n := hintIndex(b.normalHints, "n"); n != -1 && help > n {
+		t.Errorf("? hint (index %d) should appear before n (index %d)", help, n)
+	}
+}
+
+func TestHelpHint_SurvivesRebuildAfterFetch(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	help := hintIndex(b.normalHints, "?")
+	if help == -1 {
+		t.Fatalf("after board fetch, normalHints should contain a %q hint, got: %+v", "?", b.normalHints)
+	}
+	// It must be leftmost so it survives left-to-right truncation on narrow bars.
+	if help != 0 {
+		t.Errorf("? hint should be leftmost (index 0), got index %d: %+v", help, b.normalHints)
+	}
+	for _, key := range []string{"e", "n"} {
+		if i := hintIndex(b.normalHints, key); i != -1 && help > i {
+			t.Errorf("? hint (index %d) should appear before %q (index %d)", help, key, i)
+		}
+	}
+}
+
+func TestHelpHint_PresentWhenCardSelected(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	requireColumns(t, b)
+
+	// Move the cursor to select a card, then rebuild hints.
+	b = sendKey(t, b, keyMsg("j"))
+
+	if hintIndex(b.normalHints, "?") == -1 {
+		t.Errorf("with a card selected, normalHints should contain a %q hint, got: %+v", "?", b.normalHints)
+	}
+}
+
 func TestStatusBar_ColumnOnlyActionAppearsOnlyInColumn(t *testing.T) {
 	// No global action for "X".
 	globalActions := map[string]config.Action{}
