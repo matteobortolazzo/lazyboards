@@ -17,7 +17,7 @@ func TestStatusBar_ViewShowsHints(t *testing.T) {
 		{Key: "q", Desc: "Quit"},
 	}
 	sb := NewStatusBar(hints)
-	view := sb.View(200)
+	view := sb.View(200, 0, 0)
 
 	// Each hint's key and description should appear in the rendered output.
 	for _, h := range hints {
@@ -37,7 +37,7 @@ func TestStatusBar_ViewShowsHints(t *testing.T) {
 
 func TestStatusBar_EmptyHints_RendersEmpty(t *testing.T) {
 	sb := NewStatusBar(nil)
-	view := sb.View(200)
+	view := sb.View(200, 0, 0)
 	if strings.TrimSpace(view) != "" {
 		t.Errorf("View() with no hints = %q, want empty or whitespace-only string", view)
 	}
@@ -53,7 +53,7 @@ func TestStatusBar_TimedMessage_OverridesHints(t *testing.T) {
 	}
 	sb := NewStatusBar(hints)
 	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
-	view := sb.View(200)
+	view := sb.View(200, 0, 0)
 
 	if !strings.Contains(view, "Board refreshed") {
 		t.Errorf("View() = %q, want it to contain %q", view, "Board refreshed")
@@ -73,7 +73,7 @@ func TestStatusBar_ClearMessage_RestoresHints(t *testing.T) {
 	sb := NewStatusBar(hints)
 	sb.SetTimedMessage("Temporary message", StatusInfo, 3*time.Second)
 	sb.ClearMessage()
-	view := sb.View(200)
+	view := sb.View(200, 0, 0)
 
 	if strings.Contains(view, "Temporary message") {
 		t.Errorf("View() = %q, should NOT contain message after ClearMessage()", view)
@@ -96,7 +96,7 @@ func TestStatusBar_SetTimedMessage_ReturnsCmd(t *testing.T) {
 func TestStatusBar_TimedMessage_ErrorLevel_RendersRed(t *testing.T) {
 	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
 	sb.SetTimedMessage("Refresh failed", StatusError, 3*time.Second)
-	view := sb.View(200)
+	view := sb.View(200, 0, 0)
 
 	// The message text must appear in the output.
 	if !strings.Contains(view, "Refresh failed") {
@@ -112,7 +112,7 @@ func TestStatusBar_TimedMessage_ErrorLevel_RendersRed(t *testing.T) {
 func TestStatusBar_TimedMessage_WarningLevel_RendersYellow(t *testing.T) {
 	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
 	sb.SetTimedMessage("No linked PRs", StatusWarning, 3*time.Second)
-	view := sb.View(200)
+	view := sb.View(200, 0, 0)
 
 	// The message text must appear in the output.
 	if !strings.Contains(view, "No linked PRs") {
@@ -128,7 +128,7 @@ func TestStatusBar_TimedMessage_WarningLevel_RendersYellow(t *testing.T) {
 func TestStatusBar_TimedMessage_SuccessLevel_RendersGreen(t *testing.T) {
 	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
 	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
-	view := sb.View(200)
+	view := sb.View(200, 0, 0)
 
 	// The message text must appear in the output.
 	if !strings.Contains(view, "Board refreshed") {
@@ -144,7 +144,7 @@ func TestStatusBar_TimedMessage_SuccessLevel_RendersGreen(t *testing.T) {
 func TestStatusBar_TimedMessage_InfoLevel_RendersUnstyled(t *testing.T) {
 	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
 	sb.SetTimedMessage("Running...", StatusInfo, 3*time.Second)
-	view := sb.View(200)
+	view := sb.View(200, 0, 0)
 
 	// Info-level messages should be returned as raw text without styling.
 	if view != "Running..." {
@@ -166,7 +166,7 @@ func TestStatusBar_SetActionHints_OverridesDefaults(t *testing.T) {
 		{Key: "enter", Desc: "Submit"},
 	}
 	sb.SetActionHints(newHints)
-	view := sb.View(200)
+	view := sb.View(200, 0, 0)
 
 	// New hint keys and descriptions should be visible.
 	if !strings.Contains(view, "esc") {
@@ -212,7 +212,7 @@ func TestStatusBar_ViewTruncatesHintsAtWidth(t *testing.T) {
 	// Use a width that fits 2 hints + ellipsis but not the 3rd hint.
 	width := twoHintsWidth + ellipsisWidth + 1
 
-	view := sb.View(width)
+	view := sb.View(width, 0, 0)
 
 	// First 2 hints' keys and descriptions should appear.
 	if !strings.Contains(view, hints[0].Key) {
@@ -247,7 +247,7 @@ func TestStatusBar_ViewNoTruncationWhenAllFit(t *testing.T) {
 	sb := NewStatusBar(hints)
 
 	// Use a large width where all hints easily fit.
-	view := sb.View(200)
+	view := sb.View(200, 0, 0)
 
 	// All hint keys and descriptions should appear.
 	for _, h := range hints {
@@ -270,7 +270,7 @@ func TestStatusBar_ViewTimedMessageIgnoresWidth(t *testing.T) {
 	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
 
 	// Call with a tiny width -- the timed message should still appear in full.
-	view := sb.View(1)
+	view := sb.View(1, 0, 0)
 
 	if !strings.Contains(view, "Board refreshed") {
 		t.Errorf("View(1) = %q, want it to contain timed message %q regardless of width", view, "Board refreshed")
@@ -298,7 +298,7 @@ func TestStatusBar_ViewTruncatedOutputFitsWithinWidth(t *testing.T) {
 	// appended to hint0, and the combined output exceeds width.
 	width := hint0Width + ellipsisWidth - 1
 
-	view := sb.View(width)
+	view := sb.View(width, 0, 0)
 	viewWidth := lipgloss.Width(view)
 
 	if viewWidth > width {
@@ -308,10 +308,133 @@ func TestStatusBar_ViewTruncatedOutputFitsWithinWidth(t *testing.T) {
 
 func TestStatusBar_ViewEmptyHintsWithWidth(t *testing.T) {
 	sb := NewStatusBar(nil)
-	view := sb.View(50)
+	view := sb.View(50, 0, 0)
 
 	if strings.TrimSpace(view) != "" {
 		t.Errorf("View(50) with no hints = %q, want empty or whitespace-only string", view)
+	}
+}
+
+// --- StatusBar: Agent-status count prefix (#259) ---
+
+func TestStatusBar_ViewAgentPrefix_RunningCountShown(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 2, 0)
+
+	if !strings.Contains(view, "▶2") {
+		t.Errorf("View() = %q, want running token %q", view, "▶2")
+	}
+	if strings.Contains(view, "‼") {
+		t.Errorf("View() = %q, should NOT contain need_input symbol when needInput=0", view)
+	}
+}
+
+func TestStatusBar_ViewAgentPrefix_NeedInputCountShown(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 0, 3)
+
+	if !strings.Contains(view, "‼3") {
+		t.Errorf("View() = %q, want need_input token %q", view, "‼3")
+	}
+	if strings.Contains(view, "▶") {
+		t.Errorf("View() = %q, should NOT contain running symbol when running=0", view)
+	}
+}
+
+func TestStatusBar_ViewAgentPrefix_BothCountsAndSeparator(t *testing.T) {
+	// A single hint has no internal separator, so any "|" present must come
+	// from the prefix's trailing separator.
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 2, 1)
+
+	if !strings.Contains(view, "▶2") {
+		t.Errorf("View() = %q, want running token %q", view, "▶2")
+	}
+	if !strings.Contains(view, "‼1") {
+		t.Errorf("View() = %q, want need_input token %q", view, "‼1")
+	}
+	if !strings.Contains(view, "|") {
+		t.Errorf("View() = %q, want a separator between the prefix and hints", view)
+	}
+	// The running token must precede the need_input token, which must precede
+	// the hint key.
+	if strings.Index(view, "▶2") > strings.Index(view, "‼1") {
+		t.Errorf("View() = %q, want running token before need_input token", view)
+	}
+	if strings.Index(view, "‼1") > strings.Index(view, "Quit") {
+		t.Errorf("View() = %q, want prefix before the hints", view)
+	}
+}
+
+func TestStatusBar_ViewAgentPrefix_BothZeroOmitsPrefixAndSeparator(t *testing.T) {
+	// A single hint has no internal separator, so with zero counts there must
+	// be no "|" at all (the prefix and its separator are omitted).
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 0, 0)
+
+	if strings.Contains(view, "▶") || strings.Contains(view, "‼") {
+		t.Errorf("View() = %q, want no agent symbols when both counts are zero", view)
+	}
+	if strings.Contains(view, "|") {
+		t.Errorf("View() = %q, want no prefix separator when both counts are zero", view)
+	}
+}
+
+func TestStatusBar_ViewAgentPrefix_ShownWithTimedMessage(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetTimedMessage("Opened PR #10", StatusSuccess, 3*time.Second)
+	view := sb.View(200, 2, 1)
+
+	// The prefix stays visible even while a timed message is active.
+	if !strings.Contains(view, "▶2") || !strings.Contains(view, "‼1") {
+		t.Errorf("View() = %q, want agent counts visible alongside a timed message", view)
+	}
+	if !strings.Contains(view, "Opened PR #10") {
+		t.Errorf("View() = %q, want the timed message to remain visible", view)
+	}
+	// The prefix precedes the message.
+	if strings.Index(view, "▶2") > strings.Index(view, "Opened PR #10") {
+		t.Errorf("View() = %q, want the prefix before the timed message", view)
+	}
+}
+
+func TestStatusBar_ViewAgentPrefix_ReducesHintWidth(t *testing.T) {
+	hints := []Hint{
+		{Key: "a", Desc: "Alpha"},
+		{Key: "b", Desc: "Bravo"},
+		{Key: "c", Desc: "Charlie"},
+	}
+	sb := NewStatusBar(hints)
+
+	// Width that fits every hint exactly when there is no prefix.
+	var rendered []string
+	for _, h := range hints {
+		rendered = append(rendered, hintKeyStyle.Render(h.Key)+hintDescStyle.Render(": "+h.Desc))
+	}
+	separator := hintDescStyle.Render(" | ")
+	fullWidth := lipgloss.Width(strings.Join(rendered, separator))
+
+	// Without a prefix all hints fit: no truncation.
+	noPrefix := sb.View(fullWidth, 0, 0)
+	if strings.Contains(noPrefix, "...") {
+		t.Fatalf("View(%d, 0, 0) = %q, want all hints to fit (test setup)", fullWidth, noPrefix)
+	}
+	if !strings.Contains(noPrefix, "Charlie") {
+		t.Fatalf("View(%d, 0, 0) = %q, want last hint present (test setup)", fullWidth, noPrefix)
+	}
+
+	// With a prefix and the SAME width, the prefix consumes hint space, so the
+	// last hint must be truncated away.
+	withPrefix := sb.View(fullWidth, 5, 0)
+	if lipgloss.Width(withPrefix) > fullWidth {
+		t.Errorf("View(%d, 5, 0) rendered width = %d, exceeds allowed width; output = %q",
+			fullWidth, lipgloss.Width(withPrefix), withPrefix)
+	}
+	if strings.Contains(withPrefix, "Charlie") {
+		t.Errorf("View(%d, 5, 0) = %q, want the last hint truncated once the prefix consumes width", fullWidth, withPrefix)
+	}
+	if !strings.Contains(withPrefix, "...") {
+		t.Errorf("View(%d, 5, 0) = %q, want a truncation indicator", fullWidth, withPrefix)
 	}
 }
 
@@ -326,7 +449,7 @@ func TestStatusBar_ViewFirstHintDoesNotFit(t *testing.T) {
 	hint0 := hintKeyStyle.Render(hints[0].Key) + hintDescStyle.Render(": "+hints[0].Desc)
 	width := lipgloss.Width(hint0) - 1
 
-	view := sb.View(width)
+	view := sb.View(width, 0, 0)
 
 	// With such a narrow width, " ..." should appear as a truncation indicator.
 	if !strings.Contains(view, "...") {

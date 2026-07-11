@@ -185,6 +185,13 @@ const (
 	agentWatchMaxBackoff     = 30 * time.Second
 )
 
+// Agent window status values reported by the agentwatch daemon (plain strings).
+// Only the two surfaced as status-bar counts are named here.
+const (
+	agentStatusRunning   = "running"
+	agentStatusNeedInput = "need_input"
+)
+
 // filterType represents the category of a filter selection.
 type filterType int
 
@@ -1038,6 +1045,30 @@ func (b Board) agentBadgeFor(card Card) string {
 		return ""
 	}
 	return agentBadgeText(ws.Status, ws.Agent)
+}
+
+// agentCounts returns how many cards on the current board have a live agent
+// window in the running / need_input states. Counts are board-scoped: only
+// windows that join to a visible card (via agentStatusFor) contribute, keeping
+// the status-bar summary consistent with the per-card badges. When no snapshot
+// is stored (agentwatch off/absent), agentStatusFor returns nil for every card
+// and both counts are naturally zero.
+func (b Board) agentCounts() (running, needInput int) {
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			ws := b.agentStatusFor(card)
+			if ws == nil {
+				continue
+			}
+			switch ws.Status {
+			case agentStatusRunning:
+				running++
+			case agentStatusNeedInput:
+				needInput++
+			}
+		}
+	}
+	return
 }
 
 func (b Board) Init() tea.Cmd {
