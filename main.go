@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v68/github"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/auth"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
@@ -93,7 +94,7 @@ func main() {
 	// First-launch flow: show config popup when no local config exists
 	// and git detection didn't provide both provider and repo.
 	if !config.LocalExists(config.DefaultLocalPath) && (prov == "" || repo == "") {
-		board := NewBoard(nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, 0, config.DefaultWorkingLabel, false, true)
+		board := NewBoard(nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, 0, config.DefaultWorkingLabel, false, true, nil)
 		p := tea.NewProgram(board, tea.WithAltScreen())
 		m, err := p.Run()
 		if err != nil {
@@ -172,7 +173,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	board := NewBoard(bp, cfg.Actions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false)
+	var watcher agentwatch.Watcher
+	if cfg.AgentWatchValue() {
+		watcher = agentwatch.NewSocketWatcher()
+	}
+
+	board := NewBoard(bp, cfg.Actions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher)
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.MouseValue() {

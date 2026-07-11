@@ -473,3 +473,71 @@ func TestMouseValue_ExplicitTrueReturnsTrue(t *testing.T) {
 		t.Error("MouseValue() = false when Mouse is explicitly true, want true")
 	}
 }
+
+// --- AgentWatch config tests (#257) ---
+
+func TestLoad_AgentWatch_ParsesFromYAML(t *testing.T) {
+	yamlContent := "provider: github\nagentwatch: false\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	if result.AgentWatch == nil {
+		t.Fatal("AgentWatch should not be nil when set in config")
+	}
+	if *result.AgentWatch != false {
+		t.Errorf("AgentWatch = %v, want false", *result.AgentWatch)
+	}
+	if result.AgentWatchValue() {
+		t.Error("AgentWatchValue() = true when agentwatch is explicitly false, want false")
+	}
+}
+
+func TestLoad_AgentWatch_DefaultsWhenOmitted(t *testing.T) {
+	yamlContent := "provider: github\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	if result.AgentWatch != nil {
+		t.Errorf("AgentWatch should be nil when omitted, got %v", *result.AgentWatch)
+	}
+	if !result.AgentWatchValue() {
+		t.Error("AgentWatchValue() = false when omitted, want true (default)")
+	}
+}
+
+func TestLoad_AgentWatch_LocalOverridesGlobal(t *testing.T) {
+	globalYAML := "provider: github\nagentwatch: false\n"
+	localYAML := "agentwatch: true\n"
+
+	result := mustLoadConfig(t, globalYAML, localYAML)
+
+	if result.AgentWatch == nil {
+		t.Fatal("AgentWatch should not be nil when set in local config")
+	}
+	if !*result.AgentWatch {
+		t.Error("AgentWatch = false, want true (local should override global)")
+	}
+}
+
+func TestAgentWatchValue_NilDefaultsToTrue(t *testing.T) {
+	cfg := Config{}
+	if !cfg.AgentWatchValue() {
+		t.Error("AgentWatchValue() = false when AgentWatch is nil, want true (agentwatch enabled by default)")
+	}
+}
+
+func TestAgentWatchValue_ExplicitFalseReturnsFalse(t *testing.T) {
+	enabled := false
+	cfg := Config{AgentWatch: &enabled}
+	if cfg.AgentWatchValue() {
+		t.Error("AgentWatchValue() = true when AgentWatch is explicitly false, want false")
+	}
+}
+
+func TestAgentWatchValue_ExplicitTrueReturnsTrue(t *testing.T) {
+	enabled := true
+	cfg := Config{AgentWatch: &enabled}
+	if !cfg.AgentWatchValue() {
+		t.Error("AgentWatchValue() = false when AgentWatch is explicitly true, want true")
+	}
+}
