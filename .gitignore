@@ -1,6 +1,9 @@
 # Worktrees
 .worktrees/
 
+# Ephemeral plan files (session-specific)
+.plans/
+
 # Binaries
 *.exe
 *.exe~

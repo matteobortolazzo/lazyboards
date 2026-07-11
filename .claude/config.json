@@ -1,19 +1,21 @@
 {
-  "ticketSystem": "github",
-  "prSystem": "github",
-  "ticketPrefix": "#",
   "branchPattern": "feature/<id>-<description>",
   "stack": {
     "backend": "go-bubbletea",
     "frontend": null,
     "testing": ["go-test"]
   },
-  "sandboxEnabled": true,
   "claudeMdLocation": ".claude/CLAUDE.md",
   "mcpServers": {
     "context7": true
   },
   "lspServers": {
     "gopls": true
+  },
+  "autoCompactDisabled": true,
+  "pinSubagents200K": false,
+  "cicd": {
+    "enabled": true,
+    "platform": "github-actions"
   }
 }
