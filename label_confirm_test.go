@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -350,6 +351,75 @@ func TestLabelConfirm_LabelCreateError_CancelsEdit(t *testing.T) {
 	view := b.View()
 	if !strings.Contains(strings.ToLower(view), "error") {
 		t.Errorf("View() after label create error should contain error message")
+	}
+}
+
+func TestLabelConfirm_LabelAlreadyExists_CompletesUpdate(t *testing.T) {
+	// A labelCreateErrorMsg wrapping provider.ErrLabelExists is benign: the label
+	// already exists, so the edit should complete (as if creation succeeded)
+	// rather than aborting the whole card update.
+	b := newBoardWithCustomCard(t, "Card One", []provider.Label{{Name: "bug"}}, "body")
+	card := b.Columns[0].Cards[0]
+	originalContent := composeFrontmatter(card.Title, []string{"bug"}, card.Body)
+	editedContent := composeFrontmatter("Card One", []string{"bug", "planned"}, "body")
+
+	// Enter labelConfirmMode.
+	msg := editorFinishedMsg{
+		editedContent:   editedContent,
+		originalContent: originalContent,
+		card:            card,
+	}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+
+	// Press 'y' to attempt creation.
+	m, _ = b.Update(keyMsg("y"))
+	b = m.(Board)
+
+	// The create fails with "already exists" — this is the only unknown label, so
+	// the board should return to normalMode and issue the update command.
+	alreadyExists := fmt.Errorf("label %q already exists: %w", "planned", provider.ErrLabelExists)
+	m, cmd := b.Update(labelCreateErrorMsg{err: alreadyExists})
+	b = m.(Board)
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d after already-exists label, want normalMode", b.mode)
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd (updateCardCmd) after already-exists label")
+	}
+}
+
+func TestLabelConfirm_NonSentinelError_DoesNotUpdate(t *testing.T) {
+	// A genuine (non-ErrLabelExists) create error must abort the edit: no update
+	// command, error shown, mode back to normal.
+	b := newBoardWithCustomCard(t, "Card One", []provider.Label{{Name: "bug"}}, "body")
+	card := b.Columns[0].Cards[0]
+	originalContent := composeFrontmatter(card.Title, []string{"bug"}, card.Body)
+	editedContent := composeFrontmatter("Card One", []string{"bug", "planned"}, "body")
+
+	msg := editorFinishedMsg{
+		editedContent:   editedContent,
+		originalContent: originalContent,
+		card:            card,
+	}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+
+	m, _ = b.Update(keyMsg("y"))
+	b = m.(Board)
+
+	m, cmd := b.Update(labelCreateErrorMsg{err: errSentinel("network down")})
+	b = m.(Board)
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d after create error, want normalMode", b.mode)
+	}
+	// Execute the returned cmd and ensure it produced no cardUpdatedMsg-style update.
+	execCmds(cmd)
+	view := b.View()
+	if !strings.Contains(strings.ToLower(view), "error") {
+		t.Errorf("View() after non-sentinel create error should contain error message, got:\n%s", view)
 	}
 }
 

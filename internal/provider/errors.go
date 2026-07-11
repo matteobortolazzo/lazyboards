@@ -8,6 +8,11 @@ import (
 	"github.com/google/go-github/v68/github"
 )
 
+// ErrLabelExists is returned (wrapped) by CreateLabel when the label already
+// exists in the repository. Callers can use errors.Is to treat this as a
+// benign, idempotent success rather than a failure.
+var ErrLabelExists = errors.New("label already exists")
+
 // statusDescriptions maps HTTP status codes to user-friendly descriptions.
 var statusDescriptions = map[int]string{
 	http.StatusUnauthorized:        "unauthorized",

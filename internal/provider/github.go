@@ -389,7 +389,7 @@ func (g *GitHubProvider) CreateLabel(ctx context.Context, name string) error {
 	if err != nil {
 		var ghErr *github.ErrorResponse
 		if errors.As(err, &ghErr) && ghErr.Response != nil && ghErr.Response.StatusCode == 422 {
-			return fmt.Errorf("label %q already exists", name)
+			return fmt.Errorf("label %q already exists: %w", name, ErrLabelExists)
 		}
 		return err
 	}

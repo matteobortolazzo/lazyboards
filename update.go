@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -119,6 +120,11 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.handleLabelCreated()
 
 	case labelCreateErrorMsg:
+		// An "already exists" result is benign: the label is present in the repo,
+		// so treat it as a successful creation and continue the card update.
+		if errors.Is(msg.err, provider.ErrLabelExists) {
+			return b.handleLabelCreated()
+		}
 		b.mode = normalMode
 		cmd := b.statusBar.SetTimedMessage("Error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
 		return b, cmd
