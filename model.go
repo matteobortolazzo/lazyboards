@@ -251,6 +251,8 @@ type boardFetchedMsg struct {
 	collaborators     []provider.Assignee
 	authenticatedUser string
 	collaboratorErr   error
+	repoLabels        []string
+	labelErr          error
 }
 
 // boardFetchErrorMsg is sent when the provider fails to fetch board data.
@@ -407,6 +409,7 @@ type Board struct {
 	activeFilterValue      string
 	collaborators     []Assignee
 	authenticatedUser string
+	repoLabels        []string
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
@@ -956,6 +959,11 @@ func (b *Board) collectKnownLabels() map[string]bool {
 				known[strings.ToLower(label.Name)] = true
 			}
 		}
+	}
+	// Include the repository's full label set so labels that exist but are not
+	// attached to any visible card are still recognized as known.
+	for _, name := range b.repoLabels {
+		known[strings.ToLower(name)] = true
 	}
 	return known
 }

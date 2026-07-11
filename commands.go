@@ -30,10 +30,15 @@ func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
 			user string
 			err  error
 		}
+		type labelResult struct {
+			labels []string
+			err    error
+		}
 
 		boardCh := make(chan boardResult, 1)
 		collabCh := make(chan collabResult, 1)
 		authCh := make(chan authResult, 1)
+		labelCh := make(chan labelResult, 1)
 
 		go func() {
 			board, err := p.FetchBoard(context.Background())
@@ -47,6 +52,10 @@ func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
 			user, err := p.GetAuthenticatedUser(context.Background())
 			authCh <- authResult{user: user, err: err}
 		}()
+		go func() {
+			labels, err := p.ListLabels(context.Background())
+			labelCh <- labelResult{labels: labels, err: err}
+		}()
 
 		br := <-boardCh
 		if br.err != nil {
@@ -55,6 +64,7 @@ func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
 
 		cr := <-collabCh
 		ar := <-authCh
+		lr := <-labelCh
 
 		msg := boardFetchedMsg{board: br.board}
 
@@ -66,6 +76,12 @@ func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
 
 		if ar.err == nil {
 			msg.authenticatedUser = ar.user
+		}
+
+		if lr.err == nil {
+			msg.repoLabels = lr.labels
+		} else {
+			msg.labelErr = lr.err
 		}
 
 		return msg

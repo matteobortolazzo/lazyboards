@@ -34,6 +34,7 @@ type GitHubClient interface {
 	Create(ctx context.Context, owner string, repo string, issue *github.IssueRequest) (*github.Issue, *github.Response, error)
 	Edit(ctx context.Context, owner string, repo string, number int, issue *github.IssueRequest) (*github.Issue, *github.Response, error)
 	CreateLabel(ctx context.Context, owner string, repo string, label *github.Label) (*github.Label, *github.Response, error)
+	ListLabels(ctx context.Context, owner string, repo string, opts *github.ListOptions) ([]*github.Label, *github.Response, error)
 	ListIssueTimeline(ctx context.Context, owner string, repo string, number int, opts *github.ListOptions) ([]*github.Timeline, *github.Response, error)
 	ListCollaborators(ctx context.Context, owner string, repo string, opts *github.ListCollaboratorsOptions) ([]*github.User, *github.Response, error)
 	GetUser(ctx context.Context, user string) (*github.User, *github.Response, error)
@@ -355,6 +356,30 @@ func (g *GitHubProvider) FetchCollaborators(ctx context.Context) ([]Assignee, er
 		allCollaborators = []Assignee{}
 	}
 	return allCollaborators, nil
+}
+
+// ListLabels returns the names of every label defined in the repository,
+// paginating through all pages.
+func (g *GitHubProvider) ListLabels(ctx context.Context) ([]string, error) {
+	var allLabels []string
+	opts := &github.ListOptions{PerPage: 100}
+	for {
+		labels, resp, err := g.client.ListLabels(ctx, g.owner, g.repo, opts)
+		if err != nil {
+			return nil, err
+		}
+		for _, label := range labels {
+			allLabels = append(allLabels, label.GetName())
+		}
+		if resp == nil || resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+	if allLabels == nil {
+		allLabels = []string{}
+	}
+	return allLabels, nil
 }
 
 // SetAssignees atomically replaces the assignees on a GitHub issue.

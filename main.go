@@ -41,6 +41,10 @@ func (c *gitHubClient) CreateLabel(ctx context.Context, owner string, repo strin
 	return c.issues.CreateLabel(ctx, owner, repo, label)
 }
 
+func (c *gitHubClient) ListLabels(ctx context.Context, owner string, repo string, opts *github.ListOptions) ([]*github.Label, *github.Response, error) {
+	return c.issues.ListLabels(ctx, owner, repo, opts)
+}
+
 func (c *gitHubClient) ListIssueTimeline(ctx context.Context, owner string, repo string, number int, opts *github.ListOptions) ([]*github.Timeline, *github.Response, error) {
 	return c.issues.ListIssueTimeline(ctx, owner, repo, number, opts)
 }

@@ -130,6 +130,18 @@ func TestCollectKnownLabels_CaseInsensitive(t *testing.T) {
 	}
 }
 
+func TestCollectKnownLabels_IncludesRepoLabels(t *testing.T) {
+	// A repo label that is not attached to any visible card must still be
+	// considered known, so it is never flagged as needing creation.
+	b := newBoardWithCustomCard(t, "Card", []provider.Label{{Name: "bug"}}, "body")
+	b.repoLabels = []string{"Planned"}
+
+	known := b.collectKnownLabels()
+	if !known["planned"] {
+		t.Error("collectKnownLabels should include repoLabels (lowercased) not present on any card")
+	}
+}
+
 // --- Editor Finished with Label Validation ---
 
 func TestEditMode_AllLabelsKnown_ProceedsToUpdate(t *testing.T) {
@@ -153,6 +165,31 @@ func TestEditMode_AllLabelsKnown_ProceedsToUpdate(t *testing.T) {
 	}
 	if updated.mode == labelConfirmMode {
 		t.Error("should NOT enter labelConfirmMode when all labels are known")
+	}
+}
+
+func TestEditMode_RepoLabelOnly_ProceedsToUpdate(t *testing.T) {
+	// A label that exists in the repo but is not on any visible card must not
+	// trigger the "create it?" prompt — the edit should go straight to update.
+	b := newBoardWithCustomCard(t, "Card One", []provider.Label{{Name: "bug"}}, "body")
+	b.repoLabels = []string{"planned"}
+	card := b.Columns[0].Cards[0]
+	originalContent := composeFrontmatter(card.Title, []string{"bug"}, card.Body)
+	editedContent := composeFrontmatter("Card One", []string{"bug", "planned"}, "body")
+
+	msg := editorFinishedMsg{
+		editedContent:   editedContent,
+		originalContent: originalContent,
+		card:            card,
+	}
+	m, cmd := b.Update(msg)
+	updated := m.(Board)
+
+	if updated.mode == labelConfirmMode {
+		t.Error("should NOT enter labelConfirmMode for a label that exists in repoLabels")
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd (updateCardCmd) for a known repo label")
 	}
 }
 

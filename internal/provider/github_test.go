@@ -29,6 +29,8 @@ type mockGitHubClient struct {
 	authenticatedUser *github.User     // returned by GetUser
 	authUserErr       error            // returned by GetUser
 	capturedEditReq   *github.IssueRequest // captured from Edit for assertion
+	labels            []*github.Label  // returned by ListLabels
+	labelsErr         error            // returned by ListLabels
 }
 
 func (m *mockGitHubClient) ListByRepo(
@@ -94,6 +96,15 @@ func (m *mockGitHubClient) GetUser(
 	_ string,
 ) (*github.User, *github.Response, error) {
 	return m.authenticatedUser, nil, m.authUserErr
+}
+
+func (m *mockGitHubClient) ListLabels(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ *github.ListOptions,
+) ([]*github.Label, *github.Response, error) {
+	return m.labels, nil, m.labelsErr
 }
 
 // makeIssue builds a github.Issue with the given number, title, and label names.
@@ -1449,6 +1460,72 @@ func TestGitHubCreateLabel_AlreadyExists(t *testing.T) {
 	}
 	if !errors.Is(err, ErrLabelExists) {
 		t.Errorf("error = %v, want it to wrap ErrLabelExists", err)
+	}
+}
+
+// pagedLabelsMockClient returns labels across multiple pages to exercise the
+// pagination loop in ListLabels.
+type pagedLabelsMockClient struct {
+	mockGitHubClient
+	pages [][]*github.Label
+	call  int
+}
+
+func (m *pagedLabelsMockClient) ListLabels(
+	_ context.Context,
+	_ string,
+	_ string,
+	_ *github.ListOptions,
+) ([]*github.Label, *github.Response, error) {
+	if m.call >= len(m.pages) {
+		return nil, &github.Response{}, nil
+	}
+	page := m.pages[m.call]
+	m.call++
+	resp := &github.Response{}
+	if m.call < len(m.pages) {
+		// More pages remain; advertise the next page number (1-indexed).
+		resp.NextPage = m.call + 1
+	}
+	return page, resp, nil
+}
+
+func TestGitHubListLabels_PaginatesAndExtractsNames(t *testing.T) {
+	client := &pagedLabelsMockClient{
+		pages: [][]*github.Label{
+			{{Name: github.Ptr("bug")}, {Name: github.Ptr("feature")}},
+			{{Name: github.Ptr("planned")}},
+		},
+	}
+	p := NewGitHubProvider(client, "owner", "repo", []string{"New"})
+
+	labels, err := p.ListLabels(context.Background())
+	if err != nil {
+		t.Fatalf("ListLabels returned error: %v", err)
+	}
+
+	want := []string{"bug", "feature", "planned"}
+	if len(labels) != len(want) {
+		t.Fatalf("got %d labels %v, want %d %v", len(labels), labels, len(want), want)
+	}
+	for i, name := range want {
+		if labels[i] != name {
+			t.Errorf("labels[%d] = %q, want %q", i, labels[i], name)
+		}
+	}
+}
+
+func TestGitHubListLabels_APIError(t *testing.T) {
+	apiErrMsg := "boom"
+	client := &mockGitHubClient{labelsErr: errors.New(apiErrMsg)}
+	p := NewGitHubProvider(client, "owner", "repo", []string{"New"})
+
+	_, err := p.ListLabels(context.Background())
+	if err == nil {
+		t.Fatal("expected error from ListLabels, got nil")
+	}
+	if !strings.Contains(err.Error(), apiErrMsg) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
 	}
 }
 
