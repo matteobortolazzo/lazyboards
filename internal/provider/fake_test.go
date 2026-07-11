@@ -285,6 +285,53 @@ func TestFakeProvider_CreateLabel(t *testing.T) {
 	}
 }
 
+// --- ListLabels Tests ---
+
+func TestFakeProvider_ListLabels_IncludesOnCardAndExtraLabels(t *testing.T) {
+	fp := NewFakeProvider()
+
+	labels, err := fp.ListLabels(context.Background())
+	if err != nil {
+		t.Fatalf("ListLabels returned error: %v", err)
+	}
+
+	labelSet := make(map[string]bool, len(labels))
+	for _, l := range labels {
+		labelSet[l] = true
+	}
+
+	// Every label attached to a card must appear in the repo label set.
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	onCard := make(map[string]bool)
+	for _, col := range board.Columns {
+		for _, card := range col.Cards {
+			for _, l := range card.Labels {
+				onCard[l.Name] = true
+				if !labelSet[l.Name] {
+					t.Errorf("ListLabels missing on-card label %q", l.Name)
+				}
+			}
+		}
+	}
+
+	// The repo label set must include at least one label not attached to any
+	// card, so the "existing repo label not shown on the board" scenario is
+	// testable.
+	extraFound := false
+	for _, l := range labels {
+		if !onCard[l] {
+			extraFound = true
+			break
+		}
+	}
+	if !extraFound {
+		t.Errorf("ListLabels should include an extra label not on any card, got %v", labels)
+	}
+}
+
 // --- FetchCollaborators Tests ---
 
 func TestFakeProvider_FetchCollaborators(t *testing.T) {

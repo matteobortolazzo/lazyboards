@@ -14,6 +14,7 @@ var _ BoardProvider = (*FakeProvider)(nil)
 type FakeProvider struct {
 	columns    []Column
 	nextNumber int
+	labels     []string
 }
 
 // NewFakeProvider returns a FakeProvider pre-populated with hardcoded Kanban data.
@@ -54,6 +55,10 @@ func NewFakeProvider() *FakeProvider {
 			},
 		},
 		nextNumber: 13,
+		// Repo label set: every label attached to a card above, plus "planned"
+		// which is intentionally not on any card (an existing repo label not
+		// shown on the board).
+		labels: []string{"infra", "design", "docs", "feature", "backend", "ui", "planned"},
 	}
 }
 
@@ -119,6 +124,13 @@ func (f *FakeProvider) UpdateCard(_ context.Context, number int, title string, b
 // CreateLabel is a no-op for the fake provider.
 func (f *FakeProvider) CreateLabel(_ context.Context, _ string) error {
 	return nil
+}
+
+// ListLabels returns a copy of the fake repository's label set.
+func (f *FakeProvider) ListLabels(_ context.Context) ([]string, error) {
+	labels := make([]string, len(f.labels))
+	copy(labels, f.labels)
+	return labels, nil
 }
 
 // FetchCollaborators returns a hardcoded list of collaborators for the fake provider.

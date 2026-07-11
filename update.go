@@ -244,6 +244,11 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	if msg.authenticatedUser != "" {
 		b.authenticatedUser = msg.authenticatedUser
 	}
+	// Store the repo label set (non-fatal). Placed before the refreshing/
+	// non-refreshing split so both paths retain it.
+	if msg.labelErr == nil {
+		b.repoLabels = msg.repoLabels
+	}
 
 	b.pendingAutoRefresh = false
 
