@@ -109,13 +109,13 @@ func TestSocketWatcher_ReadNext_DecodesSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to listen on unix socket: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	snap := newTestSnapshot("42-fix-the-bug", "running")
 	connCh := acceptAndWriteOnce(t, ln, snap)
 
 	w := newSocketWatcher(socketPath)
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	got, err := w.ReadNext()
 	if err != nil {
@@ -133,7 +133,7 @@ func TestSocketWatcher_ReadNext_DecodesSnapshot(t *testing.T) {
 
 	select {
 	case conn := <-connCh:
-		conn.Close()
+		_ = conn.Close()
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for accepted connection")
 	}
@@ -156,7 +156,7 @@ func TestSocketWatcher_ReadNext_ReconnectsAfterServerClose(t *testing.T) {
 	connCh := acceptAndWriteOnce(t, ln, firstSnap)
 
 	w := newSocketWatcher(socketPath)
-	defer w.Close()
+	defer func() { _ = w.Close() }()
 
 	if _, err := w.ReadNext(); err != nil {
 		t.Fatalf("first ReadNext() error = %v, want nil", err)
@@ -165,11 +165,11 @@ func TestSocketWatcher_ReadNext_ReconnectsAfterServerClose(t *testing.T) {
 	// Simulate the daemon dropping the connection, then tearing down its listener.
 	select {
 	case conn := <-connCh:
-		conn.Close()
+		_ = conn.Close()
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for accepted connection")
 	}
-	ln.Close()
+	_ = ln.Close()
 
 	if _, err := w.ReadNext(); err == nil {
 		t.Fatal("ReadNext() after server close, want error, got nil")
@@ -184,7 +184,7 @@ func TestSocketWatcher_ReadNext_ReconnectsAfterServerClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to re-listen on unix socket: %v", err)
 	}
-	defer ln2.Close()
+	defer func() { _ = ln2.Close() }()
 
 	secondSnap := newTestSnapshot("20-second-task", "done")
 	connCh2 := acceptAndWriteOnce(t, ln2, secondSnap)
@@ -199,7 +199,7 @@ func TestSocketWatcher_ReadNext_ReconnectsAfterServerClose(t *testing.T) {
 
 	select {
 	case conn := <-connCh2:
-		conn.Close()
+		_ = conn.Close()
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for second accepted connection")
 	}
