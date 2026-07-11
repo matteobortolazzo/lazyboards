@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/agent-stack/agentwatch/pkg/watch"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
@@ -298,5 +299,203 @@ func TestBoard_Init_WithWatcher_SubscriptionDeliversSnapshot(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("Init() with a scripted FakeWatcher did not deliver an agentSnapshotMsg")
+	}
+}
+
+// --- Card status badges (#258) ---
+
+// TestAgentBadgeText_StatusSymbolAndKind verifies the badge text encodes the
+// state as a symbol and includes the agent kind, and that idle/unknown statuses
+// produce no badge.
+func TestAgentBadgeText_StatusSymbolAndKind(t *testing.T) {
+	tests := []struct {
+		name       string
+		status     string
+		agent      string
+		wantSymbol string // "" means no badge expected
+	}{
+		{"running", "running", "claude", "▶"},
+		{"done", "done", "claude", "✓"},
+		{"stopped", "stopped", "claude", "■"},
+		{"need_input", "need_input", "claude", "‼"},
+		{"failed", "failed", "claude", "✗"},
+		{"idle has no badge", "idle", "claude", ""},
+		{"unknown has no badge", "banana", "claude", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := agentBadgeText(tt.status, tt.agent)
+			if tt.wantSymbol == "" {
+				if got != "" {
+					t.Errorf("agentBadgeText(%q, %q) = %q, want empty", tt.status, tt.agent, got)
+				}
+				return
+			}
+			if !strings.Contains(got, tt.wantSymbol) {
+				t.Errorf("agentBadgeText(%q, %q) = %q, want to contain symbol %q", tt.status, tt.agent, got, tt.wantSymbol)
+			}
+			if !strings.Contains(got, tt.agent) {
+				t.Errorf("agentBadgeText(%q, %q) = %q, want to contain kind %q", tt.status, tt.agent, got, tt.agent)
+			}
+		})
+	}
+}
+
+// TestAgentBadgeText_FixedWidth verifies the kind is padded/truncated to a
+// stable cell width so badges align across cards regardless of agent length.
+func TestAgentBadgeText_FixedWidth(t *testing.T) {
+	short := agentBadgeText("running", "cl")
+	long := agentBadgeText("running", "verylongagentname")
+	if lipgloss.Width(short) != lipgloss.Width(long) {
+		t.Errorf("badge width not stable: short=%q (%d) long=%q (%d)",
+			short, lipgloss.Width(short), long, lipgloss.Width(long))
+	}
+	if !strings.Contains(long, "▶") {
+		t.Errorf("truncated badge %q lost its symbol", long)
+	}
+}
+
+// TestAgentBadgeText_EmptyAgentSymbolOnly verifies a symbol-only badge when the
+// window has no detected agent kind.
+func TestAgentBadgeText_EmptyAgentSymbolOnly(t *testing.T) {
+	got := agentBadgeText("running", "")
+	if got != "▶" {
+		t.Errorf("agentBadgeText(running, \"\") = %q, want the bare symbol %q", got, "▶")
+	}
+}
+
+// TestBoard_AgentBadgeFor_AppendedToDisplayText verifies a matching non-idle
+// window causes cardDisplayText to append the badge.
+func TestBoard_AgentBadgeFor_AppendedToDisplayText(t *testing.T) {
+	const cardNumber = 7
+	const cardTitle = "Fix flaky test"
+	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	card := b.Columns[0].Cards[0]
+	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	b.agentSnapshot = &watch.StateSnapshot{
+		Windows: []watch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
+	}
+
+	badge := b.agentBadgeFor(card)
+	if badge == "" {
+		t.Fatal("agentBadgeFor() returned empty for a matching running window")
+	}
+	text, _ := cardDisplayText(card, []string{"Column A"}, b.workingLabel, badge)
+	if !strings.Contains(text, badge) {
+		t.Errorf("cardDisplayText did not append badge %q; got %q", badge, text)
+	}
+}
+
+// TestBoard_AgentBadgeFor_NoBadgeCases verifies idle status, a non-matching
+// window, and a nil snapshot all yield no badge.
+func TestBoard_AgentBadgeFor_NoBadgeCases(t *testing.T) {
+	const cardNumber = 7
+	const cardTitle = "Fix flaky test"
+	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
+
+	tests := []struct {
+		name string
+		snap *watch.StateSnapshot
+	}{
+		{"idle status", &watch.StateSnapshot{Windows: []watch.WindowState{{WindowName: name, Status: "idle", Agent: "claude"}}}},
+		{"non-matching window", &watch.StateSnapshot{Windows: []watch.WindowState{{WindowName: "999-other", Status: "running"}}}},
+		{"nil snapshot", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
+			b.agentSnapshot = tt.snap
+			card := b.Columns[0].Cards[0]
+			if badge := b.agentBadgeFor(card); badge != "" {
+				t.Errorf("agentBadgeFor() = %q, want empty", badge)
+			}
+		})
+	}
+}
+
+// TestViewCardList_RunningBadgeRendered verifies the running badge (kind +
+// symbol) appears in the rendered card list.
+func TestViewCardList_RunningBadgeRendered(t *testing.T) {
+	const cardNumber = 7
+	const cardTitle = "Fix flaky test"
+	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	b.agentSnapshot = &watch.StateSnapshot{
+		Windows: []watch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
+	}
+
+	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
+	if !strings.Contains(out, "▶") {
+		t.Errorf("rendered card list missing running symbol; got:\n%s", out)
+	}
+	if !strings.Contains(out, "claude") {
+		t.Errorf("rendered card list missing agent kind; got:\n%s", out)
+	}
+}
+
+// TestViewCardList_NeedInputIsLoudest verifies need_input renders with the
+// reverse/bold style — the loudest attention badge.
+func TestViewCardList_NeedInputIsLoudest(t *testing.T) {
+	const cardNumber = 7
+	const cardTitle = "Fix flaky test"
+	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	b.agentSnapshot = &watch.StateSnapshot{
+		Windows: []watch.WindowState{{WindowName: name, Status: "need_input", Agent: "claude"}},
+	}
+
+	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
+	if !strings.Contains(out, agentNeedInputStyle.Render("‼")) {
+		t.Errorf("need_input badge not rendered with agentNeedInputStyle; got:\n%s", out)
+	}
+}
+
+// TestViewCardList_IdleRendersNoSymbol verifies an idle (or non-matching) window
+// leaves the card free of any status symbol.
+func TestViewCardList_IdleRendersNoSymbol(t *testing.T) {
+	const cardNumber = 7
+	const cardTitle = "Fix flaky test"
+	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	b.agentSnapshot = &watch.StateSnapshot{
+		Windows: []watch.WindowState{{WindowName: name, Status: "idle", Agent: "claude"}},
+	}
+
+	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
+	for _, sym := range []string{"▶", "✓", "■", "‼", "✗"} {
+		if strings.Contains(out, sym) {
+			t.Errorf("idle card unexpectedly rendered status symbol %q; got:\n%s", sym, out)
+		}
+	}
+}
+
+// TestViewCardList_WorkingLabelAndBadgeCoexist verifies a card carrying the
+// working label renders both the working spinner icon and the agent badge.
+func TestViewCardList_WorkingLabelAndBadgeCoexist(t *testing.T) {
+	const cardNumber = 7
+	const cardTitle = "Fix flaky test"
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil)
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: cardNumber, Title: cardTitle, Labels: []provider.Label{{Name: "Working"}}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+
+	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	b.agentSnapshot = &watch.StateSnapshot{
+		Windows: []watch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
+	}
+
+	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
+	if !strings.Contains(out, "") {
+		t.Errorf("working spinner icon missing; got:\n%s", out)
+	}
+	if !strings.Contains(out, "▶") {
+		t.Errorf("running badge symbol missing; got:\n%s", out)
 	}
 }

@@ -271,11 +271,76 @@ func isHiddenLabel(label string, columnNames []string, workingLabel string) bool
 	return false
 }
 
-// cardDisplayText builds the raw display text for a card: "#N title [PR icon] [Working icon] [label dots]".
+// agentBadgeKindWidth is the fixed rune width the agent kind is padded/truncated
+// to, so badges align across cards regardless of agent-name length.
+const agentBadgeKindWidth = 6
+
+// agentStatusSymbol maps an agentwatch window status to its badge symbol.
+// Returns "" for idle and any unknown status (no badge).
+func agentStatusSymbol(status string) string {
+	switch status {
+	case "running":
+		return "▶" // ▶
+	case "done":
+		return "✓" // ✓
+	case "stopped":
+		return "■" // ■
+	case "need_input":
+		return "‼" // ‼
+	case "failed":
+		return "✗" // ✗
+	default:
+		return ""
+	}
+}
+
+// agentBadgeText returns the fixed-width badge text "<kind> <symbol>" for a
+// window status/agent, or "" when the status has no badge. When agent is empty
+// the symbol is returned alone. The kind is truncated/space-padded to a stable
+// rune width (content build-up, not layout measurement — []rune is correct here).
+func agentBadgeText(status, agent string) string {
+	symbol := agentStatusSymbol(status)
+	if symbol == "" {
+		return ""
+	}
+	if agent == "" {
+		return symbol
+	}
+	runes := []rune(agent)
+	if len(runes) > agentBadgeKindWidth {
+		runes = runes[:agentBadgeKindWidth]
+	} else {
+		for len(runes) < agentBadgeKindWidth {
+			runes = append(runes, ' ')
+		}
+	}
+	return string(runes) + " " + symbol
+}
+
+// agentBadgeStyle maps an agentwatch window status to its badge style.
+func agentBadgeStyle(status string) lipgloss.Style {
+	switch status {
+	case "running":
+		return agentRunningStyle
+	case "done":
+		return agentDoneStyle
+	case "stopped":
+		return agentStoppedStyle
+	case "need_input":
+		return agentNeedInputStyle
+	case "failed":
+		return agentFailedStyle
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+// cardDisplayText builds the raw display text for a card: "#N title [PR icon] [Working icon] [label dots] [agent badge]".
 // Returns the assembled text and the rune-length of the number prefix (for wrap indentation).
 // columnNames controls which labels are hidden from the dot display.
 // workingLabel is the configured label name that triggers the spinner icon.
-func cardDisplayText(card Card, columnNames []string, workingLabel string) (string, int) {
+// agentBadge, when non-empty, is appended verbatim as a fixed-width status badge.
+func cardDisplayText(card Card, columnNames []string, workingLabel string, agentBadge string) (string, int) {
 	prefix := fmt.Sprintf("#%d ", card.Number)
 	text := prefix + card.Title
 	if len(card.LinkedPRs) > 0 {
@@ -293,13 +358,16 @@ func cardDisplayText(card Card, columnNames []string, workingLabel string) (stri
 			text += " \u25cf"
 		}
 	}
+	if agentBadge != "" {
+		text += " " + agentBadge
+	}
 	return text, len([]rune(prefix))
 }
 
 // cardLineCount returns the number of visual lines a card occupies
 // when its title is wrapped to fit within contentWidth.
-func cardLineCount(card Card, contentWidth int, columnNames []string, workingLabel string) int {
-	text, prefixLen := cardDisplayText(card, columnNames, workingLabel)
+func cardLineCount(card Card, contentWidth int, columnNames []string, workingLabel string, agentBadge string) int {
+	text, prefixLen := cardDisplayText(card, columnNames, workingLabel, agentBadge)
 	return len(wrapTitle(text, contentWidth, prefixLen))
 }
 
@@ -333,7 +401,7 @@ func (b *Board) clampScrollOffset() {
 	// Compute total lines for all cards.
 	totalLines := 0
 	for i := 0; i < totalCards; i++ {
-		totalLines += cardLineCount(cards[i], contentWidth, columnNames, b.workingLabel)
+		totalLines += cardLineCount(cards[i], contentWidth, columnNames, b.workingLabel, b.agentBadgeFor(cards[i]))
 	}
 
 	if totalLines <= panelHeight {
@@ -353,7 +421,7 @@ func (b *Board) clampScrollOffset() {
 		linesUsed := 0
 		lastVisible := col.ScrollOffset
 		for lastVisible < totalCards {
-			cl := cardLineCount(cards[lastVisible], contentWidth, columnNames, b.workingLabel)
+			cl := cardLineCount(cards[lastVisible], contentWidth, columnNames, b.workingLabel, b.agentBadgeFor(cards[lastVisible]))
 			neededForDown := 0
 			if lastVisible+1 < totalCards {
 				neededForDown = 1
@@ -372,10 +440,10 @@ func (b *Board) clampScrollOffset() {
 			// Scroll down so cursor card is the last visible.
 			// Work backwards from cursor to find the ScrollOffset.
 			col.ScrollOffset = col.Cursor
-			linesFromCursor := cardLineCount(cards[col.Cursor], contentWidth, columnNames, b.workingLabel)
+			linesFromCursor := cardLineCount(cards[col.Cursor], contentWidth, columnNames, b.workingLabel, b.agentBadgeFor(cards[col.Cursor]))
 			avail := panelHeight - 1 // reserve 1 for up indicator (since we're scrolling down)
 			for col.ScrollOffset > 0 {
-				prevLines := cardLineCount(cards[col.ScrollOffset-1], contentWidth, columnNames, b.workingLabel)
+				prevLines := cardLineCount(cards[col.ScrollOffset-1], contentWidth, columnNames, b.workingLabel, b.agentBadgeFor(cards[col.ScrollOffset-1]))
 				neededForDown := 0
 				if col.Cursor+1 < totalCards {
 					neededForDown = 1
@@ -438,7 +506,9 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 	}
 	var allCards []wrappedCard
 	for j, card := range col.Cards {
-		text, prefixLen := cardDisplayText(card, columnNames, b.workingLabel)
+		ws := b.agentStatusFor(card)
+		badge := b.agentBadgeFor(card)
+		text, prefixLen := cardDisplayText(card, columnNames, b.workingLabel, badge)
 		hasPR := len(card.LinkedPRs) > 0
 		hasWorking := false
 		for _, label := range card.Labels {
@@ -457,6 +527,11 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		if hasWorking && len(lines) > 0 {
 			last := len(lines) - 1
 			lines[last] = strings.Replace(lines[last], "\uf110", workingIndicatorStyle.Render("\uf110"), 1)
+		}
+		// Style agent status badge.
+		if badge != "" && ws != nil && len(lines) > 0 {
+			last := len(lines) - 1
+			lines[last] = strings.Replace(lines[last], badge, agentBadgeStyle(ws.Status).Render(badge), 1)
 		}
 		// Style label dots with per-label colors (skip hidden labels).
 		for _, label := range card.Labels {
