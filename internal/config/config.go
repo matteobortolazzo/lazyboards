@@ -34,16 +34,17 @@ const DefaultWorkingLabel = "Working"
 
 // Config holds the application configuration.
 type Config struct {
-	Provider         string            `yaml:"provider"`
-	Repo             string            `yaml:"repo"`
-	Project          string            `yaml:"project"`
-	Actions          map[string]Action `yaml:"actions"`
-	Columns          []ColumnConfig    `yaml:"columns"`
-	SessionMaxLength int               `yaml:"session_max_length"`
+	Provider           string            `yaml:"provider"`
+	Repo               string            `yaml:"repo"`
+	Project            string            `yaml:"project"`
+	Actions            map[string]Action `yaml:"actions"`
+	Columns            []ColumnConfig    `yaml:"columns"`
+	SessionMaxLength   int               `yaml:"session_max_length"`
 	RefreshInterval    int               `yaml:"refresh_interval"`
 	ActionRefreshDelay *int              `yaml:"action_refresh_delay,omitempty"`
 	WorkingLabel       *string           `yaml:"working_label,omitempty"`
 	Mouse              *bool             `yaml:"mouse,omitempty"`
+	AgentWatch         *bool             `yaml:"agentwatch,omitempty"`
 }
 
 // WorkingLabelValue returns the configured working label, or DefaultWorkingLabel if not set.
@@ -61,6 +62,15 @@ func (c Config) MouseValue() bool {
 		return true
 	}
 	return *c.Mouse
+}
+
+// AgentWatchValue returns true if agentwatch integration is enabled.
+// Defaults to true (enabled) when the field is not set.
+func (c Config) AgentWatchValue() bool {
+	if c.AgentWatch == nil {
+		return true
+	}
+	return *c.AgentWatch
 }
 
 // ActionRefreshDelayValue returns the configured action refresh delay in seconds,
@@ -90,7 +100,6 @@ func (c Config) ColumnNames() []string {
 	}
 	return names
 }
-
 
 const DefaultLocalPath = ".lazyboards.yml"
 

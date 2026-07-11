@@ -24,6 +24,34 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshTickMsg:
 		return b.handleRefreshTick()
 
+	case agentSnapshotMsg:
+		b.agentSnapshot = msg.snapshot
+		// Reset the backoff to the zero sentinel so the ladder restarts at the
+		// initial delay (1s) on the next error, not a doubled value.
+		b.agentBackoff = 0
+		if b.agentWatcher == nil {
+			return b, nil
+		}
+		return b, subscribeAgentWatchCmd(b.agentWatcher)
+
+	case agentWatchErrorMsg:
+		if b.agentBackoff <= 0 {
+			b.agentBackoff = agentWatchInitialBackoff
+		} else {
+			b.agentBackoff *= 2
+			if b.agentBackoff > agentWatchMaxBackoff {
+				b.agentBackoff = agentWatchMaxBackoff
+			}
+		}
+		cmd := b.scheduleAgentWatchRetry()
+		return b, cmd
+
+	case agentWatchRetryMsg:
+		if b.agentWatcher == nil {
+			return b, nil
+		}
+		return b, subscribeAgentWatchCmd(b.agentWatcher)
+
 	case boardFetchedMsg:
 		return b.handleBoardFetched(msg)
 
@@ -201,7 +229,6 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
-
 func (b Board) handleRefreshTick() (tea.Model, tea.Cmd) {
 	if b.refreshInterval <= 0 {
 		return b, nil
@@ -219,6 +246,14 @@ func (b Board) scheduleRefreshTick() tea.Cmd {
 	}
 	return tea.Tick(b.refreshInterval, func(time.Time) tea.Msg {
 		return refreshTickMsg{}
+	})
+}
+
+// scheduleAgentWatchRetry returns a tea.Cmd that fires an agentWatchRetryMsg
+// after the current backoff duration, so the watcher can be re-subscribed.
+func (b Board) scheduleAgentWatchRetry() tea.Cmd {
+	return tea.Tick(b.agentBackoff, func(time.Time) tea.Msg {
+		return agentWatchRetryMsg{}
 	})
 }
 
@@ -1476,7 +1511,7 @@ func (b Board) handleTabClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	prefixWidth := 3  // "╭─ "
+	prefixWidth := 3    // "╭─ "
 	separatorWidth := 3 // " ─ "
 
 	x := msg.X

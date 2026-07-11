@@ -12,7 +12,9 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/matteobortolazzo/agent-stack/agentwatch/pkg/watch"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"github.com/muesli/termenv"
@@ -22,16 +24,16 @@ import (
 var (
 	activeBorderTitleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	inactiveBorderTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	selectedCardStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-	leftPanelStyle    = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("15"))
-	rightPanelStyle   = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
-	outerStyle        = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
-	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	prIndicatorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
-	workingIndicatorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
-	cardNumberStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	hintKeyStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-	hintDescStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	selectedCardStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	leftPanelStyle           = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("15"))
+	rightPanelStyle          = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
+	outerStyle               = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
+	helpStyle                = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	prIndicatorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
+	workingIndicatorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
+	cardNumberStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	hintKeyStyle             = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	hintDescStyle            = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	// Status bar message styles use a dedicated renderer with forced ANSI256
 	// so that colored messages always render, even in non-TTY environments.
 	statusRenderer     = newStatusRenderer()
@@ -167,11 +169,16 @@ const (
 	noneAssignee              = "(none)"
 )
 
+const (
+	agentWatchInitialBackoff = 1 * time.Second
+	agentWatchMaxBackoff     = 30 * time.Second
+)
+
 // filterType represents the category of a filter selection.
 type filterType int
 
 const (
-	filterTypeNone   filterType = iota
+	filterTypeNone filterType = iota
 	filterByLabel
 	filterByAssignee
 )
@@ -223,6 +230,19 @@ type actionResultMsg struct {
 
 // autoRefreshMsg is sent when the auto-refresh delay timer fires.
 type autoRefreshMsg struct{}
+
+// agentSnapshotMsg is sent when the agentwatch watcher delivers a new state snapshot.
+type agentSnapshotMsg struct {
+	snapshot *watch.StateSnapshot
+}
+
+// agentWatchErrorMsg is sent when reading from the agentwatch watcher fails.
+type agentWatchErrorMsg struct {
+	err error
+}
+
+// agentWatchRetryMsg is sent when the agentwatch reconnect backoff timer fires.
+type agentWatchRetryMsg struct{}
 
 // configSavedMsg is sent when a config file has been saved successfully.
 type configSavedMsg struct{}
@@ -365,56 +385,59 @@ type createState struct {
 
 // Board is the top-level model implementing tea.Model.
 type Board struct {
-	Columns       []Column
-	ActiveTab     int
-	Width         int
-	Height        int
-	mode          boardMode
-	validationErr string
-	provider      provider.BoardProvider
-	spinner       spinner.Model
-	loadErr       string
-	statusBar     StatusBar
-	loaded        bool
-	actions       map[string]config.Action
-	columnConfigs []config.ColumnConfig
-	executor      action.Executor
-	repoOwner       string
-	repoName        string
-	providerName    string
-	sessionMaxLen   int
-	normalHints     []Hint
-	comment         commentState
-	assign          assignState
-	config          configState
-	create          createState
-	detailFocused      bool
-	detailScrollOffset int
-	prPickerIndex      int
-	refreshing             bool
-	refreshInterval        time.Duration
-	actionRefreshDelay     time.Duration
-	pendingAutoRefresh     bool
-	prevCards              map[int]prevCardInfo
-	searchQuery            string
-	searchInput            textinput.Model
-	helpScrollOffset       int
-	helpFromDetailFocused  bool
-	workingLabel           string
-	mouseEnabled           bool
-	labelConfirm           labelConfirmState
-	filterItems            []filterItem
-	filterCursor           int
-	activeFilterType       filterType
-	activeFilterValue      string
-	collaborators     []Assignee
-	authenticatedUser string
-	repoLabels        []string
+	Columns               []Column
+	ActiveTab             int
+	Width                 int
+	Height                int
+	mode                  boardMode
+	validationErr         string
+	provider              provider.BoardProvider
+	spinner               spinner.Model
+	loadErr               string
+	statusBar             StatusBar
+	loaded                bool
+	actions               map[string]config.Action
+	columnConfigs         []config.ColumnConfig
+	executor              action.Executor
+	repoOwner             string
+	repoName              string
+	providerName          string
+	sessionMaxLen         int
+	normalHints           []Hint
+	comment               commentState
+	assign                assignState
+	config                configState
+	create                createState
+	detailFocused         bool
+	detailScrollOffset    int
+	prPickerIndex         int
+	refreshing            bool
+	refreshInterval       time.Duration
+	actionRefreshDelay    time.Duration
+	pendingAutoRefresh    bool
+	prevCards             map[int]prevCardInfo
+	searchQuery           string
+	searchInput           textinput.Model
+	helpScrollOffset      int
+	helpFromDetailFocused bool
+	workingLabel          string
+	mouseEnabled          bool
+	labelConfirm          labelConfirmState
+	filterItems           []filterItem
+	filterCursor          int
+	activeFilterType      filterType
+	activeFilterValue     string
+	collaborators         []Assignee
+	authenticatedUser     string
+	repoLabels            []string
+	agentWatcher          agentwatch.Watcher
+	agentSnapshot         *watch.StateSnapshot
+	agentBackoff          time.Duration
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher agentwatch.Watcher) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 0
@@ -456,22 +479,23 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 	si.Prompt = "/ "
 
 	b := Board{
-		mode:            loadingMode,
-		provider:        p,
-		spinner:         s,
-		statusBar:       sb,
-		actions:         actions,
-		columnConfigs:   columnConfigs,
-		executor:        executor,
-		repoOwner:       repoOwner,
-		repoName:        repoName,
-		providerName:    providerName,
-		sessionMaxLen:   sessionMaxLen,
+		mode:               loadingMode,
+		provider:           p,
+		spinner:            s,
+		statusBar:          sb,
+		actions:            actions,
+		columnConfigs:      columnConfigs,
+		executor:           executor,
+		repoOwner:          repoOwner,
+		repoName:           repoName,
+		providerName:       providerName,
+		sessionMaxLen:      sessionMaxLen,
 		refreshInterval:    refreshInterval,
 		actionRefreshDelay: actionRefreshDelay,
 		workingLabel:       workingLabel,
-		mouseEnabled:      mouseEnabled,
-		normalHints:     hints,
+		mouseEnabled:       mouseEnabled,
+		normalHints:        hints,
+		agentWatcher:       watcher,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
 			providerIndex:   0,
@@ -968,9 +992,28 @@ func (b *Board) collectKnownLabels() map[string]bool {
 	return known
 }
 
+// agentStatusFor returns the agentwatch window state joined to card by exact
+// session-name equality, or nil if no snapshot is stored yet or no window matches.
+func (b Board) agentStatusFor(card Card) *watch.WindowState {
+	if b.agentSnapshot == nil {
+		return nil
+	}
+	name := action.BuildSessionName(card.Number, card.Title, b.sessionMaxLen)
+	for i := range b.agentSnapshot.Windows {
+		if b.agentSnapshot.Windows[i].WindowName == name {
+			return &b.agentSnapshot.Windows[i]
+		}
+	}
+	return nil
+}
+
 func (b Board) Init() tea.Cmd {
 	if b.config.firstLaunch {
 		return nil
 	}
-	return tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+	cmd := tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+	if b.agentWatcher != nil {
+		cmd = tea.Batch(cmd, subscribeAgentWatchCmd(b.agentWatcher))
+	}
+	return cmd
 }
