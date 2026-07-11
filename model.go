@@ -96,6 +96,11 @@ func labelColor(label Label) lipgloss.Color {
 	return labelPalette[h.Sum32()%uint32(len(labelPalette))]
 }
 
+// helpHint points users to the full help popup (toggled by `?`). It is the
+// anti-stuck pointer, so it is placed left-most in the normal-mode hints to
+// survive left-to-right truncation on narrow terminals.
+var helpHint = Hint{Key: "?", Desc: "Help"}
+
 // normalModeHints are the default status bar hints shown in normal mode.
 var normalModeHints = []Hint{
 	{Key: "e", Desc: "Edit"},
@@ -431,8 +436,9 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 	// Build normal-mode hints: defaults + board-scope action hints.
 	// Card-scope hints are omitted because no columns/cards are loaded yet;
 	// rebuildNormalHints adds them after the first board fetch.
-	hints := make([]Hint, len(normalModeHints))
-	copy(hints, normalModeHints)
+	hints := make([]Hint, 0, len(normalModeHints)+1)
+	hints = append(hints, helpHint)
+	hints = append(hints, normalModeHints...)
 	for key, act := range actions {
 		scope := act.Scope
 		if scope == "" {
@@ -611,7 +617,10 @@ func (b *Board) resolveAction(key string) (config.Action, bool) {
 // rebuildNormalHints reconstructs the normalHints slice by merging global
 // actions with the active column's per-column actions (column overrides global).
 func (b *Board) rebuildNormalHints() {
-	hints := make([]Hint, 0, len(normalModeHints)+len(b.actions)+1)
+	hints := make([]Hint, 0, len(normalModeHints)+len(b.actions)+2)
+
+	// Help pointer stays left-most so it survives left-to-right truncation.
+	hints = append(hints, helpHint)
 
 	// Determine if the active column has cards.
 	hasCards := false
