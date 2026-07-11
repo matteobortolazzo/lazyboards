@@ -92,6 +92,18 @@ var DefaultColumns = []ColumnConfig{
 	{Name: "Implementing"},
 }
 
+// DefaultGitActions returns the built-in lazygit-style git actions. These are
+// board-scope shell actions available inside a git repo with a remote. They are
+// kept separate from Config.Actions so they can be surfaced in the help popup
+// only (never the compact hint bar) and overridden by any user-defined key.
+func DefaultGitActions() map[string]Action {
+	return map[string]Action{
+		"P": {Name: "Push", Type: "shell", Command: "git push", Scope: "board"},
+		"L": {Name: "Pull (rebase)", Type: "shell", Command: "git pull --rebase", Scope: "board"},
+		"M": {Name: "Mergetool", Type: "shell", Command: "git mergetool", Scope: "board"},
+	}
+}
+
 // ColumnNames extracts the column name strings from the ColumnConfig slice.
 func (c Config) ColumnNames() []string {
 	names := make([]string, len(c.Columns))
