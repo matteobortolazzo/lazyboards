@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"time"
 
@@ -74,18 +75,42 @@ func (l StatusLevel) style() *lipgloss.Style {
 	}
 }
 
+// agentPrefix builds the styled agent-status count prefix shown at the head of
+// the status bar (e.g. "▶2 ‼1"): running via agentRunningStyle, need_input via
+// agentNeedInputStyle. Zero-valued counts are omitted; both zero yields "".
+func agentPrefix(running, needInput int) string {
+	var tokens []string
+	if running > 0 {
+		tokens = append(tokens, agentRunningStyle.Render("▶"+strconv.Itoa(running)))
+	}
+	if needInput > 0 {
+		tokens = append(tokens, agentNeedInputStyle.Render("‼"+strconv.Itoa(needInput)))
+	}
+	return strings.Join(tokens, " ")
+}
+
 // View renders the status bar, truncating hints that exceed the given width.
-// Timed messages are returned as-is without truncation.
-func (s StatusBar) View(width int) string {
+// The agent-status counts (running, needInput) render as an always-visible
+// prefix ahead of both hints and timed messages; when both are zero the prefix
+// and its separator are omitted. Timed messages are still shown untruncated.
+func (s StatusBar) View(width, running, needInput int) string {
+	prefix := agentPrefix(running, needInput)
+	if prefix != "" {
+		prefix += hintDescStyle.Render(" | ")
+	}
+
 	if s.message != "" {
 		if st := s.level.style(); st != nil {
-			return st.Render(s.message)
+			return prefix + st.Render(s.message)
 		}
-		return s.message
+		return prefix + s.message
 	}
 	if len(s.hints) == 0 {
-		return ""
+		return prefix
 	}
+
+	// The prefix consumes width that is no longer available for hints.
+	width -= lipgloss.Width(prefix)
 
 	separator := hintDescStyle.Render(" | ")
 	separatorWidth := lipgloss.Width(separator)
@@ -113,14 +138,14 @@ func (s StatusBar) View(width int) string {
 
 		if spaceNeeded > width {
 			if len(parts) > 0 {
-				return strings.Join(parts, separator) + ellipsis
+				return prefix + strings.Join(parts, separator) + ellipsis
 			}
-			return ellipsis
+			return prefix + ellipsis
 		}
 
 		parts = append(parts, part)
 		currentWidth += addedWidth
 	}
 
-	return strings.Join(parts, separator)
+	return prefix + strings.Join(parts, separator)
 }

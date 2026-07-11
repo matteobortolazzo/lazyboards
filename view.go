@@ -28,7 +28,7 @@ func (b Board) View() string {
 	}
 
 	if b.mode == errorMode {
-		errorText := "Error: " + b.loadErr + "\n\n" + b.statusBar.View(b.Width)
+		errorText := "Error: " + b.loadErr + "\n\n" + b.statusBar.View(b.Width, 0, 0)
 		return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, errorText)
 	}
 
@@ -81,8 +81,9 @@ func (b Board) View() string {
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
-	// Help bar.
-	helpBar := b.statusBar.View(innerWidth)
+	// Help bar. Board-scoped agent counts render as an always-visible prefix.
+	running, needInput := b.agentCounts()
+	helpBar := b.statusBar.View(innerWidth, running, needInput)
 	if b.refreshing {
 		helpBar = b.spinner.View() + " Refreshing..."
 	}
@@ -818,7 +819,7 @@ func (b Board) viewCreateModal() string {
 			"Title:\n" + b.create.titleInput.View() + errLine + "\n\n" +
 			"Label:\n" + b.create.labelInput.View() +
 			assigneeLine + "\n\n" +
-			createHints.View(modalWidth)
+			createHints.View(modalWidth, 0, 0)
 	}
 
 	return b.renderModal(modalContent, modalWidth)
@@ -844,7 +845,7 @@ func (b Board) viewConfigModal() string {
 	modalContent := "Configuration\n\n" +
 		"Provider:\n" + providerDisplay + "\n\n" +
 		"Repo:\n" + repoView + errLine + "\n\n" +
-		configHints.View(modalWidth)
+		configHints.View(modalWidth, 0, 0)
 
 	return b.renderModal(modalContent, modalWidth)
 }
@@ -860,7 +861,7 @@ func (b Board) viewPRPickerModal() string {
 	pickerHints := NewStatusBar(prPickerHints)
 	modalContent := "Select PR\n\n" +
 		prDisplay + "\n\n" +
-		pickerHints.View(modalWidth)
+		pickerHints.View(modalWidth, 0, 0)
 
 	return b.renderModal(modalContent, modalWidth)
 }
@@ -1085,7 +1086,7 @@ func (b Board) viewHelpModal() string {
 
 	// Add hints bar.
 	hintsBar := NewStatusBar(helpModeHints)
-	displayLines = append(displayLines, "", hintsBar.View(modalWidth))
+	displayLines = append(displayLines, "", hintsBar.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(displayLines, "\n")
 	return b.renderModal(modalContent, modalWidth)
@@ -1096,7 +1097,7 @@ func (b Board) viewCommentModal() string {
 	commentHints := NewStatusBar(commentModeHints)
 	modalContent := b.comment.pendingAction.Name + "\n\n" +
 		b.comment.input.View() + "\n\n" +
-		commentHints.View(modalWidth)
+		commentHints.View(modalWidth, 0, 0)
 	return b.renderModal(modalContent, modalWidth)
 }
 
@@ -1121,7 +1122,7 @@ func (b Board) viewFilterModal() string {
 
 	lines = append(lines, "")
 	filterHints := NewStatusBar(filterModeHints)
-	lines = append(lines, filterHints.View(modalWidth))
+	lines = append(lines, filterHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
@@ -1148,7 +1149,7 @@ func (b Board) viewAssignModal() string {
 
 	lines = append(lines, "")
 	assignHints := NewStatusBar(assignModeHints)
-	lines = append(lines, assignHints.View(modalWidth))
+	lines = append(lines, assignHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)

@@ -83,10 +83,10 @@ func TestView_ContainsHelpBar(t *testing.T) {
 	}
 
 	// Column, Quit, Config, and Refresh hints must NOT appear in the status bar.
-	statusBarView := b.statusBar.View(200)
+	statusBarView := b.statusBar.View(200, 0, 0)
 	for _, absent := range []string{"Column", "Quit", "Config", "Refresh"} {
 		if strings.Contains(statusBarView, absent) {
-			t.Errorf("statusBar.View() should NOT contain %q, but it does", absent)
+			t.Errorf("statusBar.View(, 0, 0) should NOT contain %q, but it does", absent)
 		}
 	}
 }

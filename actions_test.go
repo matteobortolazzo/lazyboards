@@ -595,7 +595,7 @@ func TestTicketOpen_OpenHintHiddenOnEmptyColumn(t *testing.T) {
 	b.Height = 40
 
 	// The "Open" hint for the "o" key should NOT appear when there are no cards.
-	statusBarView := b.statusBar.View(200)
+	statusBarView := b.statusBar.View(200, 0, 0)
 	if strings.Contains(statusBarView, "Open") {
 		t.Errorf("status bar should NOT contain %q hint on empty column, got:\n%s", "Open", statusBarView)
 	}

@@ -302,6 +302,74 @@ func TestBoard_Init_WithWatcher_SubscriptionDeliversSnapshot(t *testing.T) {
 	}
 }
 
+// --- Board-scoped agent counts (#259) ---
+
+// newAgentCountsBoard creates a loaded Board with the given cards in a single
+// column, using DefaultSessionMaxLength for BuildSessionName-based joins.
+func newAgentCountsBoard(t *testing.T, cards []provider.Card) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil)
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{{Title: "Column A", Cards: cards}},
+	}}
+	m, _ := b.Update(msg)
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	return board
+}
+
+// TestBoard_AgentCounts_BoardScoped verifies agentCounts tallies only running /
+// need_input windows that join to a card on the board: idle statuses and
+// windows with no matching card are excluded, and the tally is a count (not a
+// boolean) so multiple running cards accumulate.
+func TestBoard_AgentCounts_BoardScoped(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "First running"},
+		{Number: 2, Title: "Needs input"},
+		{Number: 3, Title: "Idle card"},
+		{Number: 4, Title: "Second running"},
+	}
+	b := newAgentCountsBoard(t, cards)
+
+	name := func(n int, title string) string {
+		return action.BuildSessionName(n, title, config.DefaultSessionMaxLength)
+	}
+	b.agentSnapshot = &watch.StateSnapshot{Windows: []watch.WindowState{
+		{WindowName: name(1, "First running"), Status: "running"},
+		{WindowName: name(2, "Needs input"), Status: "need_input"},
+		{WindowName: name(3, "Idle card"), Status: "idle"}, // excluded: idle
+		{WindowName: name(4, "Second running"), Status: "running"},
+		{WindowName: "999-no-such-card", Status: "running"},    // excluded: unmatched
+		{WindowName: "888-no-such-card", Status: "need_input"}, // excluded: unmatched
+	}}
+
+	running, needInput := b.agentCounts()
+
+	if running != 2 {
+		t.Errorf("agentCounts() running = %d, want 2 (two matched running cards)", running)
+	}
+	if needInput != 1 {
+		t.Errorf("agentCounts() needInput = %d, want 1 (one matched need_input card)", needInput)
+	}
+}
+
+// TestBoard_AgentCounts_NilSnapshotIsZero verifies that with no snapshot stored
+// (agentwatch off/absent) both counts are zero.
+func TestBoard_AgentCounts_NilSnapshotIsZero(t *testing.T) {
+	b := newAgentCountsBoard(t, []provider.Card{{Number: 1, Title: "A card"}})
+	if b.agentSnapshot != nil {
+		t.Fatal("test setup: agentSnapshot should be nil by default")
+	}
+
+	running, needInput := b.agentCounts()
+	if running != 0 || needInput != 0 {
+		t.Errorf("agentCounts() = (%d, %d), want (0, 0) when no snapshot is stored", running, needInput)
+	}
+}
+
 // --- Card status badges (#258) ---
 
 // TestAgentBadgeText_StatusSymbolAndKind verifies the badge text encodes the
@@ -475,7 +543,7 @@ func TestViewCardList_WorkingLabelAndBadgeCoexist(t *testing.T) {
 	const cardNumber = 7
 	const cardTitle = "Fix flaky test"
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil)
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: []provider.Card{
