@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/glamour"
@@ -906,6 +907,36 @@ func (b Board) buildHelpContent() string {
 			fmt.Fprintf(&sb, "  %s:\n", cc.Name)
 			for key, act := range cc.Actions {
 				fmt.Fprintf(&sb, "    %-10s %s (%s)\n", key, act.Name, act.Type)
+			}
+		}
+	}
+
+	// Built-in Git Actions. Skip any key the user has overridden (present in a
+	// global or column action) so help shows the effective binding.
+	if len(b.defaultActions) > 0 {
+		overridden := func(key string) bool {
+			if _, ok := b.actions[key]; ok {
+				return true
+			}
+			for _, cc := range b.columnConfigs {
+				if _, ok := cc.Actions[key]; ok {
+					return true
+				}
+			}
+			return false
+		}
+		keys := make([]string, 0, len(b.defaultActions))
+		for key := range b.defaultActions {
+			if !overridden(key) {
+				keys = append(keys, key)
+			}
+		}
+		if len(keys) > 0 {
+			sort.Strings(keys)
+			sb.WriteString("\nBuilt-in Git Actions\n")
+			for _, key := range keys {
+				act := b.defaultActions[key]
+				fmt.Fprintf(&sb, "  %-12s %s (%s)\n", key, act.Name, act.Type)
 			}
 		}
 	}

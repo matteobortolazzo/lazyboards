@@ -94,7 +94,7 @@ func main() {
 	// First-launch flow: show config popup when no local config exists
 	// and git detection didn't provide both provider and repo.
 	if !config.LocalExists(config.DefaultLocalPath) && (prov == "" || repo == "") {
-		board := NewBoard(nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, 0, config.DefaultWorkingLabel, false, true, nil)
+		board := NewBoard(nil, nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, 0, config.DefaultWorkingLabel, false, true, nil)
 		p := tea.NewProgram(board, tea.WithAltScreen())
 		m, err := p.Run()
 		if err != nil {
@@ -178,7 +178,14 @@ func main() {
 		watcher = agentwatch.NewSocketWatcher()
 	}
 
-	board := NewBoard(bp, cfg.Actions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher)
+	// Ship built-in git actions only inside a git repo with a detected remote
+	// (a non-empty repo means push/pull have somewhere to go).
+	var defaultGitActions map[string]config.Action
+	if gitInfo.Repo != "" {
+		defaultGitActions = config.DefaultGitActions()
+	}
+
+	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher)
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.MouseValue() {

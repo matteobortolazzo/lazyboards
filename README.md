@@ -155,6 +155,18 @@ Shell commands automatically escape template variables with POSIX single quotes 
 
 Actions default to `scope: "card"` (operate on the selected card). Set `scope: "board"` for actions that don't need a selected card — board-scope actions cannot use card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`).
 
+### Built-in Git Actions
+
+Inside a git repository with a remote, lazyboards ships three board-scope git shortcuts out of the box — no config required:
+
+| Key | Action | Command |
+|-----|--------|---------|
+| `P` | Push | `git push` |
+| `L` | Pull (rebase) | `git pull --rebase` |
+| `M` | Mergetool | `git mergetool` |
+
+These are discoverable in the `?` help popup (under **Built-in Git Actions**) and are kept out of the compact hint bar to avoid clutter. Any user-defined key — global or column-specific — overrides the built-in binding for that key.
+
 ### Column-Specific Actions
 
 Define actions under a column to override global actions for that column:
@@ -245,6 +257,7 @@ Press `?` at any time to open the in-app help popup.
 | `Tab` / `Shift+Tab` | Switch columns |
 | `1-9` | Jump to column |
 | `A-Z` | Custom action |
+| `P` / `L` / `M` | Built-in git push / pull (rebase) / mergetool (in a git repo, overridable) |
 | `Alt+Shift+key` | Comment action |
 
 ### Detail Panel

@@ -26,7 +26,7 @@ import (
 func newAgentWatchTestBoard(t *testing.T, watcher agentwatch.Watcher) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	return NewBoard(p, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, watcher)
+	return NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, watcher)
 }
 
 // newAgentWatchCardTestBoard creates a loaded Board with a single card in a
@@ -34,7 +34,7 @@ func newAgentWatchTestBoard(t *testing.T, watcher agentwatch.Watcher) Board {
 func newAgentWatchCardTestBoard(t *testing.T, cardNumber int, cardTitle string, sessionMaxLen int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", sessionMaxLen, 0, 0, "Working", false, false, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", sessionMaxLen, 0, 0, "Working", false, false, nil)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{

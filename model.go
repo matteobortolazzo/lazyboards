@@ -402,6 +402,7 @@ type Board struct {
 	statusBar             StatusBar
 	loaded                bool
 	actions               map[string]config.Action
+	defaultActions        map[string]config.Action
 	columnConfigs         []config.ColumnConfig
 	executor              action.Executor
 	repoOwner             string
@@ -442,7 +443,7 @@ type Board struct {
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher agentwatch.Watcher) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher agentwatch.Watcher) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 0
@@ -490,6 +491,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, column
 		spinner:            s,
 		statusBar:          sb,
 		actions:            actions,
+		defaultActions:     defaultActions,
 		columnConfigs:      columnConfigs,
 		executor:           executor,
 		repoOwner:          repoOwner,
@@ -634,8 +636,14 @@ func (b *Board) resolveAction(key string) (config.Action, bool) {
 			}
 		}
 	}
-	act, ok := b.actions[key]
-	return act, ok
+	if act, ok := b.actions[key]; ok {
+		return act, true
+	}
+	// Fall back to built-in git defaults so any user key overrides them.
+	if act, ok := b.defaultActions[key]; ok {
+		return act, true
+	}
+	return config.Action{}, false
 }
 
 // rebuildNormalHints reconstructs the normalHints slice by merging global

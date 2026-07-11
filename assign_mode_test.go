@@ -17,7 +17,7 @@ import (
 func newBoardWithCollaborators(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil)
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
