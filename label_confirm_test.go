@@ -113,8 +113,8 @@ func TestCollectKnownLabels(t *testing.T) {
 	// Board with cards across columns should collect all unique label names.
 	b := newLoadedTestBoard(t)
 	known := b.collectKnownLabels()
-	// FakeProvider has labels: infra, design, docs, feature, backend, ui, bug, chore
-	for _, name := range []string{"infra", "design", "docs", "feature", "backend", "ui", "bug", "chore"} {
+	// FakeProvider has labels: infra, design, docs, feature, backend, ui
+	for _, name := range []string{"infra", "design", "docs", "feature", "backend", "ui"} {
 		if !known[strings.ToLower(name)] {
 			t.Errorf("collectKnownLabels missing label %q", name)
 		}

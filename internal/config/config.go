@@ -80,7 +80,6 @@ var DefaultColumns = []ColumnConfig{
 	{Name: "New"},
 	{Name: "Refined"},
 	{Name: "Implementing"},
-	{Name: "Implemented"},
 }
 
 // ColumnNames extracts the column name strings from the ColumnConfig slice.

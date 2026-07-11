@@ -101,7 +101,7 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `session_max_length` | int | `32` | Max characters for the `{session}` template variable |
 | `working_label` | string | `"Working"` | Label that shows a working indicator on cards |
 | `mouse` | bool | `true` | Enable mouse support |
-| `columns` | list | `[New, Refined, Implementing, Implemented]` | Column definitions (name, actions, cleanup) |
+| `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, actions, cleanup) |
 | `actions` | map | — | Global custom actions (see [Custom Actions](#custom-actions)) |
 
 ## Editing Cards

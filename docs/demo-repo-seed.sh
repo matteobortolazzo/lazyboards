@@ -28,7 +28,6 @@ create_label() {
 create_label "New"          "c5def5" "Incoming, not yet triaged"
 create_label "Refined"      "bfd4f2" "Ready to be worked on"
 create_label "Implementing" "fbca04" "In progress"
-create_label "Implemented"  "0e8a16" "Done"
 
 # Extra labels for flavour
 create_label "bug"          "d73a4a" "Something isn't working"
@@ -107,22 +106,5 @@ When two devices edit the same note offline, the current sync engine picks last-
 new_issue "Fix flaky test in auth middleware" \
   "Implementing,bug" \
   "\`TestAuth_RejectsExpiredToken\` fails ~1 in 20 runs on CI. Suspected race in the token cache eviction goroutine."
-
-# ---- Implemented (4) ----
-new_issue "Add JSON logging mode" \
-  "Implemented,enhancement" \
-  "Structured logs for production environments. Enabled via \`LOG_FORMAT=json\`."
-
-new_issue "Fix typo in onboarding email" \
-  "Implemented,docs" \
-  "\"Welcome aboard!\" was spelled \"Wellcome aboard!\"."
-
-new_issue "Rate limit public API endpoints" \
-  "Implemented,enhancement" \
-  "Token bucket rate limiter: 60 req/min per API key on the free tier. Returns \`429\` with \`Retry-After\` header."
-
-new_issue "Migrate CI from Travis to GitHub Actions" \
-  "Implemented" \
-  "One workflow per stage (lint, test, build). Matrix across Go 1.24 and 1.25."
 
 echo "==> Done. Run 'lazyboards' in this repo to verify the board."

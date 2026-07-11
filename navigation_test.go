@@ -417,16 +417,10 @@ func TestNumberKey_SwitchesToColumn(t *testing.T) {
 		t.Errorf("after '2': ActiveTab = %d, want 1", b.ActiveTab)
 	}
 
-	// Pressing "3" should set ActiveTab to 2 (third column).
+	// Pressing "3" should set ActiveTab to 2 (third and last column).
 	b = sendKey(t, b, keyMsg("3"))
 	if b.ActiveTab != 2 {
 		t.Errorf("after '3': ActiveTab = %d, want 2", b.ActiveTab)
-	}
-
-	// Pressing "4" should set ActiveTab to 3 (fourth column).
-	b = sendKey(t, b, keyMsg("4"))
-	if b.ActiveTab != 3 {
-		t.Errorf("after '4': ActiveTab = %d, want 3", b.ActiveTab)
 	}
 }
 
@@ -442,7 +436,7 @@ func TestNumberKey_OutOfRange_NoChange(t *testing.T) {
 
 	columnCount := len(b.Columns)
 
-	// Press a number beyond the column count (e.g., "5" on a 4-column board).
+	// Press a number beyond the column count (e.g., "4" on a 3-column board).
 	outOfRange := fmt.Sprintf("%d", columnCount+1)
 	b = sendKey(t, b, keyMsg(outOfRange))
 	if b.ActiveTab != 1 {

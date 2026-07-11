@@ -52,17 +52,8 @@ func NewFakeProvider() *FakeProvider {
 					{Number: 12, Title: "Config", Labels: []Label{{Name: "feature"}}},
 				},
 			},
-			{
-				Title: "Implemented",
-				Cards: []Card{
-					{Number: 13, Title: "Fix clamp", Labels: []Label{{Name: "bug"}}},
-					{Number: 14, Title: "Refactor", Labels: []Label{{Name: "chore"}}},
-					{Number: 15, Title: "Go module", Labels: []Label{{Name: "infra"}}},
-					{Number: 16, Title: "Scaffold", Labels: []Label{{Name: "feature"}}},
-				},
-			},
 		},
-		nextNumber: 17,
+		nextNumber: 13,
 	}
 }
 

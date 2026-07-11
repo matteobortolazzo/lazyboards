@@ -14,10 +14,10 @@ import (
 )
 
 // expectedColumnCount is the number of Kanban columns in the board.
-const expectedColumnCount = 4
+const expectedColumnCount = 3
 
 // expectedColumnTitles are the Kanban column names from the spec.
-var expectedColumnTitles = []string{"New", "Refined", "Implementing", "Implemented"}
+var expectedColumnTitles = []string{"New", "Refined", "Implementing"}
 
 // newTestBoard creates a Board in loadingMode using NewBoard.
 func newTestBoard(t *testing.T) Board {

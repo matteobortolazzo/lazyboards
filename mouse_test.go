@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -227,14 +229,13 @@ func TestMouseClickTab_SwitchesColumn(t *testing.T) {
 		t.Fatalf("precondition: ActiveTab = %d, want 0", b.ActiveTab)
 	}
 
-	// Click on the border title row (Y=0) at an X position
-	// that corresponds to the second column tab.
-	// With Width=120, the border title has all column labels spread across.
-	// The second column label starts roughly at X=30+ depending on title length.
-	// We use a click position that's within the second column's tab area.
-	// For robustness, we use the midpoint of the total width divided by column count.
-	numCols := len(b.Columns)
-	secondColX := b.Width / numCols // Approximate X for second column tab area.
+	// Click on the border title row (Y=0) at an X inside the second column's
+	// tab. Compute it the same way handleTabClick lays tabs out: a 3-col prefix,
+	// then each tab labelled "[n] Title (count)" separated by a 3-col separator.
+	prefixWidth := 3
+	separatorWidth := 3
+	firstLabel := fmt.Sprintf("[1] %s (%d)", b.Columns[0].Title, len(b.Columns[0].Cards))
+	secondColX := prefixWidth + lipgloss.Width(firstLabel) + separatorWidth + 1
 
 	b = sendKey(t, b, tea.MouseMsg{
 		X:      secondColX,
