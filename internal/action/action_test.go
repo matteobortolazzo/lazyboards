@@ -211,29 +211,46 @@ func TestBuildSessionName_TitleSlugsToEmpty(t *testing.T) {
 }
 
 func TestBuildSessionName_LongNumber(t *testing.T) {
-	// Number + hyphen already exceeds maxLen — return number only.
+	// Number + hyphen already leaves only 1 char of room — hard cut mid-slug.
 	got := BuildSessionName(123456789012345678, "title", 20)
-	want := "123456789012345678"
+	want := "123456789012345678-t"
 	if got != want {
 		t.Errorf("BuildSessionName() = %q, want %q", got, want)
 	}
 }
 
 func TestBuildSessionName_SingleLongWord(t *testing.T) {
-	// Title is a single word that can't be split at hyphens after number prefix.
+	// Title is a single word with no hyphen after the number prefix — hard
+	// cut still applies mid-word, it does not back off to the bare prefix.
 	got := BuildSessionName(99, "superlongwordwithnobreakpoints", 32)
-	want := "99"
+	want := "99-superlongwordwithnobreakpoint"
 	if got != want {
 		t.Errorf("BuildSessionName() = %q, want %q", got, want)
 	}
 }
 
 func TestBuildSessionName_CustomMaxLen(t *testing.T) {
-	// "1-short-title" is 13 chars; with maxLen=10, should truncate to "1-short"
+	// "1-short-title" is 13 chars; with maxLen=10, hard cut at 10 runes.
 	got := BuildSessionName(1, "short title", 10)
-	want := "1-short"
+	want := "1-short-ti"
 	if got != want {
 		t.Errorf("BuildSessionName() = %q, want %q", got, want)
+	}
+}
+
+// agentwatch's own window-name truncation (agentwatch/internal/run/slug.go:
+// capName) does a hard cut at maxLen runes and trims only trailing hyphens —
+// it never backs off to the last complete segment. lazyboards must produce
+// byte-for-byte the same join key the daemon broadcasts as WindowName, or the
+// exact-equality lookup in agentStatusFor silently never matches and no
+// badge is shown. This reproduces a real title (#270) whose 40-char cutoff
+// does not land on a hyphen boundary.
+func TestBuildSessionName_MatchesAgentwatchHardCutTruncation(t *testing.T) {
+	title := "Lazygit-style git integration: live git status display (1/2)"
+	got := BuildSessionName(270, title, 40)
+	want := "270-lazygit-style-git-integration-live-g"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q (must match agentwatch's capName truncation)", got, want)
 	}
 }
 
