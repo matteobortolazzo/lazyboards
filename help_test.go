@@ -461,6 +461,52 @@ func TestHelpMode_ViewShowsColumnActions(t *testing.T) {
 	}
 }
 
+func TestHelpContent_GlobalActionsAreSortedByKey(t *testing.T) {
+	actions := map[string]config.Action{
+		"Z": {Name: "Zebra Deploy", Type: "url", URL: "https://example.com/{number}"},
+		"A": {Name: "Alpha Deploy", Type: "url", URL: "https://example.com/{number}"},
+		"M": {Name: "Mid Deploy", Type: "url", URL: "https://example.com/{number}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+	content := b.buildHelpContent()
+
+	aIdx := strings.Index(content, "Alpha Deploy")
+	mIdx := strings.Index(content, "Mid Deploy")
+	zIdx := strings.Index(content, "Zebra Deploy")
+	if aIdx == -1 || mIdx == -1 || zIdx == -1 {
+		t.Fatal("buildHelpContent() should list all global custom actions")
+	}
+	if aIdx >= mIdx || mIdx >= zIdx {
+		t.Errorf("global custom actions should be sorted by key (A, M, Z), got order at indices A=%d M=%d Z=%d", aIdx, mIdx, zIdx)
+	}
+}
+
+func TestHelpContent_ColumnActionsAreSortedByKey(t *testing.T) {
+	globalActions := map[string]config.Action{}
+	columnConfigs := []config.ColumnConfig{
+		{
+			Name: "New",
+			Actions: map[string]config.Action{
+				"Z": {Name: "Zebra Column", Type: "url", URL: "https://deploy.com/{number}"},
+				"A": {Name: "Alpha Column", Type: "url", URL: "https://deploy.com/{number}"},
+				"M": {Name: "Mid Column", Type: "url", URL: "https://deploy.com/{number}"},
+			},
+		},
+	}
+	b, _ := newColumnActionTestBoard(t, globalActions, columnConfigs)
+	content := b.buildHelpContent()
+
+	aIdx := strings.Index(content, "Alpha Column")
+	mIdx := strings.Index(content, "Mid Column")
+	zIdx := strings.Index(content, "Zebra Column")
+	if aIdx == -1 || mIdx == -1 || zIdx == -1 {
+		t.Fatal("buildHelpContent() should list all column custom actions")
+	}
+	if aIdx >= mIdx || mIdx >= zIdx {
+		t.Errorf("column custom actions should be sorted by key (A, M, Z), got order at indices A=%d M=%d Z=%d", aIdx, mIdx, zIdx)
+	}
+}
+
 func TestHelpMode_ViewShowsUsageSection(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
