@@ -16,6 +16,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"github.com/muesli/termenv"
 )
@@ -185,6 +186,11 @@ const (
 	agentWatchMaxBackoff     = 30 * time.Second
 )
 
+// gitStatusPollInterval is the fixed interval for the background git status
+// poll (a fallback for out-of-app changes), independent of any fetch/refresh
+// completion so it can't spin on an ambiguous read result.
+const gitStatusPollInterval = 12 * time.Second
+
 // Agent window status values reported by the agentwatch daemon (plain strings).
 // Only the two surfaced as status-bar counts are named here.
 const (
@@ -261,6 +267,15 @@ type agentWatchErrorMsg struct {
 
 // agentWatchRetryMsg is sent when the agentwatch reconnect backoff timer fires.
 type agentWatchRetryMsg struct{}
+
+// gitStatusMsg is sent when a git status read completes (success or failure).
+type gitStatusMsg struct {
+	status gitdetect.Status
+	err    error
+}
+
+// gitStatusTickMsg is sent when the background git status poll timer fires.
+type gitStatusTickMsg struct{}
 
 // configSavedMsg is sent when a config file has been saved successfully.
 type configSavedMsg struct{}
@@ -452,11 +467,12 @@ type Board struct {
 	agentWatcher          agentwatch.Watcher
 	agentSnapshot         *watch.StateSnapshot
 	agentBackoff          time.Duration
+	gitReader             gitdetect.Reader
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher agentwatch.Watcher) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher agentwatch.Watcher, gitReader gitdetect.Reader) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 0
@@ -517,6 +533,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		mouseEnabled:       mouseEnabled,
 		normalHints:        hints,
 		agentWatcher:       watcher,
+		gitReader:          gitReader,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
 			providerIndex:   0,
@@ -1078,6 +1095,9 @@ func (b Board) Init() tea.Cmd {
 	cmd := tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	if b.agentWatcher != nil {
 		cmd = tea.Batch(cmd, subscribeAgentWatchCmd(b.agentWatcher))
+	}
+	if b.gitReader != nil {
+		cmd = tea.Batch(cmd, fetchGitStatusCmd(b.gitReader, "."), scheduleGitStatusTick(b))
 	}
 	return cmd
 }

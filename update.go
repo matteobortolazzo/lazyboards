@@ -52,6 +52,20 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return b, subscribeAgentWatchCmd(b.agentWatcher)
 
+	case gitStatusMsg:
+		if msg.err != nil {
+			b.statusBar.SetGitStatus("")
+			return b, nil
+		}
+		b.statusBar.SetGitStatus(formatGitSegment(msg.status))
+		return b, nil
+
+	case gitStatusTickMsg:
+		if b.gitReader == nil {
+			return b, nil
+		}
+		return b, tea.Batch(fetchGitStatusCmd(b.gitReader, "."), scheduleGitStatusTick(b))
+
 	case boardFetchedMsg:
 		return b.handleBoardFetched(msg)
 
@@ -108,6 +122,11 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = tea.Batch(cmd, tea.Tick(b.actionRefreshDelay, func(time.Time) tea.Msg {
 				return autoRefreshMsg{}
 			}))
+		}
+		// Broad refresh (per plan Q2): re-read git status after every successful
+		// action, not just actions tagged as git-related.
+		if msg.success && b.gitReader != nil {
+			cmd = tea.Batch(cmd, fetchGitStatusCmd(b.gitReader, "."))
 		}
 		return b, cmd
 
@@ -366,6 +385,9 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		if tickCmd := b.scheduleRefreshTick(); tickCmd != nil {
 			cmd = tea.Batch(cmd, tickCmd)
 		}
+		if b.gitReader != nil {
+			cmd = tea.Batch(cmd, fetchGitStatusCmd(b.gitReader, "."))
+		}
 		return b, cmd
 	}
 
@@ -401,6 +423,9 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	}
 	if tickCmd := b.scheduleRefreshTick(); tickCmd != nil {
 		cmd = tea.Batch(cmd, tickCmd)
+	}
+	if b.gitReader != nil {
+		cmd = tea.Batch(cmd, fetchGitStatusCmd(b.gitReader, "."))
 	}
 	return b, cmd
 }

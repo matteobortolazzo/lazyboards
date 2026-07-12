@@ -175,6 +175,12 @@ Inside a git repository with a remote, lazyboards ships three board-scope git sh
 
 These are discoverable in the `?` help popup (under **Built-in Git Actions**) and are kept out of the compact hint bar to avoid clutter. Any user-defined key — global or column-specific — overrides the built-in binding for that key.
 
+### Git Status Segment
+
+Inside a git repository with a remote, the status bar shows a compact, right-aligned, plain-ASCII git segment: current branch, staged/unstaged file counts, and commits ahead/behind upstream — e.g. `main +2~1 ↑3↓0`. The `↑N↓N` portion is omitted when the branch has no upstream configured. The segment is hidden entirely (no error shown) outside a git repo, when there's no remote, or on narrow terminals where there isn't room — hints always keep priority over the segment.
+
+The segment refreshes on board start, after every board refresh, after any successful action, and on a background poll every ~12s to catch changes made outside the app.
+
 ### Column-Specific Actions
 
 Define actions under a column to override global actions for that column:

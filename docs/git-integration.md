@@ -1,0 +1,8 @@
+# Git Integration
+
+Conventions for `internal/git` (live git status reading via shelling out to the `git` binary).
+
+## Rules
+
+- Any `exec.Command` that runs on a recurring background poll (not a one-shot user-triggered action) must be wrapped with `exec.CommandContext` + `context.WithTimeout`. A hung git process (lock contention, a stuck credential helper) otherwise blocks that goroutine forever, and since the poll fires repeatedly, each tick leaks another blocked goroutine with no upper bound. One-shot, user-triggered `exec.Command` calls (editor launch, `RunShell` action, `OpenURL`) don't need this because they run once per user action, not on a timer — don't apply this rule blanket to every `exec.Command` in the codebase.
+- When a subprocess call has more than two possible outcomes (e.g. `(*T, error)` where the command can fail, succeed-with-parseable-output, or succeed-with-unparseable-output), do not collapse "expected absence" and "unexpected format" into the same fallback state. In `ExecReader.Read`, `git rev-list ... @{u}...HEAD` failing (no upstream configured) is the graceful, documented case (`HasUpstream = false`); the command *succeeding* but its output failing to parse means an upstream genuinely exists but something about `parseAheadBehind` is wrong — that must still set `HasUpstream = true` (with Ahead/Behind left at zero) rather than silently falling through to the same "no upstream" state. Silent-failure reviewers, not the implementer or code-reviewer, are the ones who tend to catch this pattern — treat "the error case and the succeeded-but-unexpected-output case produce the same downstream state" as a red flag during self-review.
