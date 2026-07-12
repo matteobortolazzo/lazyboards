@@ -475,7 +475,7 @@ func TestViewCardList_WorkingLabelAndBadgeCoexist(t *testing.T) {
 	const cardNumber = 7
 	const cardTitle = "Fix flaky test"
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil)
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: []provider.Card{
