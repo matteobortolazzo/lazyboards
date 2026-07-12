@@ -17,5 +17,9 @@
   "cicd": {
     "enabled": true,
     "platform": "github-actions"
+  },
+  "sandbox": {
+    "enabled": true,
+    "baseVersion": "0.9.1"
   }
 }
