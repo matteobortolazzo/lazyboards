@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -865,6 +866,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, cmd
 	case "o":
 		return b.handleTicketOpenKey()
+	case "g":
+		return b.handleAgentJumpKey()
 	case "l", "right":
 		b.detailFocused = true
 		b.statusBar.SetActionHints(detailFocusHints)
@@ -1292,6 +1295,40 @@ func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
 	return b, cmd
 }
 
+// handleAgentJumpKey focuses the tmux window backing the selected card's live
+// agent session ("g" keybinding, #256). No-ops with a status-bar message when
+// there is no matching/live session, the session is in a failed state, or
+// lazyboards is not running inside tmux.
+func (b Board) handleAgentJumpKey() (tea.Model, tea.Cmd) {
+	if len(b.Columns) == 0 {
+		return b, nil
+	}
+	if len(b.visibleCards()) == 0 {
+		return b, nil
+	}
+	card := b.selectedCard()
+
+	ws := b.agentStatusFor(card)
+	if ws == nil || ws.Status == agentStatusFailed {
+		cmd := b.statusBar.SetTimedMessage("No agent session", StatusWarning, statusMessageDuration)
+		return b, cmd
+	}
+
+	if os.Getenv("TMUX") == "" {
+		cmd := b.statusBar.SetTimedMessage("Not inside tmux", StatusWarning, statusMessageDuration)
+		return b, cmd
+	}
+
+	if err := b.executor.SwitchToWindow(ws.Session, ws.WindowIndex); err != nil {
+		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+		return b, cmd
+	}
+
+	msg := fmt.Sprintf("Jumped to #%d", card.Number)
+	cmd := b.statusBar.SetTimedMessage(msg, StatusSuccess, statusMessageDuration)
+	return b, cmd
+}
+
 func (b Board) handleActionKey(act config.Action, card Card) (tea.Model, tea.Cmd) {
 	return b.handleActionKeyWithComment(act, card, "")
 }
@@ -1336,6 +1373,8 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	case "o":
 		return b.handleTicketOpenKey()
+	case "g":
+		return b.handleAgentJumpKey()
 	case "?":
 		b.helpFromDetailFocused = true
 		b.detailFocused = false
