@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // consecutiveHyphens matches one or more consecutive hyphens.
@@ -68,7 +69,13 @@ func ExpandTemplate(template string, vars map[string]string) string {
 
 // BuildSessionName creates a session identifier from a card number and title.
 // Format: {number}-{slugified-title}, capped at maxLen characters.
-// Truncation snaps to the last complete hyphen-delimited segment.
+// Truncation is a hard cut at maxLen runes with trailing hyphens trimmed.
+// This must byte-for-byte match agentwatch's own window-name truncation
+// (agentwatch/internal/run/slug.go: capName), since the agentwatch daemon
+// broadcasts WindowName as the join key cards match against by exact string
+// equality — any divergence between the two truncation strategies silently
+// breaks the badge join for titles that don't happen to truncate on a
+// hyphen boundary.
 func BuildSessionName(number int, title string, maxLen int) string {
 	prefix := fmt.Sprintf("%d", number)
 	slug := Slugify(title)
@@ -76,19 +83,11 @@ func BuildSessionName(number int, title string, maxLen int) string {
 		return prefix
 	}
 	full := prefix + "-" + slug
-	if len(full) <= maxLen {
+	if utf8.RuneCountInString(full) <= maxLen {
 		return full
 	}
-	// If truncation lands exactly on a segment boundary, keep it.
-	if full[maxLen] == '-' {
-		return full[:maxLen]
-	}
-	truncated := full[:maxLen]
-	lastHyphen := strings.LastIndex(truncated, "-")
-	if lastHyphen <= len(prefix) {
-		return prefix
-	}
-	return strings.TrimRight(truncated[:lastHyphen], "-")
+	r := []rune(full)
+	return strings.TrimRight(string(r[:maxLen]), "-")
 }
 
 // BuildBoardTemplateVars creates the variable map for board-scope template expansion.
