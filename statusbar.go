@@ -193,12 +193,12 @@ func (s StatusBar) View(width int, counts ...int) string {
 		gitWidth := lipgloss.Width(s.gitStatus)
 		reserved := gitWidth + 1 // 1-space separator before the git segment
 		if reserved <= width {
-			hintsView := renderHints(s.hints, width-reserved)
-			padding := width - lipgloss.Width(hintsView) - gitWidth
-			if padding < 1 {
-				padding = 1
+			hintsWidth := width - reserved
+			hintsView := renderHints(s.hints, hintsWidth)
+			if lipgloss.Width(hintsView) <= hintsWidth {
+				padding := width - lipgloss.Width(hintsView) - gitWidth
+				return prefix + hintsView + strings.Repeat(" ", padding) + s.gitStatus
 			}
-			return prefix + hintsView + strings.Repeat(" ", padding) + s.gitStatus
 		}
 		// Not enough room for the git segment even with truncated hints;
 		// drop it entirely and give hints back the full width.

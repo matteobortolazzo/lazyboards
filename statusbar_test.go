@@ -501,33 +501,36 @@ func TestStatusBar_ViewGitSegment_TruncatesHintsToMakeRoom(t *testing.T) {
 	}
 	sb := NewStatusBar(hints)
 
-	// Compute the width where all 3 hints fit fully, with no spare room.
+	// Compute a constrained width where all 3 hints fit fully and where the
+	// git segment can replace them with the minimum truncation indicator.
 	hint0 := hintKeyStyle.Render(hints[0].Key) + hintDescStyle.Render(": "+hints[0].Desc)
 	hint1 := hintKeyStyle.Render(hints[1].Key) + hintDescStyle.Render(": "+hints[1].Desc)
 	hint2 := hintKeyStyle.Render(hints[2].Key) + hintDescStyle.Render(": "+hints[2].Desc)
 	separator := hintDescStyle.Render(" | ")
 	fullHintsWidth := lipgloss.Width(hint0) + lipgloss.Width(separator) + lipgloss.Width(hint1) + lipgloss.Width(separator) + lipgloss.Width(hint2)
+	gitSegment := "feature-branch +5~3 ↑10↓2"
+	minGitWidth := lipgloss.Width(gitSegment) + 1 + lipgloss.Width(hintDescStyle.Render(" ..."))
+	width := max(fullHintsWidth, minGitWidth)
 
-	// Sanity check: at this exact width, with no git status set, all hints fit.
-	baseline := sb.View(fullHintsWidth)
+	// Sanity check: at this width, with no git status set, all hints fit.
+	baseline := sb.View(width)
 	if !strings.Contains(baseline, hints[2].Desc) {
-		t.Fatalf("baseline View(%d) = %q, want all hints (including %q) to fit without a git segment", fullHintsWidth, baseline, hints[2].Desc)
+		t.Fatalf("baseline View(%d) = %q, want all hints (including %q) to fit without a git segment", width, baseline, hints[2].Desc)
 	}
 
-	// Now set a git status that needs extra room; at the same width, a hint
+	// Now set a git status that needs extra room; at the same width, hints
 	// must be truncated to make room for the git segment.
-	gitSegment := "feature-branch +5~3 ↑10↓2"
 	sb.SetGitStatus(gitSegment)
-	view := sb.View(fullHintsWidth)
+	view := sb.View(width)
 
 	if !strings.Contains(view, gitSegment) {
-		t.Errorf("View(%d) = %q, want it to still contain the git segment %q", fullHintsWidth, view, gitSegment)
+		t.Errorf("View(%d) = %q, want it to still contain the git segment %q", width, view, gitSegment)
 	}
 	if strings.Contains(view, hints[2].Desc) {
-		t.Errorf("View(%d) = %q, want the last hint %q to be truncated to make room for the git segment", fullHintsWidth, view, hints[2].Desc)
+		t.Errorf("View(%d) = %q, want the last hint %q to be truncated to make room for the git segment", width, view, hints[2].Desc)
 	}
 	if !strings.Contains(view, "...") {
-		t.Errorf("View(%d) = %q, want a truncation indicator once a hint is dropped to make room", fullHintsWidth, view)
+		t.Errorf("View(%d) = %q, want a truncation indicator once a hint is dropped to make room", width, view)
 	}
 }
 
@@ -558,6 +561,25 @@ func TestStatusBar_ViewGitSegment_DropsWhenWidthInsufficient(t *testing.T) {
 	}
 	if strings.Contains(view, "...") {
 		t.Errorf("View(%d) = %q, hints fit fully on their own; want no truncation indicator just because the git segment was dropped", fullHintsWidth, view)
+	}
+}
+
+func TestStatusBar_ViewGitSegment_DropsWhenOnlySegmentFits(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	gitSegment := "feature-branch +5~3 ↑10↓2"
+	sb.SetGitStatus(gitSegment)
+
+	// Leave room for the git segment and its separator, but not for the
+	// minimum hint rendering (the truncation indicator). Hints keep priority,
+	// so the segment must be dropped instead of overflowing the status bar.
+	width := lipgloss.Width(gitSegment) + 1
+	view := sb.View(width)
+
+	if strings.Contains(view, gitSegment) {
+		t.Errorf("View(%d) = %q, want the git segment dropped when only the segment fits", width, view)
+	}
+	if got := lipgloss.Width(view); got > width {
+		t.Errorf("lipgloss.Width(View(%d)) = %d, want at most %d; view = %q", width, got, width, view)
 	}
 }
 
