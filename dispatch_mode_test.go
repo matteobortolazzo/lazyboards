@@ -810,3 +810,131 @@ func TestDispatchOnceCmd_Error(t *testing.T) {
 		t.Error("expected dispatchRunMsg.err to be non-empty on exec error")
 	}
 }
+
+// --- viewDispatchModal (#284) ---
+//
+// State precedence exercised through b.View(): loading -> running -> err ->
+// ready (not-enrolled vs enrolled, with an optional "Last run" summary line).
+
+func TestDispatchView_Loading(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{loading: true}
+
+	view := b.View()
+
+	if !strings.Contains(view, "Checking dispatch status...") {
+		t.Errorf("dispatch view while loading should contain %q, got:\n%s", "Checking dispatch status...", view)
+	}
+}
+
+func TestDispatchView_Running(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{running: true, repo: "owner/repo"}
+
+	view := b.View()
+
+	if !strings.Contains(view, "Running dispatch...") {
+		t.Errorf("dispatch view while running should contain %q, got:\n%s", "Running dispatch...", view)
+	}
+}
+
+func TestDispatchView_ErrorWithRepoAndDir(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	errMsg := "agentwatch not found on PATH — install it to use dispatch"
+	b.dispatch = dispatchState{err: errMsg, repo: "owner/repo", dir: "/tmp/some-dir"}
+
+	view := b.View()
+
+	if !strings.Contains(view, errMsg) {
+		t.Errorf("dispatch view with err set should contain the error message %q, got:\n%s", errMsg, view)
+	}
+	if !strings.Contains(view, "owner/repo") {
+		t.Errorf("dispatch view with err set and repo populated should still show repo %q, got:\n%s", "owner/repo", view)
+	}
+	if !strings.Contains(view, "/tmp/some-dir") {
+		t.Errorf("dispatch view with err set and dir populated should still show dir %q, got:\n%s", "/tmp/some-dir", view)
+	}
+}
+
+func TestDispatchView_ErrorWithoutRepo(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	errMsg := "fatal: not a git repository"
+	b.dispatch = dispatchState{err: errMsg, repo: "", dir: ""}
+
+	view := b.View()
+
+	if !strings.Contains(view, errMsg) {
+		t.Errorf("dispatch view with err set (no repo) should contain the error message %q, got:\n%s", errMsg, view)
+	}
+	if strings.Contains(view, "\n\n\n\n") {
+		t.Errorf("dispatch view with empty repo should not leave a stray blank line, got:\n%s", view)
+	}
+}
+
+func TestDispatchView_ReadyNotEnrolled(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: false}
+
+	view := b.View()
+
+	if !strings.Contains(view, "owner/repo") {
+		t.Errorf("ready dispatch view should contain repo %q, got:\n%s", "owner/repo", view)
+	}
+	if !strings.Contains(view, "Enroll") {
+		t.Errorf("ready dispatch view for a not-enrolled repo should offer an Enroll hint, got:\n%s", view)
+	}
+	if strings.Contains(view, "Dispatch once") {
+		t.Errorf("ready dispatch view for a not-enrolled repo should NOT offer 'Dispatch once', got:\n%s", view)
+	}
+}
+
+func TestDispatchView_ReadyWithEmptyRepoDoesNotShowEnrolledFields(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{}
+
+	view := b.View()
+
+	if strings.Contains(view, "Enrolled:") {
+		t.Errorf("dispatch view with no repo should not render enrolled/ready fields as if valid, got:\n%s", view)
+	}
+	if strings.Contains(view, "Dispatch once") || strings.Contains(view, "Enroll") {
+		t.Errorf("dispatch view with no repo should not offer enroll/dispatch hints, got:\n%s", view)
+	}
+}
+
+func TestDispatchView_ReadyEnrolled(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true}
+
+	view := b.View()
+
+	if !strings.Contains(view, "Unenroll") {
+		t.Errorf("ready dispatch view for an enrolled repo should offer an Unenroll hint, got:\n%s", view)
+	}
+	if !strings.Contains(view, "Dispatch once") {
+		t.Errorf("ready dispatch view for an enrolled repo should offer 'Dispatch once', got:\n%s", view)
+	}
+}
+
+func TestDispatchView_ShowsLastResult(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	result := "2 dispatched, 1 skipped (all enrolled repos)"
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, lastResult: result}
+
+	view := b.View()
+
+	if !strings.Contains(view, result) {
+		t.Errorf("ready dispatch view with a lastResult should surface the summary %q, got:\n%s", result, view)
+	}
+	if !strings.Contains(view, "all enrolled repos") {
+		t.Errorf("dispatch view result summary should include the fleet-wide scope marker, got:\n%s", view)
+	}
+}

@@ -20,6 +20,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Auto-detection of provider and repo from git remote
 - In-app configuration UI (first-launch flow or press `c`)
 - Board refresh (manual and periodic background refresh)
+- Agent dispatch panel: enroll repos and trigger fleet-wide dispatch (`d`)
 - Help popup with full keybinding reference (`?`)
 - Error screen with retry support
 - Responsive terminal resizing
@@ -81,6 +82,12 @@ Cards are GitHub issues. Each column maps to a label — an issue with the label
 Linked pull requests are auto-detected from the GitHub issue timeline (cross-references). Press `p` to open a linked PR, or pick from multiple.
 
 The board auto-refreshes in the background (default: every 5 minutes). Press `r` for an immediate refresh.
+
+### Dispatch Panel
+
+Press `d` to open the agent dispatch panel for the repo you're currently in. It shows whether the repo is enrolled with the agentwatch daemon and lets you toggle enrollment with `Enter`.
+
+Once a repo is enrolled, `o` triggers a dispatch run — but this is **fleet-wide**: it dispatches across *all* enrolled repos, not just the one currently open. The panel shows a summary of the last run (dispatched/skipped counts) after it completes. See the [Dispatch keybindings](#dispatch) for the full key reference.
 
 ## Configuration
 
