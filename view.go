@@ -948,7 +948,7 @@ var helpSections = []helpSection{
 func (b Board) buildHelpContent() string {
 	var sb strings.Builder
 
-	sb.WriteString("Help\n\n")
+	fmt.Fprintf(&sb, "Help — lazyboards %s\n\n", appVersion())
 
 	for i, section := range helpSections {
 		if i > 0 {
