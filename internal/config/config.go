@@ -27,7 +27,9 @@ type ColumnConfig struct {
 	Cleanup string            `yaml:"cleanup"`
 }
 
-const DefaultSessionMaxLength = 32
+// DefaultSessionMaxLength must stay in sync with agentwatch's windowNameMaxLen
+// (agent-stack/agentwatch internal/run/slug.go).
+const DefaultSessionMaxLength = 40
 const DefaultRefreshInterval = 5
 const DefaultActionRefreshDelay = 5
 const DefaultWorkingLabel = "Working"
