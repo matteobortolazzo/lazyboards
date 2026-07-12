@@ -470,6 +470,37 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 			continue // card stayed in same column
 		}
 
+		// Departure detected, but cleanup must never kill a window whose agent
+		// is still working. Each guard defers instead of skipping: carrying the
+		// prev entry into newCards (assigned to b.prevCards by the caller)
+		// re-detects the same departure on the next fetch.
+
+		// Guard A — agentwatch liveness: check the session names derived from
+		// both the previous and current titles, since refine rewrites titles.
+		if b.agentSessionBusy(cardNum, prev.title) || (exists && b.agentSessionBusy(cardNum, newInfo.title)) {
+			// A miss observed here still counts toward Guard C's debounce, so
+			// cleanup runs on the first fetch after the agent finishes.
+			prev.missingSeen = prev.missingSeen || !exists
+			newCards[cardNum] = prev
+			continue
+		}
+
+		// Guard B — working label: marks an in-flight agent even when
+		// agentwatch is off or its snapshot lags behind.
+		if exists && b.hasWorkingLabel(newInfo.labels) {
+			newCards[cardNum] = prev
+			continue
+		}
+
+		// Guard C — missing-card debounce: a card can vanish from a single
+		// fetch without leaving its column (e.g. pagination shifting while
+		// issues close mid-fetch), so require two consecutive misses.
+		if !exists && !prev.missingSeen {
+			prev.missingSeen = true
+			newCards[cardNum] = prev
+			continue
+		}
+
 		// Card departed — expand template and collect command.
 		vars := action.BuildTemplateVars(cardNum, prev.title, prev.labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "")
 		expanded := action.ExpandTemplate(cleanup, action.BuildShellSafeVars(vars))
@@ -480,6 +511,31 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		return nil
 	}
 	return runCleanupCmds(b.executor, commands)
+}
+
+// agentSessionBusy reports whether the agentwatch window derived from the card
+// number and title has an agent that is running or waiting for input. Always
+// false when no snapshot is stored (agentwatch off/absent).
+func (b *Board) agentSessionBusy(cardNum int, title string) bool {
+	ws := b.agentStatusForSession(action.BuildSessionName(cardNum, title, b.sessionMaxLen))
+	if ws == nil {
+		return false
+	}
+	return ws.Status == agentStatusRunning || ws.Status == agentStatusNeedInput
+}
+
+// hasWorkingLabel reports whether any label matches the configured working
+// label (case-insensitive). Always false when no working label is configured.
+func (b *Board) hasWorkingLabel(labels []string) bool {
+	if b.workingLabel == "" {
+		return false
+	}
+	for _, l := range labels {
+		if strings.EqualFold(l, b.workingLabel) {
+			return true
+		}
+	}
+	return false
 }
 
 // columnCleanup returns the cleanup command for the column at colIdx, matched by title.

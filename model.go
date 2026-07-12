@@ -289,6 +289,10 @@ type prevCardInfo struct {
 	colIdx int
 	title  string
 	labels []string
+	// missingSeen marks a card already absent from one fetch; a missing card
+	// only counts as departed once it stays missing on a second consecutive
+	// fetch, so transient fetch glitches don't trigger cleanup.
+	missingSeen bool
 }
 
 // Column represents a Kanban column containing cards.
@@ -1091,10 +1095,15 @@ func (b *Board) collectKnownLabels() map[string]bool {
 // agentStatusFor returns the agentwatch window state joined to card by exact
 // session-name equality, or nil if no snapshot is stored yet or no window matches.
 func (b Board) agentStatusFor(card Card) *watch.WindowState {
+	return b.agentStatusForSession(action.BuildSessionName(card.Number, card.Title, b.sessionMaxLen))
+}
+
+// agentStatusForSession returns the agentwatch window state with the given
+// window name, or nil if no snapshot is stored yet or no window matches.
+func (b Board) agentStatusForSession(name string) *watch.WindowState {
 	if b.agentSnapshot == nil {
 		return nil
 	}
-	name := action.BuildSessionName(card.Number, card.Title, b.sessionMaxLen)
 	for i := range b.agentSnapshot.Windows {
 		if b.agentSnapshot.Windows[i].WindowName == name {
 			return &b.agentSnapshot.Windows[i]
