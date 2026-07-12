@@ -154,7 +154,7 @@ func TestCleanup_CardDisappears_DebouncedToSecondFetch(t *testing.T) {
 	}
 
 	// Still missing on the second consecutive fetch — now it's a real departure.
-	b = refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
+	refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
 	if len(fe.RunShellCalls) == 0 {
 		t.Fatal("expected cleanup RunShell call after card missing on two consecutive fetches, got none")
 	}
@@ -171,7 +171,7 @@ func TestCleanup_CardMissingOnceThenReappears_NoCleanup(t *testing.T) {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
 	}
 	b = refreshCleanupBoard(t, b, board)
-	b = refreshCleanupBoard(t, b, board)
+	refreshCleanupBoard(t, b, board)
 
 	if len(fe.RunShellCalls) != 0 {
 		t.Errorf("expected no cleanup for card that reappeared, got: %v", fe.RunShellCalls)
@@ -344,7 +344,7 @@ func TestCleanup_DeferredWhileWorkingLabelSet(t *testing.T) {
 	}
 
 	// The label is removed; the next refresh runs the deferred cleanup.
-	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 	if len(fe.RunShellCalls) == 0 {
 		t.Fatal("expected cleanup RunShell call after working label removed, got none")
 	}
