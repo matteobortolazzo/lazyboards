@@ -109,6 +109,7 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `working_label` | string | `"Working"` | Label that shows a working indicator on cards |
 | `mouse` | bool | `true` | Enable mouse support |
 | `agentwatch` | bool | `true` | Enable live agent status badges + status-bar counts (requires the agentwatch daemon; silently off when absent) |
+| `cleanup` | string | — | Default cleanup command applied to every column that doesn't set its own (see [Column Cleanup](#column-cleanup)) |
 | `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, actions, cleanup) |
 | `actions` | map | — | Global custom actions (see [Custom Actions](#custom-actions)) |
 
@@ -211,6 +212,20 @@ columns:
 ```
 
 The `cleanup` command uses the same template variables as actions. It runs when a card moves to another column or disappears.
+
+Set a top-level `cleanup` to apply the same command to every column that doesn't define its own:
+
+```yaml
+cleanup: 'tmux kill-window -t {session} 2>/dev/null || true'
+columns:
+  - name: New
+  - name: Refined
+    cleanup: ''                          # explicitly disables cleanup for this column
+  - name: Implementing
+    cleanup: 'docker stop {session}'     # overrides the top-level default
+```
+
+A column's own `cleanup` (including an explicit empty string) always wins over the top-level default. Global and local config follow the usual precedence: a local top-level `cleanup` overrides global, and omitting it locally inherits the global value.
 
 ### Comment Mode
 

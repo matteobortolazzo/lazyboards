@@ -24,7 +24,18 @@ type Action struct {
 type ColumnConfig struct {
 	Name    string            `yaml:"name"`
 	Actions map[string]Action `yaml:"actions"`
-	Cleanup string            `yaml:"cleanup"`
+	Cleanup *string           `yaml:"cleanup,omitempty"`
+}
+
+// CleanupValue returns the column's own cleanup command, or "" if unset.
+// By the time Load() returns, every column has an explicit (possibly empty)
+// value; this accessor only guards direct construction (e.g. in tests) that
+// bypasses Load()'s inheritance resolution.
+func (cc ColumnConfig) CleanupValue() string {
+	if cc.Cleanup == nil {
+		return ""
+	}
+	return *cc.Cleanup
 }
 
 // DefaultSessionMaxLength must stay in sync with agentwatch's windowNameMaxLen
@@ -47,6 +58,7 @@ type Config struct {
 	WorkingLabel       *string           `yaml:"working_label,omitempty"`
 	Mouse              *bool             `yaml:"mouse,omitempty"`
 	AgentWatch         *bool             `yaml:"agentwatch,omitempty"`
+	Cleanup            *string           `yaml:"cleanup,omitempty"`
 }
 
 // WorkingLabelValue returns the configured working label, or DefaultWorkingLabel if not set.
@@ -73,6 +85,15 @@ func (c Config) AgentWatchValue() bool {
 		return true
 	}
 	return *c.AgentWatch
+}
+
+// CleanupValue returns the configured top-level default cleanup command, or ""
+// if not set. Used as the fallback for any column that doesn't set its own.
+func (c Config) CleanupValue() string {
+	if c.Cleanup == nil {
+		return ""
+	}
+	return *c.Cleanup
 }
 
 // ActionRefreshDelayValue returns the configured action refresh delay in seconds,
@@ -186,6 +207,10 @@ func Load(globalPath, localPath string) (Config, error) {
 	// Merge per-column actions: for each local column, merge with matching global column's actions.
 	mergeColumnActions(cfg.Columns, globalColumns)
 
+	// Merge per-column cleanup: for each local column, inherit the matching
+	// global column's cleanup if the local column didn't set its own.
+	mergeColumnCleanup(cfg.Columns, globalColumns)
+
 	if err := validateColumns(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -193,6 +218,10 @@ func Load(globalPath, localPath string) (Config, error) {
 	if err := validateActions(cfg.Actions); err != nil {
 		return Config{}, err
 	}
+
+	// Any column still without an explicit cleanup (including defaulted
+	// columns) falls back to the resolved top-level default.
+	applyDefaultCleanup(cfg.Columns, cfg.CleanupValue())
 
 	if cfg.SessionMaxLength <= 0 {
 		cfg.SessionMaxLength = DefaultSessionMaxLength
@@ -272,6 +301,35 @@ func mergeColumnActions(columns []ColumnConfig, globalColumns []ColumnConfig) {
 			if _, exists := columns[i].Actions[k]; !exists {
 				columns[i].Actions[k] = v
 			}
+		}
+	}
+}
+
+// mergeColumnCleanup fills in a column's Cleanup from the matching global
+// column when the local column didn't specify one. An explicit local value
+// (including an explicit empty string, which disables cleanup) always wins.
+func mergeColumnCleanup(columns []ColumnConfig, globalColumns []ColumnConfig) {
+	globalByName := make(map[string]ColumnConfig, len(globalColumns))
+	for _, gc := range globalColumns {
+		globalByName[strings.ToLower(gc.Name)] = gc
+	}
+
+	for i := range columns {
+		if columns[i].Cleanup != nil {
+			continue
+		}
+		if gc, found := globalByName[strings.ToLower(columns[i].Name)]; found {
+			columns[i].Cleanup = gc.Cleanup
+		}
+	}
+}
+
+// applyDefaultCleanup fills in the resolved top-level cleanup default for any
+// column that still has no explicit value after per-column merge.
+func applyDefaultCleanup(columns []ColumnConfig, defaultCleanup string) {
+	for i := range columns {
+		if columns[i].Cleanup == nil {
+			columns[i].Cleanup = &defaultCleanup
 		}
 	}
 }

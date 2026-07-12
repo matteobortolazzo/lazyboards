@@ -18,7 +18,7 @@ func newCleanupTestBoard(t *testing.T, cleanup string) (Board, *action.FakeExecu
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	columnConfigs := []config.ColumnConfig{
-		{Name: "New", Cleanup: cleanup},
+		{Name: "New", Cleanup: &cleanup},
 		{Name: "Refined"},
 		{Name: "Implementing"},
 		{Name: "Implemented"},

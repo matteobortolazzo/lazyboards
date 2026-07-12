@@ -549,7 +549,7 @@ func (b *Board) columnCleanup(colIdx int) string {
 	colTitle := b.Columns[colIdx].Title
 	for _, cc := range b.columnConfigs {
 		if strings.EqualFold(cc.Name, colTitle) {
-			return cc.Cleanup
+			return cc.CleanupValue()
 		}
 	}
 	return ""

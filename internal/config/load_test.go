@@ -339,6 +339,77 @@ func TestWorkingLabelValue_EmptyStringReturnsEmpty(t *testing.T) {
 	}
 }
 
+// --- Cleanup config tests (top-level default) ---
+
+func TestLoad_Cleanup_ParsesFromYAML(t *testing.T) {
+	yamlContent := "provider: github\ncleanup: \"tmux kill-window -t ={session} 2>/dev/null || true\"\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	if result.Cleanup == nil {
+		t.Fatal("Cleanup should not be nil when set in config")
+	}
+	if *result.Cleanup != "tmux kill-window -t ={session} 2>/dev/null || true" {
+		t.Errorf("Cleanup = %q, want the configured command", *result.Cleanup)
+	}
+}
+
+func TestLoad_Cleanup_DefaultsToEmptyWhenOmitted(t *testing.T) {
+	yamlContent := "provider: github\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	if result.Cleanup != nil {
+		t.Errorf("Cleanup should be nil when omitted, got %q", *result.Cleanup)
+	}
+	if result.CleanupValue() != "" {
+		t.Errorf("CleanupValue() = %q, want empty string (no default)", result.CleanupValue())
+	}
+}
+
+func TestLoad_Cleanup_LocalOverridesGlobal(t *testing.T) {
+	globalYAML := "provider: github\ncleanup: \"tmux kill-window -t ={session}\"\n"
+	localYAML := "cleanup: \"tmux kill-window -t ={session} --force\"\n"
+
+	result := mustLoadConfig(t, globalYAML, localYAML)
+
+	if result.Cleanup == nil {
+		t.Fatal("Cleanup should not be nil when set in local config")
+	}
+	if *result.Cleanup != "tmux kill-window -t ={session} --force" {
+		t.Errorf("Cleanup = %q, want local value (local should override global)", *result.Cleanup)
+	}
+}
+
+func TestLoad_Cleanup_OmittedLocalInheritsGlobal(t *testing.T) {
+	globalYAML := "provider: github\ncleanup: \"tmux kill-window -t ={session}\"\n"
+	localYAML := "repo: owner/repo\n"
+
+	result := mustLoadConfig(t, globalYAML, localYAML)
+
+	if result.Cleanup == nil {
+		t.Fatal("Cleanup should not be nil when set in global config and omitted locally")
+	}
+	if *result.Cleanup != "tmux kill-window -t ={session}" {
+		t.Errorf("Cleanup = %q, want global value (omission should inherit global)", *result.Cleanup)
+	}
+}
+
+func TestCleanupValue_NilReturnsEmpty(t *testing.T) {
+	cfg := Config{}
+	if cfg.CleanupValue() != "" {
+		t.Errorf("CleanupValue() = %q, want empty string (default when nil)", cfg.CleanupValue())
+	}
+}
+
+func TestCleanupValue_SetReturnsValue(t *testing.T) {
+	cleanup := "tmux kill-window -t ={session}"
+	cfg := Config{Cleanup: &cleanup}
+	if cfg.CleanupValue() != "tmux kill-window -t ={session}" {
+		t.Errorf("CleanupValue() = %q, want %q", cfg.CleanupValue(), "tmux kill-window -t ={session}")
+	}
+}
+
 // --- ActionRefreshDelay config tests (#119) ---
 
 func TestLoad_ActionRefreshDelay_ParsesFromYAML(t *testing.T) {
