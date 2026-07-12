@@ -206,13 +206,10 @@ func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
 // classifyAgentwatchError maps a shell execution error/stderr pair from an
 // agentwatch invocation into a user-facing message.
 func classifyAgentwatchError(err error, stderr string) string {
-	notFound := false
 	// exit 127 is "command not found" from sh; match the exact os/exec format
 	// ("exit status 127") rather than a bare "127" substring that could appear
 	// in unrelated error text.
-	if err != nil && strings.Contains(err.Error(), "exit status 127") {
-		notFound = true
-	}
+	notFound := err != nil && strings.Contains(err.Error(), "exit status 127")
 	if strings.Contains(stderr, "not found") || strings.Contains(stderr, "command not found") {
 		notFound = true
 	}
