@@ -586,6 +586,133 @@ columns:
 	}
 }
 
+// --- Per-column cleanup inheritance tests ---
+
+func TestLoad_ColumnCleanup_OmittedInheritsTopLevelDefault(t *testing.T) {
+	yamlContent := `provider: github
+cleanup: "tmux kill-window -t ={session}"
+columns:
+  - name: Implementing
+`
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	col := result.Columns[0]
+	if col.Cleanup == nil {
+		t.Fatal("Columns[0].Cleanup should not be nil (should inherit top-level default)")
+	}
+	if *col.Cleanup != "tmux kill-window -t ={session}" {
+		t.Errorf("Columns[0].Cleanup = %q, want top-level default", *col.Cleanup)
+	}
+}
+
+func TestLoad_ColumnCleanup_ExplicitValueOverridesTopLevelDefault(t *testing.T) {
+	yamlContent := `provider: github
+cleanup: "tmux kill-window -t ={session}"
+columns:
+  - name: Implementing
+    cleanup: "docker stop {session}"
+`
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	col := result.Columns[0]
+	if col.Cleanup == nil || *col.Cleanup != "docker stop {session}" {
+		t.Errorf("Columns[0].Cleanup = %v, want column-level override to win over top-level default", col.Cleanup)
+	}
+}
+
+func TestLoad_ColumnCleanup_ExplicitEmptyStringDisablesInheritance(t *testing.T) {
+	yamlContent := `provider: github
+cleanup: "tmux kill-window -t ={session}"
+columns:
+  - name: Implementing
+    cleanup: ""
+`
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	col := result.Columns[0]
+	if col.Cleanup == nil {
+		t.Fatal("Columns[0].Cleanup should not be nil (explicit empty string is a set value)")
+	}
+	if *col.Cleanup != "" {
+		t.Errorf("Columns[0].Cleanup = %q, want empty string (explicit disable should not inherit default)", *col.Cleanup)
+	}
+}
+
+func TestLoad_ColumnCleanup_NoTopLevelDefault_ColumnStaysEmpty(t *testing.T) {
+	yamlContent := `provider: github
+columns:
+  - name: Implementing
+`
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	col := result.Columns[0]
+	if col.Cleanup == nil || *col.Cleanup != "" {
+		t.Errorf("Columns[0].Cleanup = %v, want pointer to empty string (no top-level default configured)", col.Cleanup)
+	}
+}
+
+func TestLoad_ColumnCleanup_DefaultColumns_InheritTopLevelCleanup(t *testing.T) {
+	yamlContent := "provider: github\ncleanup: \"tmux kill-window -t ={session}\"\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	if len(result.Columns) != len(DefaultColumns) {
+		t.Fatalf("Columns count = %d, want %d (defaults)", len(result.Columns), len(DefaultColumns))
+	}
+	for _, col := range result.Columns {
+		if col.Cleanup == nil || *col.Cleanup != "tmux kill-window -t ={session}" {
+			t.Errorf("Column %q Cleanup = %v, want top-level default inherited into defaulted columns", col.Name, col.Cleanup)
+		}
+	}
+}
+
+func TestLoad_ColumnCleanup_LocalOmittedInheritsMatchingGlobalColumn(t *testing.T) {
+	globalYAML := `provider: github
+columns:
+  - name: Implementing
+    cleanup: "docker stop {session}"
+`
+	// Local redefines the column (e.g. to add an action) but doesn't set cleanup.
+	localYAML := `columns:
+  - name: Implementing
+    actions:
+      B:
+        name: Create branch
+        type: shell
+        command: "git checkout -b {title}"
+`
+
+	result := mustLoadConfig(t, globalYAML, localYAML)
+
+	col := result.Columns[0]
+	if col.Cleanup == nil || *col.Cleanup != "docker stop {session}" {
+		t.Errorf("Columns[0].Cleanup = %v, want inherited from matching global column", col.Cleanup)
+	}
+}
+
+func TestLoad_ColumnCleanup_LocalExplicitOverridesMatchingGlobalColumn(t *testing.T) {
+	globalYAML := `provider: github
+columns:
+  - name: Implementing
+    cleanup: "docker stop {session}"
+`
+	localYAML := `columns:
+  - name: Implementing
+    cleanup: "tmux kill-window -t ={session}"
+`
+
+	result := mustLoadConfig(t, globalYAML, localYAML)
+
+	col := result.Columns[0]
+	if col.Cleanup == nil || *col.Cleanup != "tmux kill-window -t ={session}" {
+		t.Errorf("Columns[0].Cleanup = %v, want local column value (local should override global column)", col.Cleanup)
+	}
+}
+
 func TestLoad_ColumnActionsMerge_GlobalColumnsWithActionsNoLocal(t *testing.T) {
 	globalYAML := `provider: github
 columns:

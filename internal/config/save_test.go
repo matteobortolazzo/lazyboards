@@ -130,6 +130,44 @@ actions:
 	}
 }
 
+func TestSave_PreservesExistingCleanup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	initialYAML := `provider: github
+repo: owner/repo
+cleanup: "tmux kill-window -t ={session} 2>/dev/null || true"
+columns:
+  - name: Implementing
+    cleanup: "docker stop {session}"
+`
+	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	err := Save(path, "ado", "new-owner/new-repo")
+	if err != nil {
+		t.Fatalf("Save() returned unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved config: %v", err)
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("saved file is not valid YAML: %v", err)
+	}
+
+	if cfg.Cleanup == nil || *cfg.Cleanup != "tmux kill-window -t ={session} 2>/dev/null || true" {
+		t.Errorf("Cleanup = %v, want top-level cleanup to be preserved", cfg.Cleanup)
+	}
+	if len(cfg.Columns) != 1 || cfg.Columns[0].Cleanup == nil || *cfg.Columns[0].Cleanup != "docker stop {session}" {
+		t.Errorf("Columns[0].Cleanup = %v, want per-column cleanup to be preserved", cfg.Columns)
+	}
+}
+
 func TestSave_RejectsNonYAMLExtension(t *testing.T) {
 	cases := []struct {
 		name     string
