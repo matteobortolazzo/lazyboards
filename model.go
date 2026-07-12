@@ -197,6 +197,7 @@ const gitStatusPollInterval = 12 * time.Second
 const (
 	agentStatusRunning   = "running"
 	agentStatusNeedInput = "need_input"
+	agentStatusFailed    = "failed"
 )
 
 // filterType represents the category of a filter selection.
