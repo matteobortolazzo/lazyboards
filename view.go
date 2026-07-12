@@ -954,6 +954,8 @@ var helpSections = []helpSection{
 	}},
 	{"Dispatch", [][2]string{
 		{"d", "Open"},
+		{"enter", "Enroll/Unenroll"},
+		{"o", "Dispatch once"},
 		{"esc", "Close"},
 	}},
 	{"Error", [][2]string{

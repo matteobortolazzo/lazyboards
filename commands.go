@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -199,6 +200,116 @@ func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
 			count++
 		}
 		return cleanupResultMsg{count: count}
+	}
+}
+
+// classifyAgentwatchError maps a shell execution error/stderr pair from an
+// agentwatch invocation into a user-facing message.
+func classifyAgentwatchError(err error, stderr string) string {
+	// exit 127 is "command not found" from sh; match the exact os/exec format
+	// ("exit status 127") rather than a bare "127" substring that could appear
+	// in unrelated error text.
+	notFound := err != nil && strings.Contains(err.Error(), "exit status 127")
+	if strings.Contains(stderr, "not found") || strings.Contains(stderr, "command not found") {
+		notFound = true
+	}
+	if notFound {
+		return "agentwatch not found on PATH — install it to use dispatch"
+	}
+
+	if strings.Contains(stderr, "is not a git repository") || strings.Contains(stderr, "getting origin remote url") {
+		return "could not resolve repository — run dispatch from inside a git repo with an origin remote"
+	}
+
+	if stderr != "" {
+		return "agentwatch: " + truncateOutput(strings.TrimSpace(stderr), maxErrorOutputLen)
+	}
+	if err != nil {
+		return "agentwatch: " + truncateOutput(err.Error(), maxErrorOutputLen)
+	}
+	return "agentwatch: unknown error"
+}
+
+// queryDispatchStatusCmd returns a tea.Cmd that queries agentwatch for the
+// current working directory's repo/dir/enrollment status.
+func queryDispatchStatusCmd(executor action.Executor) tea.Cmd {
+	return func() tea.Msg {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return dispatchStatusMsg{err: classifyAgentwatchError(err, "")}
+		}
+
+		command := "agentwatch dispatch status --json --dir " + action.ShellEscape(cwd)
+		stdout, stderr, err := executor.RunShellOutput(command)
+		if err != nil {
+			return dispatchStatusMsg{err: classifyAgentwatchError(err, stderr)}
+		}
+
+		var v struct {
+			Repo     string `json:"repo"`
+			Dir      string `json:"dir"`
+			Enrolled bool   `json:"enrolled"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &v); err != nil {
+			return dispatchStatusMsg{err: "agentwatch version too old — upgrade to use dispatch enrollment"}
+		}
+
+		return dispatchStatusMsg{repo: v.Repo, dir: v.Dir, enrolled: v.Enrolled}
+	}
+}
+
+// toggleEnrollCmd returns a tea.Cmd that enrolls or unenrolls the current
+// working directory's repo with agentwatch, based on the current enrolled
+// state. It only checks the exec exit status; stdout content is ignored.
+func toggleEnrollCmd(executor action.Executor, enrolled bool) tea.Cmd {
+	return func() tea.Msg {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return dispatchEnrollMsg{err: classifyAgentwatchError(err, "")}
+		}
+
+		sub := "enroll"
+		if enrolled {
+			sub = "unenroll"
+		}
+		command := "agentwatch dispatch " + sub + " --dir " + action.ShellEscape(cwd)
+		_, stderr, err := executor.RunShellOutput(command)
+		if err != nil {
+			return dispatchEnrollMsg{err: classifyAgentwatchError(err, stderr)}
+		}
+		return dispatchEnrollMsg{}
+	}
+}
+
+// dispatchOnceCmd returns a tea.Cmd that runs a single fleet-wide agentwatch
+// dispatch pass across all enrolled repos, parsing the dispatched/skipped
+// counts from its stdout.
+func dispatchOnceCmd(executor action.Executor) tea.Cmd {
+	return func() tea.Msg {
+		command := "agentwatch dispatch --once"
+		stdout, stderr, err := executor.RunShellOutput(command)
+		if err != nil {
+			return dispatchRunMsg{err: classifyAgentwatchError(err, stderr)}
+		}
+
+		// agentwatch prints one line per repo: "#N dispatch (...)" or
+		// "#N skip: ...". Count those two forms; any other line (headers,
+		// summaries, or future format additions) is deliberately ignored so a
+		// minor output-format drift degrades gracefully to a count rather than
+		// an error (ticket #283, Q3).
+		dispatched := 0
+		skipped := 0
+		for _, line := range strings.Split(stdout, "\n") {
+			switch {
+			case strings.Contains(line, " dispatch "):
+				dispatched++
+			case strings.Contains(line, " skip:"):
+				skipped++
+			}
+		}
+
+		result := fmt.Sprintf("%d dispatched, %d skipped (all enrolled repos)", dispatched, skipped)
+		return dispatchRunMsg{result: result}
 	}
 }
 

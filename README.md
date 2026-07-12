@@ -376,6 +376,8 @@ Press `?` at any time to open the in-app help popup.
 
 | Key | Action |
 |-----|--------|
+| `Enter` | Enroll/Unenroll current repo |
+| `o` | Dispatch once (all enrolled repos) |
 | `Esc` | Close |
 
 ### Error Mode
