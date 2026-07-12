@@ -1,6 +1,17 @@
 name: Release
 
+# Triggered two ways:
+#   * push of a `v*` tag (manual/local tag pushes with a real token), and
+#   * workflow_dispatch from the Version Bump job, which is the automated path:
+#     a tag pushed by GITHUB_TOKEN does NOT fire `on: push: tags` (GitHub's
+#     recursion guard), but workflow_dispatch IS allowed with GITHUB_TOKEN, so
+#     the bump job dispatches this workflow explicitly.
 on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 0.1.0 (no leading v)'
+        required: true
   push:
     tags:
       - 'v*'
@@ -12,8 +23,25 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve release tag
+        id: v
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME}"
+          fi
+          VERSION="${VERSION#v}"   # normalize: strip a leading v if present
+          if [ -z "$VERSION" ]; then
+            echo "could not resolve version" >&2
+            exit 1
+          fi
+          echo "tag=v${VERSION}" >>"$GITHUB_OUTPUT"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          # Always build from the tag's commit, regardless of which event ran us.
+          ref: refs/tags/${{ steps.v.outputs.tag }}
           fetch-depth: 0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -24,3 +52,6 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Be explicit about the tag so GoReleaser resolves the version the same
+          # way on both the push-tag and workflow_dispatch paths.
+          GORELEASER_CURRENT_TAG: ${{ steps.v.outputs.tag }}
