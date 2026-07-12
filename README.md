@@ -43,6 +43,12 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 go install github.com/matteobortolazzo/lazyboards@latest
 ```
 
+Check the installed version:
+
+```
+lazyboards --version
+```
+
 ## Quick Start
 
 1. `cd` into a git repository with a GitHub remote

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -58,7 +59,36 @@ func (c *gitHubClient) GetUser(ctx context.Context, user string) (*github.User, 
 	return c.users.Get(ctx, user)
 }
 
+// version is injected at release time via -ldflags "-X main.version=...".
+// Empty in local builds; appVersion() then falls back to build info.
+var version = ""
+
+// appVersion resolves the running version: the injected ldflag value if set,
+// otherwise the module version embedded by `go install` (ReadBuildInfo),
+// otherwise "dev" for plain `go build`.
+func appVersion() string {
+	if version != "" {
+		return version
+	}
+	if info, ok := debug.ReadBuildInfo(); ok &&
+		info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return info.Main.Version
+	}
+	return "dev"
+}
+
+// versionRequested reports whether CLI args ask to print the version and exit.
+func versionRequested(args []string) bool {
+	return len(args) > 1 &&
+		(args[1] == "--version" || args[1] == "-v" || args[1] == "version")
+}
+
 func main() {
+	if versionRequested(os.Args) {
+		fmt.Printf("lazyboards %s\n", appVersion())
+		return
+	}
+
 	globalPath, err := config.DefaultGlobalPath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error resolving config path: %v\n", err)
