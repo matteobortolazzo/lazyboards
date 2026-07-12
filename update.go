@@ -226,6 +226,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleFilterModeKey(msg)
 		case assignMode:
 			return b.handleAssignModeKey(msg)
+		case gitPanelMode:
+			return b.handleGitPanelKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -902,6 +904,9 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = helpMode
 		b.statusBar.SetActionHints(helpModeHints)
 		return b, nil
+	case "g":
+		b.enterGitPanel()
+		return b, nil
 	default:
 		// Alt+Shift+key: check for comment mode trigger (uppercase A-Z only).
 		if msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
@@ -1084,6 +1089,42 @@ func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "k", "up":
 		if b.assign.cursor > 0 {
 			b.assign.cursor--
+		}
+	}
+	return b, nil
+}
+
+func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyEnter:
+		if len(b.gitPanel.items) == 0 || b.gitPanel.cursor >= len(b.gitPanel.items) {
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
+			return b, nil
+		}
+		item := b.gitPanel.items[b.gitPanel.cursor]
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+
+		act, ok := b.resolveAction(item.key)
+		if !ok {
+			return b, nil
+		}
+		return b.handleBoardActionKey(act)
+	}
+
+	switch msg.String() {
+	case "j", "down":
+		if b.gitPanel.cursor < len(b.gitPanel.items)-1 {
+			b.gitPanel.cursor++
+		}
+	case "k", "up":
+		if b.gitPanel.cursor > 0 {
+			b.gitPanel.cursor--
 		}
 	}
 	return b, nil

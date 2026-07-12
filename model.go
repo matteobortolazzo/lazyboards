@@ -173,6 +173,7 @@ const (
 	commentMode
 	filterMode
 	assignMode
+	gitPanelMode
 )
 
 const (
@@ -395,6 +396,25 @@ var assignModeHints = []Hint{
 	{Key: "enter", Desc: "Toggle"},
 }
 
+// gitPanelItem represents a single entry in the git panel picker list.
+type gitPanelItem struct {
+	key  string
+	name string
+}
+
+// gitPanelState groups fields related to the git panel modal.
+type gitPanelState struct {
+	items  []gitPanelItem
+	cursor int
+}
+
+// gitPanelModeHints are the status bar hints shown in git panel mode.
+var gitPanelModeHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+	{Key: "j/k", Desc: "Navigate"},
+	{Key: "enter", Desc: "Run"},
+}
+
 // configState groups fields related to the config modal.
 type configState struct {
 	providerOptions []string
@@ -468,6 +488,7 @@ type Board struct {
 	agentSnapshot         *watch.StateSnapshot
 	agentBackoff          time.Duration
 	gitReader             gitdetect.Reader
+	gitPanel              gitPanelState
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
@@ -575,6 +596,34 @@ func (b *Board) enterConfigMode() {
 			break
 		}
 	}
+}
+
+// gitPanelBuiltinOrder is the fixed display/dispatch order of the git panel's
+// built-in shortcuts: Push, Pull, Mergetool, Fetch, Stash push, Stash pop.
+// This must hold regardless of Go map iteration order over defaultActions.
+var gitPanelBuiltinOrder = []string{"P", "L", "M", "F", "S", "X"}
+
+// enterGitPanel opens the git panel modal, populating its items from
+// b.defaultActions in a fixed order (not map iteration order). If no default
+// git actions are available (e.g. outside a git repo), this is a no-op and
+// the panel does not open.
+func (b *Board) enterGitPanel() {
+	if len(b.defaultActions) == 0 {
+		return
+	}
+
+	items := make([]gitPanelItem, 0, len(gitPanelBuiltinOrder))
+	for _, key := range gitPanelBuiltinOrder {
+		act, ok := b.defaultActions[key]
+		if !ok {
+			continue
+		}
+		items = append(items, gitPanelItem{key: key, name: act.Name})
+	}
+
+	b.gitPanel = gitPanelState{items: items, cursor: 0}
+	b.mode = gitPanelMode
+	b.statusBar.SetActionHints(gitPanelModeHints)
 }
 
 // createModalWidth returns the modal width for the create-card dialog (60% of terminal width, min 20).

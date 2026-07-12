@@ -165,15 +165,18 @@ Actions default to `scope: "card"` (operate on the selected card). Set `scope: "
 
 ### Built-in Git Actions
 
-Inside a git repository with a remote, lazyboards ships three board-scope git shortcuts out of the box — no config required:
+Inside a git repository with a remote, lazyboards ships six board-scope git shortcuts out of the box — no config required:
 
 | Key | Action | Command |
 |-----|--------|---------|
 | `P` | Push | `git push` |
 | `L` | Pull (rebase) | `git pull --rebase` |
 | `M` | Mergetool | `git mergetool` |
+| `F` | Fetch | `git fetch` |
+| `S` | Stash push | `git stash push` |
+| `X` | Stash pop | `git stash pop` |
 
-These are discoverable in the `?` help popup (under **Built-in Git Actions**) and are kept out of the compact hint bar to avoid clutter. Any user-defined key — global or column-specific — overrides the built-in binding for that key.
+These are discoverable in the `?` help popup (under **Built-in Git Actions**) and are kept out of the compact hint bar to avoid clutter. Any user-defined key — global or column-specific — overrides the built-in binding for that key. Press `g` to open the **Git Panel**, a modal listing all six shortcuts by name for discoverability; navigate with `j`/`k` and press `Enter` to run the selected action (respecting any user overrides), or `Esc` to cancel. The panel only opens when at least one built-in git action is available (i.e. inside a git repo).
 
 ### Git Status Segment
 
@@ -264,6 +267,7 @@ Press `?` at any time to open the in-app help popup.
 | `p` | Open PR |
 | `/` | Search |
 | `a` | Assign collaborator |
+| `g` | Git panel |
 | `f` | Filter (toggle) |
 | `l` / `→` | Detail panel |
 | `j` / `↓` | Next card |
@@ -271,7 +275,7 @@ Press `?` at any time to open the in-app help popup.
 | `Tab` / `Shift+Tab` | Switch columns |
 | `1-9` | Jump to column |
 | `A-Z` | Custom action |
-| `P` / `L` / `M` | Built-in git push / pull (rebase) / mergetool (in a git repo, overridable) |
+| `P` / `L` / `M` / `F` / `S` / `X` | Built-in git push / pull (rebase) / mergetool / fetch / stash push / stash pop (in a git repo, overridable) |
 | `Alt+Shift+key` | Comment action |
 
 ### Detail Panel
@@ -340,6 +344,14 @@ Press `?` at any time to open the in-app help popup.
 |-----|--------|
 | `j` / `k` | Navigate |
 | `Enter` | Toggle assignee |
+| `Esc` | Cancel |
+
+### Git Panel
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate |
+| `Enter` | Run action |
 | `Esc` | Cancel |
 
 ### Error Mode

@@ -101,6 +101,9 @@ func DefaultGitActions() map[string]Action {
 		"P": {Name: "Push", Type: "shell", Command: "git push", Scope: "board"},
 		"L": {Name: "Pull (rebase)", Type: "shell", Command: "git pull --rebase", Scope: "board"},
 		"M": {Name: "Mergetool", Type: "shell", Command: "git mergetool", Scope: "board"},
+		"F": {Name: "Fetch", Type: "shell", Command: "git fetch", Scope: "board"},
+		"S": {Name: "Stash push", Type: "shell", Command: "git stash push", Scope: "board"},
+		"X": {Name: "Stash pop", Type: "shell", Command: "git stash pop", Scope: "board"},
 	}
 }
 
