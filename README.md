@@ -269,6 +269,7 @@ Press `?` at any time to open the in-app help popup.
 | `/` | Search |
 | `a` | Assign collaborator |
 | `g` | Git panel |
+| `d` | Dispatch |
 | `f` | Filter (toggle) |
 | `l` / `→` | Detail panel |
 | `j` / `↓` | Next card |
@@ -355,6 +356,12 @@ Press `?` at any time to open the in-app help popup.
 | `j` / `k` | Navigate |
 | `Enter` | Run action |
 | `Esc` | Cancel |
+
+### Dispatch
+
+| Key | Action |
+|-----|--------|
+| `Esc` | Close |
 
 ### Error Mode
 
