@@ -866,7 +866,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, cmd
 	case "o":
 		return b.handleTicketOpenKey()
-	case "g":
+	case "G":
 		return b.handleAgentJumpKey()
 	case "l", "right":
 		b.detailFocused = true
@@ -1296,7 +1296,8 @@ func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
 }
 
 // handleAgentJumpKey focuses the tmux window backing the selected card's live
-// agent session ("g" keybinding, #256). No-ops with a status-bar message when
+// agent session ("G" keybinding, #256 — "g" is taken by the git panel).
+// No-ops with a status-bar message when
 // there is no matching/live session, the session is in a failed state, or
 // lazyboards is not running inside tmux.
 func (b Board) handleAgentJumpKey() (tea.Model, tea.Cmd) {
@@ -1373,7 +1374,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	case "o":
 		return b.handleTicketOpenKey()
-	case "g":
+	case "G":
 		return b.handleAgentJumpKey()
 	case "?":
 		b.helpFromDetailFocused = true

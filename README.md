@@ -263,7 +263,7 @@ Press `?` at any time to open the in-app help popup.
 | `e` | Edit card |
 | `c` | Configuration |
 | `o` | Open ticket |
-| `g` | Jump to agent session |
+| `G` | Jump to agent session |
 | `r` | Refresh board |
 | `p` | Open PR |
 | `/` | Search |
@@ -288,7 +288,7 @@ Press `?` at any time to open the in-app help popup.
 | `h` / `←` / `Esc` | Back to card list |
 | `Tab` / `Shift+Tab` | Switch columns |
 | `o` | Open ticket |
-| `g` | Jump to agent session |
+| `G` | Jump to agent session |
 | `r` | Refresh |
 | `q` | Quit |
 | `?` | Help |

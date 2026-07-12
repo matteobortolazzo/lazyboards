@@ -11,12 +11,12 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
-// --- Agent jump (g key) (#256) ---
+// --- Agent jump (G key) (#256) ---
 //
 // Mirrors the "o" (open ticket) keybinding pattern (see TestTicketOpen_* in
-// actions_test.go): press "g" to focus the tmux window backing a card's live
-// agent session. Requires being inside tmux ($TMUX set) and a matching,
-// non-failed agentwatch window state.
+// actions_test.go): press "G" to focus the tmux window backing a card's live
+// agent session ("g" is already bound to the git panel). Requires being
+// inside tmux ($TMUX set) and a matching, non-failed agentwatch window state.
 
 // newAgentJumpTestBoard creates a loaded Board with a single card in a single
 // column, wired to a FakeExecutor for SwitchToWindow assertions.
@@ -24,7 +24,7 @@ func newAgentJumpTestBoard(t *testing.T, cardNumber int, cardTitle string) (Boar
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil)
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -57,7 +57,7 @@ func TestAgentJump_NormalMode_HasSession_SwitchesToWindow(t *testing.T) {
 		},
 	}
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if len(fe.SwitchWindowCalls) != 1 {
 		t.Fatalf("SwitchWindowCalls length = %d, want 1", len(fe.SwitchWindowCalls))
@@ -85,7 +85,7 @@ func TestAgentJump_NormalMode_SwitchFails_ShowsError(t *testing.T) {
 		},
 	}
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if b.statusBar.level != StatusError {
 		t.Errorf("statusBar.level = %v, want StatusError", b.statusBar.level)
@@ -103,7 +103,7 @@ func TestAgentJump_NormalMode_NoSession_NoOpWithMessage(t *testing.T) {
 	b, fe := newAgentJumpTestBoard(t, cardNumber, cardTitle)
 
 	// No agentSnapshot stored at all -- agentStatusFor returns nil for every card.
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if len(fe.SwitchWindowCalls) != 0 {
 		t.Errorf("expected no SwitchToWindow calls when no agent session matches, got %d", len(fe.SwitchWindowCalls))
@@ -129,7 +129,7 @@ func TestAgentJump_NormalMode_FailedStatus_NoOpWithMessage(t *testing.T) {
 		},
 	}
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if len(fe.SwitchWindowCalls) != 0 {
 		t.Errorf("expected no SwitchToWindow calls for a failed-status entry, got %d", len(fe.SwitchWindowCalls))
@@ -154,7 +154,7 @@ func TestAgentJump_NormalMode_OutsideTmux_NoOpWithMessage(t *testing.T) {
 		},
 	}
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if len(fe.SwitchWindowCalls) != 0 {
 		t.Errorf("expected no SwitchToWindow calls outside tmux, got %d", len(fe.SwitchWindowCalls))
@@ -178,9 +178,9 @@ func TestAgentJump_DetailFocused_HasSession_SwitchesToWindow(t *testing.T) {
 		},
 	}
 
-	// Enter detail focus, then press "g" to jump to the agent session.
+	// Enter detail focus, then press "G" to jump to the agent session.
 	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if len(fe.SwitchWindowCalls) != 1 {
 		t.Fatalf("SwitchWindowCalls length = %d, want 1", len(fe.SwitchWindowCalls))
@@ -201,7 +201,7 @@ func TestAgentJump_DetailFocused_NoSession_NoOpWithMessage(t *testing.T) {
 	b, fe := newAgentJumpTestBoard(t, cardNumber, cardTitle)
 
 	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if len(fe.SwitchWindowCalls) != 0 {
 		t.Errorf("expected no SwitchToWindow calls when no agent session matches, got %d", len(fe.SwitchWindowCalls))
@@ -226,7 +226,7 @@ func TestAgentJump_DetailFocused_FailedStatus_NoOpWithMessage(t *testing.T) {
 	}
 
 	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if len(fe.SwitchWindowCalls) != 0 {
 		t.Errorf("expected no SwitchToWindow calls for a failed-status entry, got %d", len(fe.SwitchWindowCalls))
@@ -251,7 +251,7 @@ func TestAgentJump_DetailFocused_OutsideTmux_NoOpWithMessage(t *testing.T) {
 	}
 
 	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if len(fe.SwitchWindowCalls) != 0 {
 		t.Errorf("expected no SwitchToWindow calls outside tmux, got %d", len(fe.SwitchWindowCalls))
