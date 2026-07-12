@@ -229,6 +229,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleAssignModeKey(msg)
 		case gitPanelMode:
 			return b.handleGitPanelKey(msg)
+		case dispatchMode:
+			return b.handleDispatchModeKey(msg)
 		default:
 			return b.handleNormalModeKey(msg)
 		}
@@ -966,6 +968,11 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "g":
 		b.enterGitPanel()
 		return b, nil
+	case "d":
+		b.dispatch = dispatchState{loading: true}
+		b.mode = dispatchMode
+		b.statusBar.SetActionHints(dispatchModeHints)
+		return b, nil
 	default:
 		// Alt+Shift+key: check for comment mode trigger (uppercase A-Z only).
 		if msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
@@ -1186,6 +1193,35 @@ func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.gitPanel.cursor--
 		}
 	}
+	return b, nil
+}
+
+// handleDispatchModeKey handles key presses while the agent dispatch modal
+// is open. Enter/"o" are intentionally no-ops for now: dispatching an agent
+// (#283) and rendering the panel (#284) are handled by later tickets in this
+// stack. The loading/error/running guard is present so those tickets can
+// slot their behavior into the non-guarded branch without touching this gate.
+func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyEnter:
+		if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
+			return b, nil
+		}
+		return b, nil
+	}
+
+	switch msg.String() {
+	case "o":
+		if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
+			return b, nil
+		}
+		return b, nil
+	}
+
 	return b, nil
 }
 

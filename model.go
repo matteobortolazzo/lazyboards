@@ -174,6 +174,7 @@ const (
 	filterMode
 	assignMode
 	gitPanelMode
+	dispatchMode
 )
 
 const (
@@ -420,6 +421,21 @@ var gitPanelModeHints = []Hint{
 	{Key: "enter", Desc: "Run"},
 }
 
+// dispatchState groups fields related to the agent dispatch modal. This is the
+// scaffold shape (#282); the remaining fields (repo, dir, enrolled, lastResult)
+// are added by #283 as it wires the agentwatch query and populates them, so the
+// unused linter does not flag them before they have a reader.
+type dispatchState struct {
+	loading bool
+	err     string
+	running bool
+}
+
+// dispatchModeHints are the status bar hints shown in dispatch mode.
+var dispatchModeHints = []Hint{
+	{Key: "esc", Desc: "Close"},
+}
+
 // configState groups fields related to the config modal.
 type configState struct {
 	providerOptions []string
@@ -494,6 +510,7 @@ type Board struct {
 	agentBackoff          time.Duration
 	gitReader             gitdetect.Reader
 	gitPanel              gitPanelState
+	dispatch              dispatchState
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).

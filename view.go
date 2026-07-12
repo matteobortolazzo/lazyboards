@@ -893,6 +893,7 @@ var helpSections = []helpSection{
 		{"/", "Search"},
 		{"a", "Assign"},
 		{"g", "Git panel"},
+		{"d", "Dispatch"},
 		{"f", "Filter (toggle)"},
 		{"l/\u2192", "Detail panel"},
 		{"j/k", "Navigate cards"},
@@ -950,6 +951,10 @@ var helpSections = []helpSection{
 		{"j/k", "Navigate"},
 		{"enter", "Run action"},
 		{"esc", "Cancel"},
+	}},
+	{"Dispatch", [][2]string{
+		{"d", "Open"},
+		{"esc", "Close"},
 	}},
 	{"Error", [][2]string{
 		{"r", "Retry"},

@@ -40,6 +40,7 @@ Tests are split by domain to mirror production code:
 | `actions_test.go` | Action triggers (URL, shell), column actions |
 | `cleanup_test.go` | Column cleanup on card departure |
 | `statusbar_test.go` | StatusBar component tests |
+| `dispatch_mode_test.go` | Dispatch mode (agent dispatch modal) scaffolding |
 
 Internal packages: `internal/action`, `internal/config`, `internal/git`, `internal/provider`.
 
