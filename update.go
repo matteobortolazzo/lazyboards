@@ -1229,8 +1229,7 @@ func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleDispatchModeKey handles key presses while the agent dispatch modal
 // is open. Enter toggles enrollment for the current repo; "o" runs a
-// fleet-wide dispatch pass. Rendering the panel (#284) is handled by a later
-// ticket in this stack.
+// fleet-wide dispatch pass. The modal is rendered by viewDispatchModal (#284).
 func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:

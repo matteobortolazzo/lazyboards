@@ -123,6 +123,10 @@ func (b Board) View() string {
 		return b.viewGitPanelModal()
 	}
 
+	if b.mode == dispatchMode {
+		return b.viewDispatchModal()
+	}
+
 	// Render with normal outer border, then replace the top line with the border title.
 	rendered := outerStyle.Width(innerWidth).Render(inner)
 	var borderTitle string
@@ -1192,6 +1196,75 @@ func (b Board) viewGitPanelModal() string {
 	lines = append(lines, "")
 	gitPanelHints := NewStatusBar(gitPanelModeHints)
 	lines = append(lines, gitPanelHints.View(modalWidth, 0, 0))
+
+	modalContent := strings.Join(lines, "\n")
+	return b.renderModal(modalContent, modalWidth)
+}
+
+// viewDispatchModal renders the agent dispatch modal. State precedence:
+// loading -> running -> err -> ready (ready shows an optional "Last run"
+// summary line when dispatch.lastResult is populated).
+func (b Board) viewDispatchModal() string {
+	// Wider than the other modals' usual 50: the common "agentwatch not found
+	// on PATH" classifyAgentwatchError message (57 chars) wraps at width 60
+	// but fits on one line at 65. Longer classified messages (e.g. the
+	// git-repo-not-resolvable case) may still wrap onto a second line, which
+	// is acceptable — this width targets the common case, not every case.
+	modalWidth := 65
+
+	var lines []string
+	lines = append(lines, "Agent Dispatch")
+	lines = append(lines, "")
+
+	var hints []Hint
+	switch {
+	case b.dispatch.loading:
+		lines = append(lines, b.spinner.View()+" Checking dispatch status...")
+		hints = []Hint{{Key: "esc", Desc: "Close"}}
+	case b.dispatch.running:
+		lines = append(lines, b.spinner.View()+" Running dispatch...")
+		hints = []Hint{{Key: "esc", Desc: "Close"}}
+	case b.dispatch.err != "":
+		if b.dispatch.repo != "" {
+			lines = append(lines, "Repo: "+b.dispatch.repo)
+		}
+		if b.dispatch.dir != "" {
+			lines = append(lines, "Dir: "+b.dispatch.dir)
+		}
+		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.dispatch.err))
+		hints = []Hint{{Key: "esc", Desc: "Close"}}
+	case b.dispatch.repo == "":
+		// Zero-value/unset dispatchState (e.g. modal opened before the status
+		// query resolves, or an unexpected empty repo from the query) is not
+		// a ready state — render it as such rather than showing blank fields.
+		lines = append(lines, "No repository detected.")
+		hints = []Hint{{Key: "esc", Desc: "Close"}}
+	default:
+		lines = append(lines, "Repo: "+b.dispatch.repo)
+		lines = append(lines, "Dir: "+b.dispatch.dir)
+		enrolledText := "no"
+		if b.dispatch.enrolled {
+			enrolledText = "yes"
+		}
+		lines = append(lines, "Enrolled: "+enrolledText)
+		if b.dispatch.lastResult != "" {
+			lines = append(lines, "")
+			lines = append(lines, "Last run: "+b.dispatch.lastResult)
+		}
+
+		enterDesc := "Enroll"
+		if b.dispatch.enrolled {
+			enterDesc = "Unenroll"
+		}
+		hints = []Hint{{Key: "esc", Desc: "Close"}, {Key: "enter", Desc: enterDesc}}
+		if b.dispatch.enrolled {
+			hints = append(hints, Hint{Key: "o", Desc: "Dispatch once"})
+		}
+	}
+
+	lines = append(lines, "")
+	dispatchHints := NewStatusBar(hints)
+	lines = append(lines, dispatchHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
