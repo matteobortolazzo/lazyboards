@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 )
 
 // Hint represents a single key-description pair shown in the status bar.
@@ -30,9 +31,10 @@ type clearStatusMsg struct{}
 
 // StatusBar displays contextual key hints and timed messages.
 type StatusBar struct {
-	hints   []Hint
-	message string
-	level   StatusLevel
+	hints     []Hint
+	message   string
+	level     StatusLevel
+	gitStatus string
 }
 
 // NewStatusBar creates a StatusBar with the given default hints.
@@ -59,6 +61,23 @@ func (s *StatusBar) ClearMessage() {
 // SetActionHints replaces the current hints.
 func (s *StatusBar) SetActionHints(hints []Hint) {
 	s.hints = hints
+}
+
+// SetGitStatus sets the pre-formatted git status segment shown right-aligned
+// in the status bar. Pass "" to hide the segment (e.g. on a read failure).
+func (s *StatusBar) SetGitStatus(segment string) {
+	s.gitStatus = segment
+}
+
+// formatGitSegment formats a git Status into a compact, plain-ASCII segment,
+// e.g. "main +2~1 ↑3↓0". The ahead/behind portion is omitted entirely when
+// HasUpstream is false.
+func formatGitSegment(status gitdetect.Status) string {
+	segment := status.Branch + " +" + strconv.Itoa(status.Staged) + "~" + strconv.Itoa(status.Unstaged)
+	if status.HasUpstream {
+		segment += " ↑" + strconv.Itoa(status.Ahead) + "↓" + strconv.Itoa(status.Behind)
+	}
+	return segment
 }
 
 // style returns the lipgloss style for this level, or nil for unstyled (StatusInfo).
@@ -89,28 +108,13 @@ func agentPrefix(running, needInput int) string {
 	return strings.Join(tokens, " ")
 }
 
-// View renders the status bar, truncating hints that exceed the given width.
-// The agent-status counts (running, needInput) render as an always-visible
-// prefix ahead of both hints and timed messages; when both are zero the prefix
-// and its separator are omitted. Timed messages are still shown untruncated.
-func (s StatusBar) View(width, running, needInput int) string {
-	prefix := agentPrefix(running, needInput)
-	if prefix != "" {
-		prefix += hintDescStyle.Render(" | ")
+// renderHints renders hints within the given width, truncating with a
+// trailing ellipsis when they don't all fit. Returns "" when there are no
+// hints.
+func renderHints(hints []Hint, width int) string {
+	if len(hints) == 0 {
+		return ""
 	}
-
-	if s.message != "" {
-		if st := s.level.style(); st != nil {
-			return prefix + st.Render(s.message)
-		}
-		return prefix + s.message
-	}
-	if len(s.hints) == 0 {
-		return prefix
-	}
-
-	// The prefix consumes width that is no longer available for hints.
-	width -= lipgloss.Width(prefix)
 
 	separator := hintDescStyle.Render(" | ")
 	separatorWidth := lipgloss.Width(separator)
@@ -120,7 +124,7 @@ func (s StatusBar) View(width, running, needInput int) string {
 	var parts []string
 	currentWidth := 0
 
-	for i, h := range s.hints {
+	for i, h := range hints {
 		part := hintKeyStyle.Render(h.Key) + hintDescStyle.Render(": "+h.Desc)
 		partWidth := lipgloss.Width(part)
 
@@ -132,20 +136,73 @@ func (s StatusBar) View(width, running, needInput int) string {
 		// For non-last hints, reserve space for the ellipsis that would be
 		// appended if a later hint doesn't fit.
 		spaceNeeded := currentWidth + addedWidth
-		if i < len(s.hints)-1 {
+		if i < len(hints)-1 {
 			spaceNeeded += ellipsisWidth
 		}
 
 		if spaceNeeded > width {
 			if len(parts) > 0 {
-				return prefix + strings.Join(parts, separator) + ellipsis
+				return strings.Join(parts, separator) + ellipsis
 			}
-			return prefix + ellipsis
+			return ellipsis
 		}
 
 		parts = append(parts, part)
 		currentWidth += addedWidth
 	}
 
-	return prefix + strings.Join(parts, separator)
+	return strings.Join(parts, separator)
+}
+
+// View renders the status bar, truncating hints that exceed the given width.
+// The agent-status counts (running, needInput) render as an always-visible
+// prefix ahead of both hints and timed messages; when both are zero the prefix
+// and its separator are omitted. Timed messages are still shown untruncated.
+// counts is variadic (running, needInput) for caller convenience; missing
+// values default to 0.
+//
+// When a git status segment is set (via SetGitStatus), it is right-aligned
+// after the hints, taking priority for space: hints truncate to make room
+// for it, and it is dropped entirely (not truncated itself) when there
+// isn't enough width for both. Timed messages always override it.
+func (s StatusBar) View(width int, counts ...int) string {
+	var running, needInput int
+	if len(counts) > 0 {
+		running = counts[0]
+	}
+	if len(counts) > 1 {
+		needInput = counts[1]
+	}
+
+	prefix := agentPrefix(running, needInput)
+	if prefix != "" {
+		prefix += hintDescStyle.Render(" | ")
+	}
+
+	if s.message != "" {
+		if st := s.level.style(); st != nil {
+			return prefix + st.Render(s.message)
+		}
+		return prefix + s.message
+	}
+
+	// The prefix consumes width that is no longer available for hints.
+	width -= lipgloss.Width(prefix)
+
+	if s.gitStatus != "" {
+		gitWidth := lipgloss.Width(s.gitStatus)
+		reserved := gitWidth + 1 // 1-space separator before the git segment
+		if reserved <= width {
+			hintsView := renderHints(s.hints, width-reserved)
+			padding := width - lipgloss.Width(hintsView) - gitWidth
+			if padding < 1 {
+				padding = 1
+			}
+			return prefix + hintsView + strings.Repeat(" ", padding) + s.gitStatus
+		}
+		// Not enough room for the git segment even with truncated hints;
+		// drop it entirely and give hints back the full width.
+	}
+
+	return prefix + renderHints(s.hints, width)
 }

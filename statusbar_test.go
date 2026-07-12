@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 )
 
 // --- StatusBar: Basic Rendering ---
@@ -454,5 +455,189 @@ func TestStatusBar_ViewFirstHintDoesNotFit(t *testing.T) {
 	// With such a narrow width, " ..." should appear as a truncation indicator.
 	if !strings.Contains(view, "...") {
 		t.Errorf("View(%d) = %q, want it to contain truncation indicator %q when no hints fit", width, view, "...")
+	}
+}
+
+// --- StatusBar: Git Status Segment ---
+
+func TestStatusBar_SetGitStatus_AppearsInView(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetGitStatus("main +2~1 ↑3↓0")
+	view := sb.View(200)
+
+	if !strings.Contains(view, "main +2~1") {
+		t.Errorf("View(200) = %q, want it to contain the git segment %q", view, "main +2~1")
+	}
+	if !strings.Contains(view, "Quit") {
+		t.Errorf("View(200) = %q, want hints to still be present alongside the git segment", view)
+	}
+}
+
+func TestStatusBar_ViewGitSegment_RightAligned(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	gitSegment := "main +0~0"
+	sb.SetGitStatus(gitSegment)
+	view := sb.View(200)
+
+	hintIdx := strings.Index(view, "Quit")
+	gitIdx := strings.Index(view, gitSegment)
+
+	if hintIdx == -1 {
+		t.Fatalf("View(200) = %q, want it to contain hint desc %q", view, "Quit")
+	}
+	if gitIdx == -1 {
+		t.Fatalf("View(200) = %q, want it to contain git segment %q", view, gitSegment)
+	}
+	if gitIdx <= hintIdx {
+		t.Errorf("View(200) git segment at index %d, hints at index %d; want git segment right-aligned (positioned after hints)", gitIdx, hintIdx)
+	}
+}
+
+func TestStatusBar_ViewGitSegment_TruncatesHintsToMakeRoom(t *testing.T) {
+	hints := []Hint{
+		{Key: "o", Desc: "Open"},
+		{Key: "n", Desc: "New"},
+		{Key: "r", Desc: "Refresh"},
+	}
+	sb := NewStatusBar(hints)
+
+	// Compute the width where all 3 hints fit fully, with no spare room.
+	hint0 := hintKeyStyle.Render(hints[0].Key) + hintDescStyle.Render(": "+hints[0].Desc)
+	hint1 := hintKeyStyle.Render(hints[1].Key) + hintDescStyle.Render(": "+hints[1].Desc)
+	hint2 := hintKeyStyle.Render(hints[2].Key) + hintDescStyle.Render(": "+hints[2].Desc)
+	separator := hintDescStyle.Render(" | ")
+	fullHintsWidth := lipgloss.Width(hint0) + lipgloss.Width(separator) + lipgloss.Width(hint1) + lipgloss.Width(separator) + lipgloss.Width(hint2)
+
+	// Sanity check: at this exact width, with no git status set, all hints fit.
+	baseline := sb.View(fullHintsWidth)
+	if !strings.Contains(baseline, hints[2].Desc) {
+		t.Fatalf("baseline View(%d) = %q, want all hints (including %q) to fit without a git segment", fullHintsWidth, baseline, hints[2].Desc)
+	}
+
+	// Now set a git status that needs extra room; at the same width, a hint
+	// must be truncated to make room for the git segment.
+	gitSegment := "feature-branch +5~3 ↑10↓2"
+	sb.SetGitStatus(gitSegment)
+	view := sb.View(fullHintsWidth)
+
+	if !strings.Contains(view, gitSegment) {
+		t.Errorf("View(%d) = %q, want it to still contain the git segment %q", fullHintsWidth, view, gitSegment)
+	}
+	if strings.Contains(view, hints[2].Desc) {
+		t.Errorf("View(%d) = %q, want the last hint %q to be truncated to make room for the git segment", fullHintsWidth, view, hints[2].Desc)
+	}
+	if !strings.Contains(view, "...") {
+		t.Errorf("View(%d) = %q, want a truncation indicator once a hint is dropped to make room", fullHintsWidth, view)
+	}
+}
+
+func TestStatusBar_ViewGitSegment_DropsWhenWidthInsufficient(t *testing.T) {
+	hints := []Hint{
+		{Key: "o", Desc: "Open"},
+		{Key: "n", Desc: "New"},
+	}
+	sb := NewStatusBar(hints)
+
+	hint0 := hintKeyStyle.Render(hints[0].Key) + hintDescStyle.Render(": "+hints[0].Desc)
+	hint1 := hintKeyStyle.Render(hints[1].Key) + hintDescStyle.Render(": "+hints[1].Desc)
+	separator := hintDescStyle.Render(" | ")
+	fullHintsWidth := lipgloss.Width(hint0) + lipgloss.Width(separator) + lipgloss.Width(hint1)
+
+	gitSegment := "feature-branch +5~3 ↑10↓2"
+	sb.SetGitStatus(gitSegment)
+
+	// Width has exactly enough room for the hints and nothing else -- no
+	// room for even a single extra column for the git segment.
+	view := sb.View(fullHintsWidth)
+
+	if strings.Contains(view, gitSegment) {
+		t.Errorf("View(%d) = %q, want the git segment dropped entirely when there is no room for it", fullHintsWidth, view)
+	}
+	if !strings.Contains(view, hints[0].Desc) || !strings.Contains(view, hints[1].Desc) {
+		t.Errorf("View(%d) = %q, want hints to keep priority and render fully when the git segment is dropped", fullHintsWidth, view)
+	}
+	if strings.Contains(view, "...") {
+		t.Errorf("View(%d) = %q, hints fit fully on their own; want no truncation indicator just because the git segment was dropped", fullHintsWidth, view)
+	}
+}
+
+func TestStatusBar_ViewGitSegment_TimedMessageOverridesGitSegment(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetGitStatus("main +2~1 ↑3↓0")
+	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
+	view := sb.View(200)
+
+	if !strings.Contains(view, "Board refreshed") {
+		t.Errorf("View(200) = %q, want it to contain the timed message %q", view, "Board refreshed")
+	}
+	if strings.Contains(view, "main +2~1") {
+		t.Errorf("View(200) = %q, should NOT contain the git segment while a timed message is active", view)
+	}
+}
+
+// --- formatGitSegment ---
+
+func TestFormatGitSegment_WithUpstream_IncludesBranchCountsAndAheadBehind(t *testing.T) {
+	status := gitdetect.Status{
+		Branch:      "main",
+		Staged:      2,
+		Unstaged:    1,
+		Ahead:       3,
+		Behind:      0,
+		HasUpstream: true,
+	}
+
+	segment := formatGitSegment(status)
+
+	if !strings.Contains(segment, "main") {
+		t.Errorf("formatGitSegment(%+v) = %q, want it to contain branch name %q", status, segment, "main")
+	}
+	if !strings.Contains(segment, "2") || !strings.Contains(segment, "1") {
+		t.Errorf("formatGitSegment(%+v) = %q, want it to contain staged count %d and unstaged count %d", status, segment, status.Staged, status.Unstaged)
+	}
+	if !strings.Contains(segment, "3") || !strings.Contains(segment, "0") {
+		t.Errorf("formatGitSegment(%+v) = %q, want it to contain ahead count %d and behind count %d", status, segment, status.Ahead, status.Behind)
+	}
+	if !strings.ContainsRune(segment, '↑') || !strings.ContainsRune(segment, '↓') {
+		t.Errorf("formatGitSegment(%+v) = %q, want ahead/behind arrows when HasUpstream is true", status, segment)
+	}
+}
+
+func TestFormatGitSegment_NoUpstream_OmitsAheadBehind(t *testing.T) {
+	status := gitdetect.Status{
+		Branch:      "main",
+		Staged:      0,
+		Unstaged:    0,
+		HasUpstream: false,
+	}
+
+	segment := formatGitSegment(status)
+
+	if !strings.Contains(segment, "main") {
+		t.Errorf("formatGitSegment(%+v) = %q, want it to contain branch name %q", status, segment, "main")
+	}
+	if strings.ContainsRune(segment, '↑') || strings.ContainsRune(segment, '↓') {
+		t.Errorf("formatGitSegment(%+v) = %q, should NOT contain ahead/behind arrows when HasUpstream is false", status, segment)
+	}
+}
+
+func TestFormatGitSegment_NoNerdFontGlyphs(t *testing.T) {
+	// Q1 answer: plain ASCII, no nerd-font icons. The only permitted non-ASCII
+	// glyphs are the plain Unicode arrows used for ahead/behind.
+	status := gitdetect.Status{
+		Branch:      "main",
+		Staged:      1,
+		Unstaged:    1,
+		Ahead:       1,
+		Behind:      1,
+		HasUpstream: true,
+	}
+
+	segment := formatGitSegment(status)
+
+	for _, r := range segment {
+		if r > 127 && r != '↑' && r != '↓' {
+			t.Errorf("formatGitSegment(%+v) = %q, contains unexpected non-ASCII glyph %q; want plain ASCII plus only ↑/↓ arrows", status, segment, r)
+		}
 	}
 }

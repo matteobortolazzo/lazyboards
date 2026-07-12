@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -107,6 +109,33 @@ func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
 
 		return msg
 	}
+}
+
+// fetchGitStatusCmd returns a tea.Cmd that reads live git status from dir via
+// reader, delivering gitStatusMsg with either the parsed Status or the read
+// error. Exported behavior (not name) is reusable by future git-panel work
+// (#271) as the same hook point for "refresh status after a git action".
+func fetchGitStatusCmd(reader gitdetect.Reader, dir string) tea.Cmd {
+	return func() tea.Msg {
+		status, err := reader.Read(dir)
+		if err != nil {
+			return gitStatusMsg{err: err}
+		}
+		return gitStatusMsg{status: status}
+	}
+}
+
+// scheduleGitStatusTick returns a tea.Cmd that fires a gitStatusTickMsg after
+// gitStatusPollInterval, as an independent-interval poll (not chained off the
+// fetch's completion) so it can't spin unthrottled on an ambiguous read
+// result. Returns nil when the board has no git reader configured.
+func scheduleGitStatusTick(b Board) tea.Cmd {
+	if b.gitReader == nil {
+		return nil
+	}
+	return tea.Tick(gitStatusPollInterval, func(time.Time) tea.Msg {
+		return gitStatusTickMsg{}
+	})
 }
 
 // createCardCmd returns a tea.Cmd that creates a card via the provider.
