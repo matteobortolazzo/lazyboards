@@ -583,6 +583,37 @@ actions:
 	}
 }
 
+// --- DefaultGitActions ---
+
+func TestDefaultGitActions_IncludesFetchStashPushStashPop(t *testing.T) {
+	actions := DefaultGitActions()
+
+	cases := []struct {
+		key     string
+		command string
+	}{
+		{"F", "git fetch"},
+		{"S", "git stash push"},
+		{"X", "git stash pop"},
+	}
+
+	for _, c := range cases {
+		act, ok := actions[c.key]
+		if !ok {
+			t.Fatalf("DefaultGitActions() missing key %q", c.key)
+		}
+		if act.Command != c.command {
+			t.Errorf("DefaultGitActions()[%q].Command = %q, want %q", c.key, act.Command, c.command)
+		}
+		if act.Type != "shell" {
+			t.Errorf("DefaultGitActions()[%q].Type = %q, want %q", c.key, act.Type, "shell")
+		}
+		if act.Scope != "board" {
+			t.Errorf("DefaultGitActions()[%q].Scope = %q, want %q", c.key, act.Scope, "board")
+		}
+	}
+}
+
 func TestLoad_ColumnActionScopeBoard_Valid(t *testing.T) {
 	yamlContent := `provider: github
 columns:

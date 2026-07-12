@@ -119,6 +119,10 @@ func (b Board) View() string {
 		return b.viewAssignModal()
 	}
 
+	if b.mode == gitPanelMode {
+		return b.viewGitPanelModal()
+	}
+
 	// Render with normal outer border, then replace the top line with the border title.
 	rendered := outerStyle.Width(innerWidth).Render(inner)
 	var borderTitle string
@@ -887,6 +891,7 @@ var helpSections = []helpSection{
 		{"p", "Open PR"},
 		{"/", "Search"},
 		{"a", "Assign"},
+		{"g", "Git panel"},
 		{"f", "Filter (toggle)"},
 		{"l/\u2192", "Detail panel"},
 		{"j/k", "Navigate cards"},
@@ -937,6 +942,11 @@ var helpSections = []helpSection{
 	{"Assign", [][2]string{
 		{"j/k", "Navigate"},
 		{"enter", "Toggle assignee"},
+		{"esc", "Cancel"},
+	}},
+	{"Git Panel", [][2]string{
+		{"j/k", "Navigate"},
+		{"enter", "Run action"},
 		{"esc", "Cancel"},
 	}},
 	{"Error", [][2]string{
@@ -1150,6 +1160,29 @@ func (b Board) viewAssignModal() string {
 	lines = append(lines, "")
 	assignHints := NewStatusBar(assignModeHints)
 	lines = append(lines, assignHints.View(modalWidth, 0, 0))
+
+	modalContent := strings.Join(lines, "\n")
+	return b.renderModal(modalContent, modalWidth)
+}
+
+func (b Board) viewGitPanelModal() string {
+	modalWidth := 50
+
+	var lines []string
+	lines = append(lines, "Git Panel")
+	lines = append(lines, "")
+
+	for i, item := range b.gitPanel.items {
+		display := "  " + item.key + "  " + item.name
+		if i == b.gitPanel.cursor {
+			display = selectedCardStyle.Render(display)
+		}
+		lines = append(lines, display)
+	}
+
+	lines = append(lines, "")
+	gitPanelHints := NewStatusBar(gitPanelModeHints)
+	lines = append(lines, gitPanelHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
