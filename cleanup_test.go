@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matteobortolazzo/agent-stack/agentwatch/pkg/watch"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -75,6 +76,41 @@ func fakeRefreshBoard(movedCards ...int) provider.Board {
 	return provider.Board{Columns: cols}
 }
 
+// refreshCleanupBoard simulates a background refresh delivering the given
+// board, executing any resulting async commands (including cleanup).
+func refreshCleanupBoard(t *testing.T, b Board, board provider.Board) Board {
+	t.Helper()
+	b.refreshing = true
+	m, cmd := b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+	execCmds(cmd)
+	return b
+}
+
+// withCardLabel returns the board with the given label added to card cardNum.
+func withCardLabel(board provider.Board, cardNum int, label string) provider.Board {
+	for i := range board.Columns {
+		for j := range board.Columns[i].Cards {
+			if board.Columns[i].Cards[j].Number == cardNum {
+				board.Columns[i].Cards[j].Labels = append(board.Columns[i].Cards[j].Labels, provider.Label{Name: label})
+			}
+		}
+	}
+	return board
+}
+
+// cleanupSnapshot builds an agentwatch snapshot with a single window for card
+// #1 ("Setup CI") in the given status. An empty status means no windows.
+func cleanupSnapshot(status string) *watch.StateSnapshot {
+	if status == "" {
+		return &watch.StateSnapshot{}
+	}
+	session := action.BuildSessionName(1, "Setup CI", 32)
+	return &watch.StateSnapshot{Windows: []watch.WindowState{
+		{WindowName: session, Status: status, Agent: "claude"},
+	}}
+}
+
 func TestCleanup_FirstLoad_NoPrevCards(t *testing.T) {
 	_, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
 
@@ -106,17 +142,39 @@ func TestCleanup_CardMovesColumn(t *testing.T) {
 	}
 }
 
-func TestCleanup_CardDisappears(t *testing.T) {
+func TestCleanup_CardDisappears_DebouncedToSecondFetch(t *testing.T) {
 	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
 
-	// Card #1 disappears entirely (negative = removed, not moved).
-	b.refreshing = true
-	m, cmd := b.Update(boardFetchedMsg{board: fakeRefreshBoard(-1)})
-	b = m.(Board)
-	execCmds(cmd)
+	// Card #1 disappears entirely (negative = removed, not moved). A single
+	// fetch without the card can be a transient glitch (e.g. pagination shift
+	// while issues close), so no cleanup runs yet.
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("expected no cleanup after a single fetch without the card, got: %v", fe.RunShellCalls)
+	}
 
+	// Still missing on the second consecutive fetch — now it's a real departure.
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
 	if len(fe.RunShellCalls) == 0 {
-		t.Fatal("expected cleanup RunShell call for disappeared card, got none")
+		t.Fatal("expected cleanup RunShell call after card missing on two consecutive fetches, got none")
+	}
+}
+
+func TestCleanup_CardMissingOnceThenReappears_NoCleanup(t *testing.T) {
+	b, fe, p := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+
+	// Transient glitch: card #1 missing on one fetch, back in its original
+	// column on the next. Cleanup must never run.
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
+	board, err := p.FetchBoard(context.TODO())
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	b = refreshCleanupBoard(t, b, board)
+	b = refreshCleanupBoard(t, b, board)
+
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("expected no cleanup for card that reappeared, got: %v", fe.RunShellCalls)
 	}
 }
 
@@ -209,5 +267,85 @@ func TestCleanup_CleanupResultMsg_ZeroCount_NoMessage(t *testing.T) {
 
 	if cmd != nil {
 		t.Error("cleanupResultMsg with count=0 should not return a cmd")
+	}
+}
+
+// --- Liveness guards (#285): cleanup must never kill a live agent window ---
+
+func TestCleanup_DeferredWhileAgentRunning(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t ={session}")
+
+	// Card #1 moves column while agentwatch reports its window as running.
+	b.agentSnapshot = cleanupSnapshot("running")
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("expected cleanup deferred while agent running, got: %v", fe.RunShellCalls)
+	}
+
+	// The agent finishes; the next refresh runs the deferred cleanup.
+	b.agentSnapshot = cleanupSnapshot("done")
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected cleanup RunShell call after agent finished, got none")
+	}
+
+	// Cleanup runs once, then the departure is settled — no re-fire.
+	calls := len(fe.RunShellCalls)
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	if len(fe.RunShellCalls) != calls {
+		t.Errorf("expected no further cleanup after departure settled, got: %v", fe.RunShellCalls[calls:])
+	}
+}
+
+func TestCleanup_DeferredWhileAgentNeedsInput(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t ={session}")
+
+	b.agentSnapshot = cleanupSnapshot("need_input")
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("expected cleanup deferred while agent needs input, got: %v", fe.RunShellCalls)
+	}
+
+	// The window disappears from the snapshot; cleanup proceeds.
+	b.agentSnapshot = cleanupSnapshot("")
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected cleanup RunShell call after agent window gone, got none")
+	}
+}
+
+func TestCleanup_DeferredWhileAgentRunning_CardMissing(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t ={session}")
+
+	// Card #1 vanishes entirely while its agent is still running: deferred
+	// past the missing-card debounce for as long as the agent is alive.
+	b.agentSnapshot = cleanupSnapshot("running")
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("expected cleanup deferred while agent running on missing card, got: %v", fe.RunShellCalls)
+	}
+
+	b.agentSnapshot = cleanupSnapshot("done")
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected cleanup RunShell call after agent finished, got none")
+	}
+}
+
+func TestCleanup_DeferredWhileWorkingLabelSet(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t ={session}")
+
+	// Card #1 moves column but still carries the working label (case-insensitive).
+	b = refreshCleanupBoard(t, b, withCardLabel(fakeRefreshBoard(1), 1, "working"))
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("expected cleanup deferred while working label set, got: %v", fe.RunShellCalls)
+	}
+
+	// The label is removed; the next refresh runs the deferred cleanup.
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected cleanup RunShell call after working label removed, got none")
 	}
 }
