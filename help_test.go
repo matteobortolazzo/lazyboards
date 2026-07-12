@@ -476,7 +476,7 @@ func TestHelpContent_GlobalActionsAreSortedByKey(t *testing.T) {
 	if aIdx == -1 || mIdx == -1 || zIdx == -1 {
 		t.Fatal("buildHelpContent() should list all global custom actions")
 	}
-	if !(aIdx < mIdx && mIdx < zIdx) {
+	if aIdx >= mIdx || mIdx >= zIdx {
 		t.Errorf("global custom actions should be sorted by key (A, M, Z), got order at indices A=%d M=%d Z=%d", aIdx, mIdx, zIdx)
 	}
 }
@@ -502,7 +502,7 @@ func TestHelpContent_ColumnActionsAreSortedByKey(t *testing.T) {
 	if aIdx == -1 || mIdx == -1 || zIdx == -1 {
 		t.Fatal("buildHelpContent() should list all column custom actions")
 	}
-	if !(aIdx < mIdx && mIdx < zIdx) {
+	if aIdx >= mIdx || mIdx >= zIdx {
 		t.Errorf("column custom actions should be sorted by key (A, M, Z), got order at indices A=%d M=%d Z=%d", aIdx, mIdx, zIdx)
 	}
 }
