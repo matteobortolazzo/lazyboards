@@ -67,6 +67,32 @@ func ExpandTemplate(template string, vars map[string]string) string {
 	return result
 }
 
+// sessionSlug ports agentwatch v1.12.0's own slugify algorithm
+// (agentwatch/internal/run/slug.go: slugify, capName, windowNameMaxLen)
+// byte-for-byte: lowercase, keep only ASCII a-z0-9, map space/underscore/
+// hyphen to a single dash separator, and DROP every other rune (punctuation,
+// non-ASCII) entirely rather than hyphenating it. Consecutive separators are
+// collapsed and leading/trailing dashes trimmed. agentwatch also runs
+// frontend.SanitizeName on its result, but that has proven a no-op for the
+// inputs lazyboards produces (numeric prefix + slugified title), so it is
+// intentionally not replicated here.
+func sessionSlug(s string) string {
+	s = strings.ToLower(s)
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == ' ' || r == '_' || r == '-':
+			b.WriteByte('-')
+		default:
+			// drop
+		}
+	}
+	parts := strings.FieldsFunc(b.String(), func(r rune) bool { return r == '-' })
+	return strings.Join(parts, "-")
+}
+
 // BuildSessionName creates a session identifier from a card number and title.
 // Format: {number}-{slugified-title}, capped at maxLen characters.
 // Truncation is a hard cut at maxLen runes with trailing hyphens trimmed.
@@ -78,7 +104,7 @@ func ExpandTemplate(template string, vars map[string]string) string {
 // hyphen boundary.
 func BuildSessionName(number int, title string, maxLen int) string {
 	prefix := fmt.Sprintf("%d", number)
-	slug := Slugify(title)
+	slug := sessionSlug(title)
 	if slug == "" {
 		return prefix
 	}

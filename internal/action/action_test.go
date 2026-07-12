@@ -254,6 +254,78 @@ func TestBuildSessionName_MatchesAgentwatchHardCutTruncation(t *testing.T) {
 	}
 }
 
+// The following BuildSessionName tests are regression tests against
+// agentwatch v1.12.0's own window-name algorithm (internal/run/slug.go:
+// slugify + capName). agentwatch's slugify keeps only ASCII a-z0-9, maps
+// space/underscore/hyphen to a single dash, and DROPS all other runes
+// (punctuation, non-ASCII) without inserting a hyphen. capName hard-cuts at
+// 40 runes and trims only trailing dashes. lazyboards' BuildSessionName must
+// produce byte-for-byte the same join key the daemon broadcasts, or the
+// exact-equality lookup silently never matches and no agent badge is shown.
+
+// Reproduces the original bug report: punctuation like "(", "/", ")" must be
+// dropped entirely, not hyphenated. The old (wrong) behavior would turn
+// "(2/4)" into "2-4" via hyphen-insertion; agentwatch's real algorithm drops
+// each punctuation rune with nothing in its place, yielding "24".
+func TestBuildSessionName_PunctuationDroppedNotHyphenated(t *testing.T) {
+	got := BuildSessionName(1, "(2/4)", 40)
+	want := "1-24"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q (agentwatch drops punctuation, does not hyphenate it)", got, want)
+	}
+}
+
+// Apostrophe and colon touching adjacent letters must be dropped without
+// inserting a separator, while the real word-boundary spaces still become
+// single dashes.
+func TestBuildSessionName_ApostropheColonTouchingWord(t *testing.T) {
+	got := BuildSessionName(5, "Don't crash: retry", 40)
+	want := "5-dont-crash-retry"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q (apostrophe/colon must be dropped, not hyphenated)", got, want)
+	}
+}
+
+// Non-ASCII letters (accented Latin here) must be dropped entirely, not
+// transliterated or kept as Unicode letters. "café münchen" -> "é" and "ü"
+// are dropped -> "caf" + dash (from the space) + "mnchen".
+func TestBuildSessionName_NonASCIIDroppedEntirely(t *testing.T) {
+	got := BuildSessionName(8, "café münchen", 40)
+	want := "8-caf-mnchen"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q (non-ASCII runes must be dropped entirely, not preserved)", got, want)
+	}
+}
+
+// Truncation must hard-cut at exactly the new 40-rune cap (not the old
+// 32-rune cap), with the cut landing mid-word past a dropped-punctuation
+// segment. The title below has a "parser(core)" segment whose parentheses
+// are dropped (not hyphenated), producing a slug that only crosses the
+// 40-rune total length several words later, inside "punctuation". The hard
+// cut at rune 40 lands mid-word ("punctuatio"), and since the 40th rune is
+// not a hyphen, no trailing-dash trim occurs.
+func TestBuildSessionName_HardCutAtNew40RuneCap(t *testing.T) {
+	title := "Update parser(core) to handle punctuation edge cases in titles"
+	got := BuildSessionName(9, title, 40)
+	want := "9-update-parsercore-to-handle-punctuatio"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q (must hard-cut at the 40-rune cap, matching agentwatch's capName)", got, want)
+	}
+	if len([]rune(got)) != 40 {
+		t.Errorf("BuildSessionName() result has %d runes, want exactly 40", len([]rune(got)))
+	}
+}
+
+// Control case: an ordinary title with only spaces as separators and no
+// punctuation or truncation should be unaffected by the algorithm change.
+func TestBuildSessionName_ControlCaseNoTruncation(t *testing.T) {
+	got := BuildSessionName(80, "New parameter to pass", 40)
+	want := "80-new-parameter-to-pass"
+	if got != want {
+		t.Errorf("BuildSessionName() = %q, want %q", got, want)
+	}
+}
+
 // --- URLEscape ---
 
 func TestURLEscape_SimpleString(t *testing.T) {

@@ -105,7 +105,7 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `repo` | string | *(auto-detected)* | `owner/repo` (local config only) |
 | `refresh_interval` | int | `5` | Minutes between auto-refresh (`0` to disable) |
 | `action_refresh_delay` | int | `5` | Seconds before refresh after a shell action (`0` to disable) |
-| `session_max_length` | int | `32` | Max characters for the `{session}` template variable |
+| `session_max_length` | int | `40` | Max characters for the `{session}` template variable |
 | `working_label` | string | `"Working"` | Label that shows a working indicator on cards |
 | `mouse` | bool | `true` | Enable mouse support |
 | `agentwatch` | bool | `true` | Enable live agent status badges + status-bar counts (requires the agentwatch daemon; silently off when absent) |
@@ -238,7 +238,7 @@ actions:
     command: "tmux new-window -d -n {session}"
 ```
 
-The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 32).
+The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 40). Punctuation and non-ASCII characters in the title are dropped (not hyphenated) so the name matches the agentwatch tmux window name used for agent-status matching.
 
 ### Action Refresh Delay
 
