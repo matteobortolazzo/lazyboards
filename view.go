@@ -995,7 +995,13 @@ func (b Board) buildHelpContent() string {
 
 	if hasGlobalActions || hasColumnActions {
 		sb.WriteString("\nCustom Actions\n")
-		for key, act := range b.actions {
+		globalKeys := make([]string, 0, len(b.actions))
+		for key := range b.actions {
+			globalKeys = append(globalKeys, key)
+		}
+		sort.Strings(globalKeys)
+		for _, key := range globalKeys {
+			act := b.actions[key]
 			fmt.Fprintf(&sb, "  %-12s %s (%s)\n", key, act.Name, act.Type)
 		}
 		// Column-specific actions.
@@ -1004,7 +1010,13 @@ func (b Board) buildHelpContent() string {
 				continue
 			}
 			fmt.Fprintf(&sb, "  %s:\n", cc.Name)
-			for key, act := range cc.Actions {
+			columnKeys := make([]string, 0, len(cc.Actions))
+			for key := range cc.Actions {
+				columnKeys = append(columnKeys, key)
+			}
+			sort.Strings(columnKeys)
+			for _, key := range columnKeys {
+				act := cc.Actions[key]
 				fmt.Fprintf(&sb, "    %-10s %s (%s)\n", key, act.Name, act.Type)
 			}
 		}
