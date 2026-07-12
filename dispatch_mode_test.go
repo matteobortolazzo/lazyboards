@@ -657,6 +657,28 @@ func TestQueryDispatchStatusCmd_OldBinaryNonJSON(t *testing.T) {
 	}
 }
 
+func TestQueryDispatchStatusCmd_EmptyOutput(t *testing.T) {
+	fe := &action.FakeExecutor{RunShellOutputStdout: ""}
+
+	cmd := queryDispatchStatusCmd(fe)
+	msg := cmd()
+
+	statusMsg, ok := msg.(dispatchStatusMsg)
+	if !ok {
+		t.Fatalf("queryDispatchStatusCmd() returned %T, want dispatchStatusMsg", msg)
+	}
+	if statusMsg.err == "" {
+		t.Fatal("expected dispatchStatusMsg.err to be non-empty when stdout is empty")
+	}
+	lower := strings.ToLower(statusMsg.err)
+	if strings.Contains(lower, "old") || strings.Contains(lower, "upgrade") {
+		t.Errorf("dispatchStatusMsg.err = %q, want a message about missing output, not a version mismatch", statusMsg.err)
+	}
+	if !strings.Contains(lower, "no output") && !strings.Contains(lower, "path") {
+		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating agentwatch produced no output", statusMsg.err)
+	}
+}
+
 // --- toggleEnrollCmd (#283) ---
 
 func TestToggleEnrollCmd_EnrollSuccess(t *testing.T) {
