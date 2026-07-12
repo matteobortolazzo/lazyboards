@@ -1,6 +1,7 @@
 package action
 
 import (
+	"bytes"
 	"os/exec"
 	"runtime"
 )
@@ -9,6 +10,7 @@ import (
 type Executor interface {
 	OpenURL(url string) error
 	RunShell(command string) (stderr string, err error)
+	RunShellOutput(command string) (stdout, stderr string, err error)
 }
 
 // DefaultExecutor executes actions using real OS calls.
@@ -36,13 +38,27 @@ func (d DefaultExecutor) RunShell(command string) (string, error) {
 	return "", nil
 }
 
+// RunShellOutput executes a command via sh -c and returns stdout, stderr, and error.
+func (d DefaultExecutor) RunShellOutput(command string) (string, string, error) {
+	cmd := exec.Command("sh", "-c", command)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	err := cmd.Run()
+	return outBuf.String(), errBuf.String(), err
+}
+
 // FakeExecutor records calls for testing.
 type FakeExecutor struct {
-	OpenURLCalls   []string
-	RunShellCalls  []string
-	OpenURLErr     error
-	RunShellErr    error
-	RunShellStderr string
+	OpenURLCalls         []string
+	RunShellCalls        []string
+	OpenURLErr           error
+	RunShellErr          error
+	RunShellStderr       string
+	RunShellOutputCalls  []string
+	RunShellOutputStdout string
+	RunShellOutputStderr string
+	RunShellOutputErr    error
 }
 
 // OpenURL records the call and returns the configured error.
@@ -55,4 +71,10 @@ func (f *FakeExecutor) OpenURL(url string) error {
 func (f *FakeExecutor) RunShell(command string) (string, error) {
 	f.RunShellCalls = append(f.RunShellCalls, command)
 	return f.RunShellStderr, f.RunShellErr
+}
+
+// RunShellOutput records the call and returns the configured stdout, stderr, and error.
+func (f *FakeExecutor) RunShellOutput(command string) (string, string, error) {
+	f.RunShellOutputCalls = append(f.RunShellOutputCalls, command)
+	return f.RunShellOutputStdout, f.RunShellOutputStderr, f.RunShellOutputErr
 }
