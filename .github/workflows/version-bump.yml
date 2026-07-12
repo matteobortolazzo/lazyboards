@@ -1,0 +1,77 @@
+name: Version Bump
+
+# Auto-versioning: every push to main computes the next semver from the latest
+# v* tag (the source of truth) and the triggering commit's conventional-commit
+# type, creates the new tag, and dispatches the Release workflow.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write   # create tags
+  actions: write    # required for `gh workflow run` (workflow_dispatch API)
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    # Safety net: never react to a push made by the bot itself.
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump version and cut tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # Current version = latest v* tag (source of truth), 0.0.0 if none exist.
+          LATEST=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          VERSION="${LATEST#v}"
+          if [ -z "$VERSION" ]; then
+            VERSION="0.0.0"
+          fi
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+
+          # Determine bump type from the triggering commit (conventional commits).
+          COMMITS=$(git log -1 --pretty=format:"%s%n%b")
+          BUMP="patch"
+          if echo "$COMMITS" | grep -qiE '^feat!:|^[a-z]+\(.*\)!:|BREAKING CHANGE'; then
+            BUMP="major"
+          elif echo "$COMMITS" | grep -qiE '^feat(\(|:)'; then
+            BUMP="minor"
+          fi
+
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          NEW_TAG="v${NEW_VERSION}"
+          echo "Bumping $BUMP: ${VERSION} -> ${NEW_VERSION}"
+
+          # Idempotency guard: if the computed tag already exists, do nothing.
+          if git rev-parse -q --verify "refs/tags/${NEW_TAG}" >/dev/null; then
+            echo "Tag ${NEW_TAG} already exists, skipping"
+            exit 0
+          fi
+
+          # Create the tag via the GitHub API.
+          gh api "repos/${{ github.repository }}/git/refs" \
+            -f ref="refs/tags/${NEW_TAG}" \
+            -f sha="$(git rev-parse HEAD)"
+
+          # A tag pushed with GITHUB_TOKEN does NOT fire release.yml's
+          # `on: push: tags` (GitHub's recursion guard), but workflow_dispatch IS
+          # allowed with GITHUB_TOKEN — so dispatch the release explicitly. The
+          # workflow definition runs from main but checks out the tag to build.
+          gh workflow run release.yml \
+            --ref main \
+            -f version="${NEW_VERSION}"

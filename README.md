@@ -35,6 +35,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - [Keybindings](#keybindings)
 - [Mouse Support](#mouse-support)
 - [Build from Source](#build-from-source)
+- [Releases](#releases)
 - [License](#license)
 
 ## Install
@@ -370,6 +371,24 @@ Run tests:
 ```
 go test ./...
 ```
+
+## Releases
+
+Releases are cut automatically. Every push to `main` runs the **Version Bump**
+workflow, which computes the next [semantic version](https://semver.org) from
+the latest `v*` tag and the triggering commit's [conventional-commit](https://www.conventionalcommits.org)
+type:
+
+| Commit | Bump |
+|--------|------|
+| `feat!:` / `<type>(scope)!:` / `BREAKING CHANGE` | major |
+| `feat:` / `feat(scope):` | minor |
+| anything else (`fix`, `docs`, `chore`, …) | patch |
+
+It then tags the commit and dispatches the **Release** workflow, which builds
+cross-platform archives with GoReleaser (injecting the exact version via
+`-ldflags -X main.version=…`) and publishes a GitHub Release. The running
+binary reports its version with `lazyboards --version`.
 
 ## License
 
