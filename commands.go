@@ -245,6 +245,10 @@ func queryDispatchStatusCmd(executor action.Executor) tea.Cmd {
 			return dispatchStatusMsg{err: classifyAgentwatchError(err, stderr)}
 		}
 
+		if strings.TrimSpace(stdout) == "" {
+			return dispatchStatusMsg{err: "agentwatch produced no output — check that the correct binary is on PATH"}
+		}
+
 		var v struct {
 			Repo     string `json:"repo"`
 			Dir      string `json:"dir"`
