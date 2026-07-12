@@ -146,6 +146,37 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Cleaned up %d sessions", msg.count), StatusSuccess, statusMessageDuration)
 		return b, cmd
 
+	case dispatchStatusMsg:
+		b.dispatch.loading = false
+		if msg.err != "" {
+			b.dispatch.err = msg.err
+			return b, nil
+		}
+		b.dispatch.repo = msg.repo
+		b.dispatch.dir = msg.dir
+		b.dispatch.enrolled = msg.enrolled
+		b.dispatch.err = ""
+		return b, nil
+
+	case dispatchEnrollMsg:
+		if msg.err != "" {
+			b.dispatch.loading = false
+			b.dispatch.err = msg.err
+			return b, nil
+		}
+		// enroll/unenroll only reports exit status; re-query status to get the
+		// authoritative enrolled state. Keep loading=true until that lands.
+		return b, queryDispatchStatusCmd(b.executor)
+
+	case dispatchRunMsg:
+		b.dispatch.running = false
+		if msg.err != "" {
+			b.dispatch.err = msg.err
+		} else {
+			b.dispatch.lastResult = msg.result
+		}
+		return b, nil
+
 	case spinner.TickMsg:
 		if b.mode == loadingMode || b.mode == creatingMode || b.refreshing {
 			var cmd tea.Cmd
@@ -972,7 +1003,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.dispatch = dispatchState{loading: true}
 		b.mode = dispatchMode
 		b.statusBar.SetActionHints(dispatchModeHints)
-		return b, nil
+		return b, queryDispatchStatusCmd(b.executor)
 	default:
 		// Alt+Shift+key: check for comment mode trigger (uppercase A-Z only).
 		if msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
@@ -1197,10 +1228,9 @@ func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleDispatchModeKey handles key presses while the agent dispatch modal
-// is open. Enter/"o" are intentionally no-ops for now: dispatching an agent
-// (#283) and rendering the panel (#284) are handled by later tickets in this
-// stack. The loading/error/running guard is present so those tickets can
-// slot their behavior into the non-guarded branch without touching this gate.
+// is open. Enter toggles enrollment for the current repo; "o" runs a
+// fleet-wide dispatch pass. Rendering the panel (#284) is handled by a later
+// ticket in this stack.
 func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
@@ -1211,7 +1241,11 @@ func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
 			return b, nil
 		}
-		return b, nil
+		if b.dispatch.repo == "" {
+			return b, nil
+		}
+		b.dispatch.loading = true
+		return b, toggleEnrollCmd(b.executor, b.dispatch.enrolled)
 	}
 
 	switch msg.String() {
@@ -1219,7 +1253,11 @@ func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
 			return b, nil
 		}
-		return b, nil
+		if !b.dispatch.enrolled {
+			return b, nil
+		}
+		b.dispatch.running = true
+		return b, dispatchOnceCmd(b.executor)
 	}
 
 	return b, nil

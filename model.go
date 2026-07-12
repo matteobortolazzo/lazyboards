@@ -421,19 +421,44 @@ var gitPanelModeHints = []Hint{
 	{Key: "enter", Desc: "Run"},
 }
 
-// dispatchState groups fields related to the agent dispatch modal. This is the
-// scaffold shape (#282); the remaining fields (repo, dir, enrolled, lastResult)
-// are added by #283 as it wires the agentwatch query and populates them, so the
-// unused linter does not flag them before they have a reader.
+// dispatchState groups fields related to the agent dispatch modal.
 type dispatchState struct {
-	loading bool
-	err     string
-	running bool
+	loading    bool
+	err        string
+	running    bool
+	repo       string
+	dir        string
+	enrolled   bool
+	lastResult string
 }
 
 // dispatchModeHints are the status bar hints shown in dispatch mode.
 var dispatchModeHints = []Hint{
+	{Key: "enter", Desc: "Enroll/Unenroll"},
+	{Key: "o", Desc: "Dispatch once"},
 	{Key: "esc", Desc: "Close"},
+}
+
+// dispatchStatusMsg is sent when queryDispatchStatusCmd finishes querying
+// agentwatch for the current repo's dispatch enrollment status.
+type dispatchStatusMsg struct {
+	repo     string
+	dir      string
+	enrolled bool
+	err      string
+}
+
+// dispatchEnrollMsg is sent when toggleEnrollCmd finishes enrolling or
+// unenrolling the current repo with agentwatch.
+type dispatchEnrollMsg struct {
+	err string
+}
+
+// dispatchRunMsg is sent when dispatchOnceCmd finishes running a fleet-wide
+// dispatch pass.
+type dispatchRunMsg struct {
+	result string
+	err    string
 }
 
 // configState groups fields related to the config modal.

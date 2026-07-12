@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 // newDispatchTestBoard creates a loaded Board with Width/Height set so View()
@@ -15,6 +20,27 @@ func newDispatchTestBoard(t *testing.T) Board {
 	b.Width = 120
 	b.Height = 40
 	return b
+}
+
+// newDispatchTestBoardWithExecutor creates a loaded Board wired to the given
+// FakeExecutor, so tests can assert on RunShellOutputCalls and control
+// RunShellOutput fixtures for dispatch command wiring tests.
+func newDispatchTestBoardWithExecutor(t *testing.T, fe *action.FakeExecutor) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	board, err := p.FetchBoard(context.TODO())
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	loaded, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	loaded.Width = 120
+	loaded.Height = 40
+	return loaded
 }
 
 // --- Mode transition ---
@@ -125,8 +151,9 @@ func TestDispatch_EnterNoop_WhileRunning(t *testing.T) {
 }
 
 // TestDispatch_EnterAndO_NoopWhenClean exercises the fall-through no-op path:
-// with dispatch fully zeroed (guard condition false), enter/"o" are still
-// no-ops in this ticket's scope (#283 fills that branch with real behavior).
+// with dispatch fully zeroed, enter is a no-op because repo == "" and "o" is a
+// no-op because enrolled == false (the guards #283 added), so both stay in
+// dispatchMode without firing a Cmd.
 func TestDispatch_EnterAndO_NoopWhenClean(t *testing.T) {
 	b := newDispatchTestBoard(t)
 	b = sendKey(t, b, keyMsg("d"))
@@ -140,5 +167,646 @@ func TestDispatch_EnterAndO_NoopWhenClean(t *testing.T) {
 	b = sendKey(t, b, keyMsg("o"))
 	if b.mode != dispatchMode {
 		t.Errorf("'o' with clean dispatch state: mode = %v, want dispatchMode (no-op)", b.mode)
+	}
+}
+
+// --- dispatchModeHints gains enter/o entries (#283) ---
+
+func TestDispatchModeHints_IncludesEnterAndO(t *testing.T) {
+	keys := make(map[string]bool)
+	for _, h := range dispatchModeHints {
+		keys[h.Key] = true
+	}
+	if !keys["enter"] {
+		t.Errorf("dispatchModeHints missing 'enter' entry: %+v", dispatchModeHints)
+	}
+	if !keys["o"] {
+		t.Errorf("dispatchModeHints missing 'o' entry: %+v", dispatchModeHints)
+	}
+}
+
+// --- Pressing 'd' fires an async status query (#283) ---
+
+func TestDispatch_PressD_FiresStatusQueryCmd(t *testing.T) {
+	fe := &action.FakeExecutor{RunShellOutputStdout: `{"repo":"owner/repo","dir":"/tmp/x","enrolled":false}`}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+
+	m, cmd := b.Update(keyMsg("d"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != dispatchMode {
+		t.Errorf("after pressing 'd': mode = %v, want dispatchMode", b2.mode)
+	}
+	if cmd == nil {
+		t.Fatal("expected pressing 'd' to fire a Cmd querying dispatch status, got nil")
+	}
+
+	msgs := collectMsgs(cmd)
+	var found *dispatchStatusMsg
+	for _, msg := range msgs {
+		if sm, ok := msg.(dispatchStatusMsg); ok {
+			found = &sm
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected a dispatchStatusMsg among executed commands, got %#v", msgs)
+	}
+	if found.repo != "owner/repo" {
+		t.Errorf("dispatchStatusMsg.repo = %q, want %q", found.repo, "owner/repo")
+	}
+
+	if len(fe.RunShellOutputCalls) == 0 {
+		t.Fatal("expected RunShellOutput to be called")
+	}
+	if !strings.Contains(fe.RunShellOutputCalls[0], "dispatch status --json --dir") {
+		t.Errorf("RunShellOutput called with %q, want substring %q", fe.RunShellOutputCalls[0], "dispatch status --json --dir")
+	}
+}
+
+// --- Enter/'o' guards: no-op on missing repo/not-enrolled, fire Cmd when idle (#283) ---
+
+func TestDispatch_Enter_NoopWhenRepoEmpty(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{} // idle, repo empty
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != dispatchMode {
+		t.Errorf("Enter with empty dispatch.repo: mode = %v, want dispatchMode (no-op)", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("expected Enter to be a no-op (nil Cmd) when dispatch.repo is empty")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("expected no RunShellOutput calls when dispatch.repo is empty, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestDispatch_Enter_FiresToggleEnrollWhenIdleAndRepoSet(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: false}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if !b2.dispatch.loading {
+		t.Error("expected dispatch.loading=true after Enter fires the enroll toggle")
+	}
+	if cmd == nil {
+		t.Fatal("expected Enter to fire a Cmd when idle and dispatch.repo is set")
+	}
+
+	msgs := collectMsgs(cmd)
+	found := false
+	for _, msg := range msgs {
+		if _, ok := msg.(dispatchEnrollMsg); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a dispatchEnrollMsg among executed commands, got %#v", msgs)
+	}
+
+	if len(fe.RunShellOutputCalls) == 0 {
+		t.Fatal("expected RunShellOutput to be called")
+	}
+	cmdStr := fe.RunShellOutputCalls[0]
+	if !strings.Contains(cmdStr, "dispatch enroll --dir") {
+		t.Errorf("expected enroll command, got %q", cmdStr)
+	}
+	if strings.Contains(cmdStr, "unenroll") {
+		t.Errorf("expected enroll (not unenroll) when dispatch.enrolled=false, got %q", cmdStr)
+	}
+}
+
+func TestDispatch_O_NoopWhenNotEnrolled(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: false}
+
+	m, cmd := b.Update(keyMsg("o"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != dispatchMode {
+		t.Errorf("'o' while not enrolled: mode = %v, want dispatchMode (no-op)", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("expected 'o' to be a no-op (nil Cmd) when not enrolled")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("expected no RunShellOutput calls when not enrolled, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestDispatch_O_FiresDispatchOnceWhenEnrolledAndIdle(t *testing.T) {
+	fe := &action.FakeExecutor{RunShellOutputStdout: "owner/repo#1 dispatch session-a"}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true}
+
+	m, cmd := b.Update(keyMsg("o"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if !b2.dispatch.running {
+		t.Error("expected dispatch.running=true after 'o' fires dispatch-once")
+	}
+	if cmd == nil {
+		t.Fatal("expected 'o' to fire a Cmd when enrolled and idle")
+	}
+
+	msgs := collectMsgs(cmd)
+	found := false
+	for _, msg := range msgs {
+		if _, ok := msg.(dispatchRunMsg); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a dispatchRunMsg among executed commands, got %#v", msgs)
+	}
+
+	if len(fe.RunShellOutputCalls) == 0 {
+		t.Fatal("expected RunShellOutput to be called")
+	}
+	cmdStr := fe.RunShellOutputCalls[0]
+	if strings.Contains(cmdStr, "--dir") {
+		t.Errorf("dispatch-once must be fleet-wide (no --dir filter), got %q", cmdStr)
+	}
+}
+
+// --- Update() handlers for dispatchStatusMsg/dispatchEnrollMsg/dispatchRunMsg (#283) ---
+
+func TestDispatch_HandleStatusMsg_Success(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{loading: true}
+
+	msg := dispatchStatusMsg{repo: "owner/repo", dir: "/tmp/x", enrolled: true}
+	m, _ := b.Update(msg)
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.dispatch.loading {
+		t.Error("expected dispatch.loading=false after dispatchStatusMsg")
+	}
+	if b2.dispatch.repo != "owner/repo" {
+		t.Errorf("dispatch.repo = %q, want %q", b2.dispatch.repo, "owner/repo")
+	}
+	if b2.dispatch.dir != "/tmp/x" {
+		t.Errorf("dispatch.dir = %q, want %q", b2.dispatch.dir, "/tmp/x")
+	}
+	if !b2.dispatch.enrolled {
+		t.Error("expected dispatch.enrolled=true")
+	}
+	if b2.dispatch.err != "" {
+		t.Errorf("dispatch.err = %q, want empty", b2.dispatch.err)
+	}
+}
+
+func TestDispatch_HandleStatusMsg_Error(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{loading: true}
+
+	msg := dispatchStatusMsg{err: "agentwatch not found on PATH — install it to use dispatch"}
+	m, _ := b.Update(msg)
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.dispatch.loading {
+		t.Error("expected dispatch.loading=false after dispatchStatusMsg with err")
+	}
+	if b2.dispatch.err != msg.err {
+		t.Errorf("dispatch.err = %q, want %q", b2.dispatch.err, msg.err)
+	}
+}
+
+func TestDispatch_HandleEnrollMsg_SuccessRequeriesStatus(t *testing.T) {
+	fe := &action.FakeExecutor{RunShellOutputStdout: `{"repo":"owner/repo","dir":"/tmp/x","enrolled":true}`}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{loading: true}
+
+	msg := dispatchEnrollMsg{} // success (empty err)
+	m, cmd := b.Update(msg)
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if !b2.dispatch.loading {
+		t.Error("expected dispatch.loading to remain true after a successful enroll (awaiting requery)")
+	}
+	if cmd == nil {
+		t.Fatal("expected a requery Cmd after a successful dispatchEnrollMsg")
+	}
+
+	msgs := collectMsgs(cmd)
+	var found *dispatchStatusMsg
+	for _, m2 := range msgs {
+		if sm, ok := m2.(dispatchStatusMsg); ok {
+			found = &sm
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected requery to produce a dispatchStatusMsg, got %#v", msgs)
+	}
+	if found.repo != "owner/repo" {
+		t.Errorf("requeried dispatchStatusMsg.repo = %q, want %q", found.repo, "owner/repo")
+	}
+
+	// The enroll RunShellOutput call is simulated by the dispatchEnrollMsg here
+	// (out of scope), so the handler's success path must issue exactly one
+	// status re-query — never a duplicate.
+	if len(fe.RunShellOutputCalls) != 1 {
+		t.Fatalf("expected exactly 1 RunShellOutput call (the single status requery), got %d: %v", len(fe.RunShellOutputCalls), fe.RunShellOutputCalls)
+	}
+	if !strings.Contains(fe.RunShellOutputCalls[0], "dispatch status") {
+		t.Errorf("expected requery call to invoke dispatch status, got %q", fe.RunShellOutputCalls[0])
+	}
+}
+
+func TestDispatch_HandleEnrollMsg_Error(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{loading: true}
+
+	msg := dispatchEnrollMsg{err: "boom"}
+	m, _ := b.Update(msg)
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.dispatch.loading {
+		t.Error("expected dispatch.loading=false after dispatchEnrollMsg with err")
+	}
+	if b2.dispatch.err != "boom" {
+		t.Errorf("dispatch.err = %q, want %q", b2.dispatch.err, "boom")
+	}
+}
+
+func TestDispatch_HandleRunMsg_Success(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{running: true}
+
+	msg := dispatchRunMsg{result: "2 dispatched, 1 skipped (all enrolled repos)"}
+	m, _ := b.Update(msg)
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.dispatch.running {
+		t.Error("expected dispatch.running=false after dispatchRunMsg")
+	}
+	if b2.dispatch.lastResult != msg.result {
+		t.Errorf("dispatch.lastResult = %q, want %q", b2.dispatch.lastResult, msg.result)
+	}
+	if b2.dispatch.err != "" {
+		t.Errorf("dispatch.err = %q, want empty", b2.dispatch.err)
+	}
+}
+
+func TestDispatch_HandleRunMsg_Error(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{running: true}
+
+	msg := dispatchRunMsg{err: "boom"}
+	m, _ := b.Update(msg)
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.dispatch.running {
+		t.Error("expected dispatch.running=false after dispatchRunMsg with err")
+	}
+	if b2.dispatch.err != "boom" {
+		t.Errorf("dispatch.err = %q, want %q", b2.dispatch.err, "boom")
+	}
+}
+
+// --- classifyAgentwatchError (#283) ---
+
+func TestClassifyAgentwatchError(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    error
+		stderr string
+		assert func(t *testing.T, got string)
+	}{
+		{
+			name:   "exit code 127 in error text -> not found",
+			err:    errors.New("exit status 127"),
+			stderr: "",
+			assert: func(t *testing.T, got string) {
+				if !strings.Contains(strings.ToLower(got), "not found") {
+					t.Errorf("classifyAgentwatchError() = %q, want a message indicating agentwatch is not found", got)
+				}
+			},
+		},
+		{
+			name:   "stderr command not found -> not found",
+			err:    errors.New("exit status 1"),
+			stderr: "sh: agentwatch: command not found",
+			assert: func(t *testing.T, got string) {
+				if !strings.Contains(strings.ToLower(got), "not found") {
+					t.Errorf("classifyAgentwatchError() = %q, want a message indicating agentwatch is not found", got)
+				}
+			},
+		},
+		{
+			name:   "git repo stderr 'is not a git repository' -> repo not resolvable",
+			err:    errors.New("exit status 1"),
+			stderr: "fatal: not a git repository (or any of the parent directories)",
+			assert: func(t *testing.T, got string) {
+				lower := strings.ToLower(got)
+				if !strings.Contains(lower, "git") && !strings.Contains(lower, "repo") {
+					t.Errorf("classifyAgentwatchError() = %q, want a message mentioning the repo could not be resolved", got)
+				}
+			},
+		},
+		{
+			name:   "git repo stderr 'getting origin remote url' -> repo not resolvable",
+			err:    errors.New("exit status 1"),
+			stderr: "error getting origin remote url: no such remote",
+			assert: func(t *testing.T, got string) {
+				lower := strings.ToLower(got)
+				if !strings.Contains(lower, "git") && !strings.Contains(lower, "repo") {
+					t.Errorf("classifyAgentwatchError() = %q, want a message mentioning the repo could not be resolved", got)
+				}
+			},
+		},
+		{
+			name:   "generic fallback prefixes stderr",
+			err:    errors.New("exit status 2"),
+			stderr: "some unexpected failure",
+			assert: func(t *testing.T, got string) {
+				want := "agentwatch: some unexpected failure"
+				if got != want {
+					t.Errorf("classifyAgentwatchError() = %q, want %q", got, want)
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := classifyAgentwatchError(tc.err, tc.stderr)
+			tc.assert(t, got)
+		})
+	}
+}
+
+// --- queryDispatchStatusCmd (#283) ---
+
+func TestQueryDispatchStatusCmd_Success(t *testing.T) {
+	fe := &action.FakeExecutor{RunShellOutputStdout: `{"repo":"owner/repo","dir":"/some/dir","enrolled":true}`}
+
+	cmd := queryDispatchStatusCmd(fe)
+	msg := cmd()
+
+	statusMsg, ok := msg.(dispatchStatusMsg)
+	if !ok {
+		t.Fatalf("queryDispatchStatusCmd() returned %T, want dispatchStatusMsg", msg)
+	}
+	if statusMsg.err != "" {
+		t.Errorf("dispatchStatusMsg.err = %q, want empty", statusMsg.err)
+	}
+	if statusMsg.repo != "owner/repo" {
+		t.Errorf("dispatchStatusMsg.repo = %q, want %q", statusMsg.repo, "owner/repo")
+	}
+	if statusMsg.dir != "/some/dir" {
+		t.Errorf("dispatchStatusMsg.dir = %q, want %q", statusMsg.dir, "/some/dir")
+	}
+	if !statusMsg.enrolled {
+		t.Error("expected dispatchStatusMsg.enrolled=true")
+	}
+
+	if len(fe.RunShellOutputCalls) != 1 {
+		t.Fatalf("expected 1 RunShellOutput call, got %d", len(fe.RunShellOutputCalls))
+	}
+	cmdStr := fe.RunShellOutputCalls[0]
+	if !strings.Contains(cmdStr, "dispatch status --json --dir") {
+		t.Errorf("RunShellOutput called with %q, want substring %q", cmdStr, "dispatch status --json --dir")
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd failed: %v", err)
+	}
+	escapedCwd := action.ShellEscape(cwd)
+	if !strings.Contains(cmdStr, escapedCwd) {
+		t.Errorf("RunShellOutput called with %q, want it to contain shell-escaped cwd %q", cmdStr, escapedCwd)
+	}
+}
+
+func TestQueryDispatchStatusCmd_ExecError(t *testing.T) {
+	fe := &action.FakeExecutor{
+		RunShellOutputErr:    errors.New("exit status 127"),
+		RunShellOutputStderr: "agentwatch: command not found",
+	}
+
+	cmd := queryDispatchStatusCmd(fe)
+	msg := cmd()
+
+	statusMsg, ok := msg.(dispatchStatusMsg)
+	if !ok {
+		t.Fatalf("queryDispatchStatusCmd() returned %T, want dispatchStatusMsg", msg)
+	}
+	if statusMsg.err == "" {
+		t.Fatal("expected dispatchStatusMsg.err to be non-empty on exec error")
+	}
+	if !strings.Contains(strings.ToLower(statusMsg.err), "not found") {
+		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating agentwatch is not found", statusMsg.err)
+	}
+}
+
+func TestQueryDispatchStatusCmd_OldBinaryNonJSON(t *testing.T) {
+	fe := &action.FakeExecutor{RunShellOutputStdout: "not json"}
+
+	cmd := queryDispatchStatusCmd(fe)
+	msg := cmd()
+
+	statusMsg, ok := msg.(dispatchStatusMsg)
+	if !ok {
+		t.Fatalf("queryDispatchStatusCmd() returned %T, want dispatchStatusMsg", msg)
+	}
+	if statusMsg.err == "" {
+		t.Fatal("expected dispatchStatusMsg.err to be non-empty when stdout is not valid JSON")
+	}
+	lower := strings.ToLower(statusMsg.err)
+	if !strings.Contains(lower, "upgrade") && !strings.Contains(lower, "old") {
+		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating the agentwatch binary is too old", statusMsg.err)
+	}
+}
+
+// --- toggleEnrollCmd (#283) ---
+
+func TestToggleEnrollCmd_EnrollSuccess(t *testing.T) {
+	fe := &action.FakeExecutor{}
+
+	cmd := toggleEnrollCmd(fe, false) // not yet enrolled -> enroll
+	msg := cmd()
+
+	enrollMsg, ok := msg.(dispatchEnrollMsg)
+	if !ok {
+		t.Fatalf("toggleEnrollCmd() returned %T, want dispatchEnrollMsg", msg)
+	}
+	if enrollMsg.err != "" {
+		t.Errorf("dispatchEnrollMsg.err = %q, want empty", enrollMsg.err)
+	}
+
+	if len(fe.RunShellOutputCalls) != 1 {
+		t.Fatalf("expected 1 RunShellOutput call, got %d", len(fe.RunShellOutputCalls))
+	}
+	cmdStr := fe.RunShellOutputCalls[0]
+	if !strings.Contains(cmdStr, "dispatch enroll --dir") {
+		t.Errorf("RunShellOutput called with %q, want substring %q", cmdStr, "dispatch enroll --dir")
+	}
+	if strings.Contains(cmdStr, "unenroll") {
+		t.Errorf("expected enroll (not unenroll) command, got %q", cmdStr)
+	}
+}
+
+func TestToggleEnrollCmd_UnenrollSuccess(t *testing.T) {
+	fe := &action.FakeExecutor{}
+
+	cmd := toggleEnrollCmd(fe, true) // currently enrolled -> unenroll
+	msg := cmd()
+
+	enrollMsg, ok := msg.(dispatchEnrollMsg)
+	if !ok {
+		t.Fatalf("toggleEnrollCmd() returned %T, want dispatchEnrollMsg", msg)
+	}
+	if enrollMsg.err != "" {
+		t.Errorf("dispatchEnrollMsg.err = %q, want empty", enrollMsg.err)
+	}
+
+	if len(fe.RunShellOutputCalls) != 1 {
+		t.Fatalf("expected 1 RunShellOutput call, got %d", len(fe.RunShellOutputCalls))
+	}
+	cmdStr := fe.RunShellOutputCalls[0]
+	if !strings.Contains(cmdStr, "dispatch unenroll --dir") {
+		t.Errorf("RunShellOutput called with %q, want substring %q", cmdStr, "dispatch unenroll --dir")
+	}
+}
+
+func TestToggleEnrollCmd_Error(t *testing.T) {
+	fe := &action.FakeExecutor{
+		RunShellOutputErr:    errors.New("exit status 1"),
+		RunShellOutputStderr: "fatal: not a git repository (or any of the parent directories)",
+	}
+
+	cmd := toggleEnrollCmd(fe, false)
+	msg := cmd()
+
+	enrollMsg, ok := msg.(dispatchEnrollMsg)
+	if !ok {
+		t.Fatalf("toggleEnrollCmd() returned %T, want dispatchEnrollMsg", msg)
+	}
+	if enrollMsg.err == "" {
+		t.Error("expected dispatchEnrollMsg.err to be non-empty on exec error")
+	}
+}
+
+func TestToggleEnrollCmd_IgnoresStdout(t *testing.T) {
+	// enroll/unenroll must check exit code ONLY -- never parse stdout. A
+	// non-JSON, garbage stdout with a nil error must still be a success.
+	fe := &action.FakeExecutor{RunShellOutputStdout: "{not valid json at all"}
+
+	cmd := toggleEnrollCmd(fe, false)
+	msg := cmd()
+
+	enrollMsg, ok := msg.(dispatchEnrollMsg)
+	if !ok {
+		t.Fatalf("toggleEnrollCmd() returned %T, want dispatchEnrollMsg", msg)
+	}
+	if enrollMsg.err != "" {
+		t.Errorf("dispatchEnrollMsg.err = %q, want empty (enroll must ignore stdout content and check exit code only)", enrollMsg.err)
+	}
+}
+
+// --- dispatchOnceCmd (#283) ---
+
+func TestDispatchOnceCmd_ParsesCounts(t *testing.T) {
+	stdout := strings.Join([]string{
+		"owner/repo1#1 dispatch session-a",
+		"owner/repo2#2 dispatch session-b",
+		"owner/repo3#3 skip: already running",
+		"some unrelated log line that matches neither pattern",
+	}, "\n")
+	fe := &action.FakeExecutor{RunShellOutputStdout: stdout}
+
+	cmd := dispatchOnceCmd(fe)
+	msg := cmd()
+
+	runMsg, ok := msg.(dispatchRunMsg)
+	if !ok {
+		t.Fatalf("dispatchOnceCmd() returned %T, want dispatchRunMsg", msg)
+	}
+	if runMsg.err != "" {
+		t.Fatalf("dispatchRunMsg.err = %q, want empty", runMsg.err)
+	}
+	if !strings.Contains(runMsg.result, "2") {
+		t.Errorf("dispatchRunMsg.result = %q, want it to contain the dispatched count %q", runMsg.result, "2")
+	}
+	if !strings.Contains(runMsg.result, "1") {
+		t.Errorf("dispatchRunMsg.result = %q, want it to contain the skipped count %q", runMsg.result, "1")
+	}
+	lower := strings.ToLower(runMsg.result)
+	if !strings.Contains(lower, "dispatch") {
+		t.Errorf("dispatchRunMsg.result = %q, want it to mention dispatched cards", runMsg.result)
+	}
+	if !strings.Contains(lower, "skip") {
+		t.Errorf("dispatchRunMsg.result = %q, want it to mention skipped cards", runMsg.result)
+	}
+	if !strings.Contains(lower, "all enrolled repos") {
+		t.Errorf("dispatchRunMsg.result = %q, want it to explicitly signal the fleet-wide scope (all enrolled repos)", runMsg.result)
+	}
+
+	if len(fe.RunShellOutputCalls) != 1 {
+		t.Fatalf("expected 1 RunShellOutput call, got %d", len(fe.RunShellOutputCalls))
+	}
+	cmdStr := fe.RunShellOutputCalls[0]
+	if !strings.Contains(cmdStr, "dispatch --once") {
+		t.Errorf("RunShellOutput called with %q, want substring %q", cmdStr, "dispatch --once")
+	}
+	if strings.Contains(cmdStr, "--dir") || strings.Contains(cmdStr, "--repo") {
+		t.Errorf("dispatchOnceCmd must be fleet-wide (no --dir/--repo filter), got %q", cmdStr)
+	}
+}
+
+func TestDispatchOnceCmd_Error(t *testing.T) {
+	fe := &action.FakeExecutor{
+		RunShellOutputErr:    errors.New("exit status 127"),
+		RunShellOutputStderr: "agentwatch: command not found",
+	}
+
+	cmd := dispatchOnceCmd(fe)
+	msg := cmd()
+
+	runMsg, ok := msg.(dispatchRunMsg)
+	if !ok {
+		t.Fatalf("dispatchOnceCmd() returned %T, want dispatchRunMsg", msg)
+	}
+	if runMsg.err == "" {
+		t.Error("expected dispatchRunMsg.err to be non-empty on exec error")
 	}
 }
