@@ -174,7 +174,7 @@ func TestAgentJump_DetailFocused_HasSession_SwitchesToWindow(t *testing.T) {
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	b.agentSnapshot = &watch.StateSnapshot{
 		Windows: []watch.WindowState{
-			{Session: "review", WindowIndex: "5", WindowName: name, Status: "need_input"},
+			{Session: "review", WindowIndex: "5", WindowName: name, Status: "need-input"},
 		},
 	}
 

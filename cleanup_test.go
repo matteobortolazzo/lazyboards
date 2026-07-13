@@ -300,7 +300,7 @@ func TestCleanup_DeferredWhileAgentRunning(t *testing.T) {
 func TestCleanup_DeferredWhileAgentNeedsInput(t *testing.T) {
 	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t ={session}")
 
-	b.agentSnapshot = cleanupSnapshot("need_input")
+	b.agentSnapshot = cleanupSnapshot("need-input")
 	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 	if len(fe.RunShellCalls) != 0 {
 		t.Fatalf("expected cleanup deferred while agent needs input, got: %v", fe.RunShellCalls)

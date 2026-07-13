@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -133,11 +134,11 @@ func TestBoard_AgentStatusFor_BareNumberWindowMatches(t *testing.T) {
 
 	b.agentSnapshot = &watch.StateSnapshot{
 		Windows: []watch.WindowState{
-			{WindowName: "42", Status: "need_input"},
+			{WindowName: "42", Status: "need-input"},
 		},
 	}
 
-	if got := b.agentStatusFor(card); got == nil || got.Status != "need_input" {
+	if got := b.agentStatusFor(card); got == nil || got.Status != "need-input" {
 		t.Errorf("agentStatusFor() = %+v, want the bare-number window (need_input)", got)
 	}
 }
@@ -388,11 +389,11 @@ func TestBoard_AgentCounts_BoardScoped(t *testing.T) {
 	}
 	b.agentSnapshot = &watch.StateSnapshot{Windows: []watch.WindowState{
 		{WindowName: name(1, "First running"), Status: "running"},
-		{WindowName: name(2, "Needs input"), Status: "need_input"},
+		{WindowName: name(2, "Needs input"), Status: "need-input"},
 		{WindowName: name(3, "Idle card"), Status: "idle"}, // excluded: idle
 		{WindowName: name(4, "Second running"), Status: "running"},
 		{WindowName: "999-no-such-card", Status: "running"},    // excluded: unmatched
-		{WindowName: "888-no-such-card", Status: "need_input"}, // excluded: unmatched
+		{WindowName: "888-no-such-card", Status: "need-input"}, // excluded: unmatched
 	}}
 
 	running, needInput := b.agentCounts()
@@ -434,7 +435,7 @@ func TestAgentBadgeText_StatusSymbolAndKind(t *testing.T) {
 		{"running", "running", "claude", "▶"},
 		{"done", "done", "claude", "✓"},
 		{"stopped", "stopped", "claude", "■"},
-		{"need_input", "need_input", "claude", "‼"},
+		{"need-input", "need-input", "claude", "‼"},
 		{"failed", "failed", "claude", "✗"},
 		{"idle has no badge", "idle", "claude", ""},
 		{"unknown has no badge", "banana", "claude", ""},
@@ -455,6 +456,40 @@ func TestAgentBadgeText_StatusSymbolAndKind(t *testing.T) {
 				t.Errorf("agentBadgeText(%q, %q) = %q, want to contain kind %q", tt.status, tt.agent, got, tt.agent)
 			}
 		})
+	}
+}
+
+// TestBoard_AgentBadge_NeedInputFromDaemonWireFormat decodes a snapshot line in
+// the exact shape the agentwatch daemon broadcasts over its socket — including
+// the "need-input" (hyphen) status the daemon's detect.StatusNeedInput.String()
+// emits — and asserts a need-input agent badges its card and counts toward the
+// status-bar summary. Constructing the snapshot from the raw NDJSON (rather than
+// a hand-built WindowState) pins the status token to the daemon's real wire
+// value: if lazyboards drifts back to the "need_input" underscore spelling, the
+// badge silently disappears and this test fails.
+func TestBoard_AgentBadge_NeedInputFromDaemonWireFormat(t *testing.T) {
+	const cardNumber = 42
+	b := newAgentWatchCardTestBoard(t, cardNumber, "Waiting for input", config.DefaultSessionMaxLength)
+	card := b.Columns[0].Cards[0]
+
+	// A single NDJSON line as emitted by the daemon's broadcast socket.
+	const wireLine = `{"timestamp":"2026-07-13T22:09:50Z","windows":[{"session":"lazyboards","window_index":"2","window_name":"42-implement","task_name":"Waiting for input","status":"need-input","agent":"claude","manually_named":false}],"summary":{"total":1,"need_input":1}}`
+
+	var snap watch.StateSnapshot
+	if err := json.Unmarshal([]byte(wireLine), &snap); err != nil {
+		t.Fatalf("failed to decode daemon wire line: %v", err)
+	}
+	b.agentSnapshot = &snap
+
+	ws := b.agentStatusFor(card)
+	if ws == nil {
+		t.Fatalf("agentStatusFor() = nil, want the need-input window for card #%d", cardNumber)
+	}
+	if badge := b.agentBadgeFor(card); badge == "" {
+		t.Errorf("agentBadgeFor() = %q, want a non-empty badge for a need-input agent", badge)
+	}
+	if _, needInput := b.agentCounts(); needInput != 1 {
+		t.Errorf("agentCounts() needInput = %d, want 1 for one matched need-input card", needInput)
 	}
 }
 
@@ -558,7 +593,7 @@ func TestViewCardList_NeedInputIsLoudest(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{{WindowName: name, Status: "need_input", Agent: "claude"}},
+		Windows: []watch.WindowState{{WindowName: name, Status: "need-input", Agent: "claude"}},
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
