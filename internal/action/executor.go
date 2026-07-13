@@ -73,14 +73,32 @@ type SwitchWindowCall struct {
 	WindowIndex string
 }
 
+// RunShellOutputResult is one scripted result returned by
+// FakeExecutor.RunShellOutput.
+type RunShellOutputResult struct {
+	Stdout string
+	Stderr string
+	Err    error
+}
+
 // FakeExecutor records calls for testing.
 type FakeExecutor struct {
-	OpenURLCalls         []string
-	RunShellCalls        []string
-	SwitchWindowCalls    []SwitchWindowCall
-	OpenURLErr           error
-	RunShellErr          error
-	RunShellStderr       string
+	OpenURLCalls      []string
+	RunShellCalls     []string
+	SwitchWindowCalls []SwitchWindowCall
+	OpenURLErr        error
+	RunShellErr       error
+	RunShellStderr    string
+
+	// RunShellOutputResults, when non-empty, scripts successive
+	// RunShellOutput calls in order (mirroring FakeWatcher.Results in
+	// internal/agentwatch/fake.go). Once exhausted, RunShellOutput falls
+	// back to the single canned RunShellOutputStdout/Stderr/Err fields
+	// below, keeping this fully backward-compatible with existing tests
+	// that only set the canned fields.
+	RunShellOutputResults []RunShellOutputResult
+	runShellOutputIndex   int
+
 	RunShellOutputCalls  []string
 	RunShellOutputStdout string
 	RunShellOutputStderr string
@@ -100,9 +118,16 @@ func (f *FakeExecutor) RunShell(command string) (string, error) {
 	return f.RunShellStderr, f.RunShellErr
 }
 
-// RunShellOutput records the call and returns the configured stdout, stderr, and error.
+// RunShellOutput records the call and returns the next scripted result from
+// RunShellOutputResults, in order; once exhausted (or if never scripted), it
+// falls back to the canned RunShellOutputStdout/Stderr/Err fields.
 func (f *FakeExecutor) RunShellOutput(command string) (string, string, error) {
 	f.RunShellOutputCalls = append(f.RunShellOutputCalls, command)
+	if f.runShellOutputIndex < len(f.RunShellOutputResults) {
+		result := f.RunShellOutputResults[f.runShellOutputIndex]
+		f.runShellOutputIndex++
+		return result.Stdout, result.Stderr, result.Err
+	}
 	return f.RunShellOutputStdout, f.RunShellOutputStderr, f.RunShellOutputErr
 }
 

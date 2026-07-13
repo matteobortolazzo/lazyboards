@@ -140,6 +140,62 @@ func TestFakeExecutor_ReturnsConfiguredRunShellOutput(t *testing.T) {
 	}
 }
 
+func TestFakeExecutor_RunShellOutput_ScriptedResultsConsumedInOrderThenFallback(t *testing.T) {
+	fe := &FakeExecutor{
+		RunShellOutputResults: []RunShellOutputResult{
+			{Stdout: "first-out", Stderr: "", Err: nil},
+			{Stdout: "second-out", Stderr: "second-warn", Err: errors.New("second-boom")},
+		},
+		RunShellOutputStdout: "fallback-out",
+		RunShellOutputStderr: "fallback-err",
+	}
+
+	stdout1, stderr1, err1 := fe.RunShellOutput("cmd1")
+	if stdout1 != "first-out" || stderr1 != "" || err1 != nil {
+		t.Errorf("call 1 = (%q, %q, %v), want (%q, %q, nil)", stdout1, stderr1, err1, "first-out", "")
+	}
+
+	stdout2, stderr2, err2 := fe.RunShellOutput("cmd2")
+	if stdout2 != "second-out" || stderr2 != "second-warn" || err2 == nil || err2.Error() != "second-boom" {
+		t.Errorf("call 2 = (%q, %q, %v), want (%q, %q, %q)", stdout2, stderr2, err2, "second-out", "second-warn", "second-boom")
+	}
+
+	// Script exhausted after 2 scripted results -- the 3rd call must fall back
+	// to the single canned fields, preserving backward compatibility with
+	// existing single-result tests.
+	stdout3, stderr3, err3 := fe.RunShellOutput("cmd3")
+	if stdout3 != "fallback-out" || stderr3 != "fallback-err" || err3 != nil {
+		t.Errorf("call 3 (post-exhaustion) = (%q, %q, %v), want fallback (%q, %q, nil)", stdout3, stderr3, err3, "fallback-out", "fallback-err")
+	}
+
+	if len(fe.RunShellOutputCalls) != 3 {
+		t.Fatalf("RunShellOutputCalls length = %d, want 3", len(fe.RunShellOutputCalls))
+	}
+	wantCalls := []string{"cmd1", "cmd2", "cmd3"}
+	for i, want := range wantCalls {
+		if fe.RunShellOutputCalls[i] != want {
+			t.Errorf("RunShellOutputCalls[%d] = %q, want %q", i, fe.RunShellOutputCalls[i], want)
+		}
+	}
+}
+
+func TestFakeExecutor_RunShellOutput_EmptyScriptUsesCannedFields(t *testing.T) {
+	// Backward compat: a FakeExecutor with no RunShellOutputResults scripted
+	// must behave exactly as before -- every call returns the single canned
+	// fields, regardless of how many times RunShellOutput is invoked.
+	fe := &FakeExecutor{
+		RunShellOutputStdout: "canned-out",
+		RunShellOutputStderr: "canned-err",
+	}
+
+	for i := 0; i < 2; i++ {
+		stdout, stderr, err := fe.RunShellOutput("cmd")
+		if stdout != "canned-out" || stderr != "canned-err" || err != nil {
+			t.Errorf("call %d = (%q, %q, %v), want (%q, %q, nil)", i, stdout, stderr, err, "canned-out", "canned-err")
+		}
+	}
+}
+
 func TestDefaultExecutor_RunShellOutput_Success(t *testing.T) {
 	d := DefaultExecutor{}
 	stdout, stderr, err := d.RunShellOutput("echo hi")

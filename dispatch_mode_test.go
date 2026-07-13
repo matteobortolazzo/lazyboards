@@ -188,7 +188,12 @@ func TestDispatchModeHints_IncludesEnterAndO(t *testing.T) {
 // --- Pressing 'd' fires an async status query (#283) ---
 
 func TestDispatch_PressD_FiresStatusQueryCmd(t *testing.T) {
-	fe := &action.FakeExecutor{RunShellOutputStdout: `{"repo":"owner/repo","dir":"/tmp/x","enrolled":false}`}
+	fe := &action.FakeExecutor{
+		RunShellOutputResults: []action.RunShellOutputResult{
+			{}, // agentwatch version probe succeeds
+			{Stdout: `{"repo":"owner/repo","dir":"/tmp/x","enrolled":false}`},
+		},
+	}
 	b := newDispatchTestBoardWithExecutor(t, fe)
 
 	m, cmd := b.Update(keyMsg("d"))
@@ -217,11 +222,11 @@ func TestDispatch_PressD_FiresStatusQueryCmd(t *testing.T) {
 		t.Errorf("dispatchStatusMsg.repo = %q, want %q", found.repo, "owner/repo")
 	}
 
-	if len(fe.RunShellOutputCalls) == 0 {
-		t.Fatal("expected RunShellOutput to be called")
+	if len(fe.RunShellOutputCalls) != 2 {
+		t.Fatalf("expected 2 RunShellOutput calls (version probe + dispatch status), got %d: %v", len(fe.RunShellOutputCalls), fe.RunShellOutputCalls)
 	}
-	if !strings.Contains(fe.RunShellOutputCalls[0], "dispatch status --json --dir") {
-		t.Errorf("RunShellOutput called with %q, want substring %q", fe.RunShellOutputCalls[0], "dispatch status --json --dir")
+	if !strings.Contains(fe.RunShellOutputCalls[1], "dispatch status --json --dir") {
+		t.Errorf("RunShellOutput called with %q, want substring %q", fe.RunShellOutputCalls[1], "dispatch status --json --dir")
 	}
 }
 
@@ -434,12 +439,15 @@ func TestDispatch_HandleEnrollMsg_SuccessRequeriesStatus(t *testing.T) {
 
 	// The enroll RunShellOutput call is simulated by the dispatchEnrollMsg here
 	// (out of scope), so the handler's success path must issue exactly one
-	// status re-query — never a duplicate.
-	if len(fe.RunShellOutputCalls) != 1 {
-		t.Fatalf("expected exactly 1 RunShellOutput call (the single status requery), got %d: %v", len(fe.RunShellOutputCalls), fe.RunShellOutputCalls)
+	// status re-query -- never a duplicate. That re-query is now 2 calls (the
+	// version probe + dispatch status), not 1, since queryDispatchStatusCmd
+	// itself probes first (#299); this is a genuine behavior change, not test
+	// appeasement -- see lessons-learned.md on justified count assertions.
+	if len(fe.RunShellOutputCalls) != 2 {
+		t.Fatalf("expected exactly 2 RunShellOutput calls (single status requery: probe + status), got %d: %v", len(fe.RunShellOutputCalls), fe.RunShellOutputCalls)
 	}
-	if !strings.Contains(fe.RunShellOutputCalls[0], "dispatch status") {
-		t.Errorf("expected requery call to invoke dispatch status, got %q", fe.RunShellOutputCalls[0])
+	if !strings.Contains(fe.RunShellOutputCalls[1], "dispatch status") {
+		t.Errorf("expected requery call to invoke dispatch status, got %q", fe.RunShellOutputCalls[1])
 	}
 }
 
@@ -578,7 +586,12 @@ func TestClassifyAgentwatchError(t *testing.T) {
 // --- queryDispatchStatusCmd (#283) ---
 
 func TestQueryDispatchStatusCmd_Success(t *testing.T) {
-	fe := &action.FakeExecutor{RunShellOutputStdout: `{"repo":"owner/repo","dir":"/some/dir","enrolled":true}`}
+	fe := &action.FakeExecutor{
+		RunShellOutputResults: []action.RunShellOutputResult{
+			{}, // agentwatch version probe succeeds (empty stdout, no error)
+			{Stdout: `{"repo":"owner/repo","dir":"/some/dir","enrolled":true}`},
+		},
+	}
 
 	cmd := queryDispatchStatusCmd(fe)
 	msg := cmd()
@@ -600,10 +613,13 @@ func TestQueryDispatchStatusCmd_Success(t *testing.T) {
 		t.Error("expected dispatchStatusMsg.enrolled=true")
 	}
 
-	if len(fe.RunShellOutputCalls) != 1 {
-		t.Fatalf("expected 1 RunShellOutput call, got %d", len(fe.RunShellOutputCalls))
+	if len(fe.RunShellOutputCalls) != 2 {
+		t.Fatalf("expected 2 RunShellOutput calls (version probe + dispatch status), got %d: %v", len(fe.RunShellOutputCalls), fe.RunShellOutputCalls)
 	}
-	cmdStr := fe.RunShellOutputCalls[0]
+	if !strings.Contains(fe.RunShellOutputCalls[0], "agentwatch version") {
+		t.Errorf("RunShellOutputCalls[0] = %q, want the side-effect-free version probe", fe.RunShellOutputCalls[0])
+	}
+	cmdStr := fe.RunShellOutputCalls[1]
 	if !strings.Contains(cmdStr, "dispatch status --json --dir") {
 		t.Errorf("RunShellOutput called with %q, want substring %q", cmdStr, "dispatch status --json --dir")
 	}
@@ -618,6 +634,9 @@ func TestQueryDispatchStatusCmd_Success(t *testing.T) {
 }
 
 func TestQueryDispatchStatusCmd_ExecError(t *testing.T) {
+	// The canned (unscripted) FakeExecutor fields apply to every RunShellOutput
+	// call, so this "command not found" error is what the version probe (the
+	// first RunShellOutput call) sees -- dispatch status must never run.
 	fe := &action.FakeExecutor{
 		RunShellOutputErr:    errors.New("exit status 127"),
 		RunShellOutputStderr: "agentwatch: command not found",
@@ -638,8 +657,19 @@ func TestQueryDispatchStatusCmd_ExecError(t *testing.T) {
 	}
 }
 
+// TestQueryDispatchStatusCmd_OldBinaryNonJSON is the defensive case: the
+// version probe succeeds (so the binary resolved and isn't plain "not
+// found"), but dispatch status still returns non-JSON garbage -- e.g. a
+// binary new enough for a version probe someone hand-rolled, but still too
+// old for the JSON `dispatch status` contract. Must still classify as
+// too-old, with a path suffix appended.
 func TestQueryDispatchStatusCmd_OldBinaryNonJSON(t *testing.T) {
-	fe := &action.FakeExecutor{RunShellOutputStdout: "not json"}
+	fe := &action.FakeExecutor{
+		RunShellOutputResults: []action.RunShellOutputResult{
+			{},                   // agentwatch version probe succeeds
+			{Stdout: "not json"}, // dispatch status returns garbage
+		},
+	}
 
 	cmd := queryDispatchStatusCmd(fe)
 	msg := cmd()
@@ -654,6 +684,9 @@ func TestQueryDispatchStatusCmd_OldBinaryNonJSON(t *testing.T) {
 	lower := strings.ToLower(statusMsg.err)
 	if !strings.Contains(lower, "upgrade") && !strings.Contains(lower, "old") {
 		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating the agentwatch binary is too old", statusMsg.err)
+	}
+	if len(fe.RunShellOutputCalls) < 2 || !strings.Contains(fe.RunShellOutputCalls[1], "dispatch status") {
+		t.Errorf("expected dispatch status to run after a successful probe, calls = %v", fe.RunShellOutputCalls)
 	}
 }
 
@@ -676,6 +709,122 @@ func TestQueryDispatchStatusCmd_EmptyOutput(t *testing.T) {
 	}
 	if !strings.Contains(lower, "no output") && !strings.Contains(lower, "path") {
 		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating agentwatch produced no output", statusMsg.err)
+	}
+}
+
+// TestQueryDispatchStatusCmd_VersionProbeFails_TooOldWithoutRunningStatus is
+// the core regression test (#299): an old agentwatch binary that predates
+// the `dispatch status` verb does not fail cleanly on an unknown subcommand
+// -- Go's flag parsing stops at the first positional argument and silently
+// discards the rest of argv, so `dispatch status --json --dir <cwd>`
+// degrades, on such a binary, to a REAL `dispatch` pass with real
+// side effects (dispatching tickets, creating tmux windows). Probing
+// `agentwatch version` first, and refusing to run `dispatch status` when
+// that probe fails for any non-"not found" reason, is what prevents a status
+// poll from ever accidentally dispatching.
+func TestQueryDispatchStatusCmd_VersionProbeFails_TooOldWithoutRunningStatus(t *testing.T) {
+	fe := &action.FakeExecutor{
+		RunShellOutputResults: []action.RunShellOutputResult{
+			{Err: errors.New("exit status 2"), Stderr: "flag provided but not defined: -json"},
+		},
+	}
+
+	cmd := queryDispatchStatusCmd(fe)
+	msg := cmd()
+
+	statusMsg, ok := msg.(dispatchStatusMsg)
+	if !ok {
+		t.Fatalf("queryDispatchStatusCmd() returned %T, want dispatchStatusMsg", msg)
+	}
+	lower := strings.ToLower(statusMsg.err)
+	if !strings.Contains(lower, "old") && !strings.Contains(lower, "upgrade") {
+		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating the agentwatch binary is too old", statusMsg.err)
+	}
+
+	// Justified negative-call assertion (see lessons-learned.md): this guards
+	// the actual bug being fixed -- a status poll must never invoke a real
+	// dispatch pass on a binary that failed the version probe.
+	for _, call := range fe.RunShellOutputCalls {
+		if strings.Contains(call, "dispatch status") {
+			t.Fatalf("expected dispatch status to never run after a failed version probe, but found call %q among %v", call, fe.RunShellOutputCalls)
+		}
+	}
+}
+
+func TestQueryDispatchStatusCmd_VersionProbeSucceeds_StatusRunsAsBefore(t *testing.T) {
+	fe := &action.FakeExecutor{
+		RunShellOutputResults: []action.RunShellOutputResult{
+			{}, // agentwatch version probe succeeds
+			{Stdout: `{"repo":"owner/repo","dir":"/some/dir","enrolled":false}`},
+		},
+	}
+
+	cmd := queryDispatchStatusCmd(fe)
+	msg := cmd()
+
+	statusMsg, ok := msg.(dispatchStatusMsg)
+	if !ok {
+		t.Fatalf("queryDispatchStatusCmd() returned %T, want dispatchStatusMsg", msg)
+	}
+	if statusMsg.err != "" {
+		t.Errorf("dispatchStatusMsg.err = %q, want empty", statusMsg.err)
+	}
+	if statusMsg.repo != "owner/repo" {
+		t.Errorf("dispatchStatusMsg.repo = %q, want %q", statusMsg.repo, "owner/repo")
+	}
+	if len(fe.RunShellOutputCalls) != 2 {
+		t.Fatalf("expected 2 RunShellOutput calls (version probe + dispatch status), got %d: %v", len(fe.RunShellOutputCalls), fe.RunShellOutputCalls)
+	}
+}
+
+func TestQueryDispatchStatusCmd_TooOldError_IncludesBinaryPath(t *testing.T) {
+	resolvedPath := "/home/user/go/bin/agentwatch"
+	fe := &action.FakeExecutor{
+		RunShellOutputResults: []action.RunShellOutputResult{
+			{Err: errors.New("exit status 2"), Stderr: "flag provided but not defined: -json"}, // version probe fails, not "not found"
+			{Stdout: resolvedPath + "\n"}, // command -v agentwatch resolves a path
+		},
+	}
+
+	cmd := queryDispatchStatusCmd(fe)
+	msg := cmd()
+
+	statusMsg, ok := msg.(dispatchStatusMsg)
+	if !ok {
+		t.Fatalf("queryDispatchStatusCmd() returned %T, want dispatchStatusMsg", msg)
+	}
+	want := "(using " + resolvedPath + ")"
+	if !strings.Contains(statusMsg.err, want) {
+		t.Errorf("dispatchStatusMsg.err = %q, want it to contain %q so PATH shadowing is visible", statusMsg.err, want)
+	}
+}
+
+func TestQueryDispatchStatusCmd_NotFoundError_HasNoBinaryPathSuffix(t *testing.T) {
+	fe := &action.FakeExecutor{
+		RunShellOutputResults: []action.RunShellOutputResult{
+			{Err: errors.New("exit status 127"), Stderr: "sh: agentwatch: command not found"},
+		},
+	}
+
+	cmd := queryDispatchStatusCmd(fe)
+	msg := cmd()
+
+	statusMsg, ok := msg.(dispatchStatusMsg)
+	if !ok {
+		t.Fatalf("queryDispatchStatusCmd() returned %T, want dispatchStatusMsg", msg)
+	}
+	if !strings.Contains(strings.ToLower(statusMsg.err), "not found") {
+		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating agentwatch is not found", statusMsg.err)
+	}
+	if strings.Contains(statusMsg.err, "(using") {
+		t.Errorf("dispatchStatusMsg.err = %q, want no binary path suffix when the binary itself cannot be found (a path would be misleading)", statusMsg.err)
+	}
+
+	// A not-found binary must not trigger a second `command -v` lookup --
+	// there is nothing useful to resolve, and it would just be a second
+	// guaranteed-failing exec.
+	if len(fe.RunShellOutputCalls) != 1 {
+		t.Errorf("expected exactly 1 RunShellOutput call (the failed probe, no path lookup), got %d: %v", len(fe.RunShellOutputCalls), fe.RunShellOutputCalls)
 	}
 }
 
