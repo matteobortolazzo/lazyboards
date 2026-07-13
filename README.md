@@ -87,7 +87,9 @@ The board auto-refreshes in the background (default: every 5 minutes). Press `r`
 
 Press `d` to open the agent dispatch panel for the repo you're currently in. It shows whether the repo is enrolled with the agentwatch daemon and lets you toggle enrollment with `Enter`.
 
-Once a repo is enrolled, `o` triggers a dispatch run — but this is **fleet-wide**: it dispatches across *all* enrolled repos, not just the one currently open. The panel shows a summary of the last run (dispatched/skipped counts) after it completes. See the [Dispatch keybindings](#dispatch) for the full key reference.
+Once a repo is enrolled, `o` triggers a dispatch run — but this is **fleet-wide**: it dispatches across *all* enrolled repos, not just the one currently open. The panel shows a summary of the last run (dispatched/skipped counts) after it completes.
+
+Press `s` to start or stop a background dispatch loop (`agentwatch dispatch --interval 5m`), which repeats the fleet-wide dispatch automatically. The loop is fleet-wide and detached: it keeps running after you quit lazyboards, and reopening the panel re-detects whether it's still alive. It's tracked via a pidfile and log under `$XDG_STATE_HOME/lazyboards/` (falling back to `~/.local/state/lazyboards/` when `XDG_STATE_HOME` is unset). See the [Dispatch keybindings](#dispatch) for the full key reference.
 
 ## Configuration
 
@@ -385,6 +387,7 @@ Press `?` at any time to open the in-app help popup.
 |-----|--------|
 | `Enter` | Enroll/Unenroll current repo |
 | `o` | Dispatch once (all enrolled repos) |
+| `s` | Start/stop background dispatch loop (fleet-wide) |
 | `Esc` | Close |
 
 ### Error Mode

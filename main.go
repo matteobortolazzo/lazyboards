@@ -15,6 +15,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/auth"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/dispatchloop"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"golang.org/x/oauth2"
@@ -124,7 +125,7 @@ func main() {
 	// First-launch flow: show config popup when no local config exists
 	// and git detection didn't provide both provider and repo.
 	if !config.LocalExists(config.DefaultLocalPath) && (prov == "" || repo == "") {
-		board := NewBoard(nil, nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, 0, config.DefaultWorkingLabel, false, true, nil, nil)
+		board := NewBoard(nil, nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, 0, config.DefaultWorkingLabel, false, true, nil, nil, "", "")
 		p := tea.NewProgram(board, tea.WithAltScreen())
 		m, err := p.Run()
 		if err != nil {
@@ -218,7 +219,8 @@ func main() {
 		gitReader = gitdetect.ExecReader{}
 	}
 
-	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader)
+	dispatchLoopDir := dispatchloop.DefaultDir()
+	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader, dispatchloop.PidPath(dispatchLoopDir), dispatchloop.LogPath(dispatchLoopDir))
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.MouseValue() {

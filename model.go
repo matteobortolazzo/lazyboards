@@ -430,12 +430,22 @@ type dispatchState struct {
 	dir        string
 	enrolled   bool
 	lastResult string
+
+	// loop* fields track the fleet-wide background dispatch loop (a detached
+	// `agentwatch dispatch --interval` process tracked via pidfile). They are
+	// independent of the repo enroll fields above -- the loop is fleet-wide,
+	// not scoped to the current repo.
+	loopChecking bool
+	loopBusy     bool
+	loopPid      int
+	loopErr      string
 }
 
 // dispatchModeHints are the status bar hints shown in dispatch mode.
 var dispatchModeHints = []Hint{
 	{Key: "enter", Desc: "Enroll/Unenroll"},
 	{Key: "o", Desc: "Dispatch once"},
+	{Key: "s", Desc: "Start/stop loop"},
 	{Key: "esc", Desc: "Close"},
 }
 
@@ -459,6 +469,27 @@ type dispatchEnrollMsg struct {
 type dispatchRunMsg struct {
 	result string
 	err    string
+}
+
+// dispatchLoopStatusMsg is sent when dispatchLoopStatusCmd finishes
+// determining whether the background dispatch loop is currently running.
+// pid is 0 when the loop is stopped.
+type dispatchLoopStatusMsg struct {
+	pid int
+	err error
+}
+
+// dispatchLoopStartedMsg is sent when dispatchLoopStartCmd finishes spawning
+// (or discovering an already-running) background dispatch loop.
+type dispatchLoopStartedMsg struct {
+	pid int
+	err error
+}
+
+// dispatchLoopStoppedMsg is sent when dispatchLoopStopCmd finishes signaling
+// the background dispatch loop to stop.
+type dispatchLoopStoppedMsg struct {
+	err error
 }
 
 // configState groups fields related to the config modal.
@@ -536,11 +567,16 @@ type Board struct {
 	gitReader             gitdetect.Reader
 	gitPanel              gitPanelState
 	dispatch              dispatchState
+	dispatchLoopPidPath   string
+	dispatchLoopLogPath   string
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
-// Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher agentwatch.Watcher, gitReader gitdetect.Reader) Board {
+// Call Init() to start fetching data. dispatchLoopPidPath/dispatchLoopLogPath
+// locate the background dispatch loop's pidfile and log file (see
+// internal/dispatchloop); callers typically compute them from
+// dispatchloop.DefaultDir(), and tests pass t.TempDir()-based paths.
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher agentwatch.Watcher, gitReader gitdetect.Reader, dispatchLoopPidPath, dispatchLoopLogPath string) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 0
@@ -583,25 +619,27 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 	si.Prompt = "/ "
 
 	b := Board{
-		mode:               loadingMode,
-		provider:           p,
-		spinner:            s,
-		statusBar:          sb,
-		actions:            actions,
-		defaultActions:     defaultActions,
-		columnConfigs:      columnConfigs,
-		executor:           executor,
-		repoOwner:          repoOwner,
-		repoName:           repoName,
-		providerName:       providerName,
-		sessionMaxLen:      sessionMaxLen,
-		refreshInterval:    refreshInterval,
-		actionRefreshDelay: actionRefreshDelay,
-		workingLabel:       workingLabel,
-		mouseEnabled:       mouseEnabled,
-		normalHints:        hints,
-		agentWatcher:       watcher,
-		gitReader:          gitReader,
+		mode:                loadingMode,
+		provider:            p,
+		spinner:             s,
+		statusBar:           sb,
+		actions:             actions,
+		defaultActions:      defaultActions,
+		columnConfigs:       columnConfigs,
+		executor:            executor,
+		repoOwner:           repoOwner,
+		repoName:            repoName,
+		providerName:        providerName,
+		sessionMaxLen:       sessionMaxLen,
+		refreshInterval:     refreshInterval,
+		actionRefreshDelay:  actionRefreshDelay,
+		workingLabel:        workingLabel,
+		mouseEnabled:        mouseEnabled,
+		normalHints:         hints,
+		agentWatcher:        watcher,
+		gitReader:           gitReader,
+		dispatchLoopPidPath: dispatchLoopPidPath,
+		dispatchLoopLogPath: dispatchLoopLogPath,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
 			providerIndex:   0,

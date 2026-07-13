@@ -14,6 +14,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/dispatchloop"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
@@ -367,6 +368,78 @@ func dispatchOnceCmd(executor action.Executor) tea.Cmd {
 
 		result := fmt.Sprintf("%d dispatched, %d skipped (all enrolled repos)", dispatched, skipped)
 		return dispatchRunMsg{result: result}
+	}
+}
+
+// dispatchLoopCommand is the fixed shell command used to run the background
+// dispatch loop. It never varies, so it never needs action.ShellEscape.
+const dispatchLoopCommand = "agentwatch dispatch --interval 5m"
+
+// dispatchLoopStatusCmd returns a tea.Cmd that determines whether the
+// background dispatch loop is currently running by reading pidPath and, if a
+// pid is present, probing it for liveness. A stale pidfile (present but the
+// pid is no longer alive) is treated as stopped and cleaned up. A malformed
+// pidfile is surfaced as an error rather than folded into "stopped".
+func dispatchLoopStatusCmd(executor action.Executor, pidPath string) tea.Cmd {
+	return func() tea.Msg {
+		pid, err := dispatchloop.ReadPid(pidPath)
+		if err != nil {
+			return dispatchLoopStatusMsg{err: err}
+		}
+		if pid == 0 {
+			return dispatchLoopStatusMsg{pid: 0}
+		}
+		if executor.ProcessAlive(pid) {
+			return dispatchLoopStatusMsg{pid: pid}
+		}
+		// Stale pidfile: the recorded pid is no longer alive. Clean it up so a
+		// subsequent start doesn't have to reason about a dead pid on disk.
+		if err := dispatchloop.RemovePid(pidPath); err != nil {
+			return dispatchLoopStatusMsg{err: err}
+		}
+		return dispatchLoopStatusMsg{pid: 0}
+	}
+}
+
+// dispatchLoopStartCmd returns a tea.Cmd that starts the background dispatch
+// loop as a detached process, tracked via pidPath, logging to logPath. It
+// re-checks pidPath and liveness immediately before spawning -- guarding
+// against two concurrent lazyboards instances both trying to start the loop
+// -- and returns the existing pid without spawning a duplicate if it finds
+// the loop already alive.
+func dispatchLoopStartCmd(executor action.Executor, pidPath, logPath string) tea.Cmd {
+	return func() tea.Msg {
+		if pid, err := dispatchloop.ReadPid(pidPath); err != nil {
+			return dispatchLoopStartedMsg{err: err}
+		} else if pid > 0 && executor.ProcessAlive(pid) {
+			return dispatchLoopStartedMsg{pid: pid}
+		}
+
+		pid, err := executor.StartDetached(dispatchLoopCommand, logPath)
+		if err != nil {
+			return dispatchLoopStartedMsg{err: err}
+		}
+		if err := dispatchloop.WritePid(pidPath, pid); err != nil {
+			return dispatchLoopStartedMsg{err: err}
+		}
+		return dispatchLoopStartedMsg{pid: pid}
+	}
+}
+
+// dispatchLoopStopCmd returns a tea.Cmd that signals the background dispatch
+// loop (identified by pid) to stop and removes pidPath, but only after the
+// signal succeeds -- an unsignalable process leaves the pidfile in place so
+// status queries keep reporting the true (still-running, or ambiguous) state
+// rather than silently forgetting about a loop that never actually stopped.
+func dispatchLoopStopCmd(executor action.Executor, pidPath string, pid int) tea.Cmd {
+	return func() tea.Msg {
+		if err := executor.SignalProcess(pid); err != nil {
+			return dispatchLoopStoppedMsg{err: err}
+		}
+		if err := dispatchloop.RemovePid(pidPath); err != nil {
+			return dispatchLoopStoppedMsg{err: err}
+		}
+		return dispatchLoopStoppedMsg{}
 	}
 }
 
