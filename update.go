@@ -538,9 +538,9 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		// prev entry into newCards (assigned to b.prevCards by the caller)
 		// re-detects the same departure on the next fetch.
 
-		// Guard A — agentwatch liveness: check the session names derived from
-		// both the previous and current titles, since refine rewrites titles.
-		if b.agentSessionBusy(cardNum, prev.title) || (exists && b.agentSessionBusy(cardNum, newInfo.title)) {
+		// Guard A — agentwatch liveness: join by ticket number, so a title
+		// rewrite (refine edits titles) can't hide a live agent's window.
+		if b.agentSessionBusy(cardNum) {
 			// A miss observed here still counts toward Guard C's debounce, so
 			// cleanup runs on the first fetch after the agent finishes.
 			prev.missingSeen = prev.missingSeen || !exists
@@ -576,11 +576,11 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 	return runCleanupCmds(b.executor, commands)
 }
 
-// agentSessionBusy reports whether the agentwatch window derived from the card
-// number and title has an agent that is running or waiting for input. Always
-// false when no snapshot is stored (agentwatch off/absent).
-func (b *Board) agentSessionBusy(cardNum int, title string) bool {
-	ws := b.agentStatusForSession(action.BuildSessionName(cardNum, title, b.sessionMaxLen))
+// agentSessionBusy reports whether the agentwatch window joined to the card
+// number has an agent that is running or waiting for input. Always false when
+// no snapshot is stored (agentwatch off/absent).
+func (b *Board) agentSessionBusy(cardNum int) bool {
+	ws := b.agentStatusForNumber(cardNum)
 	if ws == nil {
 		return false
 	}

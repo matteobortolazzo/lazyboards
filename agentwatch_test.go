@@ -79,32 +79,106 @@ func collectCmdMsgs(cmd tea.Cmd) []tea.Msg {
 	return []tea.Msg{msg}
 }
 
-// --- agentStatusFor: exact WindowName join (#257) ---
+// --- agentStatusFor: ticket-number-prefix join (#257, <number>-<skill> names) ---
 
-func TestBoard_AgentStatusFor_ExactWindowNameMatch(t *testing.T) {
-	const cardNumber = 7
-	const cardTitle = "Fix flaky test"
-	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
+// A dispatched <number>-<skill> window joins to its card by ticket number.
+func TestBoard_AgentStatusFor_SkillWindowMatchesByNumber(t *testing.T) {
+	const cardNumber = 230
+	b := newAgentWatchCardTestBoard(t, cardNumber, "Refine the thing", config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	expectedName := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	snap := &watch.StateSnapshot{
+	b.agentSnapshot = &watch.StateSnapshot{
 		Windows: []watch.WindowState{
-			{WindowName: expectedName, Status: "running", Agent: "claude"},
+			{WindowName: "230-refine", Status: "running", Agent: "claude"},
 		},
 	}
-	b.agentSnapshot = snap
 
 	got := b.agentStatusFor(card)
-
 	if got == nil {
-		t.Fatalf("agentStatusFor() = nil, want a match for window %q", expectedName)
+		t.Fatalf("agentStatusFor() = nil, want a match for window 230-refine")
 	}
 	if got.Status != "running" {
 		t.Errorf("agentStatusFor().Status = %q, want %q", got.Status, "running")
 	}
 	if got.Agent != "claude" {
 		t.Errorf("agentStatusFor().Agent = %q, want %q", got.Agent, "claude")
+	}
+}
+
+// A legacy <number>-<title-slug> window still joins by number prefix, so
+// lazyboards can ship before agentwatch changes its window naming.
+func TestBoard_AgentStatusFor_LegacyTitleSlugWindowStillMatches(t *testing.T) {
+	const cardNumber = 7
+	const cardTitle = "Fix flaky test"
+	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	card := b.Columns[0].Cards[0]
+
+	legacyName := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
+	b.agentSnapshot = &watch.StateSnapshot{
+		Windows: []watch.WindowState{
+			{WindowName: legacyName, Status: "running", Agent: "claude"},
+		},
+	}
+
+	if got := b.agentStatusFor(card); got == nil {
+		t.Fatalf("agentStatusFor() = nil, want a match for legacy window %q", legacyName)
+	}
+}
+
+// A bare <number> window (no slug, no skill) joins.
+func TestBoard_AgentStatusFor_BareNumberWindowMatches(t *testing.T) {
+	const cardNumber = 42
+	b := newAgentWatchCardTestBoard(t, cardNumber, "Whatever", config.DefaultSessionMaxLength)
+	card := b.Columns[0].Cards[0]
+
+	b.agentSnapshot = &watch.StateSnapshot{
+		Windows: []watch.WindowState{
+			{WindowName: "42", Status: "need_input"},
+		},
+	}
+
+	if got := b.agentStatusFor(card); got == nil || got.Status != "need_input" {
+		t.Errorf("agentStatusFor() = %+v, want the bare-number window (need_input)", got)
+	}
+}
+
+// The trailing "-" boundary keeps card #23 from matching a 230-... window.
+func TestBoard_AgentStatusFor_NumberPrefixBoundary(t *testing.T) {
+	const cardNumber = 23
+	b := newAgentWatchCardTestBoard(t, cardNumber, "Boundary", config.DefaultSessionMaxLength)
+	card := b.Columns[0].Cards[0]
+
+	b.agentSnapshot = &watch.StateSnapshot{
+		Windows: []watch.WindowState{
+			{WindowName: "230-refine", Status: "running"},
+		},
+	}
+
+	if got := b.agentStatusFor(card); got != nil {
+		t.Errorf("agentStatusFor() = %+v, want nil (23 must not match 230-refine)", got)
+	}
+}
+
+// When several windows share the ticket number, an active one (running /
+// need_input) wins over any other status, regardless of snapshot order.
+func TestBoard_AgentStatusFor_PrefersActiveWindow(t *testing.T) {
+	const cardNumber = 55
+	b := newAgentWatchCardTestBoard(t, cardNumber, "Multi", config.DefaultSessionMaxLength)
+	card := b.Columns[0].Cards[0]
+
+	b.agentSnapshot = &watch.StateSnapshot{
+		Windows: []watch.WindowState{
+			{WindowName: "55-implement", Status: "done"},
+			{WindowName: "55-refine", Status: "running", Agent: "claude"},
+		},
+	}
+
+	got := b.agentStatusFor(card)
+	if got == nil {
+		t.Fatalf("agentStatusFor() = nil, want the active window")
+	}
+	if got.Status != "running" || got.WindowName != "55-refine" {
+		t.Errorf("agentStatusFor() = %+v, want the running 55-refine window", got)
 	}
 }
 
@@ -122,31 +196,6 @@ func TestBoard_AgentStatusFor_NoMatchingWindowReturnsNil(t *testing.T) {
 
 	if got := b.agentStatusFor(card); got != nil {
 		t.Errorf("agentStatusFor() = %+v, want nil (no matching window)", got)
-	}
-}
-
-func TestBoard_AgentStatusFor_CaseMismatchReturnsNil(t *testing.T) {
-	const cardNumber = 7
-	const cardTitle = "Fix Flaky Test"
-	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	card := b.Columns[0].Cards[0]
-
-	expectedName := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	upper := strings.ToUpper(expectedName)
-	if upper == expectedName {
-		t.Fatalf("test setup: expected session name %q has no case-sensitive characters", expectedName)
-	}
-
-	// A window name differing only by case must NOT match: the join uses
-	// exact string equality, not strings.EqualFold.
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{
-			{WindowName: upper, Status: "running"},
-		},
-	}
-
-	if got := b.agentStatusFor(card); got != nil {
-		t.Errorf("agentStatusFor() = %+v, want nil (case-insensitive match must not count)", got)
 	}
 }
 
