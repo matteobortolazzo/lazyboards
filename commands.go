@@ -354,20 +354,26 @@ func dispatchOnceCmd(executor action.Executor) tea.Cmd {
 		// "#N skip: ...". Count those two forms; any other line (headers,
 		// summaries, or future format additions) is deliberately ignored so a
 		// minor output-format drift degrades gracefully to a count rather than
-		// an error (ticket #283, Q3).
+		// an error (ticket #283, Q3). The matching is intentionally
+		// prefix-agnostic (strings.Contains, not anchored on a leading "#")
+		// so it survives agentwatch's output changing from "#N …" to
+		// "owner/repo#N …" (ticket #302) without requiring an update here.
 		dispatched := 0
 		skipped := 0
+		var lines []string
 		for _, line := range strings.Split(stdout, "\n") {
 			switch {
 			case strings.Contains(line, " dispatch "):
 				dispatched++
+				lines = append(lines, strings.TrimSpace(line))
 			case strings.Contains(line, " skip:"):
 				skipped++
+				lines = append(lines, strings.TrimSpace(line))
 			}
 		}
 
 		result := fmt.Sprintf("%d dispatched, %d skipped (all enrolled repos)", dispatched, skipped)
-		return dispatchRunMsg{result: result}
+		return dispatchRunMsg{result: result, lines: lines}
 	}
 }
 

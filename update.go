@@ -174,6 +174,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.dispatch.err = msg.err
 		} else {
 			b.dispatch.lastResult = msg.result
+			b.dispatch.lastLines = msg.lines
 		}
 		return b, nil
 

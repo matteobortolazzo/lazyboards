@@ -430,6 +430,7 @@ type dispatchState struct {
 	dir        string
 	enrolled   bool
 	lastResult string
+	lastLines  []string
 
 	// loop* fields track the fleet-wide background dispatch loop (a detached
 	// `agentwatch dispatch --interval` process tracked via pidfile). They are
@@ -469,6 +470,7 @@ type dispatchEnrollMsg struct {
 type dispatchRunMsg struct {
 	result string
 	err    string
+	lines  []string
 }
 
 // dispatchLoopStatusMsg is sent when dispatchLoopStatusCmd finishes
