@@ -585,16 +585,19 @@ actions:
 
 // --- DefaultGitActions ---
 
-func TestDefaultGitActions_IncludesFetchStashPushStashPop(t *testing.T) {
+func TestDefaultGitActions_LazygitStyleKeys(t *testing.T) {
 	actions := DefaultGitActions()
 
 	cases := []struct {
 		key     string
 		command string
 	}{
-		{"F", "git fetch"},
-		{"S", "git stash push"},
-		{"X", "git stash pop"},
+		{"P", "git push"},
+		{"p", "git pull --rebase"},
+		{"f", "git fetch"},
+		{"m", "git mergetool"},
+		{"s", "git stash push"},
+		{"S", "git stash pop"},
 	}
 
 	for _, c := range cases {

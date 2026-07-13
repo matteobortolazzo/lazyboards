@@ -58,33 +58,6 @@ func TestFakeExecutor_ReturnsConfiguredRunShellError(t *testing.T) {
 	}
 }
 
-func TestFakeExecutor_RecordsSwitchToWindowCalls(t *testing.T) {
-	fe := &FakeExecutor{}
-	session := "my-session"
-	windowIndex := "3"
-	_ = fe.SwitchToWindow(session, windowIndex)
-
-	if len(fe.SwitchWindowCalls) != 1 {
-		t.Fatalf("SwitchWindowCalls length = %d, want 1", len(fe.SwitchWindowCalls))
-	}
-	if fe.SwitchWindowCalls[0].Session != session {
-		t.Errorf("SwitchWindowCalls[0].Session = %q, want %q", fe.SwitchWindowCalls[0].Session, session)
-	}
-	if fe.SwitchWindowCalls[0].WindowIndex != windowIndex {
-		t.Errorf("SwitchWindowCalls[0].WindowIndex = %q, want %q", fe.SwitchWindowCalls[0].WindowIndex, windowIndex)
-	}
-}
-
-func TestFakeExecutor_ReturnsConfiguredSwitchToWindowError(t *testing.T) {
-	expectedErr := errors.New("switch failed")
-	fe := &FakeExecutor{SwitchWindowErr: expectedErr}
-
-	err := fe.SwitchToWindow("session", "1")
-	if !errors.Is(err, expectedErr) {
-		t.Errorf("SwitchToWindow error = %v, want %v", err, expectedErr)
-	}
-}
-
 func TestFakeExecutor_DefaultsToNilError(t *testing.T) {
 	fe := &FakeExecutor{}
 
@@ -98,10 +71,6 @@ func TestFakeExecutor_DefaultsToNilError(t *testing.T) {
 	}
 	if stderr != "" {
 		t.Errorf("RunShell stderr = %q, want empty string (default)", stderr)
-	}
-
-	if err := fe.SwitchToWindow("session", "1"); err != nil {
-		t.Errorf("SwitchToWindow error = %v, want nil (default success)", err)
 	}
 }
 

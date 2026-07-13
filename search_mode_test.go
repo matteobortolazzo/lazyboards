@@ -132,23 +132,44 @@ func TestSearchMode_ShiftTab_ExitsAndSwitchesColumnBackward(t *testing.T) {
 	}
 }
 
-func TestSearchMode_NumberKey_ExitsAndSwitchesColumn(t *testing.T) {
+func TestSearchMode_DigitsTypeIntoQuery(t *testing.T) {
+	// Search supports card-number matching (see TestSearchMode_MatchesCardNumber),
+	// so digits must reach the query instead of switching columns.
 	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
 	requireColumns(t, b)
 
-	// Enter search mode.
 	b = sendKey(t, b, keyMsg("/"))
-
-	// Press '2' to switch to column index 1.
+	b = sendKey(t, b, keyMsg("4"))
 	b = sendKey(t, b, keyMsg("2"))
 
-	if b.mode != normalMode {
-		t.Errorf("after '2' in search mode: mode = %d, want %d (normalMode)", b.mode, normalMode)
+	if b.mode != searchMode {
+		t.Errorf("after typing digits in search mode: mode = %d, want %d (searchMode)", b.mode, searchMode)
 	}
-	if b.ActiveTab != 1 {
-		t.Errorf("after '2' in search mode: ActiveTab = %d, want 1", b.ActiveTab)
+	if b.searchQuery != "42" {
+		t.Errorf("searchQuery = %q, want %q", b.searchQuery, "42")
+	}
+	if b.ActiveTab != 0 {
+		t.Errorf("ActiveTab = %d, want 0 (digits must not switch columns)", b.ActiveTab)
+	}
+}
+
+func TestSearchMode_JKTypeIntoQuery(t *testing.T) {
+	// j/k must be typeable in queries ("jwt", "kafka", ...); result
+	// navigation lives on arrows and ctrl+n/ctrl+p.
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	requireColumns(t, b)
+
+	b = sendKey(t, b, keyMsg("/"))
+	for _, ch := range "jwt" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	if b.searchQuery != "jwt" {
+		t.Errorf("searchQuery = %q, want %q (j/k must reach the textinput)", b.searchQuery, "jwt")
 	}
 }
 
@@ -292,7 +313,7 @@ func TestSearchMode_TypingResetsScrollOffset(t *testing.T) {
 
 // --- Navigation on Filtered List ---
 
-func TestSearchMode_JK_NavigatesFilteredCards(t *testing.T) {
+func TestSearchMode_CtrlNP_NavigatesFilteredCards(t *testing.T) {
 	// Create cards where a search query matches exactly 3 cards.
 	cards := []provider.Card{
 		{Number: 1, Title: "Bug: login fails", Labels: []provider.Label{{Name: "bug"}}},
@@ -314,25 +335,47 @@ func TestSearchMode_JK_NavigatesFilteredCards(t *testing.T) {
 		t.Fatalf("precondition: filteredCards() for 'Bug' = %d, want 3", len(filtered))
 	}
 
-	// Cursor starts at 0 of the filtered list.
-	// Press j to move to second filtered card.
-	b = sendKey(t, b, keyMsg("j"))
-	// Press j again to move to third (last) filtered card.
-	b = sendKey(t, b, keyMsg("j"))
-	// Press j again — should clamp at the last filtered card.
-	b = sendKey(t, b, keyMsg("j"))
+	// ctrl+n moves down the filtered list; a third press clamps at the end.
+	b = sendKey(t, b, arrowMsg(tea.KeyCtrlN))
+	b = sendKey(t, b, arrowMsg(tea.KeyCtrlN))
+	b = sendKey(t, b, arrowMsg(tea.KeyCtrlN))
 
-	// Cursor should not exceed the filtered count minus 1.
-	col := b.Columns[b.ActiveTab]
-	filteredCount := len(b.filteredCards())
-	if col.Cursor >= filteredCount {
-		t.Errorf("cursor = %d after j past end of filtered list, want < %d", col.Cursor, filteredCount)
+	// Navigation must not leave search mode or touch the query.
+	if b.mode != searchMode {
+		t.Fatalf("after ctrl+n: mode = %d, want %d (searchMode)", b.mode, searchMode)
+	}
+	if b.searchQuery != "Bug" {
+		t.Errorf("searchQuery = %q after ctrl+n, want %q (navigation must not edit the query)", b.searchQuery, "Bug")
 	}
 
-	// Press k to go back up.
-	b = sendKey(t, b, keyMsg("k"))
-	if b.Columns[b.ActiveTab].Cursor < 0 {
-		t.Errorf("cursor = %d after k, want >= 0", b.Columns[b.ActiveTab].Cursor)
+	col := b.Columns[b.ActiveTab]
+	filteredCount := len(b.filteredCards())
+	if col.Cursor != filteredCount-1 {
+		t.Errorf("cursor = %d after ctrl+n past end of filtered list, want clamp at %d", col.Cursor, filteredCount-1)
+	}
+
+	// ctrl+p goes back up.
+	b = sendKey(t, b, arrowMsg(tea.KeyCtrlP))
+	if got := b.Columns[b.ActiveTab].Cursor; got != filteredCount-2 {
+		t.Errorf("cursor = %d after ctrl+p, want %d", got, filteredCount-2)
+	}
+}
+
+func TestSearchMode_ArrowKeys_NavigateFilteredCards(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Bug: login fails", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Bug: crash on load", Labels: []provider.Label{{Name: "bug"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b = sendKey(t, b, keyMsg("/"))
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	if got := b.Columns[b.ActiveTab].Cursor; got != 1 {
+		t.Errorf("cursor = %d after down arrow, want 1", got)
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyUp))
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("cursor = %d after up arrow, want 0", got)
 	}
 }
 

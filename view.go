@@ -891,19 +891,19 @@ var helpSections = []helpSection{
 		{"e", "Edit card"},
 		{"c", "Configuration"},
 		{"o", "Open ticket"},
-		{"G", "Jump to agent session"},
 		{"r", "Refresh"},
 		{"p", "Open PR"},
 		{"/", "Search"},
 		{"a", "Assign"},
-		{"g", "Git panel"},
+		{"g", "Git menu"},
 		{"d", "Dispatch"},
 		{"f", "Filter (toggle)"},
 		{"l/\u2192", "Detail panel"},
 		{"j/k", "Navigate cards"},
 		{"tab/s-tab", "Switch columns"},
 		{"1-9", "Jump to column"},
-		{"alt+Shift+key", "Comment action"},
+		{"A-Z", "Custom action"},
+		{"alt+shift+key", "Comment action"},
 	}},
 	{"Detail Panel", [][2]string{
 		{"e", "Edit card"},
@@ -911,7 +911,7 @@ var helpSections = []helpSection{
 		{"h/\u2190/esc", "Back to card list"},
 		{"tab/s-tab", "Switch columns"},
 		{"o", "Open ticket"},
-		{"G", "Jump to agent session"},
+		{"p", "Open PR"},
 		{"r", "Refresh"},
 		{"q", "Quit"},
 		{"?", "Help"},
@@ -943,6 +943,8 @@ var helpSections = []helpSection{
 		{"esc", "Cancel"},
 	}},
 	{"Search", [][2]string{
+		{"↑/↓", "Navigate results"},
+		{"ctrl+n/p", "Navigate results"},
 		{"enter", "Apply search"},
 		{"esc", "Clear search"},
 	}},
@@ -951,9 +953,15 @@ var helpSections = []helpSection{
 		{"enter", "Toggle assignee"},
 		{"esc", "Cancel"},
 	}},
-	{"Git Panel", [][2]string{
+	{"Git Menu", [][2]string{
+		{"P", "Push"},
+		{"p", "Pull (rebase)"},
+		{"f", "Fetch"},
+		{"m", "Mergetool"},
+		{"s", "Stash push"},
+		{"S", "Stash pop"},
 		{"j/k", "Navigate"},
-		{"enter", "Run action"},
+		{"enter", "Run selected"},
 		{"esc", "Cancel"},
 	}},
 	{"Dispatch", [][2]string{
@@ -1019,36 +1027,6 @@ func (b Board) buildHelpContent() string {
 			for _, key := range columnKeys {
 				act := cc.Actions[key]
 				fmt.Fprintf(&sb, "    %-10s %s (%s)\n", key, act.Name, act.Type)
-			}
-		}
-	}
-
-	// Built-in Git Actions. Skip any key the user has overridden (present in a
-	// global or column action) so help shows the effective binding.
-	if len(b.defaultActions) > 0 {
-		overridden := func(key string) bool {
-			if _, ok := b.actions[key]; ok {
-				return true
-			}
-			for _, cc := range b.columnConfigs {
-				if _, ok := cc.Actions[key]; ok {
-					return true
-				}
-			}
-			return false
-		}
-		keys := make([]string, 0, len(b.defaultActions))
-		for key := range b.defaultActions {
-			if !overridden(key) {
-				keys = append(keys, key)
-			}
-		}
-		if len(keys) > 0 {
-			sort.Strings(keys)
-			sb.WriteString("\nBuilt-in Git Actions\n")
-			for _, key := range keys {
-				act := b.defaultActions[key]
-				fmt.Fprintf(&sb, "  %-12s %s (%s)\n", key, act.Name, act.Type)
 			}
 		}
 	}
@@ -1195,7 +1173,7 @@ func (b Board) viewGitPanelModal() string {
 	modalWidth := 50
 
 	var lines []string
-	lines = append(lines, "Git Panel")
+	lines = append(lines, "Git Menu")
 	lines = append(lines, "")
 
 	for i, item := range b.gitPanel.items {

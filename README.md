@@ -112,6 +112,9 @@ This walks through wiring lazyboards to a real [agentwatch](https://github.com/m
    session_max_length: 40 # matches agentwatch's window-name cap
    cleanup: "tmux kill-window -t ={window} 2>/dev/null || true"
 
+   actions:
+     G: { name: Jump to agent, type: shell, command: 'tmux switch-client -t "={window}"' }
+
    columns:
      - name: New
        actions:
@@ -126,7 +129,7 @@ This walks through wiring lazyboards to a real [agentwatch](https://github.com/m
      - name: In Review
    ```
 
-   Pressing `R` on a `New` card runs `agentwatch run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge and `G` jump match that window by its `42-` prefix, and the top-level `cleanup` command reaps the window once the card leaves the column (using `{window}`, the live agentwatch window name — see [Column Cleanup](#column-cleanup)).
+   Pressing `R` on a `New` card runs `agentwatch run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, the `G` custom action above jumps straight to it (via `{window}`, the live agentwatch window name), and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup).
 
 4. **Let agentwatch pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `agentwatch dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or start the recurring loop with `s`. Tune concurrency, quiet hours, and per-agent budgets in agentwatch's own `dispatch` config block (`$XDG_CONFIG_HOME/agentwatch/config.json`) — see the [agentwatch README](https://github.com/matteobortolazzo/agent-stack/tree/main/agentwatch#configuration-1) for the full reference.
 
@@ -177,7 +180,7 @@ Save and close to apply changes. Leave the title blank to cancel. If you add lab
 
 ## Custom Actions
 
-Bind uppercase keys (A-Z) to URL or shell actions in your config:
+Bind uppercase keys (A-Z) to URL or shell actions in your config. The uppercase namespace is fully yours — no built-in ever claims an uppercase key in normal mode (the built-in git shortcuts live inside the [Git Menu](#git-menu)):
 
 ```yaml
 actions:
@@ -213,20 +216,20 @@ Shell commands automatically escape template variables with POSIX single quotes 
 
 Actions default to `scope: "card"` (operate on the selected card). Set `scope: "board"` for actions that don't need a selected card — board-scope actions cannot use card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`).
 
-### Built-in Git Actions
+### Git Menu
 
-Inside a git repository with a remote, lazyboards ships six board-scope git shortcuts out of the box — no config required:
+Inside a git repository with a remote, press `g` to open the **Git Menu** — six built-in board-scope git shortcuts with lazygit-style keys, no config required:
 
 | Key | Action | Command |
 |-----|--------|---------|
 | `P` | Push | `git push` |
-| `L` | Pull (rebase) | `git pull --rebase` |
-| `M` | Mergetool | `git mergetool` |
-| `F` | Fetch | `git fetch` |
-| `S` | Stash push | `git stash push` |
-| `X` | Stash pop | `git stash pop` |
+| `p` | Pull (rebase) | `git pull --rebase` |
+| `f` | Fetch | `git fetch` |
+| `m` | Mergetool | `git mergetool` |
+| `s` | Stash push | `git stash push` |
+| `S` | Stash pop | `git stash pop` |
 
-These are discoverable in the `?` help popup (under **Built-in Git Actions**) and are kept out of the compact hint bar to avoid clutter. Any user-defined key — global or column-specific — overrides the built-in binding for that key. Press `g` to open the **Git Panel**, a modal listing all six shortcuts by name for discoverability; navigate with `j`/`k` and press `Enter` to run the selected action (respecting any user overrides), or `Esc` to cancel. The panel only opens when at least one built-in git action is available (i.e. inside a git repo).
+Inside the menu, press an action's key to run it immediately (like lazygit), or navigate with `j`/`k` and press `Enter`; `Esc` cancels. The keys are scoped to the menu: they do nothing in normal mode, so the normal-mode uppercase namespace stays fully reserved for your [custom actions](#custom-actions) (a custom `P` and the menu's Push coexist without conflict). The menu is also listed in the `?` help popup and only opens inside a git repo.
 
 ### Git Status Segment
 
@@ -304,7 +307,7 @@ actions:
 
 The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 40). Punctuation and non-ASCII characters in the title are dropped (not hyphenated).
 
-Agent-status matching (the live ▶/✓/… badges and the `G` jump) does **not** rely on this name. Cards join agentwatch windows by **ticket-number prefix**: a card matches a window whose name is exactly the card number or starts with `<number>-` (agentwatch names dispatched windows `<number>-<skill>`, e.g. `230-refine`). The `-` boundary keeps card #23 from matching `230-…`, and the scheme is backward-compatible with agentwatch's older `<number>-<title-slug>` names.
+Agent-status matching (the live ▶/✓/… badges) does **not** rely on this name. Cards join agentwatch windows by **ticket-number prefix**: a card matches a window whose name is exactly the card number or starts with `<number>-` (agentwatch names dispatched windows `<number>-<skill>`, e.g. `230-refine`). The `-` boundary keeps card #23 from matching `230-…`, and the scheme is backward-compatible with agentwatch's older `<number>-<title-slug>` names.
 
 Use `{window}` (not `{session}`) when an action or `cleanup` command needs to target that live agentwatch window by name — for example `tmux kill-window -t {window}` to reap it. `{session}` still generates the reconstructed name above and is the right choice for actions that create a window before agentwatch has dispatched one.
 
@@ -331,12 +334,11 @@ Press `?` at any time to open the in-app help popup.
 | `e` | Edit card |
 | `c` | Configuration |
 | `o` | Open ticket |
-| `G` | Jump to agent session |
 | `r` | Refresh board |
 | `p` | Open PR |
 | `/` | Search |
 | `a` | Assign collaborator |
-| `g` | Git panel |
+| `g` | Git menu |
 | `d` | Dispatch |
 | `f` | Filter (toggle) |
 | `l` / `→` | Detail panel |
@@ -344,8 +346,7 @@ Press `?` at any time to open the in-app help popup.
 | `k` / `↑` | Previous card |
 | `Tab` / `Shift+Tab` | Switch columns |
 | `1-9` | Jump to column |
-| `A-Z` | Custom action |
-| `P` / `L` / `M` / `F` / `S` / `X` | Built-in git push / pull (rebase) / mergetool / fetch / stash push / stash pop (in a git repo, overridable) |
+| `A-Z` | Custom action (uppercase is fully user-owned) |
 | `Alt+Shift+key` | Comment action |
 
 ### Detail Panel
@@ -357,7 +358,7 @@ Press `?` at any time to open the in-app help popup.
 | `h` / `←` / `Esc` | Back to card list |
 | `Tab` / `Shift+Tab` | Switch columns |
 | `o` | Open ticket |
-| `G` | Jump to agent session |
+| `p` | Open PR |
 | `r` | Refresh |
 | `q` | Quit |
 | `?` | Help |
@@ -406,8 +407,13 @@ Press `?` at any time to open the in-app help popup.
 
 | Key | Action |
 |-----|--------|
+| `↑` / `↓` | Navigate results |
+| `Ctrl+N` / `Ctrl+P` | Navigate results |
+| `Tab` / `Shift+Tab` | Exit search and switch columns |
 | `Enter` | Apply search |
 | `Esc` | Clear search |
+
+All letters and digits type into the query (queries match titles, labels, and card numbers).
 
 ### Assign
 
@@ -417,12 +423,18 @@ Press `?` at any time to open the in-app help popup.
 | `Enter` | Toggle assignee |
 | `Esc` | Cancel |
 
-### Git Panel
+### Git Menu
 
 | Key | Action |
 |-----|--------|
+| `P` | Push |
+| `p` | Pull (rebase) |
+| `f` | Fetch |
+| `m` | Mergetool |
+| `s` | Stash push |
+| `S` | Stash pop |
 | `j` / `k` | Navigate |
-| `Enter` | Run action |
+| `Enter` | Run selected |
 | `Esc` | Cancel |
 
 ### Dispatch

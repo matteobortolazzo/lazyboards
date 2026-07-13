@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -440,7 +439,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		// Show no-matches hint if filter is active and zero cards match across all columns.
 		var cmd tea.Cmd
 		if b.activeFilterType != filterTypeNone && b.totalFilteredCards() == 0 {
-			cmd = b.statusBar.SetTimedMessage("Filter has no matches \u2014 press F to clear", StatusWarning, statusMessageDuration)
+			cmd = b.statusBar.SetTimedMessage("Filter has no matches \u2014 press f to clear", StatusWarning, statusMessageDuration)
 		} else {
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 		}
@@ -477,7 +476,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.statusBar.SetActionHints(b.normalHints)
 	if b.loaded {
 		if b.activeFilterType != filterTypeNone && b.totalFilteredCards() == 0 {
-			cmd = b.statusBar.SetTimedMessage("Filter has no matches \u2014 press F to clear", StatusWarning, statusMessageDuration)
+			cmd = b.statusBar.SetTimedMessage("Filter has no matches \u2014 press f to clear", StatusWarning, statusMessageDuration)
 		} else {
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 		}
@@ -940,8 +939,6 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, cmd
 	case "o":
 		return b.handleTicketOpenKey()
-	case "G":
-		return b.handleAgentJumpKey()
 	case "l", "right":
 		b.detailFocused = true
 		b.statusBar.SetActionHints(detailFocusHints)
@@ -1244,15 +1241,7 @@ func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.statusBar.SetActionHints(b.normalHints)
 			return b, nil
 		}
-		item := b.gitPanel.items[b.gitPanel.cursor]
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
-
-		act, ok := b.resolveAction(item.key)
-		if !ok {
-			return b, nil
-		}
-		return b.handleBoardActionKey(act)
+		return b.dispatchGitMenuKey(b.gitPanel.items[b.gitPanel.cursor].key)
 	}
 
 	switch msg.String() {
@@ -1260,12 +1249,35 @@ func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.gitPanel.cursor < len(b.gitPanel.items)-1 {
 			b.gitPanel.cursor++
 		}
+		return b, nil
 	case "k", "up":
 		if b.gitPanel.cursor > 0 {
 			b.gitPanel.cursor--
 		}
+		return b, nil
+	}
+
+	// Lazygit-style direct dispatch: pressing a menu item's key runs it
+	// immediately without navigating to it first.
+	if _, ok := b.defaultActions[msg.String()]; ok {
+		return b.dispatchGitMenuKey(msg.String())
 	}
 	return b, nil
+}
+
+// dispatchGitMenuKey closes the git menu and runs the built-in action bound to
+// key. It dispatches from b.defaultActions directly (not resolveAction): git
+// menu keys are menu-scoped, so normal-mode custom actions on the same letter
+// never shadow them (and vice versa).
+func (b Board) dispatchGitMenuKey(key string) (tea.Model, tea.Cmd) {
+	b.mode = normalMode
+	b.statusBar.SetActionHints(b.normalHints)
+
+	act, ok := b.defaultActions[key]
+	if !ok {
+		return b, nil
+	}
+	return b.handleBoardActionKey(act)
 }
 
 // handleDispatchModeKey handles key presses while the agent dispatch modal
@@ -1419,41 +1431,6 @@ func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
 	return b, cmd
 }
 
-// handleAgentJumpKey focuses the tmux window backing the selected card's live
-// agent session ("G" keybinding, #256 — "g" is taken by the git panel).
-// No-ops with a status-bar message when
-// there is no matching/live session, the session is in a failed state, or
-// lazyboards is not running inside tmux.
-func (b Board) handleAgentJumpKey() (tea.Model, tea.Cmd) {
-	if len(b.Columns) == 0 {
-		return b, nil
-	}
-	if len(b.visibleCards()) == 0 {
-		return b, nil
-	}
-	card := b.selectedCard()
-
-	ws := b.agentStatusFor(card)
-	if ws == nil || ws.Status == agentStatusFailed {
-		cmd := b.statusBar.SetTimedMessage("No agent session", StatusWarning, statusMessageDuration)
-		return b, cmd
-	}
-
-	if os.Getenv("TMUX") == "" {
-		cmd := b.statusBar.SetTimedMessage("Not inside tmux", StatusWarning, statusMessageDuration)
-		return b, cmd
-	}
-
-	if err := b.executor.SwitchToWindow(ws.Session, ws.WindowIndex); err != nil {
-		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
-		return b, cmd
-	}
-
-	msg := fmt.Sprintf("Jumped to #%d", card.Number)
-	cmd := b.statusBar.SetTimedMessage(msg, StatusSuccess, statusMessageDuration)
-	return b, cmd
-}
-
 func (b Board) handleActionKey(act config.Action, card Card) (tea.Model, tea.Cmd) {
 	return b.handleActionKeyWithComment(act, card, "")
 }
@@ -1498,8 +1475,11 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
 	case "o":
 		return b.handleTicketOpenKey()
-	case "G":
-		return b.handleAgentJumpKey()
+	case "p":
+		if len(b.visibleCards()) == 0 {
+			return b, nil
+		}
+		return b.handlePROpenKey(b.selectedCard())
 	case "?":
 		b.helpFromDetailFocused = true
 		b.detailFocused = false
@@ -1587,42 +1567,31 @@ func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = normalMode
 		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
 		return b, nil
+	// Result navigation while typing: arrows plus ctrl+n/ctrl+p (the
+	// neovim/fzf convention). Bare j/k must reach the textinput so queries
+	// containing those letters stay typeable.
+	case tea.KeyDown, tea.KeyCtrlN:
+		col := &b.Columns[b.ActiveTab]
+		filtered := b.filteredCards()
+		if col.Cursor < len(filtered)-1 {
+			col.Cursor++
+		}
+		b.detailScrollOffset = 0
+		b.clampScrollOffset()
+		return b, nil
+	case tea.KeyUp, tea.KeyCtrlP:
+		col := &b.Columns[b.ActiveTab]
+		if col.Cursor > 0 {
+			col.Cursor--
+		}
+		b.detailScrollOffset = 0
+		b.clampScrollOffset()
+		return b, nil
 	default:
-		// Check for number keys (1-9) for column switching.
-		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
-			colIdx := int(msg.Runes[0] - '1')
-			if colIdx < len(b.Columns) {
-				b.clearSearch()
-				b.mode = normalMode
-				b.switchColumn(colIdx)
-				return b, nil
-			}
-		}
-
-		// Handle j/k navigation on filtered list.
-		if len(msg.Runes) == 1 {
-			switch msg.Runes[0] {
-			case 'j':
-				col := &b.Columns[b.ActiveTab]
-				filtered := b.filteredCards()
-				if col.Cursor < len(filtered)-1 {
-					col.Cursor++
-				}
-				b.detailScrollOffset = 0
-				b.clampScrollOffset()
-				return b, nil
-			case 'k':
-				col := &b.Columns[b.ActiveTab]
-				if col.Cursor > 0 {
-					col.Cursor--
-				}
-				b.detailScrollOffset = 0
-				b.clampScrollOffset()
-				return b, nil
-			}
-		}
-
-		// Forward to textinput.
+		// Forward everything else (including digits and j/k) to the textinput:
+		// queries can contain any character — card-number search ("42") and
+		// titles with j/k must stay typeable. Column switching while searching
+		// is available via tab/shift+tab.
 		var cmd tea.Cmd
 		b.searchInput, cmd = b.searchInput.Update(msg)
 		b.searchQuery = b.searchInput.Value()
@@ -1639,10 +1608,20 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	card := b.selectedCard()
 	prCount := len(card.LinkedPRs)
 
+	// The picker can be opened from the card list or the detail panel; restore
+	// the hint set matching where the user came from.
+	restoreHints := func() {
+		if b.detailFocused {
+			b.statusBar.SetActionHints(detailFocusHints)
+		} else {
+			b.statusBar.SetActionHints(b.normalHints)
+		}
+	}
+
 	switch msg.Type {
 	case tea.KeyEscape:
 		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+		restoreHints()
 		return b, nil
 	case tea.KeyLeft:
 		b.prPickerIndex = (b.prPickerIndex - 1 + prCount) % prCount
@@ -1653,7 +1632,7 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		pr := card.LinkedPRs[b.prPickerIndex]
 		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+		restoreHints()
 		if err := b.executor.OpenURL(pr.URL); err != nil {
 			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
 			return b, cmd
