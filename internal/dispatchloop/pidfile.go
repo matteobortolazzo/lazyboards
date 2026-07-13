@@ -78,17 +78,17 @@ func WritePid(path string, pid int) error {
 	tmpPath := tmp.Name()
 
 	if _, err := tmp.WriteString(strconv.Itoa(pid)); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write temp pidfile %s: %w", tmpPath, err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close temp pidfile %s: %w", tmpPath, err)
 	}
 
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename %s to %s: %w", tmpPath, path, err)
 	}
 	return nil

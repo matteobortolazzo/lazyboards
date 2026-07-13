@@ -19,13 +19,13 @@ func (d DefaultExecutor) StartDetached(command, logPath string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("open %s: %w", os.DevNull, err)
 	}
-	defer devNull.Close()
+	defer func() { _ = devNull.Close() }()
 
 	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, fmt.Errorf("open log file %s: %w", logPath, err)
 	}
-	defer logFile.Close()
+	defer func() { _ = logFile.Close() }()
 
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Stdin = devNull
