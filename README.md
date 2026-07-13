@@ -91,6 +91,45 @@ Once a repo is enrolled, `o` triggers a dispatch run — but this is **fleet-wid
 
 Press `s` to start or stop a background dispatch loop (`agentwatch dispatch --interval 5m`), which repeats the fleet-wide dispatch automatically. The loop is fleet-wide and detached: it keeps running after you quit lazyboards, and reopening the panel re-detects whether it's still alive. It's tracked via a pidfile and log under `$XDG_STATE_HOME/lazyboards/` (falling back to `~/.local/state/lazyboards/` when `XDG_STATE_HOME` is unset). See the [Dispatch keybindings](#dispatch) for the full key reference.
 
+### Example: agentwatch + agent-stack
+
+This walks through wiring lazyboards to a real [agentwatch](https://github.com/matteobortolazzo/agent-stack/tree/main/agentwatch) daemon from [agent-stack](https://github.com/matteobortolazzo/agent-stack), so cards move through `New` → `Refined` → `Planned` → `In Review` with agents doing the work.
+
+1. **Install and run the daemon.** Use the [agent-stack installer](https://github.com/matteobortolazzo/agent-stack#readme) (`curl -fsSL https://raw.githubusercontent.com/matteobortolazzo/agent-stack/main/install.sh | bash`), then start the daemon once:
+
+   ```
+   agentwatch daemon &
+   ```
+
+   The daemon owns the broadcast socket that lazyboards' agent-status badges and dispatch panel both read from.
+
+2. **Enroll the repo.** From inside the repo, either run `agentwatch dispatch enroll` yourself, or open lazyboards and press `d` then `Enter` — enrollment is idempotent either way, and only affects the currently open repo.
+
+3. **Wire per-column actions to `agentwatch run`** in `~/.config/lazyboards/config.yml` (global) or `.lazyboards.yml` (per-project):
+
+   ```yaml
+   agentwatch: true
+   session_max_length: 40 # matches agentwatch's window-name cap
+   cleanup: "tmux kill-window -t ={window} 2>/dev/null || true"
+
+   columns:
+     - name: New
+       actions:
+         R: { name: Refine, type: shell, command: "agentwatch run refine {number} --model sonnet -- {comment}" }
+     - name: Refined
+       actions:
+         D: { name: Design, type: shell, command: "agentwatch run design {number} --model sonnet -- {comment}" }
+         I: { name: Implement, type: shell, command: "agentwatch run implement {number} --model sonnet -- {comment}" }
+     - name: Planned
+       actions:
+         I: { name: Implement, type: shell, command: "agentwatch run implement {number} --model sonnet -- {comment}" }
+     - name: In Review
+   ```
+
+   Pressing `R` on a `New` card runs `agentwatch run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge and `G` jump match that window by its `42-` prefix, and the top-level `cleanup` command reaps the window once the card leaves the column (using `{window}`, the live agentwatch window name — see [Column Cleanup](#column-cleanup)).
+
+4. **Let agentwatch pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `agentwatch dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or start the recurring loop with `s`. Tune concurrency, quiet hours, and per-agent budgets in agentwatch's own `dispatch` config block (`$XDG_CONFIG_HOME/agentwatch/config.json`) — see the [agentwatch README](https://github.com/matteobortolazzo/agent-stack/tree/main/agentwatch#configuration-1) for the full reference.
+
 ## Configuration
 
 Lazyboards auto-detects the provider and repository from your git remote. To override, create a `.lazyboards.yml` in your project root:
