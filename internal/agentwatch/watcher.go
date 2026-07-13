@@ -3,6 +3,10 @@
 package agentwatch
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/matteobortolazzo/agent-stack/agentwatch/pkg/watch"
 )
 
@@ -32,7 +36,34 @@ func newSocketWatcher(path string) *socketWatcher {
 
 // NewSocketWatcher creates a Watcher connected to the default agentwatch socket path.
 func NewSocketWatcher() Watcher {
-	return newSocketWatcher(watch.DefaultSocketPath())
+	return newSocketWatcher(defaultSocketPath())
+}
+
+// defaultSocketPath resolves the agentwatch daemon's broadcast socket path,
+// matching the daemon's current (v2.x+) nested-directory layout:
+// <runtime-dir>/agentwatch/agentwatch.sock.
+//
+// watch.DefaultSocketPath() (from the pinned agent-stack/agentwatch v1.12.0
+// dependency) cannot be used here: it resolves to the pre-v2 flat path
+// (<runtime-dir>/agentwatch.sock), which no v2.x+ daemon listens on anymore.
+// lazyboards cannot bump past v1.12.0 to pick up the nested layout because
+// agent-stack tagged v2.0.0+ without the "/v2" module-path suffix Go's
+// Semantic Import Versioning requires, making every v2+ release unreachable
+// via `go get` for this import path (see #312). This replicates the
+// daemon's own secureSocketDir() resolution (agentwatch/pkg/watch/socket.go)
+// so the client and daemon agree on the socket location again.
+func defaultSocketPath() string {
+	dir := os.Getenv("XDG_RUNTIME_DIR")
+	if dir != "" {
+		info, err := os.Lstat(dir)
+		if err != nil || !info.IsDir() || info.Mode().Perm()&0022 != 0 {
+			dir = ""
+		}
+	}
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), fmt.Sprintf("agentwatch-%d", os.Getuid()))
+	}
+	return filepath.Join(dir, "agentwatch", "agentwatch.sock")
 }
 
 // ReadNext dials the agentwatch socket if not already connected, then reads
