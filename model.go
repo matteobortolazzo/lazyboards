@@ -430,6 +430,7 @@ type dispatchState struct {
 	dir        string
 	enrolled   bool
 	lastResult string
+	lastLines  []string
 }
 
 // dispatchModeHints are the status bar hints shown in dispatch mode.
@@ -459,6 +460,7 @@ type dispatchEnrollMsg struct {
 type dispatchRunMsg struct {
 	result string
 	err    string
+	lines  []string
 }
 
 // configState groups fields related to the config modal.

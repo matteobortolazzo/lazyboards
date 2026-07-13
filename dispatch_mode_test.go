@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -511,6 +512,34 @@ func TestDispatch_HandleRunMsg_Error(t *testing.T) {
 	}
 }
 
+func TestDispatch_HandleRunMsg_StoresLines(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{running: true}
+
+	wantLines := []string{
+		"owner/repo1#1 dispatch session-a",
+		"owner/repo2#2 skip: already running",
+	}
+	msg := dispatchRunMsg{
+		result: "1 dispatched, 1 skipped (all enrolled repos)",
+		lines:  wantLines,
+	}
+	m, _ := b.Update(msg)
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if len(b2.dispatch.lastLines) != len(wantLines) {
+		t.Fatalf("dispatch.lastLines = %#v, want %#v", b2.dispatch.lastLines, wantLines)
+	}
+	for i, want := range wantLines {
+		if b2.dispatch.lastLines[i] != want {
+			t.Errorf("dispatch.lastLines[%d] = %q, want %q", i, b2.dispatch.lastLines[i], want)
+		}
+	}
+}
+
 // --- classifyAgentwatchError (#283) ---
 
 func TestClassifyAgentwatchError(t *testing.T) {
@@ -962,6 +991,60 @@ func TestDispatchOnceCmd_ParsesCounts(t *testing.T) {
 	if strings.Contains(cmdStr, "--dir") || strings.Contains(cmdStr, "--repo") {
 		t.Errorf("dispatchOnceCmd must be fleet-wide (no --dir/--repo filter), got %q", cmdStr)
 	}
+
+	wantLines := []string{
+		"owner/repo1#1 dispatch session-a",
+		"owner/repo2#2 dispatch session-b",
+		"owner/repo3#3 skip: already running",
+	}
+	if len(runMsg.lines) != len(wantLines) {
+		t.Fatalf("dispatchRunMsg.lines = %#v, want %d retained lines %#v", runMsg.lines, len(wantLines), wantLines)
+	}
+	for i, want := range wantLines {
+		if runMsg.lines[i] != want {
+			t.Errorf("dispatchRunMsg.lines[%d] = %q, want %q", i, runMsg.lines[i], want)
+		}
+	}
+	for _, line := range runMsg.lines {
+		if strings.Contains(line, "unrelated log line") {
+			t.Errorf("dispatchRunMsg.lines = %#v, want the unrelated log line dropped", runMsg.lines)
+		}
+	}
+}
+
+// TestDispatchOnceCmd_RetainsBothIssueRefFormats is a regression test for the
+// agentwatch output format transitioning from "#N …" to "owner/repo#N …".
+// The line-matching in dispatchOnceCmd is deliberately prefix-agnostic
+// (strings.Contains on " dispatch "/" skip:", not anchored on a leading "#"),
+// so both the old bare "#N" form and the new "owner/repo#N" form must survive
+// into dispatchRunMsg.lines without either one being dropped.
+func TestDispatchOnceCmd_RetainsBothIssueRefFormats(t *testing.T) {
+	stdout := strings.Join([]string{
+		"#12 skip: already running",
+		"owner/repo#34 skip: rate limited",
+	}, "\n")
+	fe := &action.FakeExecutor{RunShellOutputStdout: stdout}
+
+	cmd := dispatchOnceCmd(fe)
+	msg := cmd()
+
+	runMsg, ok := msg.(dispatchRunMsg)
+	if !ok {
+		t.Fatalf("dispatchOnceCmd() returned %T, want dispatchRunMsg", msg)
+	}
+
+	wantLines := []string{
+		"#12 skip: already running",
+		"owner/repo#34 skip: rate limited",
+	}
+	if len(runMsg.lines) != len(wantLines) {
+		t.Fatalf("dispatchRunMsg.lines = %#v, want %d retained lines %#v", runMsg.lines, len(wantLines), wantLines)
+	}
+	for i, want := range wantLines {
+		if runMsg.lines[i] != want {
+			t.Errorf("dispatchRunMsg.lines[%d] = %q, want %q", i, runMsg.lines[i], want)
+		}
+	}
 }
 
 func TestDispatchOnceCmd_Error(t *testing.T) {
@@ -1107,5 +1190,70 @@ func TestDispatchView_ShowsLastResult(t *testing.T) {
 	}
 	if !strings.Contains(view, "all enrolled repos") {
 		t.Errorf("dispatch view result summary should include the fleet-wide scope marker, got:\n%s", view)
+	}
+}
+
+func TestDispatchView_ShowsPerIssueLines(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	result := "1 dispatched, 1 skipped (all enrolled repos)"
+	lastLines := []string{
+		"owner/repo1#1 dispatch session-a",
+		"owner/repo2#2 skip: already running",
+	}
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, lastResult: result, lastLines: lastLines}
+
+	view := b.View()
+
+	for _, line := range lastLines {
+		if !strings.Contains(view, line) {
+			t.Errorf("dispatch view with lastLines should contain %q, got:\n%s", line, view)
+		}
+	}
+	if strings.Contains(view, "more") {
+		t.Errorf("dispatch view with only 2 lastLines should not show a truncation notice, got:\n%s", view)
+	}
+}
+
+func TestDispatchView_TruncatesPerIssueLinesPast8(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	result := "10 dispatched, 0 skipped (all enrolled repos)"
+	var lastLines []string
+	for i := 1; i <= 10; i++ {
+		lastLines = append(lastLines, fmt.Sprintf("owner/repo%d#%d dispatch session-%d", i, i, i))
+	}
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, lastResult: result, lastLines: lastLines}
+
+	view := b.View()
+
+	for _, line := range lastLines[:8] {
+		if !strings.Contains(view, line) {
+			t.Errorf("dispatch view should contain retained line %q, got:\n%s", line, view)
+		}
+	}
+	for _, line := range lastLines[8:] {
+		if strings.Contains(view, line) {
+			t.Errorf("dispatch view should NOT contain line past the 8-line cap %q, got:\n%s", line, view)
+		}
+	}
+	if !strings.Contains(view, "and 2 more") {
+		t.Errorf("dispatch view with 10 lastLines should show a '… and 2 more' truncation notice, got:\n%s", view)
+	}
+}
+
+func TestDispatchView_NoLastLinesShowsNoExtraSection(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	result := "0 dispatched, 0 skipped (all enrolled repos)"
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, lastResult: result}
+
+	view := b.View()
+
+	if !strings.Contains(view, result) {
+		t.Errorf("dispatch view should still show the aggregate result %q, got:\n%s", result, view)
+	}
+	if strings.Contains(view, "more") {
+		t.Errorf("dispatch view with no lastLines should not render a truncation notice, got:\n%s", view)
 	}
 }
