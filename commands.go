@@ -203,9 +203,17 @@ func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
 	}
 }
 
-// classifyAgentwatchError maps a shell execution error/stderr pair from an
-// agentwatch invocation into a user-facing message.
-func classifyAgentwatchError(err error, stderr string) string {
+// agentwatchTooOldMsg and agentwatchNoOutputMsg are the user-facing messages
+// for the two ways an old/misbehaving agentwatch binary can be detected.
+const (
+	agentwatchTooOldMsg   = "agentwatch version too old — upgrade to use dispatch enrollment"
+	agentwatchNoOutputMsg = "agentwatch produced no output — check that the correct binary is on PATH"
+)
+
+// isAgentwatchNotFound reports whether err/stderr indicate that the
+// agentwatch binary itself could not be found/executed on PATH (as opposed
+// to running but failing for some other reason).
+func isAgentwatchNotFound(err error, stderr string) bool {
 	// exit 127 is "command not found" from sh; match the exact os/exec format
 	// ("exit status 127") rather than a bare "127" substring that could appear
 	// in unrelated error text.
@@ -213,7 +221,13 @@ func classifyAgentwatchError(err error, stderr string) string {
 	if strings.Contains(stderr, "not found") || strings.Contains(stderr, "command not found") {
 		notFound = true
 	}
-	if notFound {
+	return notFound
+}
+
+// classifyAgentwatchError maps a shell execution error/stderr pair from an
+// agentwatch invocation into a user-facing message.
+func classifyAgentwatchError(err error, stderr string) string {
+	if isAgentwatchNotFound(err, stderr) {
 		return "agentwatch not found on PATH — install it to use dispatch"
 	}
 
@@ -230,13 +244,52 @@ func classifyAgentwatchError(err error, stderr string) string {
 	return "agentwatch: unknown error"
 }
 
+// resolveAgentwatchPathSuffix runs a side-effect-free `command -v agentwatch`
+// lookup and returns a " (using <path>)" suffix (leading space) so error
+// messages can name the resolved binary -- making PATH shadowing (e.g. a
+// stale ~/go/bin build shadowing the plugin-installed binary) instantly
+// visible. Returns "" when resolution fails or produces no output; callers
+// should only invoke this on error paths, never on success.
+func resolveAgentwatchPathSuffix(executor action.Executor) string {
+	stdout, _, err := executor.RunShellOutput("command -v agentwatch")
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimSpace(stdout)
+	if path == "" {
+		return ""
+	}
+	return " (using " + path + ")"
+}
+
 // queryDispatchStatusCmd returns a tea.Cmd that queries agentwatch for the
 // current working directory's repo/dir/enrollment status.
+//
+// It first runs a side-effect-free `agentwatch version` probe. An old
+// agentwatch binary that predates the `dispatch status` verb does not fail
+// cleanly on an unrecognized subcommand -- Go's flag parsing stops at the
+// first positional argument and silently discards the rest of argv, so
+// `dispatch status --json --dir <cwd>` degrades, on such a binary, into a
+// REAL `dispatch` pass with real side effects (dispatching tickets,
+// creating tmux windows). Probing first, and never running `dispatch
+// status` when the probe fails for any reason other than "binary not
+// found", prevents a read-only status poll from ever accidentally
+// dispatching (#299).
 func queryDispatchStatusCmd(executor action.Executor) tea.Cmd {
 	return func() tea.Msg {
 		cwd, err := os.Getwd()
 		if err != nil {
 			return dispatchStatusMsg{err: classifyAgentwatchError(err, "")}
+		}
+
+		_, versionStderr, versionErr := executor.RunShellOutput("agentwatch version")
+		if versionErr != nil {
+			if isAgentwatchNotFound(versionErr, versionStderr) {
+				// The binary doesn't exist at all -- a resolved path would be
+				// misleading, so skip the path-suffix lookup entirely.
+				return dispatchStatusMsg{err: classifyAgentwatchError(versionErr, versionStderr)}
+			}
+			return dispatchStatusMsg{err: agentwatchTooOldMsg + resolveAgentwatchPathSuffix(executor)}
 		}
 
 		command := "agentwatch dispatch status --json --dir " + action.ShellEscape(cwd)
@@ -246,7 +299,7 @@ func queryDispatchStatusCmd(executor action.Executor) tea.Cmd {
 		}
 
 		if strings.TrimSpace(stdout) == "" {
-			return dispatchStatusMsg{err: "agentwatch produced no output — check that the correct binary is on PATH"}
+			return dispatchStatusMsg{err: agentwatchNoOutputMsg + resolveAgentwatchPathSuffix(executor)}
 		}
 
 		var v struct {
@@ -255,7 +308,7 @@ func queryDispatchStatusCmd(executor action.Executor) tea.Cmd {
 			Enrolled bool   `json:"enrolled"`
 		}
 		if err := json.Unmarshal([]byte(stdout), &v); err != nil {
-			return dispatchStatusMsg{err: "agentwatch version too old — upgrade to use dispatch enrollment"}
+			return dispatchStatusMsg{err: agentwatchTooOldMsg + resolveAgentwatchPathSuffix(executor)}
 		}
 
 		return dispatchStatusMsg{repo: v.Repo, dir: v.Dir, enrolled: v.Enrolled}
