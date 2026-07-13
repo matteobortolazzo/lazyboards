@@ -25,7 +25,7 @@ import (
 func newBoardWithFilterableCards(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, "", "")
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{

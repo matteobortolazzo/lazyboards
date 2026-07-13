@@ -960,6 +960,7 @@ var helpSections = []helpSection{
 		{"d", "Open"},
 		{"enter", "Enroll/Unenroll"},
 		{"o", "Dispatch once"},
+		{"s", "Start/stop loop"},
 		{"esc", "Close"},
 	}},
 	{"Error", [][2]string{
@@ -1281,6 +1282,20 @@ func (b Board) viewDispatchModal() string {
 			}
 		}
 
+		lines = append(lines, "")
+		sDesc := "Start loop"
+		switch {
+		case b.dispatch.loopChecking:
+			lines = append(lines, "Loop: checking...")
+		case b.dispatch.loopErr != "":
+			lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("Loop: "+b.dispatch.loopErr))
+		case b.dispatch.loopPid > 0:
+			lines = append(lines, fmt.Sprintf("Loop: running (pid %d)", b.dispatch.loopPid))
+			sDesc = "Stop loop"
+		default:
+			lines = append(lines, "Loop: stopped")
+		}
+
 		enterDesc := "Enroll"
 		if b.dispatch.enrolled {
 			enterDesc = "Unenroll"
@@ -1289,6 +1304,7 @@ func (b Board) viewDispatchModal() string {
 		if b.dispatch.enrolled {
 			hints = append(hints, Hint{Key: "o", Desc: "Dispatch once"})
 		}
+		hints = append(hints, Hint{Key: "s", Desc: sDesc})
 	}
 
 	lines = append(lines, "")

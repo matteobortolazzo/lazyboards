@@ -178,6 +178,34 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return b, nil
 
+	case dispatchLoopStatusMsg:
+		b.dispatch.loopChecking = false
+		if msg.err != nil {
+			b.dispatch.loopErr = msg.err.Error()
+			return b, nil
+		}
+		b.dispatch.loopPid = msg.pid
+		b.dispatch.loopErr = ""
+		return b, nil
+
+	case dispatchLoopStartedMsg:
+		b.dispatch.loopBusy = false
+		if msg.err != nil {
+			b.dispatch.loopErr = msg.err.Error()
+			return b, nil
+		}
+		b.dispatch.loopPid = msg.pid
+		return b, nil
+
+	case dispatchLoopStoppedMsg:
+		b.dispatch.loopBusy = false
+		if msg.err != nil {
+			b.dispatch.loopErr = msg.err.Error()
+			return b, nil
+		}
+		b.dispatch.loopPid = 0
+		return b, nil
+
 	case spinner.TickMsg:
 		if b.mode == loadingMode || b.mode == creatingMode || b.refreshing {
 			var cmd tea.Cmd
@@ -1001,10 +1029,10 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.enterGitPanel()
 		return b, nil
 	case "d":
-		b.dispatch = dispatchState{loading: true}
+		b.dispatch = dispatchState{loading: true, loopChecking: true}
 		b.mode = dispatchMode
 		b.statusBar.SetActionHints(dispatchModeHints)
-		return b, queryDispatchStatusCmd(b.executor)
+		return b, tea.Batch(queryDispatchStatusCmd(b.executor), dispatchLoopStatusCmd(b.executor, b.dispatchLoopPidPath))
 	default:
 		// Alt+Shift+key: check for comment mode trigger (uppercase A-Z only).
 		if msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
@@ -1258,6 +1286,15 @@ func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		b.dispatch.running = true
 		return b, dispatchOnceCmd(b.executor)
+	case "s":
+		if b.dispatch.loopChecking || b.dispatch.loopBusy || b.dispatch.loopErr != "" {
+			return b, nil
+		}
+		b.dispatch.loopBusy = true
+		if b.dispatch.loopPid == 0 {
+			return b, dispatchLoopStartCmd(b.executor, b.dispatchLoopPidPath, b.dispatchLoopLogPath)
+		}
+		return b, dispatchLoopStopCmd(b.executor, b.dispatchLoopPidPath, b.dispatch.loopPid)
 	}
 
 	return b, nil

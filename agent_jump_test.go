@@ -24,7 +24,7 @@ func newAgentJumpTestBoard(t *testing.T, cardNumber int, cardTitle string) (Boar
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil, "", "")
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
