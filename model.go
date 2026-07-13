@@ -1175,24 +1175,41 @@ func (b *Board) collectKnownLabels() map[string]bool {
 	return known
 }
 
-// agentStatusFor returns the agentwatch window state joined to card by exact
-// session-name equality, or nil if no snapshot is stored yet or no window matches.
+// agentStatusFor returns the agentwatch window state joined to card by ticket
+// number, or nil if no snapshot is stored yet or no window matches.
 func (b Board) agentStatusFor(card Card) *watch.WindowState {
-	return b.agentStatusForSession(action.BuildSessionName(card.Number, card.Title, b.sessionMaxLen))
+	return b.agentStatusForNumber(card.Number)
 }
 
-// agentStatusForSession returns the agentwatch window state with the given
-// window name, or nil if no snapshot is stored yet or no window matches.
-func (b Board) agentStatusForSession(name string) *watch.WindowState {
+// agentStatusForNumber returns the agentwatch window state whose name joins to
+// the given ticket number, or nil if no snapshot is stored yet or no window
+// matches. A window joins when its name is exactly "<number>" or starts with
+// "<number>-" (agentwatch names dispatched windows "<number>-<skill>", e.g.
+// "230-refine"). The trailing "-" is a boundary, so card #23 never matches
+// "230-...". This is backward-compatible with agentwatch's older
+// "<number>-<title-slug>" names. When several windows share the number, an
+// active one (running / need_input) wins over any other status, else the first
+// match in snapshot order.
+func (b Board) agentStatusForNumber(number int) *watch.WindowState {
 	if b.agentSnapshot == nil {
 		return nil
 	}
+	num := strconv.Itoa(number)
+	prefix := num + "-"
+	var match *watch.WindowState
 	for i := range b.agentSnapshot.Windows {
-		if b.agentSnapshot.Windows[i].WindowName == name {
-			return &b.agentSnapshot.Windows[i]
+		w := &b.agentSnapshot.Windows[i]
+		if w.WindowName != num && !strings.HasPrefix(w.WindowName, prefix) {
+			continue
+		}
+		if w.Status == agentStatusRunning || w.Status == agentStatusNeedInput {
+			return w
+		}
+		if match == nil {
+			match = w
 		}
 	}
-	return nil
+	return match
 }
 
 // agentBadgeFor returns the fixed-width badge text for the card's live agent

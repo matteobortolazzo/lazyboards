@@ -67,15 +67,16 @@ func ExpandTemplate(template string, vars map[string]string) string {
 	return result
 }
 
-// sessionSlug ports agentwatch v1.12.0's own slugify algorithm
-// (agentwatch/internal/run/slug.go: slugify, capName, windowNameMaxLen)
-// byte-for-byte: lowercase, keep only ASCII a-z0-9, map space/underscore/
-// hyphen to a single dash separator, and DROP every other rune (punctuation,
-// non-ASCII) entirely rather than hyphenating it. Consecutive separators are
-// collapsed and leading/trailing dashes trimmed. agentwatch also runs
-// frontend.SanitizeName on its result, but that has proven a no-op for the
-// inputs lazyboards produces (numeric prefix + slugified title), so it is
-// intentionally not replicated here.
+// sessionSlug slugifies a title: lowercase, keep only ASCII a-z0-9, map
+// space/underscore/hyphen to a single dash separator, and drop every other
+// rune (punctuation, non-ASCII) entirely rather than hyphenating it.
+// Consecutive separators are collapsed and leading/trailing dashes trimmed.
+//
+// It backs the {session} template variable (see BuildSessionName), which
+// user-defined shell actions may reference. Agent-status matching no longer
+// depends on this: cards join agentwatch windows by ticket-number prefix (see
+// agentStatusForNumber in model.go), not by reproducing the window name, so
+// this slug no longer has to match agentwatch byte-for-byte.
 func sessionSlug(s string) string {
 	s = strings.ToLower(s)
 	var b strings.Builder
@@ -96,12 +97,11 @@ func sessionSlug(s string) string {
 // BuildSessionName creates a session identifier from a card number and title.
 // Format: {number}-{slugified-title}, capped at maxLen characters.
 // Truncation is a hard cut at maxLen runes with trailing hyphens trimmed.
-// This must byte-for-byte match agentwatch's own window-name truncation
-// (agentwatch/internal/run/slug.go: capName), since the agentwatch daemon
-// broadcasts WindowName as the join key cards match against by exact string
-// equality — any divergence between the two truncation strategies silently
-// breaks the badge join for titles that don't happen to truncate on a
-// hyphen boundary.
+//
+// It backs the {session} template variable, which user-defined shell actions
+// may reference (e.g. a cleanup hook). It is no longer the agent-status join
+// key: cards match agentwatch windows by ticket-number prefix (see
+// agentStatusForNumber in model.go), which is independent of this name.
 func BuildSessionName(number int, title string, maxLen int) string {
 	prefix := fmt.Sprintf("%d", number)
 	slug := sessionSlug(title)

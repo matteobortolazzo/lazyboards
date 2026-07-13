@@ -262,7 +262,9 @@ actions:
     command: "tmux new-window -d -n {session}"
 ```
 
-The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 40). Punctuation and non-ASCII characters in the title are dropped (not hyphenated) so the name matches the agentwatch tmux window name used for agent-status matching.
+The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 40). Punctuation and non-ASCII characters in the title are dropped (not hyphenated).
+
+Agent-status matching (the live ▶/✓/… badges and the `G` jump) does **not** rely on this name. Cards join agentwatch windows by **ticket-number prefix**: a card matches a window whose name is exactly the card number or starts with `<number>-` (agentwatch names dispatched windows `<number>-<skill>`, e.g. `230-refine`). The `-` boundary keeps card #23 from matching `230-…`, and the scheme is backward-compatible with agentwatch's older `<number>-<title-slug>` names.
 
 ### Action Refresh Delay
 
