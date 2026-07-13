@@ -565,7 +565,8 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		}
 
 		// Card departed — expand template and collect command.
-		vars := action.BuildTemplateVars(cardNum, prev.title, prev.labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "")
+		window := b.resolveWindowName(cardNum, prev.title)
+		vars := action.BuildTemplateVars(cardNum, prev.title, prev.labels, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", window)
 		expanded := action.ExpandTemplate(cleanup, action.BuildShellSafeVars(vars))
 		commands = append(commands, expanded)
 	}
@@ -585,6 +586,17 @@ func (b *Board) agentSessionBusy(cardNum int) bool {
 		return false
 	}
 	return ws.Status == agentStatusRunning || ws.Status == agentStatusNeedInput
+}
+
+// resolveWindowName resolves the {window} template variable: the live
+// agentwatch window name joined to cardNum by ticket-number prefix (see
+// agentStatusForNumber), falling back to the {session} value when no
+// snapshot is stored or no window matches.
+func (b Board) resolveWindowName(cardNum int, title string) string {
+	if ws := b.agentStatusForNumber(cardNum); ws != nil && ws.WindowName != "" {
+		return ws.WindowName
+	}
+	return action.BuildSessionName(cardNum, title, b.sessionMaxLen)
 }
 
 // hasWorkingLabel reports whether any label matches the configured working
@@ -1320,7 +1332,8 @@ func (b Board) handleActionKeyWithComment(act config.Action, card Card, comment 
 	for i, l := range card.Labels {
 		labelNames[i] = l.Name
 	}
-	vars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, comment)
+	window := b.resolveWindowName(card.Number, card.Title)
+	vars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, comment, window)
 
 	switch act.Type {
 	case "url":

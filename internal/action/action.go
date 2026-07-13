@@ -128,7 +128,11 @@ func BuildBoardTemplateVars(repoOwner, repoName, providerName, comment string) m
 }
 
 // BuildTemplateVars creates the variable map for template expansion.
-func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, repoOwner, repoName, providerName string, sessionMaxLen int, comment string) map[string]string {
+//
+// window is a pure passthrough: it must already be resolved by the caller to
+// either a live agentwatch window name or a {session} fallback (see
+// resolveWindowName in update.go). BuildTemplateVars does not derive it.
+func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, repoOwner, repoName, providerName string, sessionMaxLen int, comment, window string) map[string]string {
 	return map[string]string{
 		"number":     fmt.Sprintf("%d", cardNumber),
 		"title":      Slugify(cardTitle),
@@ -144,5 +148,6 @@ func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, re
 		"provider":   providerName,
 		"session":    BuildSessionName(cardNumber, cardTitle, sessionMaxLen),
 		"comment":    comment,
+		"window":     window,
 	}
 }
