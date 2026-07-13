@@ -1262,6 +1262,23 @@ func (b Board) viewDispatchModal() string {
 		if b.dispatch.lastResult != "" {
 			lines = append(lines, "")
 			lines = append(lines, "Last run: "+b.dispatch.lastResult)
+
+			// Render up to 8 per-issue decision lines so skips are
+			// explainable; no scrolling, just a truncation notice past the
+			// cap (ticket #302).
+			const maxDecisionLines = 8
+			shown := b.dispatch.lastLines
+			var moreCount int
+			if len(shown) > maxDecisionLines {
+				moreCount = len(shown) - maxDecisionLines
+				shown = shown[:maxDecisionLines]
+			}
+			for _, decisionLine := range shown {
+				lines = append(lines, wrapTitle(decisionLine, modalWidth, 0)...)
+			}
+			if moreCount > 0 {
+				lines = append(lines, fmt.Sprintf("… and %d more", moreCount))
+			}
 		}
 
 		enterDesc := "Enroll"
