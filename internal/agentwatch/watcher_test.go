@@ -3,6 +3,7 @@ package agentwatch
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -49,6 +50,54 @@ func acceptAndWriteOnce(t *testing.T, ln net.Listener, snap watch.StateSnapshot)
 		connCh <- conn
 	}()
 	return connCh
+}
+
+// --- defaultSocketPath ---
+
+// A valid, non-loosely-permissioned XDG_RUNTIME_DIR is used as the base for
+// the nested agentwatch/agentwatch.sock path the current daemon listens on
+// (see #312: the pinned watch.DefaultSocketPath() resolves to the pre-v2
+// flat path, which no longer matches the daemon).
+func TestDefaultSocketPath_UsesNestedPathUnderValidXDGRuntimeDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatalf("failed to chmod temp dir: %v", err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+
+	got := defaultSocketPath()
+	want := filepath.Join(dir, "agentwatch", "agentwatch.sock")
+	if got != want {
+		t.Errorf("defaultSocketPath() = %q, want %q", got, want)
+	}
+}
+
+// A loosely-permissioned XDG_RUNTIME_DIR (group/other writable) is rejected,
+// falling back to the private per-uid tmp directory, mirroring the daemon's
+// own secureSocketDir() fallback rule.
+func TestDefaultSocketPath_FallsBackWhenXDGRuntimeDirIsLooselyPermissioned(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0777); err != nil {
+		t.Fatalf("failed to chmod temp dir: %v", err)
+	}
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+
+	got := defaultSocketPath()
+	want := filepath.Join(os.TempDir(), fmt.Sprintf("agentwatch-%d", os.Getuid()), "agentwatch", "agentwatch.sock")
+	if got != want {
+		t.Errorf("defaultSocketPath() = %q, want %q", got, want)
+	}
+}
+
+// An unset XDG_RUNTIME_DIR falls back to the private per-uid tmp directory.
+func TestDefaultSocketPath_FallsBackWhenXDGRuntimeDirUnset(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+
+	got := defaultSocketPath()
+	want := filepath.Join(os.TempDir(), fmt.Sprintf("agentwatch-%d", os.Getuid()), "agentwatch", "agentwatch.sock")
+	if got != want {
+		t.Errorf("defaultSocketPath() = %q, want %q", got, want)
+	}
 }
 
 // --- FakeWatcher ---
