@@ -162,6 +162,7 @@ Press the key to execute the action on the selected card.
 | `{title}` | card | Slugified title (lowercase, hyphens) |
 | `{tags}` | card | Comma-separated labels |
 | `{session}` | card | `{number}-{title}`, capped at `session_max_length` |
+| `{window}` | card | Live agentwatch window name for the card (joined by ticket-number prefix), falling back to `{session}` when no agent window is live |
 | `{comment}` | both | User-entered comment (see [Comment Mode](#comment-mode)) |
 | `{repo_owner}` | both | Repository owner |
 | `{repo_name}` | both | Repository name |
@@ -171,7 +172,7 @@ Shell commands automatically escape template variables with POSIX single quotes 
 
 ### Action Scope
 
-Actions default to `scope: "card"` (operate on the selected card). Set `scope: "board"` for actions that don't need a selected card — board-scope actions cannot use card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`).
+Actions default to `scope: "card"` (operate on the selected card). Set `scope: "board"` for actions that don't need a selected card — board-scope actions cannot use card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`).
 
 ### Built-in Git Actions
 
@@ -216,22 +217,22 @@ Run a command automatically when a card leaves a column (detected on board refre
 ```yaml
 columns:
   - name: New
-    cleanup: 'tmux kill-window -t {session} 2>/dev/null || true'
+    cleanup: 'tmux kill-window -t {window} 2>/dev/null || true'
   - name: Refined
 ```
 
-The `cleanup` command uses the same template variables as actions. It runs when a card moves to another column or disappears.
+The `cleanup` command uses the same template variables as actions. It runs when a card moves to another column or disappears. Prefer `{window}` over `{session}` for reaping tmux windows — agentwatch names dispatched windows `{number}-{skill}` (e.g. `230-refine`), not the reconstructed `{session}` name, so `{window}` is the target that actually matches the live window (falling back to `{session}` when no agent window is live).
 
 Set a top-level `cleanup` to apply the same command to every column that doesn't define its own:
 
 ```yaml
-cleanup: 'tmux kill-window -t {session} 2>/dev/null || true'
+cleanup: 'tmux kill-window -t {window} 2>/dev/null || true'
 columns:
   - name: New
   - name: Refined
     cleanup: ''                          # explicitly disables cleanup for this column
   - name: Implementing
-    cleanup: 'docker stop {session}'     # overrides the top-level default
+    cleanup: 'docker stop {window}'      # overrides the top-level default
 ```
 
 A column's own `cleanup` (including an explicit empty string) always wins over the top-level default. Global and local config follow the usual precedence: a local top-level `cleanup` overrides global, and omitting it locally inherits the global value.
@@ -265,6 +266,8 @@ actions:
 The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 40). Punctuation and non-ASCII characters in the title are dropped (not hyphenated).
 
 Agent-status matching (the live ▶/✓/… badges and the `G` jump) does **not** rely on this name. Cards join agentwatch windows by **ticket-number prefix**: a card matches a window whose name is exactly the card number or starts with `<number>-` (agentwatch names dispatched windows `<number>-<skill>`, e.g. `230-refine`). The `-` boundary keeps card #23 from matching `230-…`, and the scheme is backward-compatible with agentwatch's older `<number>-<title-slug>` names.
+
+Use `{window}` (not `{session}`) when an action or `cleanup` command needs to target that live agentwatch window by name — for example `tmux kill-window -t {window}` to reap it. `{session}` still generates the reconstructed name above and is the right choice for actions that create a window before agentwatch has dispatched one.
 
 ### Action Refresh Delay
 

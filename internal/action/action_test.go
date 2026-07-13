@@ -65,7 +65,7 @@ func TestSlugify_AlreadySlugified(t *testing.T) {
 // --- ExpandTemplate ---
 
 func TestExpandTemplate_AllVariablesExpanded(t *testing.T) {
-	template := "{number}-{title}-{tags}-{repo_owner}-{repo_name}-{provider}-{session}"
+	template := "{number}-{title}-{tags}-{repo_owner}-{repo_name}-{provider}-{session}-{window}"
 	vars := map[string]string{
 		"number":     "42",
 		"title":      "add-actions",
@@ -74,9 +74,10 @@ func TestExpandTemplate_AllVariablesExpanded(t *testing.T) {
 		"repo_name":  "lazyboards",
 		"provider":   "github",
 		"session":    "42-add-actions",
+		"window":     "42-refine",
 	}
 	got := ExpandTemplate(template, vars)
-	want := "42-add-actions-bug,feature-matteobortolazzo-lazyboards-github-42-add-actions"
+	want := "42-add-actions-bug,feature-matteobortolazzo-lazyboards-github-42-add-actions-42-refine"
 	if got != want {
 		t.Errorf("ExpandTemplate() = %q, want %q", got, want)
 	}
@@ -400,7 +401,8 @@ func TestBuildBoardTemplateVars_ReturnsOnlyBoardVars(t *testing.T) {
 
 func TestBuildTemplateVars_IncludesCommentVariable(t *testing.T) {
 	comment := "this is my comment"
-	vars := BuildTemplateVars(42, "Test Title", []string{"bug"}, "owner", "repo", "github", 32, comment)
+	window := "42-refine"
+	vars := BuildTemplateVars(42, "Test Title", []string{"bug"}, "owner", "repo", "github", 32, comment, window)
 
 	got, ok := vars["comment"]
 	if !ok {
@@ -408,6 +410,26 @@ func TestBuildTemplateVars_IncludesCommentVariable(t *testing.T) {
 	}
 	if got != comment {
 		t.Errorf("vars[comment] = %q, want %q", got, comment)
+	}
+}
+
+// --- BuildTemplateVars window parameter (#309) ---
+
+// {window} must expand to whatever live agentwatch window name the caller
+// resolved (e.g. "1-refine"), not something BuildTemplateVars derives itself.
+// BuildTemplateVars is a pure passthrough here: resolution (live window vs.
+// {session} fallback) is the caller's responsibility (see resolveWindowName
+// in update.go).
+func TestBuildTemplateVars_IncludesWindowVariable(t *testing.T) {
+	window := "1-refine"
+	vars := BuildTemplateVars(1, "Setup CI", []string{"infra"}, "owner", "repo", "github", 32, "", window)
+
+	got, ok := vars["window"]
+	if !ok {
+		t.Fatal("BuildTemplateVars() missing key \"window\"")
+	}
+	if got != window {
+		t.Errorf("vars[window] = %q, want %q", got, window)
 	}
 }
 

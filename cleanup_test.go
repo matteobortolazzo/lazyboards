@@ -349,3 +349,74 @@ func TestCleanup_DeferredWhileWorkingLabelSet(t *testing.T) {
 		t.Fatal("expected cleanup RunShell call after working label removed, got none")
 	}
 }
+
+// --- {window} template variable (#309) ---
+//
+// agentwatch names dispatched windows "{number}-{skill}" (e.g. "1-refine"),
+// not the reconstructed "{number}-{title-slug}" that BuildSessionName
+// produces. The cleanup hook's kill-window target must resolve to the LIVE
+// window name so `tmux kill-window -t {window}` actually matches, falling
+// back to {session} only when no live window is available.
+
+// cleanupSnapshotWithWindow builds an agentwatch snapshot with a single
+// window using an explicit window name (distinct from BuildSessionName's
+// reconstructed name), so tests can distinguish live-window resolution from
+// the {session} fallback.
+func cleanupSnapshotWithWindow(windowName, status string) *watch.StateSnapshot {
+	return &watch.StateSnapshot{Windows: []watch.WindowState{
+		{WindowName: windowName, Status: status, Agent: "claude"},
+	}}
+}
+
+func TestCleanup_WindowVariable_UsesLiveWindowName(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {window} 2>/dev/null || true")
+
+	// "done" is a non-busy status so the liveness guard lets cleanup proceed
+	// (mirrors TestCleanup_DeferredWhileAgentRunning's "done" step), while the
+	// window is still present in the snapshot at cleanup time.
+	liveWindow := "1-refine"
+	b.agentSnapshot = cleanupSnapshotWithWindow(liveWindow, "done")
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected cleanup RunShell call, got none")
+	}
+	call := fe.RunShellCalls[len(fe.RunShellCalls)-1]
+	if !strings.Contains(call, action.ShellEscape(liveWindow)) {
+		t.Errorf("cleanup command should target the live agentwatch window %q, got: %s", liveWindow, call)
+	}
+}
+
+func TestCleanup_WindowVariable_FallsBackToSessionWhenSnapshotNil(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {window} 2>/dev/null || true")
+
+	// No agentwatch snapshot at all (agentwatch off/absent).
+	b.agentSnapshot = nil
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected cleanup RunShell call, got none")
+	}
+	call := fe.RunShellCalls[len(fe.RunShellCalls)-1]
+	expectedSession := action.BuildSessionName(1, "Setup CI", 32)
+	if !strings.Contains(call, action.ShellEscape(expectedSession)) {
+		t.Errorf("cleanup command should fall back to session name %q when no snapshot exists, got: %s", expectedSession, call)
+	}
+}
+
+func TestCleanup_WindowVariable_FallsBackToSessionWhenNoWindowMatches(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {window} 2>/dev/null || true")
+
+	// Snapshot exists but its only window belongs to a different ticket.
+	b.agentSnapshot = cleanupSnapshotWithWindow("99-refine", "done")
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected cleanup RunShell call, got none")
+	}
+	call := fe.RunShellCalls[len(fe.RunShellCalls)-1]
+	expectedSession := action.BuildSessionName(1, "Setup CI", 32)
+	if !strings.Contains(call, action.ShellEscape(expectedSession)) {
+		t.Errorf("cleanup command should fall back to session name %q when no window matches card #1, got: %s", expectedSession, call)
+	}
+}
