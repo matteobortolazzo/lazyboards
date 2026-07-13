@@ -14,6 +14,17 @@ type Executor interface {
 	RunShell(command string) (stderr string, err error)
 	RunShellOutput(command string) (stdout, stderr string, err error)
 	SwitchToWindow(session, windowIndex string) error
+
+	// StartDetached spawns command (run via the same shell invocation style
+	// as RunShell) fully detached from the current process -- a new
+	// session, so it survives the caller's exit -- with stdin from
+	// /dev/null and stdout+stderr appended to logPath. Not supported on
+	// Windows.
+	StartDetached(command, logPath string) (pid int, err error)
+	// ProcessAlive reports whether pid currently refers to a live process.
+	ProcessAlive(pid int) bool
+	// SignalProcess sends SIGTERM to pid.
+	SignalProcess(pid int) error
 }
 
 // DefaultExecutor executes actions using real OS calls.
@@ -73,6 +84,12 @@ type SwitchWindowCall struct {
 	WindowIndex string
 }
 
+// StartDetachedCall records a single StartDetached invocation.
+type StartDetachedCall struct {
+	Command string
+	LogPath string
+}
+
 // RunShellOutputResult is one scripted result returned by
 // FakeExecutor.RunShellOutput.
 type RunShellOutputResult struct {
@@ -104,6 +121,16 @@ type FakeExecutor struct {
 	RunShellOutputStderr string
 	RunShellOutputErr    error
 	SwitchWindowErr      error
+
+	StartDetachedCalls []StartDetachedCall
+	StartDetachedPid   int
+	StartDetachedErr   error
+
+	ProcessAliveCalls  []int
+	ProcessAliveResult bool
+
+	SignalProcessCalls []int
+	SignalProcessErr   error
 }
 
 // OpenURL records the call and returns the configured error.
@@ -135,4 +162,22 @@ func (f *FakeExecutor) RunShellOutput(command string) (string, string, error) {
 func (f *FakeExecutor) SwitchToWindow(session, windowIndex string) error {
 	f.SwitchWindowCalls = append(f.SwitchWindowCalls, SwitchWindowCall{Session: session, WindowIndex: windowIndex})
 	return f.SwitchWindowErr
+}
+
+// StartDetached records the call and returns the configured pid and error.
+func (f *FakeExecutor) StartDetached(command, logPath string) (int, error) {
+	f.StartDetachedCalls = append(f.StartDetachedCalls, StartDetachedCall{Command: command, LogPath: logPath})
+	return f.StartDetachedPid, f.StartDetachedErr
+}
+
+// ProcessAlive records the call and returns the configured result.
+func (f *FakeExecutor) ProcessAlive(pid int) bool {
+	f.ProcessAliveCalls = append(f.ProcessAliveCalls, pid)
+	return f.ProcessAliveResult
+}
+
+// SignalProcess records the call and returns the configured error.
+func (f *FakeExecutor) SignalProcess(pid int) error {
+	f.SignalProcessCalls = append(f.SignalProcessCalls, pid)
+	return f.SignalProcessErr
 }
