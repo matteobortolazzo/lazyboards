@@ -190,6 +190,7 @@ const (
 	searchMode
 	helpMode
 	labelConfirmMode
+	closeConfirmMode
 	commentMode
 	filterMode
 	assignMode
@@ -407,6 +408,11 @@ type labelConfirmState struct {
 	allLabels     []string
 	unknownLabels []string
 	currentIdx    int
+}
+
+// closeConfirmState groups fields related to the close-card confirmation prompt.
+type closeConfirmState struct {
+	card Card
 }
 
 // cardClosedMsg is sent when a card has been closed successfully.
@@ -640,6 +646,7 @@ type Board struct {
 	workingLabel                string
 	mouseEnabled                bool
 	labelConfirm                labelConfirmState
+	closeConfirm                closeConfirmState
 	filterItems                 []filterItem
 	filterCursor                int
 	activeFilterType            filterType

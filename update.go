@@ -232,6 +232,14 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := b.statusBar.SetTimedMessage("Assign error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
 		return b, cmd
 
+	case cardClosedMsg:
+		return b.handleCardClosed(msg)
+
+	case cardCloseErrorMsg:
+		b.mode = normalMode
+		cmd := b.statusBar.SetTimedMessage("Close error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
+		return b, cmd
+
 	case tea.MouseMsg:
 		if !b.mouseEnabled || b.mode != normalMode {
 			return b, nil
@@ -269,6 +277,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleHelpModeKey(msg)
 		case labelConfirmMode:
 			return b.handleLabelConfirmModeKey(msg)
+		case closeConfirmMode:
+			return b.handleCloseConfirmModeKey(msg)
 		case commentMode:
 			return b.handleCommentModeKey(msg)
 		case filterMode:
@@ -700,6 +710,73 @@ func (b Board) handleLabelConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+func (b Board) handleCloseConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		b.mode = normalMode
+		cmd := b.statusBar.SetTimedMessage("Close cancelled", StatusWarning, statusMessageDuration)
+		return b, cmd
+	}
+	switch msg.String() {
+	case "y":
+		cmd := closeCardCmd(b.provider, b.closeConfirm.card.Number)
+		b.mode = normalMode
+		return b, cmd
+	case "n":
+		b.mode = normalMode
+		cmd := b.statusBar.SetTimedMessage("Close cancelled", StatusWarning, statusMessageDuration)
+		return b, cmd
+	}
+	return b, nil
+}
+
+// handleCardClosed removes the closed card from its column and, unless a
+// cleanup guard blocks it (agent busy or working label present), fires the
+// column's cleanup command immediately -- no debounce, unlike detectDepartures'
+// background-fetch departure detection. The prevCards entry is unconditionally
+// deleted regardless of guard outcome (locked decision #347 Q2: a guard-blocked
+// close always deletes, it never defers).
+func (b Board) handleCardClosed(msg cardClosedMsg) (tea.Model, tea.Cmd) {
+	cardNum := msg.card.Number
+	labelNames := make([]string, len(msg.card.Labels))
+	for j, l := range msg.card.Labels {
+		labelNames[j] = l.Name
+	}
+
+	var cleanupCmd tea.Cmd
+	for ci := range b.Columns {
+		for i := range b.Columns[ci].Cards {
+			if b.Columns[ci].Cards[i].Number != cardNum {
+				continue
+			}
+			cleanup := b.columnCleanup(ci)
+			if cleanup != "" && b.executor != nil && !b.agentSessionBusy(cardNum) && !b.hasWorkingLabel(labelNames) {
+				window := b.resolveWindowName(cardNum, msg.card.Title)
+				vars := action.BuildTemplateVars(cardNum, msg.card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", window)
+				expanded := action.ExpandTemplate(cleanup, action.BuildShellSafeVars(vars))
+				cleanupCmd = runCleanupCmds(b.executor, []string{expanded})
+			}
+			b.Columns[ci].Cards = append(b.Columns[ci].Cards[:i], b.Columns[ci].Cards[i+1:]...)
+			if b.Columns[ci].Cursor >= len(b.Columns[ci].Cards) {
+				b.Columns[ci].Cursor = len(b.Columns[ci].Cards) - 1
+				if b.Columns[ci].Cursor < 0 {
+					b.Columns[ci].Cursor = 0
+				}
+			}
+			break
+		}
+	}
+
+	delete(b.prevCards, cardNum)
+
+	b.clampScrollOffset()
+	b.rebuildNormalHints()
+	cmd := b.statusBar.SetTimedMessage("Card closed", StatusSuccess, statusMessageDuration)
+	if cleanupCmd != nil {
+		cmd = tea.Batch(cmd, cleanupCmd)
+	}
+	return b, cmd
+}
+
 func (b Board) handleLabelCreated() (tea.Model, tea.Cmd) {
 	b.labelConfirm.currentIdx++
 	if b.labelConfirm.currentIdx < len(b.labelConfirm.unknownLabels) {
@@ -930,6 +1007,16 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b.handlePROpenKey(b.selectedCard())
+	case "x":
+		if len(b.Columns) == 0 {
+			return b, nil
+		}
+		if len(b.visibleCards()) == 0 {
+			return b, nil
+		}
+		b.closeConfirm = closeConfirmState{card: b.selectedCard()}
+		b.mode = closeConfirmMode
+		return b, nil
 	case "v":
 		b.enterPRList()
 		return b, nil
