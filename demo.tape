@@ -1,6 +1,7 @@
 # demo.tape — VHS recipe for the README GIF
-# Requires: vhs, ttyd, ffmpeg (pacman -S vhs ttyd ffmpeg)
-# Regenerate with: vhs demo.tape
+# Requires: vhs, ttyd, ffmpeg (pacman -S vhs ttyd ffmpeg) and python3
+# (for the fake agentwatch socket that drives the agent badges).
+# Regenerate with: vhs demo.tape   (from the repo root)
 
 Output docs/demo.gif
 
@@ -14,7 +15,14 @@ Set Framerate 30
 
 # ---- Silent setup ----
 Hide
+# Fake agentwatch daemon in a throwaway runtime dir: scripted snapshots give
+# the demo deterministic agent badges (▶/✓/!) and the ⟳ dispatch segment.
+Type "export XDG_RUNTIME_DIR=$(mktemp -d)" Enter
+Type "python3 docs/demo-agentwatch-fake.py &" Enter
 Type "cd ~/Repos/lazyboards-demo" Enter
+# Pin the demo columns to the labels seeded by docs/demo-repo-seed.sh, so the
+# recording is deterministic regardless of any personal global config.
+Type "printf 'columns:\n  - name: New\n  - name: Refined\n  - name: Implementing\n' > .lazyboards.yml" Enter
 Type "clear" Enter
 Show
 
@@ -22,11 +30,13 @@ Show
 Type "lazyboards" Enter
 Sleep 2500ms
 
-# ---- Navigate columns ----
+# ---- Navigate columns (Refined has a ✓ agent badge, Implementing ▶ and !) ----
 Tab
-Sleep 700ms
+Sleep 1s
 Tab
-Sleep 700ms
+Sleep 1200ms
+Type "j"
+Sleep 800ms
 Tab
 Sleep 700ms
 
@@ -65,6 +75,12 @@ Sleep 500ms
 # ---- Filter flow ----
 Type "f"
 Sleep 1500ms
+Escape
+Sleep 500ms
+
+# ---- Git menu ----
+Type "g"
+Sleep 2s
 Escape
 Sleep 500ms
 

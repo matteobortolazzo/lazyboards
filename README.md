@@ -135,9 +135,11 @@ This walks through wiring lazyboards to a real [agentwatch](https://github.com/m
        actions:
          I: { name: Implement, type: shell, command: "agentwatch run implement {number} --model sonnet -- {comment}" }
      - name: In Review
+       actions:
+         W: { name: Checkout PR, type: shell, scope: pr, command: 'tmux new-window -d -n pr-{pr_number} "git fetch origin {pr_branch} && git switch {pr_branch}"' }
    ```
 
-   Pressing `R` on a `New` card runs `agentwatch run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, the `G` custom action above jumps straight to it (via `{window}`, the live agentwatch window name), and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup).
+   Pressing `R` on a `New` card runs `agentwatch run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, the `G` custom action above jumps straight to it (via `{window}`, the live agentwatch window name), and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup). When the agent's PR lands the card in `In Review`, `W` checks out the PR branch in a fresh tmux window so you can review and run it locally — append the project's run command (`ng serve`, `dotnet run`, …) in a per-project `.lazyboards.yml` (see [Action Scope](#action-scope)).
 
 4. **Let agentwatch pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `agentwatch dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or start the recurring loop with the custom `agentwatch dispatch loop on` action described above. Tune concurrency, quiet hours, and per-agent budgets in agentwatch's own `dispatch` config block (`$XDG_CONFIG_HOME/agentwatch/config.json`) — see the [agentwatch README](https://github.com/matteobortolazzo/agent-stack/tree/main/agentwatch#configuration-1) for the full reference.
 
@@ -234,7 +236,22 @@ Actions default to `scope: "card"` (operate on the selected card). Set `scope: "
 
 Set `scope: "pr"` for actions that operate on a card's linked pull request — a stricter cousin of `card` scope that additionally requires the selected card to have at least one linked PR. With 0 linked PRs the action is unavailable (no-op, absent from hints). With exactly 1 linked PR it runs immediately against that PR's data. With 2+ linked PRs it opens the same PR-picker modal used by the built-in `p` key; selecting a PR runs the action against that PR's data. `pr`-scope actions can use both card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) and the [PR-specific template variables](#template-variables) (`{pr_branch}`, `{pr_number}`, `{pr_url}`, `{pr_title}`).
 
-Long-running or foreground shell commands will block that action's key slot until the command exits. Prefer a self-detaching command such as `tmux new-window -d '<command>'` for anything long-running (e.g. running `ng serve` on a PR's branch) — see [Tmux Integration](#tmux-integration).
+A typical PR action checks out the linked PR's branch and runs the project, so reviewing a PR is one keypress on the card:
+
+```yaml
+columns:
+  - name: In Review
+    actions:
+      W:
+        name: Run PR branch
+        type: shell
+        scope: pr
+        command: 'tmux new-window -d -n pr-{pr_number} "git fetch origin {pr_branch} && git switch {pr_branch} && ng serve"'
+```
+
+Swap `ng serve` for whatever the project runs — `dotnet run`, `npm run dev`, `go run .`, `make dev`. Since the run command is project-specific, define it in that project's `.lazyboards.yml`; a global `~/.config/lazyboards/config.yml` can keep a command-agnostic variant (checkout only, no run step) that works everywhere.
+
+Long-running or foreground shell commands will block that action's key slot until the command exits. Prefer a self-detaching command such as `tmux new-window -d '<command>'` for anything long-running (like the `ng serve` example above) — see [Tmux Integration](#tmux-integration).
 
 ### Git Menu
 
