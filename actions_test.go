@@ -1169,8 +1169,7 @@ func TestAction_PRScope_PRWorktreeExpandsRegisteredWorktree(t *testing.T) {
 	fe.RunShellOutputStdout = "worktree /repo/.worktrees/one-pr\nHEAD 1234567\nbranch refs/heads/feature/one-pr\n"
 
 	b = sendKey(t, b, keyMsg("j"))
-	m, cmd := b.Update(keyMsg("W"))
-	b = m.(Board)
+	_, cmd := b.Update(keyMsg("W"))
 	execCmds(cmd)
 
 	if len(fe.RunShellOutputCalls) != 1 || fe.RunShellOutputCalls[0] != "git worktree list --porcelain" {
