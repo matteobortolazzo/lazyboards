@@ -881,6 +881,9 @@ func TestAction_DetailFocused_BoardScopeFires(t *testing.T) {
 	if fe.OpenURLCalls[0] != expectedURL {
 		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
 	}
+	if !b.detailFocused {
+		t.Error("firing a board-scope action from detail focus should not drop detailFocused")
+	}
 }
 
 func TestAction_DetailFocused_UnboundKeyIsNoop(t *testing.T) {
