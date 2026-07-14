@@ -440,6 +440,85 @@ func TestStatusBar_ViewAgentPrefix_ReducesHintWidth(t *testing.T) {
 	}
 }
 
+// --- StatusBar: PR Count Prefix (#343) ---
+//
+// The board-wide linked-PR count renders as part of the always-visible prefix,
+// after the agent-status tokens. Like the agent prefix it is omitted when zero,
+// persists alongside a timed message, and is never truncated by hint-row or
+// tail-segment (git/dispatch) width contention.
+
+func TestStatusBar_ViewPRCount_Shown(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 0, 0, 3)
+
+	if !strings.Contains(view, linkedPRGlyph+"3") {
+		t.Errorf("View() = %q, want the PR count token %q", view, linkedPRGlyph+"3")
+	}
+	// A single hint has no internal separator, so the "|" must be the prefix's
+	// trailing separator.
+	if !strings.Contains(view, "|") {
+		t.Errorf("View() = %q, want a separator between the prefix and hints", view)
+	}
+}
+
+func TestStatusBar_ViewPRCount_ZeroOmitted(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 0, 0, 0)
+
+	if strings.Contains(view, linkedPRGlyph) {
+		t.Errorf("View() = %q, want no PR glyph when the count is zero", view)
+	}
+	if strings.Contains(view, "|") {
+		t.Errorf("View() = %q, want no prefix separator when everything is zero", view)
+	}
+}
+
+func TestStatusBar_ViewPRCount_ShownWithTimedMessage(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetTimedMessage("Refreshed board", StatusSuccess, 3*time.Second)
+	view := sb.View(200, 0, 0, 4)
+
+	if !strings.Contains(view, linkedPRGlyph+"4") {
+		t.Errorf("View() = %q, want the PR count visible alongside a timed message", view)
+	}
+	if !strings.Contains(view, "Refreshed board") {
+		t.Errorf("View() = %q, want the timed message to remain visible", view)
+	}
+	if strings.Index(view, linkedPRGlyph) > strings.Index(view, "Refreshed board") {
+		t.Errorf("View() = %q, want the prefix before the timed message", view)
+	}
+}
+
+func TestStatusBar_ViewPRCount_AfterAgentTokens(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 2, 1, 3)
+
+	ri := strings.Index(view, "▶2")
+	ni := strings.Index(view, "!1")
+	pi := strings.Index(view, linkedPRGlyph)
+	qi := strings.Index(view, "Quit")
+	if ri < 0 || ni < 0 || pi < 0 || qi < 0 {
+		t.Fatalf("View() = %q, want running, need_input, PR count, and hints all present", view)
+	}
+	// Order: running -> need_input -> PR count -> hints.
+	if !(ri < ni && ni < pi && pi < qi) {
+		t.Errorf("View() = %q, want order ▶2 < !1 < PR-count < hints (got %d,%d,%d,%d)", view, ri, ni, pi, qi)
+	}
+}
+
+func TestStatusBar_ViewPRCount_SurvivesHintAndTailContention(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "a", Desc: "Alpha"}, {Key: "b", Desc: "Bravo"}})
+	sb.SetGitStatus("git-segment")
+	sb.SetDispatchStatus("dispatch-segment")
+
+	// A width far too small for hints + tail segments: they contend and
+	// truncate/drop, but the prefix is reserved first and must survive intact.
+	view := sb.View(24, 0, 0, 7)
+	if !strings.Contains(view, linkedPRGlyph+"7") {
+		t.Errorf("View(narrow) = %q, want the PR count preserved under width contention", view)
+	}
+}
+
 func TestStatusBar_ViewFirstHintDoesNotFit(t *testing.T) {
 	hints := []Hint{
 		{Key: "o", Desc: "Open"},
