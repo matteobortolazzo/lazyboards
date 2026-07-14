@@ -624,3 +624,88 @@ func TestCommentMode_PRScope_PickerEscape_ClearsPendingCommentAndAction(t *testi
 		t.Error("pendingPRAction should be cleared after Escape from the picker")
 	}
 }
+
+// --- scope: pr comment mode triggered from the detail-focused panel (#349 x #340) ---
+
+func TestCommentMode_PRScopeAltKeyFromDetailFocus_EntersCommentModeAndUnfocusesDetail(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve with note", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && echo {comment}"},
+	}
+	b, _ := newPRActionTestBoard(t, actions)
+
+	// Move to card 2 (1 linked PR) so resolveAction gates the pr-scope key through.
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true")
+	}
+
+	b = sendKey(t, b, altKeyMsg("W"))
+
+	if b.mode != commentMode {
+		t.Fatalf("after Alt+W in detail focus: mode = %d, want %d (commentMode)", b.mode, commentMode)
+	}
+	if !b.comment.prScope {
+		t.Error("comment.prScope should be true for a pr-scope action triggered from detail focus")
+	}
+	if !b.comment.fromDetailFocused {
+		t.Error("comment.fromDetailFocused should be true when triggered from the detail-focused panel")
+	}
+	if b.detailFocused {
+		t.Error("entering commentMode should unfocus the detail panel while comment input is active, mirroring the help-mode pattern")
+	}
+}
+
+func TestCommentMode_PRScope_Escape_FromDetailFocus_RestoresDetailFocusAndHints(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve with note", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && echo {comment}"},
+	}
+	b, _ := newPRActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, altKeyMsg("W"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	if b.mode != normalMode {
+		t.Fatalf("after Escape in commentMode: mode = %d, want %d (normalMode)", b.mode, normalMode)
+	}
+	if !b.detailFocused {
+		t.Error("Escape from a pr-scope comment triggered in detail focus should restore detailFocused")
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "Back") {
+		t.Errorf("View() after returning from comment mode should show detail-focus hints, got:\n%s", view)
+	}
+}
+
+func TestCommentMode_PRScope_Enter_FromDetailFocus_RestoresDetailFocusAndHints(t *testing.T) {
+	// Use a "url" action, not "shell": a shell submit shows a transient
+	// "Running..." status message that would mask the hint-bar assertion
+	// below without indicating a hint-restoration bug.
+	actions := map[string]config.Action{
+		"W": {Name: "Serve with note", Type: "url", Scope: "pr", URL: "https://example.com/{pr_number}?note={comment}"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, altKeyMsg("W"))
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if !b.detailFocused {
+		t.Error("Enter/submit from a pr-scope comment triggered in detail focus should restore detailFocused")
+	}
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called after submitting comment from detail focus, but no calls recorded")
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "Back") {
+		t.Errorf("View() after submitting comment from detail focus should show detail-focus hints, got:\n%s", view)
+	}
+}

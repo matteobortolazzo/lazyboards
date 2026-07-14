@@ -1152,3 +1152,77 @@ func TestAction_PRScope_TemplateIncludesAllPRAndCardVars(t *testing.T) {
 		}
 	}
 }
+
+// --- scope: pr actions dispatched from the detail-focused panel (#349 x #340) ---
+
+func TestAction_DetailFocused_PRScope_SinglePRFiresImmediately(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch}"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	// Move to card 2 (exactly 1 linked PR).
+	b = sendKey(t, b, keyMsg("j"))
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	if len(card.LinkedPRs) != 1 {
+		t.Fatalf("test setup: expected exactly 1 linked PR, got %d", len(card.LinkedPRs))
+	}
+	pr := card.LinkedPRs[0]
+
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true")
+	}
+
+	m, cmd := b.Update(keyMsg("W"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called for a pr-scope action fired from the detail-focused panel")
+	}
+	expectedCmd := "cd " + action.ShellEscape(pr.Branch)
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
+	}
+	if !b.detailFocused {
+		t.Error("firing a pr-scope action from detail focus should not drop detailFocused")
+	}
+}
+
+func TestAction_DetailFocused_PRScope_MultiplePRsOpensPicker(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch}"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	// Move to card 3 (2 linked PRs).
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	if len(card.LinkedPRs) < 2 {
+		t.Fatalf("test setup: expected 2+ linked PRs, got %d", len(card.LinkedPRs))
+	}
+
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true")
+	}
+
+	b = sendKey(t, b, keyMsg("W"))
+
+	if b.mode != prPickerMode {
+		t.Errorf("mode = %d, want prPickerMode (%d)", b.mode, prPickerMode)
+	}
+	if b.pendingPRAction == nil {
+		t.Fatal("expected pendingPRAction to be set when entering the picker from detail focus")
+	}
+	// Matches the convention TestAction_DetailFocused_BoardScopeFires established:
+	// dispatching a custom action from detail focus does not drop detailFocused.
+	if !b.detailFocused {
+		t.Error("opening the PR picker from a pr-scope action fired from detail focus should not drop detailFocused")
+	}
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("expected no RunShell calls yet (action pending PR selection), got %d", len(fe.RunShellCalls))
+	}
+}
