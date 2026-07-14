@@ -65,6 +65,16 @@ func TestFakeGraphQLClient_ReturnsScriptedPageForCursor(t *testing.T) {
 	if got.hasNextPage {
 		t.Fatalf("fetchIssuePage(second page).hasNextPage = true, want false (last page)")
 	}
+
+	wantCursors := []string{"", "cursor-A"}
+	if len(fake.calledCursors) != len(wantCursors) {
+		t.Fatalf("calledCursors = %v, want %v", fake.calledCursors, wantCursors)
+	}
+	for i, c := range wantCursors {
+		if fake.calledCursors[i] != c {
+			t.Fatalf("calledCursors = %v, want %v", fake.calledCursors, wantCursors)
+		}
+	}
 }
 
 func TestFakeGraphQLClient_ReturnsScriptedError(t *testing.T) {
