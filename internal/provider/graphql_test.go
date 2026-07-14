@@ -58,10 +58,10 @@ func (f *fakeGraphQLClient) fetchIssueTimelinePage(_ context.Context, _, _ strin
 func TestNewGitHubV4Adapter_WrapsGivenClient(t *testing.T) {
 	client := githubv4.NewClient(nil)
 
-	adapter := newGitHubV4Adapter(client)
+	adapter := NewGitHubV4Adapter(client)
 
 	if adapter.client != client {
-		t.Fatalf("newGitHubV4Adapter().client = %p, want the same client instance %p passed in", adapter.client, client)
+		t.Fatalf("NewGitHubV4Adapter().client = %p, want the same client instance %p passed in", adapter.client, client)
 	}
 }
 
@@ -209,6 +209,50 @@ func TestMapIssueQueryNode_MapsFieldsLabelsAndAssignees(t *testing.T) {
 	}
 	if len(got.assignees) != 1 || got.assignees[0].Login != "alice" {
 		t.Fatalf("mapIssueQueryNode().assignees = %+v, want [{alice}]", got.assignees)
+	}
+}
+
+// TestMapIssueQueryNode_LabelColor_StripsHashPrefix,
+// _InvalidHex_FallsBackToEmpty, and _ShortHex_FallsBackToEmpty pin
+// mapIssueQueryNode's label-color validation (relocated here from the
+// REST-era FetchBoard-level tests during the GraphQL migration -- hex
+// validation now happens once, in this mapping function, before an
+// issueNode ever reaches FetchBoard).
+
+func TestMapIssueQueryNode_LabelColor_StripsHashPrefix(t *testing.T) {
+	var n issueQueryNode
+	// Some GitHub API responses may include a "#" prefix in the color field.
+	n.Labels.Nodes = []labelQueryNode{{Name: githubv4.String("feature"), Color: githubv4.String("#0075ca")}}
+
+	got := mapIssueQueryNode(n)
+
+	if len(got.labels) != 1 {
+		t.Fatalf("mapIssueQueryNode().labels has %d entries, want 1", len(got.labels))
+	}
+	if got.labels[0].Color != "0075ca" {
+		t.Errorf("labels[0].Color = %q, want %q (should strip # prefix)", got.labels[0].Color, "0075ca")
+	}
+}
+
+func TestMapIssueQueryNode_LabelColor_InvalidHex_FallsBackToEmpty(t *testing.T) {
+	var n issueQueryNode
+	n.Labels.Nodes = []labelQueryNode{{Name: githubv4.String("bug"), Color: githubv4.String("xxxxxx")}}
+
+	got := mapIssueQueryNode(n)
+
+	if got.labels[0].Color != "" {
+		t.Errorf("labels[0].Color = %q, want empty string for invalid hex color", got.labels[0].Color)
+	}
+}
+
+func TestMapIssueQueryNode_LabelColor_ShortHex_FallsBackToEmpty(t *testing.T) {
+	var n issueQueryNode
+	n.Labels.Nodes = []labelQueryNode{{Name: githubv4.String("bug"), Color: githubv4.String("fff")}}
+
+	got := mapIssueQueryNode(n)
+
+	if got.labels[0].Color != "" {
+		t.Errorf("labels[0].Color = %q, want empty string for short hex color", got.labels[0].Color)
 	}
 }
 

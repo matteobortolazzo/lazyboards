@@ -200,22 +200,22 @@ func mapIssueTimelineQuery(q issueTimelineQuery) timelinePage {
 	}
 }
 
-// Compile-time check: *githubv4Adapter implements graphQLBoardClient.
-var _ graphQLBoardClient = (*githubv4Adapter)(nil)
+// Compile-time check: *GitHubV4Adapter implements graphQLBoardClient.
+var _ graphQLBoardClient = (*GitHubV4Adapter)(nil)
 
-// githubv4Adapter implements graphQLBoardClient by running issuesQuery
+// GitHubV4Adapter implements graphQLBoardClient by running issuesQuery
 // against a real GitHub GraphQL API v4 client and mapping the response into
 // plain issuePage/issueNode values.
-type githubv4Adapter struct {
+type GitHubV4Adapter struct {
 	client *githubv4.Client
 }
 
-// newGitHubV4Adapter creates a githubv4Adapter wrapping the given githubv4.Client.
-func newGitHubV4Adapter(client *githubv4.Client) *githubv4Adapter {
-	return &githubv4Adapter{client: client}
+// NewGitHubV4Adapter creates a GitHubV4Adapter wrapping the given githubv4.Client.
+func NewGitHubV4Adapter(client *githubv4.Client) *GitHubV4Adapter {
+	return &GitHubV4Adapter{client: client}
 }
 
-func (a *githubv4Adapter) fetchIssuePage(ctx context.Context, owner, repo, afterCursor string) (issuePage, error) {
+func (a *GitHubV4Adapter) fetchIssuePage(ctx context.Context, owner, repo, afterCursor string) (issuePage, error) {
 	variables := map[string]interface{}{
 		"owner":       githubv4.String(owner),
 		"name":        githubv4.String(repo),
@@ -234,7 +234,7 @@ func (a *githubv4Adapter) fetchIssuePage(ctx context.Context, owner, repo, after
 	return mapIssuesQuery(q), nil
 }
 
-func (a *githubv4Adapter) fetchIssueTimelinePage(ctx context.Context, owner, repo string, issueNumber int, cursor string) (timelinePage, error) {
+func (a *GitHubV4Adapter) fetchIssueTimelinePage(ctx context.Context, owner, repo string, issueNumber int, cursor string) (timelinePage, error) {
 	variables := map[string]interface{}{
 		"owner":          githubv4.String(owner),
 		"name":           githubv4.String(repo),

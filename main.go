@@ -17,6 +17,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"
 )
 
@@ -197,7 +198,9 @@ func main() {
 			repos:  ghClient.Repositories,
 			users:  ghClient.Users,
 		}
-		bp = provider.NewGitHubProvider(ghc, parts[0], parts[1], cfg.ColumnNames())
+		gqlClient := githubv4.NewClient(tc)
+		gqlAdapter := provider.NewGitHubV4Adapter(gqlClient)
+		bp = provider.NewGitHubProvider(ghc, gqlAdapter, parts[0], parts[1], cfg.ColumnNames())
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown provider: %q\n", prov)
 		os.Exit(1)

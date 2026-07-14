@@ -13,24 +13,24 @@ import (
 
 // mockGitHubClient implements GitHubClient with configurable return values.
 type mockGitHubClient struct {
-	issues         []*github.Issue
-	err            error
-	createdIssue   *github.Issue // returned by Create
-	createErr      error         // returned by Create
-	editedIssue    *github.Issue // returned by Edit
-	editErr        error         // returned by Edit
-	createdLabel   *github.Label // returned by CreateLabel
-	createLabelErr error         // returned by CreateLabel
-	timelineEvents map[int][]*github.Timeline // keyed by issue number
-	timelineErr    error
-	capturedOpts   *github.IssueListByRepoOptions // captured from ListByRepo
-	collaborators     []*github.User   // returned by ListCollaborators
-	collaboratorsErr  error            // returned by ListCollaborators
-	authenticatedUser *github.User     // returned by GetUser
-	authUserErr       error            // returned by GetUser
-	capturedEditReq   *github.IssueRequest // captured from Edit for assertion
-	labels            []*github.Label  // returned by ListLabels
-	labelsErr         error            // returned by ListLabels
+	issues            []*github.Issue
+	err               error
+	createdIssue      *github.Issue              // returned by Create
+	createErr         error                      // returned by Create
+	editedIssue       *github.Issue              // returned by Edit
+	editErr           error                      // returned by Edit
+	createdLabel      *github.Label              // returned by CreateLabel
+	createLabelErr    error                      // returned by CreateLabel
+	timelineEvents    map[int][]*github.Timeline // keyed by issue number
+	timelineErr       error
+	capturedOpts      *github.IssueListByRepoOptions // captured from ListByRepo
+	collaborators     []*github.User                 // returned by ListCollaborators
+	collaboratorsErr  error                          // returned by ListCollaborators
+	authenticatedUser *github.User                   // returned by GetUser
+	authUserErr       error                          // returned by GetUser
+	capturedEditReq   *github.IssueRequest           // captured from Edit for assertion
+	labels            []*github.Label                // returned by ListLabels
+	labelsErr         error                          // returned by ListLabels
 }
 
 func (m *mockGitHubClient) ListByRepo(
@@ -120,16 +120,35 @@ func makeIssue(number int, title string, labels ...string) *github.Issue {
 	}
 }
 
+// buildIssueNode constructs an issueNode with the given number, title, and
+// label names, mirroring makeIssue's REST-fixture shape but as the already-
+// mapped GraphQL issueNode value FetchBoard now consumes (labels are plain
+// provider.Label values, matching mapIssueQueryNode's output).
+func buildIssueNode(number int, title string, labelNames ...string) issueNode {
+	labels := make([]Label, len(labelNames))
+	for i, name := range labelNames {
+		labels[i] = Label{Name: name}
+	}
+	return issueNode{number: number, title: title, labels: labels}
+}
+
+// singlePageGQL wraps the given issueNodes in a fakeGraphQLClient that
+// returns them as a single, non-paginated page -- the common case for
+// FetchBoard tests that don't need to exercise outer pagination itself.
+func singlePageGQL(issues ...issueNode) *fakeGraphQLClient {
+	return &fakeGraphQLClient{pages: map[string]issuePage{"": {issues: issues}}}
+}
+
 func TestGitHubFetchBoard_SortsIssuesToMatchingColumns(t *testing.T) {
 	columns := []string{"New", "In Progress", "Done"}
-	issues := []*github.Issue{
-		makeIssue(1, "Setup project", "New"),
-		makeIssue(2, "Implement feature", "In Progress"),
-		makeIssue(3, "Deploy to prod", "Done"),
+	issues := []issueNode{
+		buildIssueNode(1, "Setup project", "New"),
+		buildIssueNode(2, "Implement feature", "In Progress"),
+		buildIssueNode(3, "Deploy to prod", "Done"),
 	}
 
-	client := &mockGitHubClient{issues: issues}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issues...)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -174,14 +193,14 @@ func TestGitHubFetchBoard_SortsIssuesToMatchingColumns(t *testing.T) {
 
 func TestGitHubFetchBoard_UnlabeledIssuesGoToFirstColumn(t *testing.T) {
 	columns := []string{"Backlog", "Working", "Review"}
-	issues := []*github.Issue{
-		makeIssue(10, "No labels at all"),                     // no labels
-		makeIssue(11, "Unrecognized label", "nonexistent"),    // label doesn't match any column
-		makeIssue(12, "Recognized label goes elsewhere", "Review"), // should go to "Review"
+	issues := []issueNode{
+		buildIssueNode(10, "No labels at all"),                          // no labels
+		buildIssueNode(11, "Unrecognized label", "nonexistent"),         // label doesn't match any column
+		buildIssueNode(12, "Recognized label goes elsewhere", "Review"), // should go to "Review"
 	}
 
-	client := &mockGitHubClient{issues: issues}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issues...)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -226,12 +245,12 @@ func TestGitHubFetchBoard_CardFieldsPopulated(t *testing.T) {
 	issueTitle := "Fix the widget"
 	issueLabel := "Doing"
 
-	issues := []*github.Issue{
-		makeIssue(issueNumber, issueTitle, issueLabel),
+	issues := []issueNode{
+		buildIssueNode(issueNumber, issueTitle, issueLabel),
 	}
 
-	client := &mockGitHubClient{issues: issues}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issues...)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -262,12 +281,12 @@ func TestGitHubFetchBoard_CardFieldsPopulated(t *testing.T) {
 
 func TestGitHubFetchBoard_CardFieldsPopulated_UnmatchedLabel(t *testing.T) {
 	columns := []string{"Todo", "Doing"}
-	issues := []*github.Issue{
-		makeIssue(7, "Orphan issue", "nonexistent"),
+	issues := []issueNode{
+		buildIssueNode(7, "Orphan issue", "nonexistent"),
 	}
 
-	client := &mockGitHubClient{issues: issues}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issues...)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -293,8 +312,8 @@ func TestGitHubFetchBoard_CardFieldsPopulated_UnmatchedLabel(t *testing.T) {
 func TestGitHubFetchBoard_NoIssues_ReturnsEmptyColumns(t *testing.T) {
 	columns := []string{"New", "In Progress", "Done"}
 
-	client := &mockGitHubClient{issues: []*github.Issue{}}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL()
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -317,10 +336,10 @@ func TestGitHubFetchBoard_NoIssues_ReturnsEmptyColumns(t *testing.T) {
 
 func TestGitHubFetchBoard_APIError_ReturnsError(t *testing.T) {
 	apiErr := errors.New("GitHub API rate limit exceeded")
-	client := &mockGitHubClient{err: apiErr}
+	gql := &fakeGraphQLClient{err: apiErr}
 	columns := []string{"New", "Done"}
 
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	_, err := provider.FetchBoard(context.Background())
 	if err == nil {
@@ -333,14 +352,14 @@ func TestGitHubFetchBoard_APIError_ReturnsError(t *testing.T) {
 
 func TestGitHubFetchBoard_LabelMatchingIsCaseInsensitive(t *testing.T) {
 	columns := []string{"bug", "feature", "docs"}
-	issues := []*github.Issue{
-		makeIssue(1, "Uppercase label", "BUG"),
-		makeIssue(2, "Mixed case label", "Feature"),
-		makeIssue(3, "Lowercase label", "docs"),
+	issues := []issueNode{
+		buildIssueNode(1, "Uppercase label", "BUG"),
+		buildIssueNode(2, "Mixed case label", "Feature"),
+		buildIssueNode(3, "Lowercase label", "docs"),
 	}
 
-	client := &mockGitHubClient{issues: issues}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issues...)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -381,12 +400,12 @@ func TestGitHubFetchBoard_MultipleLabels_FurthestColumnWins(t *testing.T) {
 	// Issue has labels ["In Progress", "Done"] — the closer column label is listed
 	// first in the API response. With furthest-match semantics, the card should
 	// land in "Done" (column index 2), not "In Progress" (column index 1).
-	issues := []*github.Issue{
-		makeIssue(5, "Multi-labeled issue", "In Progress", "Done"),
+	issues := []issueNode{
+		buildIssueNode(5, "Multi-labeled issue", "In Progress", "Done"),
 	}
 
-	client := &mockGitHubClient{issues: issues}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issues...)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -430,12 +449,12 @@ func TestGitHubFetchBoard_MultipleLabels_NonMatchingLabelsIgnored(t *testing.T) 
 	// and matching labels. "New" matches column index 0 and "Done" matches column
 	// index 2. The non-matching label should be ignored for placement, and the card
 	// should land in "Done" (the furthest matching column).
-	issues := []*github.Issue{
-		makeIssue(6, "Mixed labels issue", "unrelated-label", "New", "Done"),
+	issues := []issueNode{
+		buildIssueNode(6, "Mixed labels issue", "unrelated-label", "New", "Done"),
 	}
 
-	client := &mockGitHubClient{issues: issues}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issues...)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -475,7 +494,7 @@ func TestGitHubFetchBoard_MultipleLabels_NonMatchingLabelsIgnored(t *testing.T) 
 
 func TestGitHubFetchBoard_EmptyColumnsReturnsError(t *testing.T) {
 	client := &mockGitHubClient{}
-	provider := NewGitHubProvider(client, "owner", "repo", nil)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", nil)
 
 	_, err := provider.FetchBoard(context.Background())
 	if err == nil {
@@ -486,38 +505,12 @@ func TestGitHubFetchBoard_EmptyColumnsReturnsError(t *testing.T) {
 	}
 }
 
-func TestGitHubFetchBoard_SkipsPullRequests(t *testing.T) {
-	columns := []string{"Open"}
-	prURL := "https://api.github.com/repos/owner/repo/pulls/2"
-	issues := []*github.Issue{
-		makeIssue(1, "Real issue", "Open"),
-		{
-			Number:           github.Ptr(2),
-			Title:            github.Ptr("A pull request"),
-			PullRequestLinks: &github.PullRequestLinks{URL: &prURL},
-		},
-	}
-
-	client := &mockGitHubClient{issues: issues}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
-
-	board, err := provider.FetchBoard(context.Background())
-	if err != nil {
-		t.Fatalf("FetchBoard returned error: %v", err)
-	}
-
-	// Only the real issue should appear, not the PR.
-	totalCards := 0
-	for _, col := range board.Columns {
-		totalCards += len(col.Cards)
-	}
-	if totalCards != 1 {
-		t.Fatalf("got %d total cards, want 1 (PR should be filtered out)", totalCards)
-	}
-	if board.Columns[0].Cards[0].Title != "Real issue" {
-		t.Errorf("card title = %q, want %q", board.Columns[0].Cards[0].Title, "Real issue")
-	}
-}
+// NOTE: TestGitHubFetchBoard_SkipsPullRequests (the REST-era PR-skip test)
+// was removed during the GraphQL migration. GraphQL's `issues` connection
+// excludes pull requests by construction (unlike the REST Issues API, which
+// mixes them in) -- issueNode has no PullRequestLinks-equivalent field, so
+// there is no fixture that could represent "a PR leaked through" to assert
+// against. See FetchBoard's doc comment for the structural explanation.
 
 func TestGitHubCreateCard_WithLabel(t *testing.T) {
 	expectedNumber := 42
@@ -529,7 +522,7 @@ func TestGitHubCreateCard_WithLabel(t *testing.T) {
 	}
 	columns := []string{"New"}
 
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	card, err := provider.CreateCard(context.Background(), expectedTitle, expectedLabel)
 	if err != nil {
@@ -556,7 +549,7 @@ func TestGitHubCreateCard_WithoutLabel(t *testing.T) {
 	}
 	columns := []string{"New"}
 
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	card, err := provider.CreateCard(context.Background(), expectedTitle, "")
 	if err != nil {
@@ -584,7 +577,7 @@ func TestGitHubCreateCard_InvalidLabel_ReturnsFriendlyError(t *testing.T) {
 	}
 	columns := []string{"New"}
 
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	_, err := provider.CreateCard(context.Background(), "title", invalidLabel)
 	if err == nil {
@@ -607,7 +600,7 @@ func TestGitHubCreateCard_GenericAPIError_PassesThrough(t *testing.T) {
 	}
 	columns := []string{"New"}
 
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	_, err := provider.CreateCard(context.Background(), "title", "label")
 	if err == nil {
@@ -623,11 +616,11 @@ func TestGitHubCreateCard_GenericAPIError_PassesThrough(t *testing.T) {
 func TestGitHubFetchBoard_CardBodyPopulatedFromIssueBody(t *testing.T) {
 	columns := []string{"Todo"}
 	issueBody := "This is the issue description.\nIt has multiple lines."
-	issue := makeIssue(1, "Issue with body", "Todo")
-	issue.Body = github.Ptr(issueBody)
+	issue := buildIssueNode(1, "Issue with body", "Todo")
+	issue.body = issueBody
 
-	client := &mockGitHubClient{issues: []*github.Issue{issue}}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -646,11 +639,11 @@ func TestGitHubFetchBoard_CardBodyPopulatedFromIssueBody(t *testing.T) {
 
 func TestGitHubFetchBoard_NilIssueBody_ResultsInEmptyCardBody(t *testing.T) {
 	columns := []string{"Todo"}
-	// makeIssue does not set Body, so issue.Body is nil.
-	issue := makeIssue(1, "Issue without body", "Todo")
+	// buildIssueNode does not set body, so issue.body is the zero value "".
+	issue := buildIssueNode(1, "Issue without body", "Todo")
 
-	client := &mockGitHubClient{issues: []*github.Issue{issue}}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -667,54 +660,29 @@ func TestGitHubFetchBoard_NilIssueBody_ResultsInEmptyCardBody(t *testing.T) {
 	}
 }
 
-// --- Linked PRs from Timeline API ---
-
-// makeCrossReferencedPREvent builds a Timeline event that represents
-// a cross-referenced pull request (a PR that references the issue).
-func makeCrossReferencedPREvent(prNumber int, prTitle, prHTMLURL string) *github.Timeline {
-	return &github.Timeline{
-		Event: github.Ptr("cross-referenced"),
-		Source: &github.Source{
-			Issue: &github.Issue{
-				Number:           github.Ptr(prNumber),
-				Title:            github.Ptr(prTitle),
-				HTMLURL:          github.Ptr(prHTMLURL),
-				PullRequestLinks: &github.PullRequestLinks{URL: github.Ptr(prHTMLURL)},
-			},
-		},
-	}
-}
-
-// makeCrossReferencedIssueEvent builds a Timeline event that represents
-// a cross-referenced regular issue (not a PR).
-func makeCrossReferencedIssueEvent(issueNumber int, issueTitle string) *github.Timeline {
-	return &github.Timeline{
-		Event: github.Ptr("cross-referenced"),
-		Source: &github.Source{
-			Issue: &github.Issue{
-				Number: github.Ptr(issueNumber),
-				Title:  github.Ptr(issueTitle),
-				// No PullRequestLinks — this is a regular issue, not a PR.
-			},
-		},
-	}
-}
+// --- Linked PRs (GraphQL cross-referenced timeline items) ---
+//
+// NOTE: TestGitHubFetchBoard_RequestsIssuesSortedByCreatedAsc and
+// TestGitHubFetchBoard_TimelineAPIError_ReturnsError (the REST-era tests)
+// were removed during the GraphQL migration. Sort order (CREATED_AT ASC) is
+// now baked into issuesQuery's static GraphQL query string (graphql.go), not
+// a runtime option fakeGraphQLClient can observe, so there's nothing left to
+// assert through this boundary. And GraphQL fetches an issue and its first
+// page of linked PRs in a single gql.fetchIssuePage call, so a "timeline API
+// error" is no longer distinguishable from the general
+// TestGitHubFetchBoard_APIError_ReturnsError case above.
 
 func TestGitHubFetchBoard_LinkedPRsPopulatedFromTimeline(t *testing.T) {
 	columns := []string{"Todo"}
-	issue := makeIssue(10, "Bug report", "Todo")
+	issue := buildIssueNode(10, "Bug report", "Todo")
 
 	prNumber := 89
 	prTitle := "Fix bug"
 	prURL := "https://github.com/owner/repo/pull/89"
+	issue.linkedPRs = []LinkedPR{{Number: prNumber, Title: prTitle, URL: prURL}}
 
-	client := &mockGitHubClient{
-		issues: []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{
-			10: {makeCrossReferencedPREvent(prNumber, prTitle, prURL)},
-		},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -744,15 +712,10 @@ func TestGitHubFetchBoard_LinkedPRsPopulatedFromTimeline(t *testing.T) {
 
 func TestGitHubFetchBoard_NoLinkedPRs_EmptyTimeline(t *testing.T) {
 	columns := []string{"Todo"}
-	issue := makeIssue(20, "Solo issue", "Todo")
+	issue := buildIssueNode(20, "Solo issue", "Todo") // no linkedPRs set
 
-	client := &mockGitHubClient{
-		issues: []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{
-			20: {}, // empty timeline
-		},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -769,17 +732,19 @@ func TestGitHubFetchBoard_NoLinkedPRs_EmptyTimeline(t *testing.T) {
 	}
 }
 
+// TestGitHubFetchBoard_CrossReferencedNonPR_Ignored confirms FetchBoard
+// forwards issueNode.linkedPRs unchanged: the actual skip of cross-references
+// sourced from a plain Issue (not a PullRequest) happens upstream in
+// mapLinkedPRs, already pinned by
+// TestMapLinkedPRs_SkipsCrossReferenceSourcedFromPlainIssue (graphql_test.go).
 func TestGitHubFetchBoard_CrossReferencedNonPR_Ignored(t *testing.T) {
 	columns := []string{"Todo"}
-	issue := makeIssue(30, "Referenced issue", "Todo")
+	// mapLinkedPRs would have already excluded a non-PR cross-reference by
+	// the time issueNode reaches FetchBoard, so linkedPRs is empty here.
+	issue := buildIssueNode(30, "Referenced issue", "Todo")
 
-	client := &mockGitHubClient{
-		issues: []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{
-			30: {makeCrossReferencedIssueEvent(31, "Related issue")},
-		},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -798,18 +763,14 @@ func TestGitHubFetchBoard_CrossReferencedNonPR_Ignored(t *testing.T) {
 
 func TestGitHubFetchBoard_MultipleLinkedPRs(t *testing.T) {
 	columns := []string{"Todo"}
-	issue := makeIssue(40, "Complex issue", "Todo")
-
-	client := &mockGitHubClient{
-		issues: []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{
-			40: {
-				makeCrossReferencedPREvent(50, "First fix", "https://github.com/owner/repo/pull/50"),
-				makeCrossReferencedPREvent(51, "Second fix", "https://github.com/owner/repo/pull/51"),
-			},
-		},
+	issue := buildIssueNode(40, "Complex issue", "Todo")
+	issue.linkedPRs = []LinkedPR{
+		{Number: 50, Title: "First fix", URL: "https://github.com/owner/repo/pull/50"},
+		{Number: 51, Title: "Second fix", URL: "https://github.com/owner/repo/pull/51"},
 	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -825,7 +786,7 @@ func TestGitHubFetchBoard_MultipleLinkedPRs(t *testing.T) {
 		t.Fatalf("card.LinkedPRs has %d entries, want 2", len(card.LinkedPRs))
 	}
 
-	// Verify both PRs are present (order should match timeline order).
+	// Verify both PRs are present (order should match issueNode.linkedPRs order).
 	if card.LinkedPRs[0].Number != 50 {
 		t.Errorf("LinkedPRs[0].Number = %d, want 50", card.LinkedPRs[0].Number)
 	}
@@ -834,20 +795,19 @@ func TestGitHubFetchBoard_MultipleLinkedPRs(t *testing.T) {
 	}
 }
 
+// TestGitHubFetchBoard_DuplicateLinkedPRs_Deduplicated confirms FetchBoard
+// forwards issueNode.linkedPRs unchanged: the actual dedup by PR number now
+// happens upstream in mapLinkedPRs, already pinned by
+// TestMapLinkedPRs_DedupesByPRNumberWithinIssue (graphql_test.go).
 func TestGitHubFetchBoard_DuplicateLinkedPRs_Deduplicated(t *testing.T) {
 	columns := []string{"Todo"}
-	issue := makeIssue(45, "Issue with duplicate cross-refs", "Todo")
+	issue := buildIssueNode(45, "Issue with duplicate cross-refs", "Todo")
+	// mapLinkedPRs would have already deduped by PR number by the time
+	// issueNode reaches FetchBoard, so only one entry survives here.
+	issue.linkedPRs = []LinkedPR{{Number: 60, Title: "Fix", URL: "https://github.com/owner/repo/pull/60"}}
 
-	// Same PR cross-referenced multiple times in timeline.
-	prEvent := makeCrossReferencedPREvent(60, "Fix", "https://github.com/owner/repo/pull/60")
-
-	client := &mockGitHubClient{
-		issues: []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{
-			45: {prEvent, prEvent, prEvent},
-		},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -863,99 +823,30 @@ func TestGitHubFetchBoard_DuplicateLinkedPRs_Deduplicated(t *testing.T) {
 	}
 }
 
-func TestGitHubFetchBoard_RequestsIssuesSortedByCreatedAsc(t *testing.T) {
-	columns := []string{"Todo"}
-	client := &mockGitHubClient{issues: []*github.Issue{}}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
-
-	_, err := provider.FetchBoard(context.Background())
-	if err != nil {
-		t.Fatalf("FetchBoard returned error: %v", err)
-	}
-
-	if client.capturedOpts == nil {
-		t.Fatal("expected ListByRepo to be called with options, got nil")
-	}
-	if client.capturedOpts.Sort != "created" {
-		t.Errorf("opts.Sort = %q, want %q", client.capturedOpts.Sort, "created")
-	}
-	if client.capturedOpts.Direction != "asc" {
-		t.Errorf("opts.Direction = %q, want %q", client.capturedOpts.Direction, "asc")
-	}
-}
-
-func TestGitHubFetchBoard_TimelineAPIError_ReturnsError(t *testing.T) {
-	columns := []string{"Todo"}
-	issue := makeIssue(50, "Issue", "Todo")
-
-	apiErr := errors.New("timeline API rate limit exceeded")
-	client := &mockGitHubClient{
-		issues:      []*github.Issue{issue},
-		timelineErr: apiErr,
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
-
-	_, err := provider.FetchBoard(context.Background())
-	if err == nil {
-		t.Fatal("expected error from FetchBoard when timeline API fails, got nil")
-	}
-	if !strings.Contains(err.Error(), "rate limit") {
-		t.Errorf("error = %q, want it to contain %q", err.Error(), "rate limit")
-	}
-}
-
-// --- Concurrent Timeline Fetch Tests ---
-
-// perIssueErrorMockClient extends mockGitHubClient with per-issue timeline
-// errors for testing error propagation in concurrent fetches.
-type perIssueErrorMockClient struct {
-	mockGitHubClient
-	timelineErrs map[int]error // per-issue errors
-}
-
-func (m *perIssueErrorMockClient) ListIssueTimeline(
-	ctx context.Context,
-	_ string,
-	_ string,
-	number int,
-	_ *github.ListOptions,
-) ([]*github.Timeline, *github.Response, error) {
-	if ctx.Err() != nil {
-		return nil, nil, ctx.Err()
-	}
-	if err, ok := m.timelineErrs[number]; ok {
-		return nil, nil, err
-	}
-	return m.timelineEvents[number], nil, nil
-}
+// --- Multi-Issue / Linked-PR Fetch Tests ---
 
 func TestGitHubFetchBoard_MultipleIssues_AllLinkedPRsPopulated(t *testing.T) {
 	columns := []string{"Todo", "Doing", "Done"}
 
-	issues := []*github.Issue{
-		makeIssue(1, "Issue one", "Todo"),
-		makeIssue(2, "Issue two", "Todo"),
-		makeIssue(3, "Issue three", "Doing"),
-		makeIssue(4, "Issue four", "Doing"),
-		makeIssue(5, "Issue five", "Done"),
+	issue1 := buildIssueNode(1, "Issue one", "Todo")
+	issue1.linkedPRs = []LinkedPR{{Number: 101, Title: "PR for issue 1", URL: "https://github.com/o/r/pull/101"}}
+
+	issue2 := buildIssueNode(2, "Issue two", "Todo")
+	issue2.linkedPRs = []LinkedPR{
+		{Number: 102, Title: "PR for issue 2a", URL: "https://github.com/o/r/pull/102"},
+		{Number: 103, Title: "PR for issue 2b", URL: "https://github.com/o/r/pull/103"},
 	}
 
-	timelineEvents := map[int][]*github.Timeline{
-		1: {makeCrossReferencedPREvent(101, "PR for issue 1", "https://github.com/o/r/pull/101")},
-		2: {
-			makeCrossReferencedPREvent(102, "PR for issue 2a", "https://github.com/o/r/pull/102"),
-			makeCrossReferencedPREvent(103, "PR for issue 2b", "https://github.com/o/r/pull/103"),
-		},
-		3: {makeCrossReferencedPREvent(104, "PR for issue 3", "https://github.com/o/r/pull/104")},
-		4: {}, // no linked PRs
-		5: {makeCrossReferencedPREvent(105, "PR for issue 5", "https://github.com/o/r/pull/105")},
-	}
+	issue3 := buildIssueNode(3, "Issue three", "Doing")
+	issue3.linkedPRs = []LinkedPR{{Number: 104, Title: "PR for issue 3", URL: "https://github.com/o/r/pull/104"}}
 
-	client := &mockGitHubClient{
-		issues:         issues,
-		timelineEvents: timelineEvents,
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	issue4 := buildIssueNode(4, "Issue four", "Doing") // no linked PRs
+
+	issue5 := buildIssueNode(5, "Issue five", "Done")
+	issue5.linkedPRs = []LinkedPR{{Number: 105, Title: "PR for issue 5", URL: "https://github.com/o/r/pull/105"}}
+
+	gql := singlePageGQL(issue1, issue2, issue3, issue4, issue5)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -1000,62 +891,28 @@ func TestGitHubFetchBoard_MultipleIssues_AllLinkedPRsPopulated(t *testing.T) {
 	}
 }
 
-func TestGitHubFetchBoard_TimelineErrorPropagated(t *testing.T) {
-	columns := []string{"Todo"}
+// NOTE: TestGitHubFetchBoard_TimelineErrorPropagated (the REST-era
+// concurrent-fetch error test, backed by perIssueErrorMockClient) was
+// removed during the GraphQL migration: it is superseded by
+// TestFetchBoard_GraphQL_TimelineFollowupError_FailsFetchBoard below, which
+// pins the same "a linked-PR fetch failure fails the whole board fetch"
+// behavior for the GraphQL follow-up path.
 
-	// Multiple issues where one timeline fetch fails.
-	issues := []*github.Issue{
-		makeIssue(1, "Issue one", "Todo"),
-		makeIssue(2, "Issue two", "Todo"),
-		makeIssue(3, "Issue three", "Todo"),
-	}
-
-	timelineEvents := map[int][]*github.Timeline{
-		1: {},
-		2: {},
-		3: {},
-	}
-
-	expectedErr := "timeline fetch failed for issue 2"
-	client := &perIssueErrorMockClient{
-		mockGitHubClient: mockGitHubClient{
-			issues:         issues,
-			timelineEvents: timelineEvents,
-		},
-		timelineErrs: map[int]error{
-			2: errors.New(expectedErr),
-		},
-	}
-
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
-
-	_, err := provider.FetchBoard(context.Background())
-	if err == nil {
-		t.Fatal("expected error from FetchBoard, got nil")
-	}
-	if !strings.Contains(err.Error(), "timeline fetch failed") {
-		t.Errorf("error = %q, want it to contain %q", err.Error(), "timeline fetch failed")
-	}
-}
-
-func TestGitHubFetchBoard_OrderPreservedWithConcurrentFetches(t *testing.T) {
+func TestGitHubFetchBoard_OrderPreserved(t *testing.T) {
 	columns := []string{"Backlog"}
 
-	// Create 15 issues all in the same column.
+	// FetchBoard's GraphQL path has no concurrency (unlike the old REST
+	// Phase 2 goroutine pool), but cards must still appear in the same order
+	// gql.fetchIssuePage returned the issueNodes in.
 	issueCount := 15
-	issues := make([]*github.Issue, issueCount)
-	timelineEvents := make(map[int][]*github.Timeline, issueCount)
+	issues := make([]issueNode, issueCount)
 	for i := range issues {
 		num := i + 1
-		issues[i] = makeIssue(num, fmt.Sprintf("Issue %d", num), "Backlog")
-		timelineEvents[num] = []*github.Timeline{}
+		issues[i] = buildIssueNode(num, fmt.Sprintf("Issue %d", num), "Backlog")
 	}
 
-	client := &mockGitHubClient{
-		issues:         issues,
-		timelineEvents: timelineEvents,
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issues...)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -1067,7 +924,7 @@ func TestGitHubFetchBoard_OrderPreservedWithConcurrentFetches(t *testing.T) {
 		t.Fatalf("got %d cards, want %d", len(cards), issueCount)
 	}
 
-	// Cards must be in creation order (issue number ascending).
+	// Cards must be in the same order the fake returned the issueNodes.
 	for i, card := range cards {
 		expectedNumber := i + 1
 		if card.Number != expectedNumber {
@@ -1077,35 +934,24 @@ func TestGitHubFetchBoard_OrderPreservedWithConcurrentFetches(t *testing.T) {
 }
 
 // --- Label Color Capture Tests ---
-
-// makeIssueWithColoredLabels builds a github.Issue with labels that have both
-// Name and Color fields set. Color values are hex strings without "#" prefix.
-func makeIssueWithColoredLabels(number int, title string, labels ...struct{ Name, Color string }) *github.Issue {
-	ghLabels := make([]*github.Label, len(labels))
-	for i, l := range labels {
-		ghLabels[i] = &github.Label{Name: github.Ptr(l.Name)}
-		if l.Color != "" {
-			ghLabels[i].Color = github.Ptr(l.Color)
-		}
-	}
-	return &github.Issue{
-		Number: github.Ptr(number),
-		Title:  github.Ptr(title),
-		Labels: ghLabels,
-	}
-}
+//
+// NOTE: TestGitHubFetchBoard_LabelColor_StripsHashPrefix,
+// _InvalidHex_FallsBackToEmpty, and _ShortHex_FallsBackToEmpty (the REST-era
+// hex-validation tests) were relocated to graphql_test.go during the
+// GraphQL migration. Hex color validation/stripping is performed once, in
+// mapIssueQueryNode (graphql.go) before an issueNode ever reaches
+// FetchBoard -- issueNode.labels already carries the validated Color, so
+// FetchBoard itself no longer has hex-validation behavior to test. See
+// TestMapIssueQueryNode_LabelColor_StripsHashPrefix,
+// _InvalidHex_FallsBackToEmpty, and _ShortHex_FallsBackToEmpty.
 
 func TestGitHubFetchBoard_CapturesLabelColor(t *testing.T) {
 	columns := []string{"Todo"}
-	issue := makeIssueWithColoredLabels(1, "Colored label issue",
-		struct{ Name, Color string }{"bug", "d73a4a"},
-	)
+	issue := buildIssueNode(1, "Colored label issue")
+	issue.labels = []Label{{Name: "bug", Color: "d73a4a"}}
 
-	client := &mockGitHubClient{
-		issues:         []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{1: {}},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -1126,14 +972,11 @@ func TestGitHubFetchBoard_CapturesLabelColor(t *testing.T) {
 
 func TestGitHubFetchBoard_LabelWithoutColor_EmptyColorField(t *testing.T) {
 	columns := []string{"Todo"}
-	// makeIssue creates labels without Color field.
-	issue := makeIssue(1, "No color label", "Todo")
+	// buildIssueNode creates labels without a Color field.
+	issue := buildIssueNode(1, "No color label", "Todo")
 
-	client := &mockGitHubClient{
-		issues:         []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{1: {}},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -1146,80 +989,6 @@ func TestGitHubFetchBoard_LabelWithoutColor_EmptyColorField(t *testing.T) {
 	}
 	if card.Labels[0].Color != "" {
 		t.Errorf("card.Labels[0].Color = %q, want empty string for label without color", card.Labels[0].Color)
-	}
-}
-
-func TestGitHubFetchBoard_LabelColor_StripsHashPrefix(t *testing.T) {
-	columns := []string{"Todo"}
-	// Some GitHub API responses may include a "#" prefix in the color field.
-	issue := makeIssueWithColoredLabels(1, "Hash prefix issue",
-		struct{ Name, Color string }{"feature", "#0075ca"},
-	)
-
-	client := &mockGitHubClient{
-		issues:         []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{1: {}},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
-
-	board, err := provider.FetchBoard(context.Background())
-	if err != nil {
-		t.Fatalf("FetchBoard returned error: %v", err)
-	}
-
-	card := board.Columns[0].Cards[0]
-	if len(card.Labels) != 1 {
-		t.Fatalf("card.Labels has %d entries, want 1", len(card.Labels))
-	}
-	// The stored color should NOT have the "#" prefix (it was stripped).
-	if card.Labels[0].Color != "0075ca" {
-		t.Errorf("card.Labels[0].Color = %q, want %q (should strip # prefix)", card.Labels[0].Color, "0075ca")
-	}
-}
-
-func TestGitHubFetchBoard_LabelColor_InvalidHex_FallsBackToEmpty(t *testing.T) {
-	columns := []string{"Todo"}
-	issue := makeIssueWithColoredLabels(1, "Invalid color",
-		struct{ Name, Color string }{"bug", "xxxxxx"},
-	)
-
-	client := &mockGitHubClient{
-		issues:         []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{1: {}},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
-
-	board, err := provider.FetchBoard(context.Background())
-	if err != nil {
-		t.Fatalf("FetchBoard returned error: %v", err)
-	}
-
-	card := board.Columns[0].Cards[0]
-	if card.Labels[0].Color != "" {
-		t.Errorf("card.Labels[0].Color = %q, want empty string for invalid hex color", card.Labels[0].Color)
-	}
-}
-
-func TestGitHubFetchBoard_LabelColor_ShortHex_FallsBackToEmpty(t *testing.T) {
-	columns := []string{"Todo"}
-	issue := makeIssueWithColoredLabels(1, "Short color",
-		struct{ Name, Color string }{"bug", "fff"},
-	)
-
-	client := &mockGitHubClient{
-		issues:         []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{1: {}},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
-
-	board, err := provider.FetchBoard(context.Background())
-	if err != nil {
-		t.Fatalf("FetchBoard returned error: %v", err)
-	}
-
-	card := board.Columns[0].Cards[0]
-	if card.Labels[0].Color != "" {
-		t.Errorf("card.Labels[0].Color = %q, want empty string for short hex color", card.Labels[0].Color)
 	}
 }
 
@@ -1237,7 +1006,7 @@ func TestGitHubCreateCard_CapturesLabelColorFromResponse(t *testing.T) {
 	client := &mockGitHubClient{createdIssue: createdIssue}
 	columns := []string{"New"}
 
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	card, err := provider.CreateCard(context.Background(), "New feature", expectedLabel)
 	if err != nil {
@@ -1283,7 +1052,7 @@ func TestGitHubUpdateCard_Success(t *testing.T) {
 		},
 	}
 	columns := []string{"New"}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	labelNames := make([]string, len(expectedLabels))
 	for i, l := range expectedLabels {
@@ -1332,7 +1101,7 @@ func TestGitHubUpdateCard_WithEmptyLabels(t *testing.T) {
 		},
 	}
 	columns := []string{"New"}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	card, err := provider.UpdateCard(context.Background(), expectedNumber, expectedTitle, expectedBody, []string{})
 	if err != nil {
@@ -1350,7 +1119,7 @@ func TestGitHubUpdateCard_APIError(t *testing.T) {
 		editErr: errors.New(apiErrMsg),
 	}
 	columns := []string{"New"}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	_, err := provider.UpdateCard(context.Background(), 1, "title", "body", []string{"bug"})
 	if err == nil {
@@ -1366,7 +1135,7 @@ func TestGitHubUpdateCard_APIError(t *testing.T) {
 func TestGitHubUpdateCard_EmptyTitle(t *testing.T) {
 	client := &mockGitHubClient{}
 	columns := []string{"New"}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	// Empty string title should return an error.
 	_, err := provider.UpdateCard(context.Background(), 1, "", "body", []string{"bug"})
@@ -1392,7 +1161,7 @@ func TestGitHubUpdateCard_ValidationError(t *testing.T) {
 		},
 	}
 	columns := []string{"New"}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	_, err := provider.UpdateCard(context.Background(), 1, "title", "body", []string{"nonexistent"})
 	if err == nil {
@@ -1416,7 +1185,7 @@ func TestGitHubCreateLabel_Success(t *testing.T) {
 		createdLabel: &github.Label{Name: github.Ptr(labelName)},
 	}
 	columns := []string{"New"}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	err := provider.CreateLabel(context.Background(), labelName)
 	if err != nil {
@@ -1430,7 +1199,7 @@ func TestGitHubCreateLabel_APIError(t *testing.T) {
 		createLabelErr: errors.New(apiErrMsg),
 	}
 	columns := []string{"New"}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	err := provider.CreateLabel(context.Background(), "some-label")
 	if err == nil {
@@ -1449,7 +1218,7 @@ func TestGitHubCreateLabel_AlreadyExists(t *testing.T) {
 		},
 	}
 	columns := []string{"New"}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	err := provider.CreateLabel(context.Background(), "existing-label")
 	if err == nil {
@@ -1497,7 +1266,7 @@ func TestGitHubListLabels_PaginatesAndExtractsNames(t *testing.T) {
 			{{Name: github.Ptr("planned")}},
 		},
 	}
-	p := NewGitHubProvider(client, "owner", "repo", []string{"New"})
+	p := NewGitHubProvider(client, nil, "owner", "repo", []string{"New"})
 
 	labels, err := p.ListLabels(context.Background())
 	if err != nil {
@@ -1518,7 +1287,7 @@ func TestGitHubListLabels_PaginatesAndExtractsNames(t *testing.T) {
 func TestGitHubListLabels_APIError(t *testing.T) {
 	apiErrMsg := "boom"
 	client := &mockGitHubClient{labelsErr: errors.New(apiErrMsg)}
-	p := NewGitHubProvider(client, "owner", "repo", []string{"New"})
+	p := NewGitHubProvider(client, nil, "owner", "repo", []string{"New"})
 
 	_, err := p.ListLabels(context.Background())
 	if err == nil {
@@ -1530,25 +1299,6 @@ func TestGitHubListLabels_APIError(t *testing.T) {
 }
 
 // --- Assignee Extraction Tests ---
-
-// makeIssueWithAssignees builds a github.Issue with the given number, title,
-// labels, and assignee logins.
-func makeIssueWithAssignees(number int, title string, labels []string, assigneeLogins ...string) *github.Issue {
-	ghLabels := make([]*github.Label, len(labels))
-	for i, name := range labels {
-		ghLabels[i] = &github.Label{Name: github.Ptr(name)}
-	}
-	assignees := make([]*github.User, len(assigneeLogins))
-	for i, login := range assigneeLogins {
-		assignees[i] = &github.User{Login: github.Ptr(login)}
-	}
-	return &github.Issue{
-		Number:    github.Ptr(number),
-		Title:     github.Ptr(title),
-		Labels:    ghLabels,
-		Assignees: assignees,
-	}
-}
 
 func TestExtractAssignees_MultipleAssignees(t *testing.T) {
 	assigneeLogin1 := "alice"
@@ -1593,13 +1343,11 @@ func TestGitHubFetchBoard_AssigneesPopulated(t *testing.T) {
 	columns := []string{"Todo"}
 	assigneeLogin1 := "alice"
 	assigneeLogin2 := "bob"
-	issue := makeIssueWithAssignees(1, "Assigned issue", []string{"Todo"}, assigneeLogin1, assigneeLogin2)
+	issue := buildIssueNode(1, "Assigned issue", "Todo")
+	issue.assignees = []Assignee{{Login: assigneeLogin1}, {Login: assigneeLogin2}}
 
-	client := &mockGitHubClient{
-		issues:         []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{1: {}},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -1624,13 +1372,10 @@ func TestGitHubFetchBoard_AssigneesPopulated(t *testing.T) {
 
 func TestGitHubFetchBoard_NoAssignees_EmptySlice(t *testing.T) {
 	columns := []string{"Todo"}
-	issue := makeIssue(1, "Unassigned issue", "Todo")
+	issue := buildIssueNode(1, "Unassigned issue", "Todo") // no assignees set
 
-	client := &mockGitHubClient{
-		issues:         []*github.Issue{issue},
-		timelineEvents: map[int][]*github.Timeline{1: {}},
-	}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err != nil {
@@ -1656,7 +1401,7 @@ func TestGitHubCreateCard_AssigneesPopulated(t *testing.T) {
 	client := &mockGitHubClient{createdIssue: createdIssue}
 	columns := []string{"New"}
 
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	card, err := provider.CreateCard(context.Background(), "New feature", "")
 	if err != nil {
@@ -1684,7 +1429,7 @@ func TestGitHubUpdateCard_AssigneesPreserved(t *testing.T) {
 	}
 	client := &mockGitHubClient{editedIssue: editedIssue}
 	columns := []string{"New"}
-	provider := NewGitHubProvider(client, "owner", "repo", columns)
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	card, err := provider.UpdateCard(context.Background(), 10, "Updated title", "Updated body", []string{})
 	if err != nil {
@@ -1711,7 +1456,7 @@ func TestGitHubFetchCollaborators_Success(t *testing.T) {
 		},
 	}
 	columns := []string{"New"}
-	p := NewGitHubProvider(client, "owner", "repo", columns)
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	collaborators, err := p.FetchCollaborators(context.Background())
 	if err != nil {
@@ -1735,7 +1480,7 @@ func TestGitHubFetchCollaborators_APIError(t *testing.T) {
 		collaboratorsErr: errors.New(apiErrMsg),
 	}
 	columns := []string{"New"}
-	p := NewGitHubProvider(client, "owner", "repo", columns)
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	_, err := p.FetchCollaborators(context.Background())
 	if err == nil {
@@ -1751,7 +1496,7 @@ func TestGitHubFetchCollaborators_EmptyList(t *testing.T) {
 		collaborators: []*github.User{},
 	}
 	columns := []string{"New"}
-	p := NewGitHubProvider(client, "owner", "repo", columns)
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	collaborators, err := p.FetchCollaborators(context.Background())
 	if err != nil {
@@ -1782,7 +1527,7 @@ func TestGitHubSetAssignees_Success(t *testing.T) {
 		},
 	}
 	columns := []string{"New"}
-	p := NewGitHubProvider(client, "owner", "repo", columns)
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	logins := []string{assigneeLogin1, assigneeLogin2}
 	card, err := p.SetAssignees(context.Background(), issueNumber, logins)
@@ -1819,7 +1564,7 @@ func TestGitHubSetAssignees_APIError(t *testing.T) {
 		editErr: errors.New(apiErrMsg),
 	}
 	columns := []string{"New"}
-	p := NewGitHubProvider(client, "owner", "repo", columns)
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	_, err := p.SetAssignees(context.Background(), 1, []string{"alice"})
 	if err == nil {
@@ -1842,7 +1587,7 @@ func TestGitHubSetAssignees_EmptyLogins(t *testing.T) {
 		},
 	}
 	columns := []string{"New"}
-	p := NewGitHubProvider(client, "owner", "repo", columns)
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	card, err := p.SetAssignees(context.Background(), issueNumber, []string{})
 	if err != nil {
@@ -1874,7 +1619,7 @@ func TestGitHubGetAuthenticatedUser_Success(t *testing.T) {
 		authenticatedUser: &github.User{Login: github.Ptr(expectedLogin)},
 	}
 	columns := []string{"New"}
-	p := NewGitHubProvider(client, "owner", "repo", columns)
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	login, err := p.GetAuthenticatedUser(context.Background())
 	if err != nil {
@@ -1892,7 +1637,7 @@ func TestGitHubGetAuthenticatedUser_APIError(t *testing.T) {
 		authUserErr: errors.New(apiErrMsg),
 	}
 	columns := []string{"New"}
-	p := NewGitHubProvider(client, "owner", "repo", columns)
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
 
 	_, err := p.GetAuthenticatedUser(context.Background())
 	if err == nil {
@@ -1900,5 +1645,318 @@ func TestGitHubGetAuthenticatedUser_APIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), apiErrMsg) {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
+	}
+}
+
+// --- GraphQL FetchBoard Tests (Part B) ---
+//
+// These tests exercise FetchBoard against a gql graphQLBoardClient fake.
+// FetchBoard itself no longer reads the REST GitHubClient at all -- it pages
+// exclusively through gql.fetchIssuePage/fetchIssueTimelinePage -- but
+// NewGitHubProvider still requires a non-nil GitHubClient for its other
+// REST-backed methods (CreateCard, UpdateCard, etc.), so these tests pass
+// emptyRESTClient() as an unused placeholder.
+
+// emptyRESTClient is a non-nil, empty GitHubClient used as the required
+// client param in GraphQL-path tests below. FetchBoard never reads it (it
+// pages through gql instead); it exists solely to satisfy NewGitHubProvider's
+// signature without a nil interface value.
+func emptyRESTClient() *mockGitHubClient {
+	return &mockGitHubClient{issues: []*github.Issue{}}
+}
+
+func TestFetchBoard_GraphQL_SingleCallFetchesIssuesAndLinkedPRs(t *testing.T) {
+	columns := []string{"New", "In Progress", "Done"}
+
+	issues := []issueNode{
+		{
+			number: 1,
+			title:  "Multi-labeled issue lands in furthest column",
+			labels: []Label{{Name: "In Progress"}, {Name: "Done"}},
+		},
+		{
+			number: 2,
+			title:  "No matching label goes to first column",
+			labels: []Label{{Name: "unrelated-label"}},
+		},
+		{
+			number: 3,
+			title:  "Has linked PRs",
+			labels: []Label{{Name: "New"}},
+			// Represents mapLinkedPRs' already-deduped, PR-only output: a
+			// duplicate cross-reference to PR 50 and a cross-reference sourced
+			// from a plain issue would both have been collapsed/excluded
+			// upstream (proven separately by TestMapLinkedPRs_* in
+			// graphql_test.go), leaving just these two unique PRs here.
+			linkedPRs: []LinkedPR{
+				{Number: 50, Title: "Fix A", URL: "https://github.com/owner/repo/pull/50"},
+				{Number: 51, Title: "Fix B", URL: "https://github.com/owner/repo/pull/51"},
+			},
+		},
+	}
+
+	gql := &fakeGraphQLClient{
+		pages: map[string]issuePage{
+			"": {issues: issues, hasNextPage: false},
+		},
+	}
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	if len(board.Columns) != len(columns) {
+		t.Fatalf("got %d columns, want %d", len(board.Columns), len(columns))
+	}
+
+	// Furthest-matching-label column wins: issue #1 has labels for both
+	// "In Progress" (index 1) and "Done" (index 2); it must land in "Done".
+	doneCol := board.Columns[2]
+	if len(doneCol.Cards) != 1 || doneCol.Cards[0].Number != 1 {
+		t.Fatalf("Done column cards = %+v, want issue #1 (furthest matching column)", doneCol.Cards)
+	}
+
+	// Issue #2 (no matching label) and issue #3 (label "New") both belong in
+	// the "New" column (index 0).
+	newCol := board.Columns[0]
+	cardsByNumber := map[int]Card{}
+	for _, c := range newCol.Cards {
+		cardsByNumber[c.Number] = c
+	}
+	if _, ok := cardsByNumber[2]; !ok {
+		t.Fatalf("New column cards = %+v, want issue #2 present (no matching label -> first column)", newCol.Cards)
+	}
+	card3, ok := cardsByNumber[3]
+	if !ok {
+		t.Fatalf("New column cards = %+v, want issue #3 present (matches \"New\" label)", newCol.Cards)
+	}
+
+	// Issue #3's linked PRs must be forwarded intact: deduped by number, with
+	// any non-PR cross-reference sources already excluded upstream.
+	if len(card3.LinkedPRs) != 2 {
+		t.Fatalf("issue #3 LinkedPRs = %+v, want 2 entries (deduped, non-PR sources excluded)", card3.LinkedPRs)
+	}
+	seenPRs := map[int]bool{}
+	for _, pr := range card3.LinkedPRs {
+		seenPRs[pr.Number] = true
+	}
+	if !seenPRs[50] || !seenPRs[51] {
+		t.Fatalf("issue #3 LinkedPRs = %+v, want PR numbers 50 and 51", card3.LinkedPRs)
+	}
+}
+
+func TestFetchBoard_GraphQL_Paginates(t *testing.T) {
+	columns := []string{"Backlog"}
+
+	firstPage := issuePage{
+		issues:      []issueNode{{number: 1, title: "First page issue"}},
+		hasNextPage: true,
+		endCursor:   "issue-cursor-1",
+	}
+	secondPage := issuePage{
+		issues:      []issueNode{{number: 2, title: "Second page issue"}},
+		hasNextPage: false,
+	}
+
+	gql := &fakeGraphQLClient{
+		pages: map[string]issuePage{
+			"":               firstPage,
+			"issue-cursor-1": secondPage,
+		},
+	}
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	if len(board.Columns) != 1 {
+		t.Fatalf("got %d columns, want 1", len(board.Columns))
+	}
+
+	numbersSeen := map[int]bool{}
+	for _, c := range board.Columns[0].Cards {
+		numbersSeen[c.Number] = true
+	}
+	if !numbersSeen[1] || !numbersSeen[2] {
+		t.Fatalf("board cards = %+v, want both issue #1 (first page) and issue #2 (second page) present", board.Columns[0].Cards)
+	}
+}
+
+func TestFetchBoard_GraphQL_NestedTimelinePagination(t *testing.T) {
+	columns := []string{"Backlog"}
+	const issueNumber = 55
+
+	initialIssue := issueNode{
+		number: issueNumber,
+		title:  "Issue with >100 cross-references",
+		// First page's own linked PRs, as mapIssueQueryNode's timelineItems
+		// mapping would have produced them.
+		linkedPRs:            []LinkedPR{{Number: 900, Title: "First-page PR", URL: "https://github.com/owner/repo/pull/900"}},
+		hasMoreTimelineItems: true,
+		timelineEndCursor:    "timeline-cursor-1",
+	}
+
+	gql := &fakeGraphQLClient{
+		pages: map[string]issuePage{
+			"": {issues: []issueNode{initialIssue}, hasNextPage: false},
+		},
+		timelinePages: map[int]map[string]timelinePage{
+			issueNumber: {
+				"timeline-cursor-1": {
+					linkedPRs:   []LinkedPR{{Number: 901, Title: "Follow-up PR", URL: "https://github.com/owner/repo/pull/901"}},
+					hasNextPage: false,
+				},
+			},
+		},
+	}
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	if len(board.Columns) != 1 || len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("board columns = %+v, want 1 column with 1 card", board.Columns)
+	}
+
+	card := board.Columns[0].Cards[0]
+	seenPRs := map[int]bool{}
+	for _, pr := range card.LinkedPRs {
+		seenPRs[pr.Number] = true
+	}
+	if !seenPRs[900] {
+		t.Fatalf("card.LinkedPRs = %+v, want first page's PR #900 present", card.LinkedPRs)
+	}
+	if !seenPRs[901] {
+		t.Fatalf("card.LinkedPRs = %+v, want follow-up page's PR #901 present (bounded nested pagination merge)", card.LinkedPRs)
+	}
+}
+
+func TestFetchBoard_GraphQL_NestedTimelinePagination_CapsFollowupQueries(t *testing.T) {
+	columns := []string{"Backlog"}
+	const issueNumber = 77
+
+	initialIssue := issueNode{
+		number:               issueNumber,
+		title:                "Pathologically cross-referenced issue",
+		hasMoreTimelineItems: true,
+		timelineEndCursor:    "cursor-0",
+	}
+
+	// Script maxTimelineFollowupPages worth of follow-up pages, each pointing
+	// to the next, PLUS one extra page beyond the cap. If FetchBoard properly
+	// bounds the follow-up loop at maxTimelineFollowupPages, the extra page's
+	// PR must never be requested/collected -- a correctness property that
+	// can only be pinned by observing which scripted pages were consumed.
+	timelinePagesForIssue := map[string]timelinePage{}
+	for i := 0; i < maxTimelineFollowupPages; i++ {
+		cursor := fmt.Sprintf("cursor-%d", i)
+		nextCursor := fmt.Sprintf("cursor-%d", i+1)
+		timelinePagesForIssue[cursor] = timelinePage{
+			linkedPRs:   []LinkedPR{{Number: 1000 + i, Title: fmt.Sprintf("Follow-up PR %d", i), URL: "https://github.com/owner/repo/pull/x"}},
+			hasNextPage: true,
+			endCursor:   nextCursor,
+		}
+	}
+	// The one-past-the-cap page: must never be reached by a correctly-capped loop.
+	pastCapCursor := fmt.Sprintf("cursor-%d", maxTimelineFollowupPages)
+	pastCapPRNumber := 1000 + maxTimelineFollowupPages
+	timelinePagesForIssue[pastCapCursor] = timelinePage{
+		linkedPRs:   []LinkedPR{{Number: pastCapPRNumber, Title: "Past-cap PR", URL: "https://github.com/owner/repo/pull/x"}},
+		hasNextPage: true,
+		endCursor:   fmt.Sprintf("cursor-%d", maxTimelineFollowupPages+1),
+	}
+
+	gql := &fakeGraphQLClient{
+		pages: map[string]issuePage{
+			"": {issues: []issueNode{initialIssue}, hasNextPage: false},
+		},
+		timelinePages: map[int]map[string]timelinePage{
+			issueNumber: timelinePagesForIssue,
+		},
+	}
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v, want no error (cap-exceeded degrades gracefully, does not fail the board fetch)", err)
+	}
+	if len(board.Columns) != 1 || len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("board columns = %+v, want 1 column with 1 card", board.Columns)
+	}
+
+	card := board.Columns[0].Cards[0]
+	seenPRs := map[int]bool{}
+	for _, pr := range card.LinkedPRs {
+		seenPRs[pr.Number] = true
+	}
+	for i := 0; i < maxTimelineFollowupPages; i++ {
+		if !seenPRs[1000+i] {
+			t.Fatalf("card.LinkedPRs = %+v, want PR #%d collected (within the follow-up cap)", card.LinkedPRs, 1000+i)
+		}
+	}
+	if seenPRs[pastCapPRNumber] {
+		t.Fatalf("card.LinkedPRs = %+v, want past-cap PR #%d NOT collected (follow-up loop must stop at maxTimelineFollowupPages)", card.LinkedPRs, pastCapPRNumber)
+	}
+
+	// The cap itself is the behavior under test: the follow-up loop must
+	// issue no more than maxTimelineFollowupPages calls for this issue. This
+	// call-count assertion is a direct guard of the ticket's cap contract,
+	// not an incidental implementation detail (see lessons-learned.md's
+	// carve-out for count assertions that guard observable cap behavior).
+	if len(gql.calledTimelineCursors) > maxTimelineFollowupPages {
+		t.Fatalf("fetchIssueTimelinePage was called %d times, want at most maxTimelineFollowupPages (%d)", len(gql.calledTimelineCursors), maxTimelineFollowupPages)
+	}
+}
+
+// timelineErrorFakeClient wraps a fakeGraphQLClient to return a distinct,
+// scripted error only from fetchIssueTimelinePage, leaving fetchIssuePage's
+// success path untouched. fakeGraphQLClient's single shared err field can't
+// express "outer page succeeds, follow-up fails" (setting it fails both
+// calls), so this wrapper isolates the follow-up-only failure needed to
+// distinguish FetchBoard's fail-whole-board branch from the cap-exceeded
+// graceful-degradation branch (TestFetchBoard_GraphQL_NestedTimelinePagination_CapsFollowupQueries).
+type timelineErrorFakeClient struct {
+	*fakeGraphQLClient
+	timelineErr error
+}
+
+func (f *timelineErrorFakeClient) fetchIssueTimelinePage(_ context.Context, _, _ string, _ int, _ string) (timelinePage, error) {
+	return timelinePage{}, f.timelineErr
+}
+
+func TestFetchBoard_GraphQL_TimelineFollowupError_FailsFetchBoard(t *testing.T) {
+	columns := []string{"Backlog"}
+	const issueNumber = 88
+	followupErr := errors.New("graphql: follow-up query failed")
+
+	initialIssue := issueNode{
+		number:               issueNumber,
+		title:                "Issue whose follow-up query fails",
+		hasMoreTimelineItems: true,
+		timelineEndCursor:    "timeline-cursor-1",
+	}
+
+	gql := &timelineErrorFakeClient{
+		fakeGraphQLClient: &fakeGraphQLClient{
+			pages: map[string]issuePage{
+				"": {issues: []issueNode{initialIssue}, hasNextPage: false},
+			},
+		},
+		timelineErr: followupErr,
+	}
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err == nil {
+		t.Fatal("expected FetchBoard to return an error when a follow-up timeline query fails, got nil")
+	}
+	if !errors.Is(err, followupErr) {
+		t.Errorf("FetchBoard error = %v, want it to wrap %v", err, followupErr)
+	}
+	if len(board.Columns) != 0 {
+		t.Errorf("board = %+v, want a zero-value Board{} on follow-up error (not a partial board)", board)
 	}
 }
