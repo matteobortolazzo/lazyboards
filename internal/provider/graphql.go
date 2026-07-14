@@ -2,6 +2,9 @@ package provider
 
 import (
 	"context"
+	"strings"
+
+	"github.com/shurcooL/githubv4"
 )
 
 // graphQLBoardClient is a narrow, typed-result seam over the GitHub GraphQL
@@ -39,4 +42,193 @@ type issueNode struct {
 
 	hasMoreTimelineItems bool
 	timelineEndCursor    string
+}
+
+// issuesQuery is the githubv4 struct-tag-based query DSL representation of:
+//
+//	query($owner: String!, $name: String!, $issueCursor: String) {
+//	  repository(owner: $owner, name: $name) {
+//	    issues(states: [OPEN], orderBy: {field: CREATED_AT, direction: ASC}, first: 100, after: $issueCursor) {
+//	      nodes {
+//	        number
+//	        title
+//	        body
+//	        url
+//	        labels(first: 50) { nodes { name color } }
+//	        assignees(first: 20) { nodes { login } }
+//	        timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
+//	          nodes {
+//	            ... on CrossReferencedEvent {
+//	              source {
+//	                ... on PullRequest { number title url }
+//	              }
+//	            }
+//	          }
+//	          pageInfo { hasNextPage endCursor }
+//	        }
+//	      }
+//	      pageInfo { hasNextPage endCursor }
+//	    }
+//	  }
+//	}
+type issuesQuery struct {
+	Repository struct {
+		Issues struct {
+			Nodes    []issueQueryNode
+			PageInfo pageInfoFragment
+		} `graphql:"issues(states: [OPEN], orderBy: {field: CREATED_AT, direction: ASC}, first: 100, after: $issueCursor)"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+// pageInfoFragment mirrors GraphQL's standard Relay PageInfo shape.
+type pageInfoFragment struct {
+	HasNextPage githubv4.Boolean
+	EndCursor   githubv4.String
+}
+
+type issueQueryNode struct {
+	Number githubv4.Int
+	Title  githubv4.String
+	Body   githubv4.String
+	URL    githubv4.String
+	Labels struct {
+		Nodes []labelQueryNode
+	} `graphql:"labels(first: 50)"`
+	Assignees struct {
+		Nodes []assigneeQueryNode
+	} `graphql:"assignees(first: 20)"`
+	TimelineItems struct {
+		Nodes    []timelineItemQueryNode
+		PageInfo pageInfoFragment
+	} `graphql:"timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT])"`
+}
+
+type labelQueryNode struct {
+	Name  githubv4.String
+	Color githubv4.String
+}
+
+type assigneeQueryNode struct {
+	Login githubv4.String
+}
+
+// timelineItemQueryNode represents one CROSS_REFERENCED_EVENT timeline item.
+// CrossReferencedEvent.source is a GraphQL union (Issue or PullRequest); only
+// the "... on PullRequest" inline fragment is requested here, so a
+// cross-reference sourced from a plain Issue leaves PullRequest zero-valued.
+type timelineItemQueryNode struct {
+	CrossReferencedEvent struct {
+		Source struct {
+			PullRequest struct {
+				Number githubv4.Int
+				Title  githubv4.String
+				URL    githubv4.String
+			} `graphql:"... on PullRequest"`
+		}
+	} `graphql:"... on CrossReferencedEvent"`
+}
+
+// Compile-time check: *githubv4Adapter implements graphQLBoardClient.
+var _ graphQLBoardClient = (*githubv4Adapter)(nil)
+
+// githubv4Adapter implements graphQLBoardClient by running issuesQuery
+// against a real GitHub GraphQL API v4 client and mapping the response into
+// plain issuePage/issueNode values.
+type githubv4Adapter struct {
+	client *githubv4.Client
+}
+
+// newGitHubV4Adapter creates a githubv4Adapter wrapping the given githubv4.Client.
+func newGitHubV4Adapter(client *githubv4.Client) *githubv4Adapter {
+	return &githubv4Adapter{client: client}
+}
+
+func (a *githubv4Adapter) fetchIssuePage(ctx context.Context, owner, repo, afterCursor string) (issuePage, error) {
+	variables := map[string]interface{}{
+		"owner":       githubv4.String(owner),
+		"name":        githubv4.String(repo),
+		"issueCursor": (*githubv4.String)(nil),
+	}
+	if afterCursor != "" {
+		cursor := githubv4.String(afterCursor)
+		variables["issueCursor"] = &cursor
+	}
+
+	var q issuesQuery
+	if err := a.client.Query(ctx, &q, variables); err != nil {
+		return issuePage{}, err
+	}
+
+	return mapIssuesQuery(q), nil
+}
+
+// mapIssuesQuery converts a githubv4 issuesQuery response into a plain
+// issuePage, decoupled from any githubv4-specific types.
+func mapIssuesQuery(q issuesQuery) issuePage {
+	nodes := q.Repository.Issues.Nodes
+	issues := make([]issueNode, 0, len(nodes))
+	for _, n := range nodes {
+		issues = append(issues, mapIssueQueryNode(n))
+	}
+	return issuePage{
+		issues:      issues,
+		hasNextPage: bool(q.Repository.Issues.PageInfo.HasNextPage),
+		endCursor:   string(q.Repository.Issues.PageInfo.EndCursor),
+	}
+}
+
+func mapIssueQueryNode(n issueQueryNode) issueNode {
+	labels := make([]Label, 0, len(n.Labels.Nodes))
+	for _, l := range n.Labels.Nodes {
+		color := strings.TrimPrefix(string(l.Color), "#")
+		if !hexColorRE.MatchString(color) {
+			color = ""
+		}
+		labels = append(labels, Label{Name: string(l.Name), Color: color})
+	}
+
+	assignees := make([]Assignee, 0, len(n.Assignees.Nodes))
+	for _, a := range n.Assignees.Nodes {
+		assignees = append(assignees, Assignee{Login: string(a.Login)})
+	}
+
+	return issueNode{
+		number:               int(n.Number),
+		title:                string(n.Title),
+		body:                 string(n.Body),
+		url:                  string(n.URL),
+		labels:               labels,
+		assignees:            assignees,
+		linkedPRs:            mapLinkedPRs(n.TimelineItems.Nodes),
+		hasMoreTimelineItems: bool(n.TimelineItems.PageInfo.HasNextPage),
+		timelineEndCursor:    string(n.TimelineItems.PageInfo.EndCursor),
+	}
+}
+
+// mapLinkedPRs extracts linked PRs from an issue's cross-referenced timeline
+// items, skipping cross-references whose source is a plain Issue (the
+// "... on PullRequest" union fragment didn't match, so PullRequest.Number is
+// zero-valued) and deduping by PR number within the issue's timeline —
+// mirroring the existing seen[prNumber] dedup pattern in fetchLinkedPRs
+// (github.go).
+func mapLinkedPRs(items []timelineItemQueryNode) []LinkedPR {
+	seen := make(map[int]bool)
+	var linkedPRs []LinkedPR
+	for _, item := range items {
+		pr := item.CrossReferencedEvent.Source.PullRequest
+		if pr.Number == 0 {
+			continue
+		}
+		number := int(pr.Number)
+		if seen[number] {
+			continue
+		}
+		seen[number] = true
+		linkedPRs = append(linkedPRs, LinkedPR{
+			Number: number,
+			Title:  string(pr.Title),
+			URL:    string(pr.URL),
+		})
+	}
+	return linkedPRs
 }
