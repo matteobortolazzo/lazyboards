@@ -29,30 +29,32 @@ var (
 	rightPanelStyle          = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	outerStyle               = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
 	helpStyle                = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	prIndicatorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
-	workingIndicatorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
+	prIndicatorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("183"))
+	workingIndicatorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("215"))
 	// Agent status badge styles (agentwatch card badges). All statuses render
 	// as a single mark in plain foreground color -- no reverse/background --
 	// so the badges read as one consistent family.
 	agentRunningStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))
 	agentDoneStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
 	agentStoppedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	agentNeedInputStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	agentFailedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	agentNeedInputStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+	agentFailedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	cardNumberStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	hintKeyStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	hintDescStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	// Git status segment styles (status bar), lazygit-style: additions green,
-	// deletions red, unpushed (push) orange, unpulled (pull) yellow.
+	// Git status segment styles (status bar), lazygit-style but muted to match
+	// the rest of the palette: additions green, deletions red, push/pull
+	// (ahead/behind) share one gentle blue since they're both just "sync"
+	// state, not a warning.
 	gitAddedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
-	gitDeletedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	gitAheadStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
-	gitBehindStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
+	gitDeletedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+	gitAheadStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))
+	gitBehindStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))
 	// Status bar message styles use a dedicated renderer with forced ANSI256
 	// so that colored messages always render, even in non-TTY environments.
 	statusRenderer     = newStatusRenderer()
-	statusErrorStyle   = statusRenderer.NewStyle().Foreground(lipgloss.Color("196"))
-	statusWarningStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("226"))
+	statusErrorStyle   = statusRenderer.NewStyle().Foreground(lipgloss.Color("203"))
+	statusWarningStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("222"))
 	statusSuccessStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("114"))
 )
 
