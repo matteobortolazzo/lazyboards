@@ -208,15 +208,15 @@ Press the key to execute the action on the selected card. Custom actions and `Al
 
 | Variable | Scope | Description |
 |----------|-------|-------------|
-| `{number}` | card | Issue number |
-| `{title}` | card | Slugified title (lowercase, hyphens) |
-| `{tags}` | card | Comma-separated labels |
-| `{session}` | card | `{number}-{title}`, capped at `session_max_length` |
-| `{window}` | card | Live agentwatch window name for the card (joined by ticket-number prefix), falling back to `{session}` when no agent window is live |
-| `{comment}` | both | User-entered comment (see [Comment Mode](#comment-mode)) |
-| `{repo_owner}` | both | Repository owner |
-| `{repo_name}` | both | Repository name |
-| `{provider}` | both | Provider name (e.g., `github`) |
+| `{number}` | card, pr | Issue number |
+| `{title}` | card, pr | Slugified title (lowercase, hyphens) |
+| `{tags}` | card, pr | Comma-separated labels |
+| `{session}` | card, pr | `{number}-{title}`, capped at `session_max_length` |
+| `{window}` | card, pr | Live agentwatch window name for the card (joined by ticket-number prefix), falling back to `{session}` when no agent window is live |
+| `{comment}` | all | User-entered comment (see [Comment Mode](#comment-mode)) |
+| `{repo_owner}` | all | Repository owner |
+| `{repo_name}` | all | Repository name |
+| `{provider}` | all | Provider name (e.g., `github`) |
 | `{pr_branch}` | pr | Linked PR's branch name |
 | `{pr_number}` | pr | Linked PR's number |
 | `{pr_url}` | pr | Linked PR's URL |
