@@ -44,7 +44,8 @@ func (l *Logger) Log(msg string) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	fmt.Fprintf(l.w, "%s %s\n", time.Now().Format(time.RFC3339), msg)
+	// Best-effort sink: a write failure here must never propagate or panic.
+	_, _ = fmt.Fprintf(l.w, "%s %s\n", time.Now().Format(time.RFC3339), msg)
 }
 
 // Errorf formats a message per format/args and logs it via Log. Safe to
