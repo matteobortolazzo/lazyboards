@@ -203,6 +203,13 @@ const (
 	agentWatchMaxBackoff     = 30 * time.Second
 )
 
+// agentWatchClearThreshold is the number of consecutive agentwatch watcher
+// errors, with no intervening successful snapshot, required before the
+// dispatch status-bar segment is cleared live. A lone transient blip (1
+// error) is tolerated since the reconnect backoff ladder self-heals within
+// ~1s; only a second consecutive error clears the segment (#333).
+const agentWatchClearThreshold = 2
+
 // gitStatusPollInterval is the fixed interval for the background git status
 // poll (a fallback for out-of-app changes), independent of any fetch/refresh
 // completion so it can't spin on an ambiguous read result.
@@ -542,60 +549,61 @@ type createState struct {
 
 // Board is the top-level model implementing tea.Model.
 type Board struct {
-	Columns               []Column
-	ActiveTab             int
-	Width                 int
-	Height                int
-	mode                  boardMode
-	validationErr         string
-	provider              provider.BoardProvider
-	spinner               spinner.Model
-	loadErr               string
-	statusBar             StatusBar
-	loaded                bool
-	actions               map[string]config.Action
-	defaultActions        map[string]config.Action
-	columnConfigs         []config.ColumnConfig
-	executor              action.Executor
-	repoOwner             string
-	repoName              string
-	providerName          string
-	sessionMaxLen         int
-	normalHints           []Hint
-	comment               commentState
-	assign                assignState
-	config                configState
-	create                createState
-	detailFocused         bool
-	detailScrollOffset    int
-	prPickerIndex         int
-	refreshing            bool
-	refreshInterval       time.Duration
-	actionRefreshDelay    time.Duration
-	lastMetadataFetch     time.Time
-	metadataTTL           time.Duration
-	pendingAutoRefresh    bool
-	prevCards             map[int]prevCardInfo
-	searchQuery           string
-	searchInput           textinput.Model
-	helpScrollOffset      int
-	helpFromDetailFocused bool
-	workingLabel          string
-	mouseEnabled          bool
-	labelConfirm          labelConfirmState
-	filterItems           []filterItem
-	filterCursor          int
-	activeFilterType      filterType
-	activeFilterValue     string
-	collaborators         []Assignee
-	authenticatedUser     string
-	repoLabels            []string
-	agentWatcher          agentwatch.Watcher
-	agentSnapshot         *agentwatch.StateSnapshot
-	agentBackoff          time.Duration
-	gitReader             gitdetect.Reader
-	gitPanel              gitPanelState
-	dispatch              dispatchState
+	Columns                     []Column
+	ActiveTab                   int
+	Width                       int
+	Height                      int
+	mode                        boardMode
+	validationErr               string
+	provider                    provider.BoardProvider
+	spinner                     spinner.Model
+	loadErr                     string
+	statusBar                   StatusBar
+	loaded                      bool
+	actions                     map[string]config.Action
+	defaultActions              map[string]config.Action
+	columnConfigs               []config.ColumnConfig
+	executor                    action.Executor
+	repoOwner                   string
+	repoName                    string
+	providerName                string
+	sessionMaxLen               int
+	normalHints                 []Hint
+	comment                     commentState
+	assign                      assignState
+	config                      configState
+	create                      createState
+	detailFocused               bool
+	detailScrollOffset          int
+	prPickerIndex               int
+	refreshing                  bool
+	refreshInterval             time.Duration
+	actionRefreshDelay          time.Duration
+	lastMetadataFetch           time.Time
+	metadataTTL                 time.Duration
+	pendingAutoRefresh          bool
+	prevCards                   map[int]prevCardInfo
+	searchQuery                 string
+	searchInput                 textinput.Model
+	helpScrollOffset            int
+	helpFromDetailFocused       bool
+	workingLabel                string
+	mouseEnabled                bool
+	labelConfirm                labelConfirmState
+	filterItems                 []filterItem
+	filterCursor                int
+	activeFilterType            filterType
+	activeFilterValue           string
+	collaborators               []Assignee
+	authenticatedUser           string
+	repoLabels                  []string
+	agentWatcher                agentwatch.Watcher
+	agentSnapshot               *agentwatch.StateSnapshot
+	agentBackoff                time.Duration
+	agentWatchConsecutiveErrors int
+	gitReader                   gitdetect.Reader
+	gitPanel                    gitPanelState
+	dispatch                    dispatchState
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).

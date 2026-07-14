@@ -247,7 +247,9 @@ The segment refreshes on board start, after every board refresh, after any succe
 
 ### Dispatch Status Segment
 
-When the agentwatch daemon reports the background dispatch loop enabled, the status bar shows a `⟳ dispatch` segment, right-aligned to the left of the git segment (see [Git Status Segment](#git-status-segment) for priority rules — the dispatch segment is dropped first on narrow terminals). It's sourced live from the same watcher subscription that drives agent-status badges, so it appears and disappears immediately as the loop is toggled or the daemon becomes unreachable — no restart needed. If the last dispatch pass failed, the segment renders in red instead of its normal color.
+When the agentwatch daemon reports the background dispatch loop enabled, the status bar shows a `⟳ dispatch` segment, right-aligned to the left of the git segment (see [Git Status Segment](#git-status-segment) for priority rules — the dispatch segment is dropped first on narrow terminals). It's sourced live from the same watcher subscription that drives agent-status badges, so it appears and disappears immediately as the loop is toggled or the daemon becomes unreachable — no restart needed. If the last dispatch pass failed, the segment renders in red instead of its normal color. A single transient watcher reconnect blip is tolerated and does not clear the segment; it only clears after a second consecutive watcher error with no successful reconnect in between.
+
+Set `LAZYBOARDS_DEBUG_LOG=<path>` to append watcher connection errors (including tolerated blips) to a file at `<path>`, one timestamped line per error — useful for diagnosing daemon connectivity issues. Unset (the default), this is a complete no-op: no file is created and there's no overhead.
 
 ### Column-Specific Actions
 

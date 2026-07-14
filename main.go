@@ -15,6 +15,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/auth"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"golang.org/x/oauth2"
@@ -216,6 +217,10 @@ func main() {
 	if gitInfo.Repo != "" {
 		defaultGitActions = config.DefaultGitActions()
 		gitReader = gitdetect.ExecReader{}
+	}
+
+	if err := debuglog.Init(os.Getenv("LAZYBOARDS_DEBUG_LOG")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening debug log: %v\n", err)
 	}
 
 	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader)
