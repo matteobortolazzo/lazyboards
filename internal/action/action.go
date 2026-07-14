@@ -29,7 +29,7 @@ func Slugify(s string) string {
 }
 
 // ShellEscape wraps a string in single quotes for safe use in shell commands.
-// Any embedded single quotes are escaped with the '\'' idiom.
+// Any embedded single quotes use the standard POSIX shell escaping idiom.
 func ShellEscape(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
@@ -134,8 +134,8 @@ func BuildBoardTemplateVars(repoOwner, repoName, providerName, comment string) m
 // resolveWindowName in update.go). BuildTemplateVars does not derive it.
 func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, repoOwner, repoName, providerName string, sessionMaxLen int, comment, window string) map[string]string {
 	return map[string]string{
-		"number":     fmt.Sprintf("%d", cardNumber),
-		"title":      Slugify(cardTitle),
+		"number": fmt.Sprintf("%d", cardNumber),
+		"title":  Slugify(cardTitle),
 		// tags expands to a single comma-separated string of all card labels,
 		// e.g., "bug,feature,urgent". After shell escaping via BuildShellSafeVars,
 		// this becomes one quoted token: 'bug,feature,urgent'.
@@ -153,14 +153,15 @@ func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, re
 }
 
 // BuildPRTemplateVars returns a new variable map layering PR-specific
-// template variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title}) on top
+// template variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title},
+// {pr_worktree}) on top
 // of a copy of base (typically the result of BuildTemplateVars). It does not
 // mutate base. pr_title is slugified via Slugify; pr_number is formatted as a
-// plain integer string; pr_branch and pr_url pass through raw — escaping for
-// shell/URL contexts happens uniformly later via BuildShellSafeVars/
-// BuildURLSafeVars at the dispatch call site.
-func BuildPRTemplateVars(base map[string]string, prNumber int, prTitle, prURL, prBranch string) map[string]string {
-	vars := make(map[string]string, len(base)+4)
+// plain integer string; pr_branch, pr_url, and pr_worktree pass through raw —
+// escaping for shell/URL contexts happens uniformly later via
+// BuildShellSafeVars/BuildURLSafeVars at the dispatch call site.
+func BuildPRTemplateVars(base map[string]string, prNumber int, prTitle, prURL, prBranch, prWorktree string) map[string]string {
+	vars := make(map[string]string, len(base)+5)
 	for k, v := range base {
 		vars[k] = v
 	}
@@ -168,5 +169,6 @@ func BuildPRTemplateVars(base map[string]string, prNumber int, prTitle, prURL, p
 	vars["pr_number"] = fmt.Sprintf("%d", prNumber)
 	vars["pr_url"] = prURL
 	vars["pr_title"] = Slugify(prTitle)
+	vars["pr_worktree"] = prWorktree
 	return vars
 }

@@ -655,7 +655,7 @@ actions:
 }
 
 func TestLoad_ActionScopePR_WithCardAndPRVars_Accepted(t *testing.T) {
-	// scope: pr actions must have access to all four new PR vars PLUS all
+	// scope: pr actions must have access to all PR vars PLUS all
 	// existing card-scope vars in the same template.
 	yamlContent := `provider: github
 actions:
@@ -663,7 +663,7 @@ actions:
     name: Annotate PR
     type: shell
     scope: pr
-    command: "echo {number} {title} {tags} {session} {comment} {pr_number} {pr_branch} {pr_url} {pr_title}"
+    command: "echo {number} {title} {tags} {session} {comment} {pr_number} {pr_branch} {pr_url} {pr_title} {pr_worktree}"
 `
 	result := mustLoadConfig(t, yamlContent, "")
 	action := result.Actions["W"]
@@ -694,7 +694,7 @@ columns:
 // scope currently allows every var, but {pr_*} vars must now be rejected
 // there too (mirrors the existing board-scope rejection of card vars).
 func TestLoad_ActionScopeCard_WithPRVar_ReturnsError(t *testing.T) {
-	prVars := []string{"pr_branch", "pr_number", "pr_url", "pr_title"}
+	prVars := []string{"pr_branch", "pr_number", "pr_url", "pr_title", "pr_worktree"}
 	for _, v := range prVars {
 		t.Run(v, func(t *testing.T) {
 			yamlContent := `provider: github
@@ -718,7 +718,7 @@ actions:
 }
 
 func TestLoad_ActionScopeBoard_WithPRVar_ReturnsError(t *testing.T) {
-	prVars := []string{"pr_branch", "pr_number", "pr_url", "pr_title"}
+	prVars := []string{"pr_branch", "pr_number", "pr_url", "pr_title", "pr_worktree"}
 	for _, v := range prVars {
 		t.Run(v, func(t *testing.T) {
 			yamlContent := `provider: github

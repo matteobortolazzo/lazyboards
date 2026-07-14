@@ -1161,6 +1161,49 @@ func TestAction_PRScope_TemplateIncludesAllPRAndCardVars(t *testing.T) {
 	}
 }
 
+func TestAction_PRScope_PRWorktreeExpandsRegisteredWorktree(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Run worktree", Type: "shell", Scope: "pr", Command: "cd {pr_worktree} && ng serve"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+	fe.RunShellOutputStdout = "worktree /repo/.worktrees/one-pr\nHEAD 1234567\nbranch refs/heads/feature/one-pr\n"
+
+	b = sendKey(t, b, keyMsg("j"))
+	_, cmd := b.Update(keyMsg("W"))
+	execCmds(cmd)
+
+	if len(fe.RunShellOutputCalls) != 1 || fe.RunShellOutputCalls[0] != "git worktree list --porcelain" {
+		t.Fatalf("RunShellOutputCalls = %v, want git worktree list --porcelain", fe.RunShellOutputCalls)
+	}
+	if len(fe.RunShellCalls) != 1 {
+		t.Fatalf("RunShellCalls = %v, want one action command", fe.RunShellCalls)
+	}
+	want := "cd " + action.ShellEscape("/repo/.worktrees/one-pr") + " && ng serve"
+	if got := fe.RunShellCalls[0]; got != want {
+		t.Errorf("RunShell command = %q, want %q", got, want)
+	}
+}
+
+func TestAction_PRScope_PRWorktreeMissingDoesNotRunAction(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Run worktree", Type: "shell", Scope: "pr", Command: "cd {pr_worktree} && ng serve"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+	fe.RunShellOutputStdout = "worktree /repo\nHEAD 1234567\nbranch refs/heads/main\n"
+
+	b = sendKey(t, b, keyMsg("j"))
+	m, cmd := b.Update(keyMsg("W"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("RunShellCalls = %v, want no action command when the worktree is missing", fe.RunShellCalls)
+	}
+	if !strings.Contains(b.statusBar.message, "no Git worktree found") {
+		t.Errorf("status message = %q, want missing-worktree error", b.statusBar.message)
+	}
+}
+
 // --- scope: pr actions dispatched from the detail-focused panel (#349 x #340) ---
 
 func TestAction_DetailFocused_PRScope_SinglePRFiresImmediately(t *testing.T) {
