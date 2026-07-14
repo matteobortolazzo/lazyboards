@@ -104,7 +104,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b, tea.Quit
 		}
 		b.mode = loadingMode
-		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 
 	case configSaveErrorMsg:
 		b.validationErr = provider.SanitizeError(msg.err)
@@ -136,7 +136,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		b.pendingAutoRefresh = false
 		b.refreshing = true
-		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, b.metadataDue()))
 
 	case cleanupResultMsg:
 		if msg.count == 0 {
@@ -265,7 +265,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "r":
 				b.mode = loadingMode
 				b.loadErr = ""
-				return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+				return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 			}
 			return b, nil
 		case createMode:
@@ -320,7 +320,7 @@ func (b Board) handleRefreshTick() (tea.Model, tea.Cmd) {
 		return b, b.scheduleRefreshTick()
 	}
 	b.refreshing = true
-	return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+	return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, b.metadataDue()))
 }
 
 func (b Board) scheduleRefreshTick() tea.Cmd {
@@ -363,9 +363,16 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		b.authenticatedUser = msg.authenticatedUser
 	}
 	// Store the repo label set (non-fatal). Placed before the refreshing/
-	// non-refreshing split so both paths retain it.
-	if msg.labelErr == nil {
+	// non-refreshing split so both paths retain it. Guarded on non-nil (like
+	// collaborators above), not just labelErr == nil: when a fetch cycle
+	// skips metadata (includeMetadata=false), msg.labelErr is nil by zero
+	// value too, so without the non-nil check a metadata-skipped refresh
+	// would wipe the previously-known label set.
+	if msg.labelErr == nil && msg.repoLabels != nil {
 		b.repoLabels = msg.repoLabels
+	}
+	if msg.metadataRequested {
+		b.lastMetadataFetch = time.Now()
 	}
 
 	b.pendingAutoRefresh = false
@@ -923,7 +930,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		b.pendingAutoRefresh = false
 		b.refreshing = true
-		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 	case "p":
 		if len(b.Columns) == 0 {
 			return b, nil
@@ -1472,7 +1479,7 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		b.pendingAutoRefresh = false
 		b.refreshing = true
-		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 	case "o":
 		return b.handleTicketOpenKey()
 	case "p":

@@ -39,9 +39,15 @@ func subscribeAgentWatchCmd(w agentwatch.Watcher) tea.Cmd {
 	}
 }
 
-// fetchBoardCmd returns a tea.Cmd that fetches board data, collaborators,
-// and the authenticated user concurrently from the provider.
-func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
+// fetchBoardCmd returns a tea.Cmd that fetches board data from the provider,
+// and, when includeMetadata is true, concurrently fetches collaborators, the
+// authenticated user, and repo labels too. When includeMetadata is false,
+// those three metadata calls are skipped entirely (metadata is gated behind
+// a TTL -- see Board.metadataDue -- so most refresh cycles only need the
+// board itself). The returned boardFetchedMsg.metadataRequested records
+// which mode this fetch ran in, so the handler knows whether to advance
+// lastMetadataFetch.
+func fetchBoardCmd(p provider.BoardProvider, includeMetadata bool) tea.Cmd {
 	return func() tea.Msg {
 		type boardResult struct {
 			board provider.Board
@@ -61,14 +67,24 @@ func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
 		}
 
 		boardCh := make(chan boardResult, 1)
-		collabCh := make(chan collabResult, 1)
-		authCh := make(chan authResult, 1)
-		labelCh := make(chan labelResult, 1)
 
 		go func() {
 			board, err := p.FetchBoard(context.Background())
 			boardCh <- boardResult{board: board, err: err}
 		}()
+
+		if !includeMetadata {
+			br := <-boardCh
+			if br.err != nil {
+				return boardFetchErrorMsg{err: br.err}
+			}
+			return boardFetchedMsg{board: br.board, metadataRequested: false}
+		}
+
+		collabCh := make(chan collabResult, 1)
+		authCh := make(chan authResult, 1)
+		labelCh := make(chan labelResult, 1)
+
 		go func() {
 			collabs, err := p.FetchCollaborators(context.Background())
 			collabCh <- collabResult{collaborators: collabs, err: err}
@@ -91,7 +107,7 @@ func fetchBoardCmd(p provider.BoardProvider) tea.Cmd {
 		ar := <-authCh
 		lr := <-labelCh
 
-		msg := boardFetchedMsg{board: br.board}
+		msg := boardFetchedMsg{board: br.board, metadataRequested: true}
 
 		if cr.err == nil {
 			msg.collaborators = cr.collaborators

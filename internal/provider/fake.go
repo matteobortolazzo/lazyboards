@@ -15,6 +15,14 @@ type FakeProvider struct {
 	columns    []Column
 	nextNumber int
 	labels     []string
+
+	// Call counters for tests that need to assert which provider methods
+	// were (or were not) invoked during a given operation, e.g. verifying
+	// that metadata calls are skipped when gated behind a TTL.
+	FetchBoardCalls           int
+	FetchCollaboratorsCalls   int
+	GetAuthenticatedUserCalls int
+	ListLabelsCalls           int
 }
 
 // NewFakeProvider returns a FakeProvider pre-populated with hardcoded Kanban data.
@@ -64,6 +72,7 @@ func NewFakeProvider() *FakeProvider {
 
 // FetchBoard returns a copy of the current board state.
 func (f *FakeProvider) FetchBoard(_ context.Context) (Board, error) {
+	f.FetchBoardCalls++
 	cols := make([]Column, len(f.columns))
 	for i, col := range f.columns {
 		cards := make([]Card, len(col.Cards))
@@ -128,6 +137,7 @@ func (f *FakeProvider) CreateLabel(_ context.Context, _ string) error {
 
 // ListLabels returns a copy of the fake repository's label set.
 func (f *FakeProvider) ListLabels(_ context.Context) ([]string, error) {
+	f.ListLabelsCalls++
 	labels := make([]string, len(f.labels))
 	copy(labels, f.labels)
 	return labels, nil
@@ -135,6 +145,7 @@ func (f *FakeProvider) ListLabels(_ context.Context) ([]string, error) {
 
 // FetchCollaborators returns a hardcoded list of collaborators for the fake provider.
 func (f *FakeProvider) FetchCollaborators(_ context.Context) ([]Assignee, error) {
+	f.FetchCollaboratorsCalls++
 	return []Assignee{{Login: "alice"}, {Login: "bob"}, {Login: "charlie"}}, nil
 }
 
@@ -157,5 +168,6 @@ func (f *FakeProvider) SetAssignees(_ context.Context, number int, logins []stri
 
 // GetAuthenticatedUser returns a hardcoded username for the fake provider.
 func (f *FakeProvider) GetAuthenticatedUser(_ context.Context) (string, error) {
+	f.GetAuthenticatedUserCalls++
 	return "fake-user", nil
 }
