@@ -54,4 +54,5 @@ type BoardProvider interface {
 	SetAssignees(ctx context.Context, number int, logins []string) (Card, error)
 	GetAuthenticatedUser(ctx context.Context) (string, error)
 	CloseCard(ctx context.Context, number int) (Card, error)
+	AddComment(ctx context.Context, number int, body string) error
 }
