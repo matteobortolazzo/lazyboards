@@ -29,6 +29,11 @@ type graphQLBoardClient interface {
 // initial + 500 follow-up = 600 cross-refs/issue max). At the cap, callers
 // keep whatever LinkedPRs were collected so far and continue rather than
 // erroring the whole board fetch.
+//
+// Unused in this PR by design: FetchBoard's nested-pagination follow-up loop
+// that consumes this constant lands in a stacked follow-up PR (#323 Part B).
+//
+//nolint:unused
 const maxTimelineFollowupPages = 5
 
 // issuePage is one page of issues returned by a GraphQL query, decoupled
