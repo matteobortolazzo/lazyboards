@@ -416,6 +416,42 @@ func newBoardWithPRs(t *testing.T) Board {
 	return b
 }
 
+// newPRActionTestBoard creates a loaded Board wired with the given custom
+// actions AND the same three-card PR fixture as newBoardWithPRsAndExecutor
+// (card 1: 0 LinkedPRs, card 2: 1 LinkedPR, card 3: 2 LinkedPRs), so
+// scope: pr dispatch tests can exercise the full 0/1/2+ precedence against
+// user-configured actions. Returns the board and a FakeExecutor for
+// asserting OpenURL/RunShell calls (#340).
+func newPRActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, *action.FakeExecutor) {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: "No PRs", Labels: []provider.Label{{Name: "bug"}}},
+				{Number: 2, Title: "One PR", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
+					{Number: 10, Title: "feat: one PR", URL: "https://github.com/owner/repo/pull/10", Branch: "feature/one-pr"},
+				}},
+				{Number: 3, Title: "Two PRs", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
+					{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20", Branch: "feature/first-pr"},
+					{Number: 21, Title: "feat: second PR", URL: "https://github.com/owner/repo/pull/21", Branch: "feature/second-pr"},
+				}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = 120
+	board.Height = 40
+	return board, fe
+}
+
 // newBoardWithCustomWorkingLabel creates a Board with one column containing
 // cards with specific labels, and the board's workingLabel set to the given value.
 // This tests the configurable working label feature (#113).

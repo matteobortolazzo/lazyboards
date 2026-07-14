@@ -220,6 +220,10 @@ func Load(globalPath, localPath string) (Config, error) {
 		return Config{}, err
 	}
 
+	if err := validateScopeConflicts(&cfg); err != nil {
+		return Config{}, err
+	}
+
 	// Any column still without an explicit cleanup (including defaulted
 	// columns) falls back to the resolved top-level default.
 	applyDefaultCleanup(cfg.Columns, cfg.CleanupValue())
@@ -368,6 +372,9 @@ func validateColumns(cfg *Config) error {
 // cardSpecificVarPattern matches card-specific template variables.
 var cardSpecificVarPattern = regexp.MustCompile(`\{(number|title|tags|session)\}`)
 
+// prSpecificVarPattern matches PR-specific template variables (scope: pr only).
+var prSpecificVarPattern = regexp.MustCompile(`\{(pr_branch|pr_number|pr_url|pr_title)\}`)
+
 // validateActions checks that all action definitions are well-formed.
 func validateActions(actions map[string]Action) error {
 	for key, action := range actions {
@@ -398,15 +405,58 @@ func validateActions(actions map[string]Action) error {
 			actions[key] = action
 		}
 		// Validate scope value.
-		if action.Scope != "card" && action.Scope != "board" {
-			return fmt.Errorf("action %q: scope must be \"card\" or \"board\", got %q", key, action.Scope)
+		if action.Scope != "card" && action.Scope != "board" && action.Scope != "pr" {
+			return fmt.Errorf("action %q: scope must be \"card\", \"board\", or \"pr\", got %q", key, action.Scope)
 		}
+		template := action.URL + action.Command
 		// Board-scope actions must not reference card-specific variables.
 		if action.Scope == "board" {
-			template := action.URL + action.Command
 			if cardSpecificVarPattern.MatchString(template) {
 				return fmt.Errorf("action %q: scope \"board\" cannot use card-specific variables ({number}, {title}, {tags}, {session})", key)
 			}
+			if prSpecificVarPattern.MatchString(template) {
+				return fmt.Errorf("action %q: scope \"board\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title})", key)
+			}
+		}
+		// Card-scope actions must not reference pr-specific variables.
+		if action.Scope == "card" {
+			if prSpecificVarPattern.MatchString(template) {
+				return fmt.Errorf("action %q: scope \"card\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title})", key)
+			}
+		}
+	}
+	return nil
+}
+
+// validateScopeConflicts checks that no action key is assigned a "card" scope
+// in one map and a "pr" scope in another (across the global actions map and
+// every column's action override map). Per the ticket's Q1 decision, only
+// card<->pr conflicts are rejected; a letter shared between "board" and
+// either "card" or "pr" across maps is existing (unchanged) behavior.
+func validateScopeConflicts(cfg *Config) error {
+	scopesByKey := make(map[string]map[string]bool)
+
+	addScopes := func(actions map[string]Action) {
+		for key, action := range actions {
+			scope := action.Scope
+			if scope == "" {
+				scope = "card"
+			}
+			if scopesByKey[key] == nil {
+				scopesByKey[key] = make(map[string]bool)
+			}
+			scopesByKey[key][scope] = true
+		}
+	}
+
+	addScopes(cfg.Actions)
+	for _, col := range cfg.Columns {
+		addScopes(col.Actions)
+	}
+
+	for key, scopes := range scopesByKey {
+		if scopes["card"] && scopes["pr"] {
+			return fmt.Errorf("action key %q: cannot be both \"card\" scope and \"pr\" scope across global/column action maps", key)
 		}
 	}
 	return nil

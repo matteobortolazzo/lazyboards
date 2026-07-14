@@ -217,12 +217,24 @@ Press the key to execute the action on the selected card. Custom actions and `Al
 | `{repo_owner}` | both | Repository owner |
 | `{repo_name}` | both | Repository name |
 | `{provider}` | both | Provider name (e.g., `github`) |
+| `{pr_branch}` | pr | Linked PR's branch name |
+| `{pr_number}` | pr | Linked PR's number |
+| `{pr_url}` | pr | Linked PR's URL |
+| `{pr_title}` | pr | Slugified linked PR title (lowercase, hyphens) |
 
 Shell commands automatically escape template variables with POSIX single quotes to prevent injection.
 
+`{pr_branch}`, `{pr_number}`, `{pr_url}`, and `{pr_title}` are only available in `pr`-scope actions — using them in a `card`- or `board`-scope action is a config validation error.
+
+Actions that include `{comment}` support the same [Comment Mode](#comment-mode) first-then-run flow regardless of scope: press the key, type a comment, submit — then the action's normal scope resolution runs (immediate for `card`/`board`, and for `pr` immediate with 1 linked PR or via the PR picker with 2+).
+
 ### Action Scope
 
-Actions default to `scope: "card"` (operate on the selected card). Set `scope: "board"` for actions that don't need a selected card — board-scope actions cannot use card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`).
+Actions default to `scope: "card"` (operate on the selected card). Set `scope: "board"` for actions that don't need a selected card — board-scope actions cannot use card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) or PR-specific variables (`{pr_branch}`, `{pr_number}`, `{pr_url}`, `{pr_title}`).
+
+Set `scope: "pr"` for actions that operate on a card's linked pull request — a stricter cousin of `card` scope that additionally requires the selected card to have at least one linked PR. With 0 linked PRs the action is unavailable (no-op, absent from hints). With exactly 1 linked PR it runs immediately against that PR's data. With 2+ linked PRs it opens the same PR-picker modal used by the built-in `p` key; selecting a PR runs the action against that PR's data. `pr`-scope actions can use both card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) and the [PR-specific template variables](#template-variables) (`{pr_branch}`, `{pr_number}`, `{pr_url}`, `{pr_title}`).
+
+Long-running or foreground shell commands will block that action's key slot until the command exits. Prefer a self-detaching command such as `tmux new-window -d '<command>'` for anything long-running (e.g. running `ng serve` on a PR's branch) — see [Tmux Integration](#tmux-integration).
 
 ### Git Menu
 

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/config"
 )
 
 func TestNormalMode_P_NoPRs_ShowsMessage(t *testing.T) {
@@ -144,6 +146,35 @@ func TestPRPicker_Escape_ReturnsToNormal(t *testing.T) {
 
 	if b.mode != normalMode {
 		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+}
+
+func TestPRPicker_LinkedPRsShrinkToZeroWhileOpen_ReturnsToNormal(t *testing.T) {
+	b := newBoardWithPRs(t)
+
+	// Navigate to card 2 (2 LinkedPRs) and enter picker.
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("p"))
+
+	if b.mode != prPickerMode {
+		t.Fatalf("test setup: expected prPickerMode, got %d", b.mode)
+	}
+
+	// Simulate an async board refresh (boardFetchedMsg) shrinking the
+	// selected card's LinkedPRs to 0 while the picker is still open.
+	col := &b.Columns[b.ActiveTab]
+	col.Cards[col.Cursor].LinkedPRs = nil
+
+	// Any picker key (e.g. Right) must not panic or divide by zero; it
+	// should fall back to the same cleanup as Escape.
+	b = sendKey(t, b, arrowMsg(tea.KeyRight))
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if b.pendingPRAction != nil {
+		t.Errorf("pendingPRAction = %+v, want nil", b.pendingPRAction)
 	}
 }
 
@@ -307,5 +338,96 @@ func TestPRPicker_BlocksNavigation(t *testing.T) {
 		if b.Columns[b.ActiveTab].Cursor != initialCursor {
 			t.Errorf("after %q: Cursor = %d, want %d", bk.name, b.Columns[b.ActiveTab].Cursor, initialCursor)
 		}
+	}
+}
+
+// --- Dual-purpose picker: scope: pr custom actions (#340) ---
+
+func TestPRPicker_Enter_WithPendingPRAction_RunsActionAndClearsPending(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch}"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	// Move to card 3 (2 linked PRs) and trigger the pr-scope action to open the picker.
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("W"))
+	if b.mode != prPickerMode {
+		t.Fatalf("test setup: expected prPickerMode after pr-scope action on a 2+ PR card, got %d", b.mode)
+	}
+
+	// Move to the second PR and confirm.
+	b = sendKey(t, b, arrowMsg(tea.KeyRight))
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	selectedPR := card.LinkedPRs[b.prPickerIndex]
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if b.pendingPRAction != nil {
+		t.Error("pendingPRAction should be cleared after running")
+	}
+	// The pending pr-scope action, not the default open-URL behavior, must run.
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("expected no OpenURL calls (pending pr-scope action should run instead of opening the URL), got %d", len(fe.OpenURLCalls))
+	}
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called against the selected PR, but no calls recorded")
+	}
+	expectedCmd := "cd " + action.ShellEscape(selectedPR.Branch)
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
+	}
+}
+
+func TestPRPicker_Enter_WithoutPendingPRAction_StillOpensURL(t *testing.T) {
+	// Regression test: plain "open PR" via the built-in 'p' key must still
+	// work when no pr-scope custom action is pending (dual-purpose picker).
+	b, fe := newBoardWithPRsAndExecutor(t)
+
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("p"))
+	if b.mode != prPickerMode {
+		t.Fatalf("test setup: expected prPickerMode, got %d", b.mode)
+	}
+	if b.pendingPRAction != nil {
+		t.Fatalf("test setup: expected no pendingPRAction for the built-in 'p' picker path")
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called (fallback open-URL behavior), but no calls recorded")
+	}
+}
+
+func TestPRPicker_Escape_ClearsPendingPRAction(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch}"},
+	}
+	b, _ := newPRActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("W"))
+	if b.pendingPRAction == nil {
+		t.Fatalf("test setup: expected pendingPRAction to be set")
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if b.pendingPRAction != nil {
+		t.Error("pendingPRAction should be cleared on Escape")
 	}
 }

@@ -473,3 +473,154 @@ func TestCommentMode_EmptyCommentStillSubmits(t *testing.T) {
 		t.Errorf("RunShell command = %q, want %q (empty comment should be shell-escaped)", fe.RunShellCalls[0], expectedCmd)
 	}
 }
+
+// --- scope: pr comment-mode-first interaction (#340, Q2) ---
+
+func TestCommentMode_PRScopeAltKey_EntersCommentModeWithPRScopeFlag(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve with note", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && echo {comment}"},
+	}
+	b, _ := newPRActionTestBoard(t, actions)
+
+	// Move to card 2 (1 linked PR) so resolveAction gates the pr-scope key through.
+	b = sendKey(t, b, keyMsg("j"))
+
+	b = sendKey(t, b, altKeyMsg("W"))
+
+	if b.mode != commentMode {
+		t.Fatalf("expected commentMode after Alt+W on pr-scope action with {comment}, got mode = %d", b.mode)
+	}
+	if !b.comment.prScope {
+		t.Error("comment.prScope should be true for a pr-scope action")
+	}
+	if b.comment.boardScope {
+		t.Error("comment.boardScope should be false for a pr-scope action")
+	}
+}
+
+func TestCommentMode_PRScope_ZeroPRs_DoesNotEnterCommentMode(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve with note", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && echo {comment}"},
+	}
+	b, _ := newPRActionTestBoard(t, actions)
+
+	// Cursor starts on card 1 (0 linked PRs) -- resolveAction should gate the
+	// key out entirely, so Alt+W must not enter commentMode.
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	if len(card.LinkedPRs) != 0 {
+		t.Fatalf("test setup: expected 0 linked PRs")
+	}
+
+	b = sendKey(t, b, altKeyMsg("W"))
+
+	if b.mode == commentMode {
+		t.Error("Alt+key on pr-scope action should NOT enter commentMode when the card has 0 linked PRs")
+	}
+}
+
+func TestCommentMode_PRScope_SinglePR_SubmitRunsImmediatelyWithComment(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve with note", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && echo {comment}"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	// Move to card 2 (1 linked PR).
+	b = sendKey(t, b, keyMsg("j"))
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	pr := card.LinkedPRs[0]
+
+	b = sendKey(t, b, altKeyMsg("W"))
+	for _, ch := range "deploying" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called immediately for a pr-scope+comment action on a 1-PR card")
+	}
+	expectedCmd := "cd " + action.ShellEscape(pr.Branch) + " && echo " + action.ShellEscape("deploying")
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
+	}
+}
+
+func TestCommentMode_PRScope_MultiplePRs_SubmitOpensPickerWithPendingComment(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve with note", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && echo {comment}"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	// Move to card 3 (2 linked PRs).
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+
+	b = sendKey(t, b, altKeyMsg("W"))
+	for _, ch := range "picked" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != prPickerMode {
+		t.Fatalf("expected prPickerMode after submitting a comment for a pr-scope action on a 2+ PR card, got mode = %d", b.mode)
+	}
+	if b.pendingPRAction == nil {
+		t.Fatal("expected pendingPRAction to be set")
+	}
+	if b.pendingPRAction.comment != "picked" {
+		t.Errorf("pendingPRAction.comment = %q, want %q", b.pendingPRAction.comment, "picked")
+	}
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("expected no RunShell calls yet (waiting on PR selection), got %d", len(fe.RunShellCalls))
+	}
+
+	// Now select a PR and confirm; the carried comment must be expanded.
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	selectedPR := card.LinkedPRs[b.prPickerIndex]
+	m2, cmd2 := b.Update(arrowMsg(tea.KeyEnter))
+	b = m2.(Board)
+	execCmds(cmd2)
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called after selecting a PR with a pending comment")
+	}
+	expectedCmd := "cd " + action.ShellEscape(selectedPR.Branch) + " && echo " + action.ShellEscape("picked")
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
+	}
+}
+
+func TestCommentMode_PRScope_PickerEscape_ClearsPendingCommentAndAction(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve with note", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && echo {comment}"},
+	}
+	b, _ := newPRActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, altKeyMsg("W"))
+	for _, ch := range "note" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.mode != prPickerMode {
+		t.Fatalf("test setup: expected prPickerMode, got %d", b.mode)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if b.pendingPRAction != nil {
+		t.Error("pendingPRAction should be cleared after Escape from the picker")
+	}
+}

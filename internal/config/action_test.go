@@ -635,3 +635,242 @@ columns:
 		t.Errorf("Columns[0].Actions[B].Scope = %q, want %q", colAction.Scope, "board")
 	}
 }
+
+// --- scope: pr tests (#340) ---
+
+func TestLoad_ActionScopePR_ExplicitIsValid(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  W:
+    name: Serve on branch
+    type: shell
+    scope: pr
+    command: "cd {pr_branch} && ng serve"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	action := result.Actions["W"]
+	if action.Scope != "pr" {
+		t.Errorf("Actions[W].Scope = %q, want %q", action.Scope, "pr")
+	}
+}
+
+func TestLoad_ActionScopePR_WithCardAndPRVars_Accepted(t *testing.T) {
+	// scope: pr actions must have access to all four new PR vars PLUS all
+	// existing card-scope vars in the same template.
+	yamlContent := `provider: github
+actions:
+  W:
+    name: Annotate PR
+    type: shell
+    scope: pr
+    command: "echo {number} {title} {tags} {session} {comment} {pr_number} {pr_branch} {pr_url} {pr_title}"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	action := result.Actions["W"]
+	if action.Scope != "pr" {
+		t.Errorf("Actions[W].Scope = %q, want %q", action.Scope, "pr")
+	}
+}
+
+func TestLoad_ColumnActionScopePR_Valid(t *testing.T) {
+	yamlContent := `provider: github
+columns:
+  - name: Implementing
+    actions:
+      W:
+        name: Serve PR branch
+        type: shell
+        scope: pr
+        command: "cd {pr_branch} && ng serve"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	colAction := result.Columns[0].Actions["W"]
+	if colAction.Scope != "pr" {
+		t.Errorf("Columns[0].Actions[W].Scope = %q, want %q", colAction.Scope, "pr")
+	}
+}
+
+// TestLoad_ActionScopeCard_WithPRVar_ReturnsError is a NEW rejection: card
+// scope currently allows every var, but {pr_*} vars must now be rejected
+// there too (mirrors the existing board-scope rejection of card vars).
+func TestLoad_ActionScopeCard_WithPRVar_ReturnsError(t *testing.T) {
+	prVars := []string{"pr_branch", "pr_number", "pr_url", "pr_title"}
+	for _, v := range prVars {
+		t.Run(v, func(t *testing.T) {
+			yamlContent := `provider: github
+actions:
+  W:
+    name: Card action
+    type: shell
+    scope: card
+    command: "echo {` + v + `}"
+`
+			_, err := loadConfigFromStrings(t, yamlContent, "")
+			if err == nil {
+				t.Fatalf("Load() returned nil error, want error for card-scope action using {%s}", v)
+			}
+			errLower := strings.ToLower(err.Error())
+			if !strings.Contains(errLower, "scope") || !strings.Contains(errLower, v) {
+				t.Errorf("error = %q, want it to contain 'scope' and %q", err.Error(), v)
+			}
+		})
+	}
+}
+
+func TestLoad_ActionScopeBoard_WithPRVar_ReturnsError(t *testing.T) {
+	prVars := []string{"pr_branch", "pr_number", "pr_url", "pr_title"}
+	for _, v := range prVars {
+		t.Run(v, func(t *testing.T) {
+			yamlContent := `provider: github
+actions:
+  W:
+    name: Board action
+    type: shell
+    scope: board
+    command: "echo {` + v + `}"
+`
+			_, err := loadConfigFromStrings(t, yamlContent, "")
+			if err == nil {
+				t.Fatalf("Load() returned nil error, want error for board-scope action using {%s}", v)
+			}
+			errLower := strings.ToLower(err.Error())
+			if !strings.Contains(errLower, "scope") || !strings.Contains(errLower, v) {
+				t.Errorf("error = %q, want it to contain 'scope' and %q", err.Error(), v)
+			}
+		})
+	}
+}
+
+// --- validateScopeConflicts: cross-map card<->pr letter conflicts (#340, Q1) ---
+
+func TestLoad_ScopeConflict_GlobalCardColumnPR_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  W:
+    name: Global card action
+    type: shell
+    scope: card
+    command: "echo {number}"
+columns:
+  - name: Implementing
+    actions:
+      W:
+        name: Column PR action
+        type: shell
+        scope: pr
+        command: "cd {pr_branch}"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for key W being card-scope globally and pr-scope in a column")
+	}
+	if !strings.Contains(err.Error(), "W") {
+		t.Errorf("error = %q, want it to reference the conflicting key %q", err.Error(), "W")
+	}
+}
+
+func TestLoad_ScopeConflict_GlobalPRColumnCard_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  W:
+    name: Global PR action
+    type: shell
+    scope: pr
+    command: "cd {pr_branch}"
+columns:
+  - name: Implementing
+    actions:
+      W:
+        name: Column card action
+        type: shell
+        scope: card
+        command: "echo {number}"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for key W being pr-scope globally and card-scope in a column")
+	}
+	if !strings.Contains(err.Error(), "W") {
+		t.Errorf("error = %q, want it to reference the conflicting key %q", err.Error(), "W")
+	}
+}
+
+func TestLoad_ScopeConflict_AcrossTwoColumns_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+columns:
+  - name: New
+    actions:
+      W:
+        name: New card action
+        type: shell
+        scope: card
+        command: "echo {number}"
+  - name: Implementing
+    actions:
+      W:
+        name: Implementing PR action
+        type: shell
+        scope: pr
+        command: "cd {pr_branch}"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for key W being card-scope in one column and pr-scope in another")
+	}
+	if !strings.Contains(err.Error(), "W") {
+		t.Errorf("error = %q, want it to reference the conflicting key %q", err.Error(), "W")
+	}
+}
+
+func TestLoad_ScopeConflict_SameScopeDifferentMaps_NoError(t *testing.T) {
+	// Same scope (card) reused across global + column maps is an ordinary
+	// override, not a conflict.
+	yamlContent := `provider: github
+actions:
+  W:
+    name: Global card action
+    type: shell
+    scope: card
+    command: "echo {number}"
+columns:
+  - name: Implementing
+    actions:
+      W:
+        name: Column card override
+        type: shell
+        scope: card
+        command: "echo different {number}"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	if result.Columns[0].Actions["W"].Scope != "card" {
+		t.Errorf("Columns[0].Actions[W].Scope = %q, want %q", result.Columns[0].Actions["W"].Scope, "card")
+	}
+}
+
+func TestLoad_ScopeConflict_BoardAndPRSameLetterDifferentMaps_NoError(t *testing.T) {
+	// Per the Q1 decision, only card<->pr is a rejected conflict; board
+	// sharing a letter with pr across maps is existing (unchanged) behavior.
+	yamlContent := `provider: github
+actions:
+  W:
+    name: Global board action
+    type: shell
+    scope: board
+    command: "echo board"
+columns:
+  - name: Implementing
+    actions:
+      W:
+        name: Column PR action
+        type: shell
+        scope: pr
+        command: "cd {pr_branch}"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	if result.Actions["W"].Scope != "board" {
+		t.Errorf("Actions[W].Scope = %q, want %q", result.Actions["W"].Scope, "board")
+	}
+	if result.Columns[0].Actions["W"].Scope != "pr" {
+		t.Errorf("Columns[0].Actions[W].Scope = %q, want %q", result.Columns[0].Actions["W"].Scope, "pr")
+	}
+}

@@ -918,3 +918,237 @@ func TestAction_DetailFocused_BuiltinKeysStillWin(t *testing.T) {
 		t.Error("'e' in detail focus should not drop detailFocused")
 	}
 }
+
+// --- scope: pr action dispatch tests (#340) ---
+//
+// Full 0/1/2+ linked-PR precedence, mirroring handlePROpenKey (the existing
+// anchor for the built-in "p" key), per CLAUDE.md's "consume the FULL
+// precedence" rule.
+
+func TestAction_PRScope_ZeroPRs_NoDispatchAndNoHint(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && ng serve"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	// Cursor starts on card 1 (0 linked PRs).
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	if len(card.LinkedPRs) != 0 {
+		t.Fatalf("test setup: expected card at cursor to have 0 LinkedPRs, got %d", len(card.LinkedPRs))
+	}
+
+	// No-dispatch facet.
+	m, cmd := b.Update(keyMsg("W"))
+	b = m.(Board)
+	execCmds(cmd)
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("expected no RunShell calls for pr-scope action on a card with 0 linked PRs, got %d", len(fe.RunShellCalls))
+	}
+
+	// No-hint facet.
+	view := b.statusBar.View(200, 0, 0)
+	if strings.Contains(view, "Serve branch") {
+		t.Errorf("statusBar.View() should NOT show pr-scope hint on a card with 0 linked PRs, got:\n%s", view)
+	}
+}
+
+func TestAction_PRScopeHint_VisibleWithLinkedPR(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && ng serve"},
+	}
+	b, _ := newPRActionTestBoard(t, actions)
+
+	// Move to card 2 (1 linked PR).
+	b = sendKey(t, b, keyMsg("j"))
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	if len(card.LinkedPRs) == 0 {
+		t.Fatalf("test setup: expected card at cursor to have a linked PR")
+	}
+
+	view := b.statusBar.View(200, 0, 0)
+	if !strings.Contains(view, "Serve branch") {
+		t.Errorf("statusBar.View() should show pr-scope hint on a card with a linked PR, got:\n%s", view)
+	}
+}
+
+func TestAction_PRScope_SinglePR_RunsImmediatelyAgainstPRData(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch}"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	// Move to card 2 (exactly 1 linked PR).
+	b = sendKey(t, b, keyMsg("j"))
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	if len(card.LinkedPRs) != 1 {
+		t.Fatalf("test setup: expected exactly 1 linked PR, got %d", len(card.LinkedPRs))
+	}
+	pr := card.LinkedPRs[0]
+
+	m, cmd := b.Update(keyMsg("W"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called for a pr-scope action on a card with exactly 1 linked PR")
+	}
+	expectedCmd := "cd " + action.ShellEscape(pr.Branch)
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
+	}
+}
+
+func TestAction_PRScope_SinglePR_URLType_OpensExpandedURL(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "View PR diff", Type: "url", Scope: "pr", URL: "https://example.com/diff/{pr_number}"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("j"))
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	pr := card.LinkedPRs[0]
+
+	b = sendKey(t, b, keyMsg("W"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called for a url-type pr-scope action on a 1-PR card")
+	}
+	expectedURL := fmt.Sprintf("https://example.com/diff/%d", pr.Number)
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+func TestAction_PRScope_SinglePR_ShellEscapesMaliciousBranch(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && ng serve"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+
+	maliciousBranch := "feature/x; rm -rf / #"
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: "Malicious PR", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
+					{Number: 10, Title: "feat", URL: "https://github.com/owner/repo/pull/10", Branch: maliciousBranch},
+				}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	m2, cmd := b.Update(keyMsg("W"))
+	b = m2.(Board)
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called, but no calls recorded")
+	}
+	expectedCmd := "cd " + action.ShellEscape(maliciousBranch) + " && ng serve"
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q (pr_branch must be shell-escaped)", fe.RunShellCalls[0], expectedCmd)
+	}
+}
+
+func TestAction_PRScope_SinglePR_URLEscapesMaliciousBranch(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Open branch info", Type: "url", Scope: "pr", URL: "https://example.com/?branch={pr_branch}"},
+	}
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+
+	maliciousBranch := "feature/x&evil=1"
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: "Malicious PR", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
+					{Number: 10, Title: "feat", URL: "https://github.com/owner/repo/pull/10", Branch: maliciousBranch},
+				}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 40
+
+	b = sendKey(t, b, keyMsg("W"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called, but no calls recorded")
+	}
+	got := fe.OpenURLCalls[0]
+	// & and = in the injected branch must be percent-encoded, not left as raw
+	// query-parameter separators (mirrors the {tags} injection lesson).
+	if strings.Contains(got, "&evil=1") {
+		t.Errorf("OpenURL URL = %q, pr_branch's & / = must be percent-encoded, not injected as a raw query param", got)
+	}
+	if !strings.Contains(got, action.URLEscape(maliciousBranch)) {
+		t.Errorf("OpenURL URL = %q, want it to contain the URL-escaped branch %q", got, action.URLEscape(maliciousBranch))
+	}
+}
+
+func TestAction_PRScope_MultiplePRs_EntersPickerWithPendingAction(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch}"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	// Move to card 3 (2 linked PRs).
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	if len(card.LinkedPRs) < 2 {
+		t.Fatalf("test setup: expected card at cursor to have 2+ LinkedPRs, got %d", len(card.LinkedPRs))
+	}
+
+	b = sendKey(t, b, keyMsg("W"))
+
+	if b.mode != prPickerMode {
+		t.Errorf("mode = %d, want prPickerMode (%d)", b.mode, prPickerMode)
+	}
+	if b.pendingPRAction == nil {
+		t.Fatal("expected pendingPRAction to be set when entering the picker from a pr-scope action")
+	}
+	if b.pendingPRAction.action.Name != "Serve branch" {
+		t.Errorf("pendingPRAction.action.Name = %q, want %q", b.pendingPRAction.action.Name, "Serve branch")
+	}
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("expected no RunShell calls yet (action pending PR selection), got %d", len(fe.RunShellCalls))
+	}
+}
+
+func TestAction_PRScope_TemplateIncludesAllPRAndCardVars(t *testing.T) {
+	actions := map[string]config.Action{
+		"W": {Name: "Full vars", Type: "shell", Scope: "pr", Command: "echo {number} {pr_number} {pr_branch} {pr_title}"},
+	}
+	b, fe := newPRActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("j"))
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	pr := card.LinkedPRs[0]
+
+	m, cmd := b.Update(keyMsg("W"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called")
+	}
+	got := fe.RunShellCalls[0]
+	expectedNumber := action.ShellEscape(fmt.Sprintf("%d", card.Number))
+	expectedPRNumber := action.ShellEscape(fmt.Sprintf("%d", pr.Number))
+	expectedBranch := action.ShellEscape(pr.Branch)
+	expectedTitle := action.ShellEscape(action.Slugify(pr.Title))
+	for _, want := range []string{expectedNumber, expectedPRNumber, expectedBranch, expectedTitle} {
+		if !strings.Contains(got, want) {
+			t.Errorf("RunShell command = %q, want it to contain %q", got, want)
+		}
+	}
+}
