@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/google/go-github/v68/github"
 )
@@ -43,24 +42,37 @@ type GitHubClient interface {
 // GitHubProvider fetches board data from GitHub Issues.
 type GitHubProvider struct {
 	client  GitHubClient
+	gql     graphQLBoardClient
 	owner   string
 	repo    string
 	columns []string
 }
 
-// NewGitHubProvider creates a GitHubProvider with the given client, repository, and column names.
-func NewGitHubProvider(client GitHubClient, owner, repo string, columns []string) *GitHubProvider {
+// NewGitHubProvider creates a GitHubProvider with the given clients, repository, and column names.
+//
+// FetchBoard pages issues (and their linked PRs) exclusively through gql.
+// client is still required for every other GitHubProvider method
+// (CreateCard, UpdateCard, FetchCollaborators, etc.), which remain REST-based.
+func NewGitHubProvider(client GitHubClient, gql graphQLBoardClient, owner, repo string, columns []string) *GitHubProvider {
 	return &GitHubProvider{
 		client:  client,
+		gql:     gql,
 		owner:   owner,
 		repo:    repo,
 		columns: columns,
 	}
 }
 
-// FetchBoard retrieves open issues and maps them to board columns.
-// It fetches issues sequentially, then fetches linked PRs concurrently
-// with bounded concurrency to reduce total latency.
+// FetchBoard retrieves open issues and maps them to board columns, paging
+// through gql.fetchIssuePage (a single GraphQL query per page fetches each
+// issue's core fields plus its first 100 cross-referenced linked PRs).
+//
+// GraphQL's `issues` connection excludes pull requests by construction
+// (unlike the REST Issues API, which mixes them in and requires a runtime
+// PullRequestLinks check), so no PR-skip step is needed here.
+//
+// Issues with more than 100 cross-references (issue.hasMoreTimelineItems)
+// trigger a bounded per-issue follow-up query via fetchTimelineFollowups.
 func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 	if len(g.columns) == 0 {
 		return Board{}, errors.New("at least one column is required")
@@ -78,35 +90,26 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 		colIndex[strings.ToLower(name)] = i
 	}
 
-	// --- Phase 1: Collect issues and build cards (sequential) ---
-
-	var locations []cardLocation
-
-	opts := &github.IssueListByRepoOptions{
-		State:       "open",
-		Sort:        "created",
-		Direction:   "asc",
-		ListOptions: github.ListOptions{PerPage: 100},
-	}
-
+	cursor := ""
 	for {
-		issues, resp, err := g.client.ListByRepo(ctx, g.owner, g.repo, opts)
+		page, err := g.gql.fetchIssuePage(ctx, g.owner, g.repo, cursor)
 		if err != nil {
 			return Board{}, err
 		}
 
-		for _, issue := range issues {
-			// Skip pull requests (GitHub's Issues API returns them too).
-			if issue.PullRequestLinks != nil {
-				continue
+		for _, issue := range page.issues {
+			linkedPRs := issue.linkedPRs
+			if issue.hasMoreTimelineItems {
+				linkedPRs, err = g.fetchTimelineFollowups(ctx, issue)
+				if err != nil {
+					return Board{}, err
+				}
 			}
-
-			card := issueToCard(issue)
 
 			// Find the furthest (rightmost) column matching any label.
 			bestIdx := -1
-			for _, label := range issue.Labels {
-				if idx, ok := colIndex[strings.ToLower(label.GetName())]; ok {
+			for _, label := range issue.labels {
+				if idx, ok := colIndex[strings.ToLower(label.Name)]; ok {
 					if idx > bestIdx {
 						bestIdx = idx
 					}
@@ -117,96 +120,66 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 			if bestIdx < 0 {
 				bestIdx = 0
 			}
-			columns[bestIdx].Cards = append(columns[bestIdx].Cards, card)
 
-			// Record location for Phase 2.
-			locations = append(locations, cardLocation{
-				colIdx:   bestIdx,
-				cardIdx:  len(columns[bestIdx].Cards) - 1,
-				issueNum: issue.GetNumber(),
-			})
+			card := Card{
+				Number:    issue.number,
+				Title:     issue.title,
+				Body:      issue.body,
+				URL:       issue.url,
+				Labels:    issue.labels,
+				Assignees: issue.assignees,
+				LinkedPRs: linkedPRs,
+			}
+			columns[bestIdx].Cards = append(columns[bestIdx].Cards, card)
 		}
 
-		if resp == nil || resp.NextPage == 0 {
+		if !page.hasNextPage {
 			break
 		}
-		opts.Page = resp.NextPage
-	}
-
-	// --- Phase 2: Fetch linked PRs concurrently ---
-
-	if len(locations) == 0 {
-		return Board{Columns: columns}, nil
-	}
-
-	type timelineResult struct {
-		loc       cardLocation
-		linkedPRs []LinkedPR
-		err       error
-	}
-
-	parentCtx := ctx
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	sem := make(chan struct{}, maxTimelineConcurrency)
-	results := make(chan timelineResult, len(locations))
-	var wg sync.WaitGroup
-
-	for _, loc := range locations {
-		wg.Add(1)
-		go func(loc cardLocation) {
-			defer wg.Done()
-
-			// Check for cancellation before acquiring semaphore.
-			select {
-			case <-ctx.Done():
-				results <- timelineResult{loc: loc, err: ctx.Err()}
-				return
-			case sem <- struct{}{}:
-			}
-			defer func() { <-sem }()
-
-			// Check again after acquiring semaphore.
-			if ctx.Err() != nil {
-				results <- timelineResult{loc: loc, err: ctx.Err()}
-				return
-			}
-
-			linkedPRs, err := g.fetchLinkedPRs(ctx, loc.issueNum)
-			if err != nil {
-				cancel()
-			}
-			results <- timelineResult{loc: loc, linkedPRs: linkedPRs, err: err}
-		}(loc)
-	}
-
-	// Close results channel once all goroutines complete.
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Collect results; return the first real (non-cancellation) error.
-	var firstErr error
-	for res := range results {
-		if res.err != nil {
-			if firstErr == nil && !errors.Is(res.err, context.Canceled) {
-				firstErr = res.err
-			}
-			continue
-		}
-		columns[res.loc.colIdx].Cards[res.loc.cardIdx].LinkedPRs = res.linkedPRs
-	}
-
-	if firstErr != nil {
-		return Board{}, firstErr
-	}
-	if parentCtx.Err() != nil {
-		return Board{}, parentCtx.Err()
+		cursor = page.endCursor
 	}
 
 	return Board{Columns: columns}, nil
+}
+
+// fetchTimelineFollowups pages a single issue's timelineItems connection
+// beyond its first page, merging follow-up LinkedPRs onto the issue's
+// already-collected list. PR-number dedup mirrors mapLinkedPRs' pattern
+// (graphql.go) so a PR cross-referenced on both the initial and a follow-up
+// page is only counted once.
+//
+// Bounded by maxTimelineFollowupPages: if the cap is reached, the loop stops
+// and returns whatever LinkedPRs were collected so far WITHOUT an error --
+// one pathological issue must not fail the whole board fetch. A genuine
+// error from fetchIssueTimelinePage (network/API failure) is returned
+// immediately and DOES fail the board fetch (via FetchBoard's caller), since
+// it means we can no longer trust that issue's linked-PR list is complete.
+func (g *GitHubProvider) fetchTimelineFollowups(ctx context.Context, issue issueNode) ([]LinkedPR, error) {
+	linkedPRs := issue.linkedPRs
+	seen := make(map[int]bool, len(linkedPRs))
+	for _, pr := range linkedPRs {
+		seen[pr.Number] = true
+	}
+
+	cursor := issue.timelineEndCursor
+	hasNext := true
+	for page := 0; hasNext && page < maxTimelineFollowupPages; page++ {
+		tp, err := g.gql.fetchIssueTimelinePage(ctx, g.owner, g.repo, issue.number, cursor)
+		if err != nil {
+			return nil, err
+		}
+		for _, pr := range tp.linkedPRs {
+			if seen[pr.Number] {
+				continue
+			}
+			seen[pr.Number] = true
+			linkedPRs = append(linkedPRs, pr)
+		}
+		hasNext = tp.hasNextPage
+		cursor = tp.endCursor
+	}
+
+	return linkedPRs, nil
 }
 
 // extractLabels converts GitHub API labels to provider Labels, stripping the
