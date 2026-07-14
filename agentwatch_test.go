@@ -732,11 +732,11 @@ func TestUpdate_AgentSnapshotMsg_NilDispatch_ClearsDispatchStatusSegment(t *test
 	}
 }
 
-// TestUpdate_AgentWatchErrorMsg_ClearsDispatchStatusSegment verifies the
-// watcher-down visibility rule: an agentWatchErrorMsg clears the dispatch
-// segment live, independent of the stale agent-count snapshot (which is
-// deliberately left untouched on error, per the existing behavior).
-func TestUpdate_AgentWatchErrorMsg_ClearsDispatchStatusSegment(t *testing.T) {
+// TestUpdate_AgentWatchErrorMsg_SingleError_DoesNotClearDispatchStatusSegment
+// verifies the grace-period rule added by #333: a single, isolated watcher
+// error is tolerated (the reconnect backoff ladder self-heals within ~1s),
+// so the dispatch segment must remain exactly as it was, not clear.
+func TestUpdate_AgentWatchErrorMsg_SingleError_DoesNotClearDispatchStatusSegment(t *testing.T) {
 	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
 	b.statusBar.SetDispatchStatus("⟳ dispatch")
 
@@ -746,8 +746,67 @@ func TestUpdate_AgentWatchErrorMsg_ClearsDispatchStatusSegment(t *testing.T) {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 
+	if updated.statusBar.dispatchStatus != "⟳ dispatch" {
+		t.Errorf("dispatchStatus = %q after a single agentWatchErrorMsg, want unchanged %q (a lone transient blip must not clear the segment, #333)", updated.statusBar.dispatchStatus, "⟳ dispatch")
+	}
+}
+
+// TestUpdate_AgentWatchErrorMsg_SecondConsecutiveError_ClearsDispatchStatusSegment
+// verifies the watcher-down visibility rule: only once a SECOND consecutive
+// error arrives, with no intervening successful agentSnapshotMsg, does the
+// dispatch segment clear live (#333's two-strike grace period).
+func TestUpdate_AgentWatchErrorMsg_SecondConsecutiveError_ClearsDispatchStatusSegment(t *testing.T) {
+	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b.statusBar.SetDispatchStatus("⟳ dispatch")
+
+	m, _ := b.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if updated.statusBar.dispatchStatus == "" {
+		t.Fatal("dispatchStatus cleared after the FIRST error (test setup expects the grace period to hold here)")
+	}
+
+	m, _ = updated.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
+	updated, ok = m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
 	if updated.statusBar.dispatchStatus != "" {
-		t.Errorf("dispatchStatus = %q, want empty after agentWatchErrorMsg (watcher-down hides the segment live)", updated.statusBar.dispatchStatus)
+		t.Errorf("dispatchStatus = %q after a second consecutive agentWatchErrorMsg, want empty (watcher-down hides the segment live)", updated.statusBar.dispatchStatus)
+	}
+}
+
+// TestUpdate_AgentSnapshotMsg_ResetsConsecutiveErrorCounter verifies a
+// successful agentSnapshotMsg between two errors resets the consecutive-error
+// counter, mirroring the existing agentBackoff reset: error, snapshot, error
+// must still be treated as a single (first) error, not a second strike.
+func TestUpdate_AgentSnapshotMsg_ResetsConsecutiveErrorCounter(t *testing.T) {
+	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+
+	m, _ := b.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
+	b = m.(Board)
+
+	snap := &agentwatch.StateSnapshot{
+		Dispatch: &agentwatch.DispatchState{Enabled: true, DaemonRunning: true},
+	}
+	m, _ = b.Update(agentSnapshotMsg{snapshot: snap})
+	b = m.(Board)
+	if b.statusBar.dispatchStatus == "" {
+		t.Fatal("test setup: a snapshot with Dispatch.Enabled=true should set a non-empty dispatch segment")
+	}
+	segmentAfterSnapshot := b.statusBar.dispatchStatus
+
+	m, _ = b.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.statusBar.dispatchStatus != segmentAfterSnapshot {
+		t.Errorf("dispatchStatus = %q after error, snapshot, error, want unchanged %q (snapshot must reset the consecutive-error counter, #333)", updated.statusBar.dispatchStatus, segmentAfterSnapshot)
 	}
 }
 
@@ -756,8 +815,10 @@ func TestUpdate_AgentWatchErrorMsg_ClearsDispatchStatusSegment(t *testing.T) {
 // using a real FakeWatcher subscription (driven the way Init() drives it,
 // via subscribeAgentWatchCmd + collectCmdMsgs per the repo's established
 // goroutine+timeout tea.Cmd testing pattern), a snapshot with an enabled
-// dispatch loop makes the segment appear in the rendered View(); a
-// subsequent watcher-down error then clears it live, with no restart.
+// dispatch loop makes the segment appear in the rendered View(); a single
+// subsequent watcher-down error is tolerated (grace period, #333) and the
+// segment stays visible; only a SECOND consecutive error clears it live,
+// with no restart.
 func TestBoard_DispatchStatusSegment_AppearsThenClearsLiveViaWatcher(t *testing.T) {
 	snap := &agentwatch.StateSnapshot{
 		Dispatch: &agentwatch.DispatchState{Enabled: true, DaemonRunning: true},
@@ -804,16 +865,30 @@ func TestBoard_DispatchStatusSegment_AppearsThenClearsLiveViaWatcher(t *testing.
 		t.Fatalf("View() after a live snapshot with Dispatch.Enabled=true = %q, want the dispatch segment visible", view)
 	}
 
-	// The daemon becomes unreachable: the segment must clear live, no restart.
+	// The daemon becomes unreachable: a single transient blip is tolerated per
+	// the #333 grace period, so the segment must remain visible.
 	m2, _ := b.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
-	afterError, ok := m2.(Board)
+	afterFirstError, ok := m2.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m2)
 	}
-	b = afterError
+	b = afterFirstError
+
+	viewAfterFirstError := b.View()
+	if !strings.Contains(viewAfterFirstError, "dispatch") {
+		t.Fatalf("View() after a single agentWatchErrorMsg = %q, want the dispatch segment still visible (grace period, #333)", viewAfterFirstError)
+	}
+
+	// A second consecutive error, with no intervening snapshot, clears it live.
+	m3, _ := b.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
+	afterSecondError, ok := m3.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m3)
+	}
+	b = afterSecondError
 
 	view2 := b.View()
 	if strings.Contains(view2, "dispatch") {
-		t.Errorf("View() after agentWatchErrorMsg = %q, want the dispatch segment cleared live (watcher-down hides it)", view2)
+		t.Errorf("View() after a second consecutive agentWatchErrorMsg = %q, want the dispatch segment cleared live (watcher-down hides it)", view2)
 	}
 }

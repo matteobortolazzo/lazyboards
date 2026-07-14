@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -29,6 +30,10 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Reset the backoff to the zero sentinel so the ladder restarts at the
 		// initial delay (1s) on the next error, not a doubled value.
 		b.agentBackoff = 0
+		// A successful read means the watcher is healthy again: reset the
+		// consecutive-error counter so a future error is treated as the first
+		// (tolerated) strike, not a continuation of a prior run of errors.
+		b.agentWatchConsecutiveErrors = 0
 		b.statusBar.SetDispatchStatus(formatDispatchSegment(msg.snapshot.Dispatch))
 		if b.agentWatcher == nil {
 			return b, nil
@@ -36,7 +41,11 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, subscribeAgentWatchCmd(b.agentWatcher)
 
 	case agentWatchErrorMsg:
-		b.statusBar.SetDispatchStatus("")
+		b.agentWatchConsecutiveErrors++
+		debuglog.Errorf("agentwatch: %v", msg.err)
+		if b.agentWatchConsecutiveErrors >= agentWatchClearThreshold {
+			b.statusBar.SetDispatchStatus("")
+		}
 		if b.agentBackoff <= 0 {
 			b.agentBackoff = agentWatchInitialBackoff
 		} else {
