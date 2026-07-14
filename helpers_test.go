@@ -336,11 +336,11 @@ func newBoardWithPRsAndExecutor(t *testing.T) (Board, *action.FakeExecutor) {
 			{Title: "Column A", Cards: []provider.Card{
 				{Number: 1, Title: "No PRs", Labels: []provider.Label{{Name: "bug"}}},
 				{Number: 2, Title: "One PR", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
-					{Number: 10, Title: "feat: one PR", URL: "https://github.com/owner/repo/pull/10"},
+					{Number: 10, Title: "feat: one PR", URL: "https://github.com/owner/repo/pull/10", Branch: "feature/one-pr"},
 				}},
 				{Number: 3, Title: "Two PRs", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
-					{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20"},
-					{Number: 21, Title: "feat: second PR", URL: "https://github.com/owner/repo/pull/21"},
+					{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20", Branch: "feature/first-pr"},
+					{Number: 21, Title: "feat: second PR", URL: "https://github.com/owner/repo/pull/21", Branch: "feature/second-pr"},
 				}},
 			}},
 		},

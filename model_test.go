@@ -272,6 +272,9 @@ func TestBoardFetched_MapsLinkedPRs(t *testing.T) {
 	if pr1.URL != "https://github.com/owner/repo/pull/10" {
 		t.Errorf("card 1 LinkedPRs[0].URL = %q, want %q", pr1.URL, "https://github.com/owner/repo/pull/10")
 	}
+	if pr1.Branch != "feature/one-pr" {
+		t.Errorf("card 1 LinkedPRs[0].Branch = %q, want %q", pr1.Branch, "feature/one-pr")
+	}
 
 	// Card 2: 2 LinkedPRs.
 	if got := len(col.Cards[2].LinkedPRs); got != 2 {
@@ -287,6 +290,9 @@ func TestBoardFetched_MapsLinkedPRs(t *testing.T) {
 	if pr2a.URL != "https://github.com/owner/repo/pull/20" {
 		t.Errorf("card 2 LinkedPRs[0].URL = %q, want %q", pr2a.URL, "https://github.com/owner/repo/pull/20")
 	}
+	if pr2a.Branch != "feature/first-pr" {
+		t.Errorf("card 2 LinkedPRs[0].Branch = %q, want %q", pr2a.Branch, "feature/first-pr")
+	}
 	pr2b := col.Cards[2].LinkedPRs[1]
 	if pr2b.Number != 21 {
 		t.Errorf("card 2 LinkedPRs[1].Number = %d, want 21", pr2b.Number)
@@ -296,6 +302,9 @@ func TestBoardFetched_MapsLinkedPRs(t *testing.T) {
 	}
 	if pr2b.URL != "https://github.com/owner/repo/pull/21" {
 		t.Errorf("card 2 LinkedPRs[1].URL = %q, want %q", pr2b.URL, "https://github.com/owner/repo/pull/21")
+	}
+	if pr2b.Branch != "feature/second-pr" {
+		t.Errorf("card 2 LinkedPRs[1].Branch = %q, want %q", pr2b.Branch, "feature/second-pr")
 	}
 }
 
