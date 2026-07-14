@@ -32,6 +32,7 @@ Tests are split by domain to mirror production code:
 | `update_test.go` | Quit, resize, config hint, number hint, status bar |
 | `navigation_test.go` | Tab/item navigation, card list scroll, resize clamp, number keys |
 | `refresh_test.go` | Manual refresh, background refresh |
+| `metadata_cache_test.go` | Metadata refresh TTL gating logic |
 | `view_test.go` | View rendering, scroll indicators, border titles, card counts |
 | `commands_test.go` | `wrapTitle` tests |
 | `create_mode_test.go` | Create mode state, UI, input, form submission |

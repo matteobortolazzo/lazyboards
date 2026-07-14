@@ -203,6 +203,18 @@ const (
 // completion so it can't spin on an ambiguous read result.
 const gitStatusPollInterval = 12 * time.Second
 
+// metadataTTLMultiplier and minMetadataTTL together determine how long
+// collaborators/authenticated-user/repo-labels are cached before an
+// automatic refresh cycle (periodic tick, post-action auto-refresh) is
+// allowed to re-fetch them. The TTL is a multiple of refreshInterval, floored
+// at minMetadataTTL so a short refresh_interval (e.g. 1m) can't cause
+// metadata thrash. Explicit user actions (manual 'r', config save, error
+// retry) always bypass this TTL and force a full metadata fetch.
+const (
+	metadataTTLMultiplier = 6
+	minMetadataTTL        = 30 * time.Minute
+)
+
 // Agent window status values reported by the agentwatch daemon (plain strings).
 // Only the two surfaced as status-bar counts are named here.
 const (
@@ -323,6 +335,10 @@ type boardFetchedMsg struct {
 	collaboratorErr   error
 	repoLabels        []string
 	labelErr          error
+	// metadataRequested records whether this fetch cycle asked fetchBoardCmd
+	// to include collaborators/authenticated-user/labels, so the handler
+	// knows whether to advance lastMetadataFetch.
+	metadataRequested bool
 }
 
 // boardFetchErrorMsg is sent when the provider fails to fetch board data.
@@ -557,6 +573,8 @@ type Board struct {
 	refreshing            bool
 	refreshInterval       time.Duration
 	actionRefreshDelay    time.Duration
+	lastMetadataFetch     time.Time
+	metadataTTL           time.Duration
 	pendingAutoRefresh    bool
 	prevCards             map[int]prevCardInfo
 	searchQuery           string
@@ -630,6 +648,11 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 	si.CharLimit = 100
 	si.Prompt = "/ "
 
+	metadataTTL := refreshInterval * metadataTTLMultiplier
+	if metadataTTL < minMetadataTTL {
+		metadataTTL = minMetadataTTL
+	}
+
 	b := Board{
 		mode:                loadingMode,
 		provider:            p,
@@ -645,6 +668,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		sessionMaxLen:       sessionMaxLen,
 		refreshInterval:     refreshInterval,
 		actionRefreshDelay:  actionRefreshDelay,
+		metadataTTL:         metadataTTL,
 		workingLabel:        workingLabel,
 		mouseEnabled:        mouseEnabled,
 		normalHints:         hints,
@@ -671,6 +695,13 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 	}
 
 	return b
+}
+
+// metadataDue reports whether collaborators/authenticated-user/repo-labels
+// should be re-fetched: either they have never been fetched, or the
+// metadataTTL has elapsed since the last successful metadata fetch.
+func (b Board) metadataDue() bool {
+	return b.lastMetadataFetch.IsZero() || time.Since(b.lastMetadataFetch) >= b.metadataTTL
 }
 
 // enterConfigMode sets up configMode with pre-populated values from runtime.
@@ -1258,7 +1289,7 @@ func (b Board) Init() tea.Cmd {
 	if b.config.firstLaunch {
 		return nil
 	}
-	cmd := tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider))
+	cmd := tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 	if b.agentWatcher != nil {
 		cmd = tea.Batch(cmd, subscribeAgentWatchCmd(b.agentWatcher))
 	}
