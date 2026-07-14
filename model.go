@@ -12,7 +12,6 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/matteobortolazzo/agent-stack/agentwatch/pkg/watch"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
@@ -261,7 +260,7 @@ type autoRefreshMsg struct{}
 
 // agentSnapshotMsg is sent when the agentwatch watcher delivers a new state snapshot.
 type agentSnapshotMsg struct {
-	snapshot *watch.StateSnapshot
+	snapshot *agentwatch.StateSnapshot
 }
 
 // agentWatchErrorMsg is sent when reading from the agentwatch watcher fails.
@@ -565,7 +564,7 @@ type Board struct {
 	authenticatedUser     string
 	repoLabels            []string
 	agentWatcher          agentwatch.Watcher
-	agentSnapshot         *watch.StateSnapshot
+	agentSnapshot         *agentwatch.StateSnapshot
 	agentBackoff          time.Duration
 	gitReader             gitdetect.Reader
 	gitPanel              gitPanelState
@@ -1176,7 +1175,7 @@ func (b *Board) collectKnownLabels() map[string]bool {
 
 // agentStatusFor returns the agentwatch window state joined to card by ticket
 // number, or nil if no snapshot is stored yet or no window matches.
-func (b Board) agentStatusFor(card Card) *watch.WindowState {
+func (b Board) agentStatusFor(card Card) *agentwatch.WindowState {
 	return b.agentStatusForNumber(card.Number)
 }
 
@@ -1189,13 +1188,13 @@ func (b Board) agentStatusFor(card Card) *watch.WindowState {
 // "<number>-<title-slug>" names. When several windows share the number, an
 // active one (running / need_input) wins over any other status, else the first
 // match in snapshot order.
-func (b Board) agentStatusForNumber(number int) *watch.WindowState {
+func (b Board) agentStatusForNumber(number int) *agentwatch.WindowState {
 	if b.agentSnapshot == nil {
 		return nil
 	}
 	num := strconv.Itoa(number)
 	prefix := num + "-"
-	var match *watch.WindowState
+	var match *agentwatch.WindowState
 	for i := range b.agentSnapshot.Windows {
 		w := &b.agentSnapshot.Windows[i]
 		if w.WindowName != num && !strings.HasPrefix(w.WindowName, prefix) {

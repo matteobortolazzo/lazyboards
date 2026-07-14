@@ -9,16 +9,14 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/matteobortolazzo/agent-stack/agentwatch/pkg/watch"
 )
 
-// newTestSnapshot builds a minimal watch.StateSnapshot with a single window,
-// used to assert that decoding round-trips the fields our join logic depends on.
-func newTestSnapshot(windowName, status string) watch.StateSnapshot {
-	return watch.StateSnapshot{
+// newTestSnapshot builds a minimal StateSnapshot with a single window, used
+// to assert that decoding round-trips the fields our join logic depends on.
+func newTestSnapshot(windowName, status string) StateSnapshot {
+	return StateSnapshot{
 		Timestamp: "2026-07-11T00:00:00Z",
-		Windows: []watch.WindowState{
+		Windows: []WindowState{
 			{
 				Session:     "main",
 				WindowIndex: "0",
@@ -34,7 +32,7 @@ func newTestSnapshot(windowName, status string) watch.StateSnapshot {
 // acceptAndWriteOnce accepts a single connection on ln, writes the marshalled
 // snapshot as one NDJSON line, and delivers the accepted conn on the returned
 // channel so the test can later close it to simulate a daemon disconnect.
-func acceptAndWriteOnce(t *testing.T, ln net.Listener, snap watch.StateSnapshot) <-chan net.Conn {
+func acceptAndWriteOnce(t *testing.T, ln net.Listener, snap StateSnapshot) <-chan net.Conn {
 	t.Helper()
 	line, err := json.Marshal(snap)
 	if err != nil {
@@ -55,9 +53,7 @@ func acceptAndWriteOnce(t *testing.T, ln net.Listener, snap watch.StateSnapshot)
 // --- defaultSocketPath ---
 
 // A valid, non-loosely-permissioned XDG_RUNTIME_DIR is used as the base for
-// the nested agentwatch/agentwatch.sock path the current daemon listens on
-// (see #312: the pinned watch.DefaultSocketPath() resolves to the pre-v2
-// flat path, which no longer matches the daemon).
+// the nested agentwatch/agentwatch.sock path the daemon listens on.
 func TestDefaultSocketPath_UsesNestedPathUnderValidXDGRuntimeDir(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
@@ -103,8 +99,8 @@ func TestDefaultSocketPath_FallsBackWhenXDGRuntimeDirUnset(t *testing.T) {
 // --- FakeWatcher ---
 
 func TestFakeWatcher_ReadNext_ReturnsScriptedResultsInOrder(t *testing.T) {
-	first := &watch.StateSnapshot{Timestamp: "t1"}
-	second := &watch.StateSnapshot{Timestamp: "t2"}
+	first := &StateSnapshot{Timestamp: "t1"}
+	second := &StateSnapshot{Timestamp: "t2"}
 	boom := errors.New("boom")
 
 	fw := &FakeWatcher{

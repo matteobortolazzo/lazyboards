@@ -1,19 +1,31 @@
 // Package agentwatch wires lazyboards to the agentwatch daemon's unix socket,
 // providing tmux window/agent status snapshots for the board's session join.
+//
+// This package has no Go module dependency on agent-stack/agentwatch: it
+// dials the daemon's unix socket directly and decodes its NDJSON
+// StateSnapshot stream using only the standard library, the same way any
+// other JSON-speaking integration in lazyboards works. The daemon is an
+// optional external process — if it isn't running, dialing simply fails and
+// the board falls back to showing no agent status badges.
 package agentwatch
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
-
-	"github.com/matteobortolazzo/agent-stack/agentwatch/pkg/watch"
 )
+
+// snapshotMaxBytes bounds the size of a single StateSnapshot JSON line so a
+// malformed or oversized stream cannot exhaust memory.
+const snapshotMaxBytes = 65536
 
 // Watcher reads successive state snapshots from the agentwatch daemon.
 type Watcher interface {
 	// ReadNext blocks until the next snapshot is available (or an error occurs).
-	ReadNext() (*watch.StateSnapshot, error)
+	ReadNext() (*StateSnapshot, error)
 	// Close releases any underlying connection.
 	Close() error
 }
@@ -23,7 +35,8 @@ type Watcher interface {
 // transparently re-dials on the next call after a read error.
 type socketWatcher struct {
 	socketPath string
-	client     *watch.Client
+	conn       net.Conn
+	scanner    *bufio.Scanner
 }
 
 var _ Watcher = (*socketWatcher)(nil)
@@ -39,19 +52,10 @@ func NewSocketWatcher() Watcher {
 	return newSocketWatcher(defaultSocketPath())
 }
 
-// defaultSocketPath resolves the agentwatch daemon's broadcast socket path,
-// matching the daemon's current (v2.x+) nested-directory layout:
-// <runtime-dir>/agentwatch/agentwatch.sock.
-//
-// watch.DefaultSocketPath() (from the pinned agent-stack/agentwatch v1.12.0
-// dependency) cannot be used here: it resolves to the pre-v2 flat path
-// (<runtime-dir>/agentwatch.sock), which no v2.x+ daemon listens on anymore.
-// lazyboards cannot bump past v1.12.0 to pick up the nested layout because
-// agent-stack tagged v2.0.0+ without the "/v2" module-path suffix Go's
-// Semantic Import Versioning requires, making every v2+ release unreachable
-// via `go get` for this import path (see #312). This replicates the
-// daemon's own secureSocketDir() resolution (agentwatch/pkg/watch/socket.go)
-// so the client and daemon agree on the socket location again.
+// defaultSocketPath resolves the agentwatch daemon's broadcast socket path:
+// <runtime-dir>/agentwatch/agentwatch.sock. This replicates the daemon's own
+// secureSocketDir() resolution so the client and daemon agree on the socket
+// location without needing to import the daemon's package.
 func defaultSocketPath() string {
 	dir := os.Getenv("XDG_RUNTIME_DIR")
 	if dir != "" {
@@ -67,32 +71,48 @@ func defaultSocketPath() string {
 }
 
 // ReadNext dials the agentwatch socket if not already connected, then reads
-// the next snapshot. On error, the connection is closed so the next call
-// re-dials from scratch.
-func (w *socketWatcher) ReadNext() (*watch.StateSnapshot, error) {
-	if w.client == nil {
-		client, err := watch.Dial(w.socketPath)
+// and decodes the next NDJSON snapshot line. On error, the connection is
+// closed so the next call re-dials from scratch.
+func (w *socketWatcher) ReadNext() (*StateSnapshot, error) {
+	if w.conn == nil {
+		conn, err := net.Dial("unix", w.socketPath)
 		if err != nil {
 			return nil, err
 		}
-		w.client = client
+		scanner := bufio.NewScanner(conn)
+		scanner.Buffer(make([]byte, 4096), snapshotMaxBytes)
+		w.conn = conn
+		w.scanner = scanner
 	}
 
-	snap, err := w.client.ReadSnapshot()
-	if err != nil {
-		_ = w.client.Close()
-		w.client = nil
+	if !w.scanner.Scan() {
+		err := w.scanner.Err()
+		if err == nil {
+			err = net.ErrClosed
+		}
+		_ = w.conn.Close()
+		w.conn = nil
+		w.scanner = nil
 		return nil, err
 	}
-	return snap, nil
+
+	var snap StateSnapshot
+	if err := json.Unmarshal(w.scanner.Bytes(), &snap); err != nil {
+		_ = w.conn.Close()
+		w.conn = nil
+		w.scanner = nil
+		return nil, err
+	}
+	return &snap, nil
 }
 
 // Close closes the underlying connection, if any.
 func (w *socketWatcher) Close() error {
-	if w.client == nil {
+	if w.conn == nil {
 		return nil
 	}
-	err := w.client.Close()
-	w.client = nil
+	err := w.conn.Close()
+	w.conn = nil
+	w.scanner = nil
 	return err
 }

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matteobortolazzo/agent-stack/agentwatch/pkg/watch"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
@@ -101,12 +101,12 @@ func withCardLabel(board provider.Board, cardNum int, label string) provider.Boa
 
 // cleanupSnapshot builds an agentwatch snapshot with a single window for card
 // #1 ("Setup CI") in the given status. An empty status means no windows.
-func cleanupSnapshot(status string) *watch.StateSnapshot {
+func cleanupSnapshot(status string) *agentwatch.StateSnapshot {
 	if status == "" {
-		return &watch.StateSnapshot{}
+		return &agentwatch.StateSnapshot{}
 	}
 	session := action.BuildSessionName(1, "Setup CI", 32)
-	return &watch.StateSnapshot{Windows: []watch.WindowState{
+	return &agentwatch.StateSnapshot{Windows: []agentwatch.WindowState{
 		{WindowName: session, Status: status, Agent: "claude"},
 	}}
 }
@@ -362,8 +362,8 @@ func TestCleanup_DeferredWhileWorkingLabelSet(t *testing.T) {
 // window using an explicit window name (distinct from BuildSessionName's
 // reconstructed name), so tests can distinguish live-window resolution from
 // the {session} fallback.
-func cleanupSnapshotWithWindow(windowName, status string) *watch.StateSnapshot {
-	return &watch.StateSnapshot{Windows: []watch.WindowState{
+func cleanupSnapshotWithWindow(windowName, status string) *agentwatch.StateSnapshot {
+	return &agentwatch.StateSnapshot{Windows: []agentwatch.WindowState{
 		{WindowName: windowName, Status: status, Agent: "claude"},
 	}}
 }

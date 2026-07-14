@@ -9,7 +9,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/matteobortolazzo/agent-stack/agentwatch/pkg/watch"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
@@ -88,8 +87,8 @@ func TestBoard_AgentStatusFor_SkillWindowMatchesByNumber(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, "Refine the thing", config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{
 			{WindowName: "230-refine", Status: "running", Agent: "claude"},
 		},
 	}
@@ -115,8 +114,8 @@ func TestBoard_AgentStatusFor_LegacyTitleSlugWindowStillMatches(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 
 	legacyName := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{
 			{WindowName: legacyName, Status: "running", Agent: "claude"},
 		},
 	}
@@ -132,8 +131,8 @@ func TestBoard_AgentStatusFor_BareNumberWindowMatches(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, "Whatever", config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{
 			{WindowName: "42", Status: "need-input"},
 		},
 	}
@@ -149,8 +148,8 @@ func TestBoard_AgentStatusFor_NumberPrefixBoundary(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, "Boundary", config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{
 			{WindowName: "230-refine", Status: "running"},
 		},
 	}
@@ -167,8 +166,8 @@ func TestBoard_AgentStatusFor_PrefersActiveWindow(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, "Multi", config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{
 			{WindowName: "55-implement", Status: "done"},
 			{WindowName: "55-refine", Status: "running", Agent: "claude"},
 		},
@@ -189,8 +188,8 @@ func TestBoard_AgentStatusFor_NoMatchingWindowReturnsNil(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{
 			{WindowName: "999-some-other-session", Status: "running"},
 		},
 	}
@@ -266,7 +265,7 @@ func TestBoard_Update_AgentSnapshotMsg_StoresSnapshotAndResetsBackoff(t *testing
 		t.Fatal("test setup: agentBackoff should have grown past initial before the snapshot arrives")
 	}
 
-	snap := &watch.StateSnapshot{Timestamp: "2026-07-11T00:00:00Z"}
+	snap := &agentwatch.StateSnapshot{Timestamp: "2026-07-11T00:00:00Z"}
 	m, cmd := b.Update(agentSnapshotMsg{snapshot: snap})
 	updated, ok := m.(Board)
 	if !ok {
@@ -293,7 +292,7 @@ func TestBoard_Update_AgentSnapshotMsg_StoresSnapshotAndResetsBackoff(t *testing
 
 func TestBoard_Update_AgentWatchRetryMsg_ReSubscribes(t *testing.T) {
 	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{
-		Results: []agentwatch.FakeWatcherResult{{Snap: &watch.StateSnapshot{}}},
+		Results: []agentwatch.FakeWatcherResult{{Snap: &agentwatch.StateSnapshot{}}},
 	})
 
 	m, cmd := b.Update(agentWatchRetryMsg{})
@@ -324,9 +323,9 @@ func TestBoard_Init_NilWatcher_NoAgentWatchSubscription(t *testing.T) {
 // --- Init gating: a configured watcher subscribes and delivers a snapshot (#257) ---
 
 func TestBoard_Init_WithWatcher_SubscriptionDeliversSnapshot(t *testing.T) {
-	snap := &watch.StateSnapshot{
+	snap := &agentwatch.StateSnapshot{
 		Timestamp: "2026-07-11T00:00:00Z",
-		Windows: []watch.WindowState{
+		Windows: []agentwatch.WindowState{
 			{WindowName: "7-fix-flaky-test", Status: "running"},
 		},
 	}
@@ -387,7 +386,7 @@ func TestBoard_AgentCounts_BoardScoped(t *testing.T) {
 	name := func(n int, title string) string {
 		return action.BuildSessionName(n, title, config.DefaultSessionMaxLength)
 	}
-	b.agentSnapshot = &watch.StateSnapshot{Windows: []watch.WindowState{
+	b.agentSnapshot = &agentwatch.StateSnapshot{Windows: []agentwatch.WindowState{
 		{WindowName: name(1, "First running"), Status: "running"},
 		{WindowName: name(2, "Needs input"), Status: "need-input"},
 		{WindowName: name(3, "Idle card"), Status: "idle"}, // excluded: idle
@@ -475,7 +474,7 @@ func TestBoard_AgentBadge_NeedInputFromDaemonWireFormat(t *testing.T) {
 	// A single NDJSON line as emitted by the daemon's broadcast socket.
 	const wireLine = `{"timestamp":"2026-07-13T22:09:50Z","windows":[{"session":"lazyboards","window_index":"2","window_name":"42-implement","task_name":"Waiting for input","status":"need-input","agent":"claude","manually_named":false}],"summary":{"total":1,"need_input":1}}`
 
-	var snap watch.StateSnapshot
+	var snap agentwatch.StateSnapshot
 	if err := json.Unmarshal([]byte(wireLine), &snap); err != nil {
 		t.Fatalf("failed to decode daemon wire line: %v", err)
 	}
@@ -524,8 +523,8 @@ func TestBoard_AgentBadgeFor_AppendedToDisplayText(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
 	}
 
 	badge := b.agentBadgeFor(card)
@@ -547,10 +546,10 @@ func TestBoard_AgentBadgeFor_NoBadgeCases(t *testing.T) {
 
 	tests := []struct {
 		name string
-		snap *watch.StateSnapshot
+		snap *agentwatch.StateSnapshot
 	}{
-		{"idle status", &watch.StateSnapshot{Windows: []watch.WindowState{{WindowName: name, Status: "idle", Agent: "claude"}}}},
-		{"non-matching window", &watch.StateSnapshot{Windows: []watch.WindowState{{WindowName: "999-other", Status: "running"}}}},
+		{"idle status", &agentwatch.StateSnapshot{Windows: []agentwatch.WindowState{{WindowName: name, Status: "idle", Agent: "claude"}}}},
+		{"non-matching window", &agentwatch.StateSnapshot{Windows: []agentwatch.WindowState{{WindowName: "999-other", Status: "running"}}}},
 		{"nil snapshot", nil},
 	}
 	for _, tt := range tests {
@@ -572,8 +571,8 @@ func TestViewCardList_RunningBadgeRendered(t *testing.T) {
 	const cardTitle = "Fix flaky test"
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
@@ -592,8 +591,8 @@ func TestViewCardList_NeedInputIsLoudest(t *testing.T) {
 	const cardTitle = "Fix flaky test"
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{{WindowName: name, Status: "need-input", Agent: "claude"}},
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{{WindowName: name, Status: "need-input", Agent: "claude"}},
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
@@ -609,8 +608,8 @@ func TestViewCardList_IdleRendersNoSymbol(t *testing.T) {
 	const cardTitle = "Fix flaky test"
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{{WindowName: name, Status: "idle", Agent: "claude"}},
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{{WindowName: name, Status: "idle", Agent: "claude"}},
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
@@ -639,8 +638,8 @@ func TestViewCardList_WorkingLabelAndBadgeCoexist(t *testing.T) {
 	b = m.(Board)
 
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &watch.StateSnapshot{
-		Windows: []watch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
+	b.agentSnapshot = &agentwatch.StateSnapshot{
+		Windows: []agentwatch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
