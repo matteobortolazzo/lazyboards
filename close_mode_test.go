@@ -278,6 +278,29 @@ func TestCloseMode_CardClosed_AgentBusy_GuardBlockDoesNotRefireOnNextFetch(t *te
 	}
 }
 
+func TestCloseMode_CardClosed_AgentwatchEnabledSnapshotNotYetDelivered_SkipsCleanupButRemovesCard(t *testing.T) {
+	b, fe, _ := newCleanupTestBoardWithWatcher(t, "tmux kill-window -t {session}")
+
+	card := b.Columns[0].Cards[0]
+	m, cmd := b.Update(cardClosedMsg{card: card})
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("expected cleanup blocked while agentwatch snapshot is nil, got: %v", fe.RunShellCalls)
+	}
+	for _, c := range b.Columns[0].Cards {
+		if c.Number == card.Number {
+			t.Fatal("expected card removed from Columns even when the fail-closed guard blocks cleanup")
+		}
+	}
+	// Same locked decision (#347 Q2) as the agent-busy guard: a guard-blocked
+	// close always deletes the prevCards entry, it never defers.
+	if _, exists := b.prevCards[card.Number]; exists {
+		t.Error("expected prevCards entry deleted after close, even though the fail-closed guard blocked cleanup")
+	}
+}
+
 func TestCloseMode_CardClosed_WorkingLabel_SkipsCleanupButRemovesCard(t *testing.T) {
 	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
 
