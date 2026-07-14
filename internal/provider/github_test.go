@@ -15,14 +15,12 @@ import (
 type mockGitHubClient struct {
 	issues            []*github.Issue
 	err               error
-	createdIssue      *github.Issue              // returned by Create
-	createErr         error                      // returned by Create
-	editedIssue       *github.Issue              // returned by Edit
-	editErr           error                      // returned by Edit
-	createdLabel      *github.Label              // returned by CreateLabel
-	createLabelErr    error                      // returned by CreateLabel
-	timelineEvents    map[int][]*github.Timeline // keyed by issue number
-	timelineErr       error
+	createdIssue      *github.Issue                  // returned by Create
+	createErr         error                          // returned by Create
+	editedIssue       *github.Issue                  // returned by Edit
+	editErr           error                          // returned by Edit
+	createdLabel      *github.Label                  // returned by CreateLabel
+	createLabelErr    error                          // returned by CreateLabel
 	capturedOpts      *github.IssueListByRepoOptions // captured from ListByRepo
 	collaborators     []*github.User                 // returned by ListCollaborators
 	collaboratorsErr  error                          // returned by ListCollaborators
@@ -70,16 +68,6 @@ func (m *mockGitHubClient) CreateLabel(
 	_ *github.Label,
 ) (*github.Label, *github.Response, error) {
 	return m.createdLabel, nil, m.createLabelErr
-}
-
-func (m *mockGitHubClient) ListIssueTimeline(
-	_ context.Context,
-	_ string,
-	_ string,
-	number int,
-	_ *github.ListOptions,
-) ([]*github.Timeline, *github.Response, error) {
-	return m.timelineEvents[number], nil, m.timelineErr
 }
 
 func (m *mockGitHubClient) ListCollaborators(

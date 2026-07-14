@@ -13,28 +13,6 @@ import (
 // hexColorRE matches a valid 6-character hex color string (e.g., "d73a4a").
 var hexColorRE = regexp.MustCompile(`^[0-9a-fA-F]{6}$`)
 
-// maxTimelineConcurrency limits the number of concurrent timeline API calls.
-//
-// Unreferenced now that FetchBoard uses the GraphQL client instead of the
-// REST timeline fan-out below. Left in place intentionally — ticket #324
-// owns removing this and the rest of the REST timeline path.
-//
-//nolint:unused
-const maxTimelineConcurrency = 10
-
-// cardLocation records where a card was placed so concurrent timeline results
-// can be assigned back without reordering.
-//
-// Unreferenced now that FetchBoard uses the GraphQL client; see the note on
-// maxTimelineConcurrency above.
-//
-//nolint:unused
-type cardLocation struct {
-	colIdx   int
-	cardIdx  int
-	issueNum int
-}
-
 // Compile-time check: *GitHubProvider implements BoardProvider.
 var _ BoardProvider = (*GitHubProvider)(nil)
 
@@ -45,7 +23,6 @@ type GitHubClient interface {
 	Edit(ctx context.Context, owner string, repo string, number int, issue *github.IssueRequest) (*github.Issue, *github.Response, error)
 	CreateLabel(ctx context.Context, owner string, repo string, label *github.Label) (*github.Label, *github.Response, error)
 	ListLabels(ctx context.Context, owner string, repo string, opts *github.ListOptions) ([]*github.Label, *github.Response, error)
-	ListIssueTimeline(ctx context.Context, owner string, repo string, number int, opts *github.ListOptions) ([]*github.Timeline, *github.Response, error)
 	ListCollaborators(ctx context.Context, owner string, repo string, opts *github.ListCollaboratorsOptions) ([]*github.User, *github.Response, error)
 	GetUser(ctx context.Context, user string) (*github.User, *github.Response, error)
 }
@@ -226,51 +203,6 @@ func issueToCard(issue *github.Issue) Card {
 		Labels:    extractLabels(issue.Labels),
 		Assignees: extractAssignees(issue.Assignees),
 	}
-}
-
-// fetchLinkedPRs retrieves cross-referenced pull requests from the issue timeline.
-//
-// Unreferenced now that FetchBoard uses the GraphQL client; see the note on
-// maxTimelineConcurrency above.
-//
-//nolint:unused
-func (g *GitHubProvider) fetchLinkedPRs(ctx context.Context, issueNumber int) ([]LinkedPR, error) {
-	opts := &github.ListOptions{PerPage: 100}
-	seen := make(map[int]bool)
-	var linkedPRs []LinkedPR
-
-	for {
-		events, resp, err := g.client.ListIssueTimeline(ctx, g.owner, g.repo, issueNumber, opts)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, event := range events {
-			if event.GetEvent() != "cross-referenced" {
-				continue
-			}
-			if event.Source == nil || event.Source.Issue == nil || event.Source.Issue.PullRequestLinks == nil {
-				continue
-			}
-			prNumber := event.Source.Issue.GetNumber()
-			if seen[prNumber] {
-				continue
-			}
-			seen[prNumber] = true
-			linkedPRs = append(linkedPRs, LinkedPR{
-				Number: prNumber,
-				Title:  event.Source.Issue.GetTitle(),
-				URL:    event.Source.Issue.GetHTMLURL(),
-			})
-		}
-
-		if resp == nil || resp.NextPage == 0 {
-			break
-		}
-		opts.Page = resp.NextPage
-	}
-
-	return linkedPRs, nil
 }
 
 // CreateCard creates a GitHub issue with the given title and optional label.

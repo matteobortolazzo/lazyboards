@@ -300,9 +300,7 @@ func mapIssueQueryNode(n issueQueryNode) issueNode {
 // mapLinkedPRs extracts linked PRs from an issue's cross-referenced timeline
 // items, skipping cross-references whose source is a plain Issue (the
 // "... on PullRequest" union fragment didn't match, so PullRequest.Number is
-// zero-valued) and deduping by PR number within the issue's timeline —
-// mirroring the existing seen[prNumber] dedup pattern in fetchLinkedPRs
-// (github.go).
+// zero-valued) and deduping by PR number within the issue's timeline.
 func mapLinkedPRs(items []timelineItemQueryNode) []LinkedPR {
 	seen := make(map[int]bool)
 	var linkedPRs []LinkedPR
