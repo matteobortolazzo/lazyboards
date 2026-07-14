@@ -8,7 +8,6 @@ require (
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/google/go-github/v68 v68.0.0
-	github.com/matteobortolazzo/agent-stack/agentwatch v1.12.0
 	github.com/muesli/termenv v0.16.0
 	golang.org/x/oauth2 v0.35.0
 	gopkg.in/yaml.v3 v3.0.1

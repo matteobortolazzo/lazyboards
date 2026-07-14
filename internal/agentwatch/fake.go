@@ -1,13 +1,11 @@
 package agentwatch
 
-import "github.com/matteobortolazzo/agent-stack/agentwatch/pkg/watch"
-
 // Compile-time check: *FakeWatcher implements Watcher.
 var _ Watcher = (*FakeWatcher)(nil)
 
 // FakeWatcherResult is one scripted result returned by FakeWatcher.ReadNext.
 type FakeWatcherResult struct {
-	Snap *watch.StateSnapshot
+	Snap *StateSnapshot
 	Err  error
 }
 
@@ -21,7 +19,7 @@ type FakeWatcher struct {
 }
 
 // ReadNext returns the next scripted result, in order.
-func (fw *FakeWatcher) ReadNext() (*watch.StateSnapshot, error) {
+func (fw *FakeWatcher) ReadNext() (*StateSnapshot, error) {
 	if fw.index >= len(fw.Results) {
 		return nil, nil
 	}
