@@ -1044,43 +1044,6 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.statusBar.SetActionHints(dispatchModeHints)
 		return b, queryDispatchStatusCmd(b.executor)
 	default:
-		// Alt+Shift+key: check for comment mode trigger (uppercase A-Z only).
-		if msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
-			baseKey := string(msg.Runes)
-			if act, ok := b.resolveAction(baseKey); ok {
-				template := act.URL + act.Command
-				if strings.Contains(template, "{comment}") {
-					// Enter comment mode.
-					ci := textinput.New()
-					ci.Placeholder = "Comment..."
-					ci.CharLimit = 2000
-					b.comment = commentState{
-						input:         ci,
-						pendingAction: act,
-						boardScope:    act.Scope == "board",
-					}
-					// Store pending card if card-scope; refuse if no card is visible.
-					if act.Scope != "board" {
-						if len(b.visibleCards()) == 0 {
-							return b, nil
-						}
-						b.comment.pendingCard = b.selectedCard()
-					}
-					b.mode = commentMode
-					b.statusBar.SetActionHints(commentModeHints)
-					return b, b.comment.input.Focus()
-				}
-				// Alt on action without {comment} -- execute normally.
-				if act.Scope == "board" {
-					return b.handleBoardActionKey(act)
-				}
-				if len(b.visibleCards()) == 0 {
-					return b, nil
-				}
-				return b.handleActionKey(act, b.selectedCard())
-			}
-			return b, nil
-		}
 		// Check for number key navigation (1-9).
 		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
 			idx := int(msg.Runes[0] - '1')
@@ -1090,31 +1053,99 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return b, nil
 		}
-		// Check if it's a custom action key (uppercase A-Z only).
-		if len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
-			if act, ok := b.resolveAction(msg.String()); ok {
-				if act.Scope == "board" {
-					return b.handleBoardActionKey(act)
+		return b.handleCustomActionKey(msg)
+	}
+	return b, nil
+}
+
+// handleCustomActionKey resolves msg against the user's custom action system:
+// Alt+letter enters comment mode (if the action's template uses {comment}) or
+// dispatches immediately, and a plain uppercase letter dispatches directly.
+// Shared by normal mode and detail-focused mode so custom actions behave
+// identically in both -- b.detailFocused (already accurate at call time,
+// since detail-focused mode is a sub-state routed to before this is ever
+// reached) is threaded onto the pending comment so returning from comment
+// mode restores the focus it was triggered from, mirroring the
+// helpFromDetailFocused pattern. Returns b unchanged if msg is not a
+// recognized custom action key.
+func (b Board) handleCustomActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Alt+Shift+key: check for comment mode trigger (uppercase A-Z only).
+	if msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
+		baseKey := string(msg.Runes)
+		if act, ok := b.resolveAction(baseKey); ok {
+			template := act.URL + act.Command
+			if strings.Contains(template, "{comment}") {
+				// Resolve the pending card (if card-scope) before touching any
+				// state, so a "no card visible" refusal leaves b untouched.
+				var pendingCard Card
+				if act.Scope != "board" {
+					if len(b.visibleCards()) == 0 {
+						return b, nil
+					}
+					pendingCard = b.selectedCard()
 				}
-				if len(b.visibleCards()) == 0 {
-					return b, nil
+				ci := textinput.New()
+				ci.Placeholder = "Comment..."
+				ci.CharLimit = 2000
+				b.comment = commentState{
+					input:             ci,
+					pendingAction:     act,
+					pendingCard:       pendingCard,
+					boardScope:        act.Scope == "board",
+					fromDetailFocused: b.detailFocused,
 				}
-				return b.handleActionKey(act, b.selectedCard())
+				b.detailFocused = false
+				b.mode = commentMode
+				b.statusBar.SetActionHints(commentModeHints)
+				return b, b.comment.input.Focus()
 			}
+			// Alt on action without {comment} -- execute normally.
+			if act.Scope == "board" {
+				return b.handleBoardActionKey(act)
+			}
+			if len(b.visibleCards()) == 0 {
+				return b, nil
+			}
+			return b.handleActionKey(act, b.selectedCard())
+		}
+		return b, nil
+	}
+	// Check if it's a custom action key (uppercase A-Z only).
+	if len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
+		if act, ok := b.resolveAction(msg.String()); ok {
+			if act.Scope == "board" {
+				return b.handleBoardActionKey(act)
+			}
+			if len(b.visibleCards()) == 0 {
+				return b, nil
+			}
+			return b.handleActionKey(act, b.selectedCard())
 		}
 	}
 	return b, nil
+}
+
+// restoreModeHints resets the status bar hints after leaving commentMode,
+// restoring detail-panel focus if the comment was triggered from there
+// (mirrors the helpFromDetailFocused pattern).
+func (b *Board) restoreModeHints() {
+	if b.comment.fromDetailFocused {
+		b.detailFocused = true
+		b.statusBar.SetActionHints(detailFocusHints)
+		return
+	}
+	b.statusBar.SetActionHints(b.normalHints)
 }
 
 func (b Board) handleCommentModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
 		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+		b.restoreModeHints()
 		return b, nil
 	case tea.KeyEnter:
 		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+		b.restoreModeHints()
 		comment := b.comment.input.Value()
 		act := b.comment.pendingAction
 		if b.comment.boardScope {
@@ -1494,6 +1525,8 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		b.detailFocused = false
 		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
+	default:
+		return b.handleCustomActionKey(msg)
 	}
 	return b, nil
 }

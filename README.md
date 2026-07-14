@@ -202,7 +202,7 @@ actions:
     command: "git checkout -b {number}-{title}"
 ```
 
-Press the key to execute the action on the selected card.
+Press the key to execute the action on the selected card. Custom actions and `Alt+Shift+key` comment actions work identically whether the card list or the [detail panel](#detail-panel) is focused.
 
 ### Template Variables
 
@@ -377,6 +377,8 @@ Press `?` at any time to open the in-app help popup.
 | `r` | Refresh |
 | `q` | Quit |
 | `?` | Help |
+| `A-Z` | Custom action |
+| `Alt+Shift+key` | Comment action |
 
 ### Create Mode
 

@@ -406,10 +406,11 @@ type labelConfirmState struct {
 
 // commentState groups fields related to the comment input modal.
 type commentState struct {
-	input         textinput.Model
-	pendingAction config.Action
-	pendingCard   Card
-	boardScope    bool
+	input             textinput.Model
+	pendingAction     config.Action
+	pendingCard       Card
+	boardScope        bool
+	fromDetailFocused bool
 }
 
 // assignItem represents a single entry in the assignee picker list.
