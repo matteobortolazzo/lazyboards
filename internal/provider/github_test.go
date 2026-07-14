@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1742,6 +1743,68 @@ func TestGitHubAddComment_GenericAPIError_PassesThrough(t *testing.T) {
 	clean := SanitizeError(err)
 	if clean != apiErrMsg {
 		t.Errorf("SanitizeError(err) = %q, want %q", clean, apiErrMsg)
+	}
+}
+
+// --- DeleteCard Tests ---
+
+func TestGitHubDeleteCard_Success(t *testing.T) {
+	issueNumber := 42
+	gql := &fakeGraphQLClient{}
+	p := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", []string{"New"})
+
+	if err := p.DeleteCard(context.Background(), issueNumber); err != nil {
+		t.Fatalf("DeleteCard returned error: %v", err)
+	}
+}
+
+// TestGitHubDeleteCard_NotFound scripts the lookup-query's real not-found
+// wording ("Could not resolve to an Issue") -- the only not-found signal
+// shurcooL/graphql exposes -- and asserts DeleteCard maps it to a clean,
+// user-safe message that names the issue number, distinct from the generic
+// permission-denied fallback.
+func TestGitHubDeleteCard_NotFound(t *testing.T) {
+	issueNumber := 404
+	gql := &fakeGraphQLClient{deleteIssueErr: errors.New("Could not resolve to an Issue with the number of 404.")}
+	p := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", []string{"New"})
+
+	err := p.DeleteCard(context.Background(), issueNumber)
+	if err == nil {
+		t.Fatal("expected error for non-existent issue number, got nil")
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(issueNumber)) {
+		t.Errorf("error = %q, want it to mention issue number %d", err.Error(), issueNumber)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "not found") {
+		t.Errorf("error = %q, want a clean not-found message", err.Error())
+	}
+}
+
+// TestGitHubDeleteCard_GenericErrorMapping scripts an arbitrary, opaque
+// GraphQL error (a unique nonsense token unrelated to any real GitHub
+// wording) and asserts DeleteCard maps ANY non-not-found mutation error to a
+// single generic, non-leaking message: it must name the issue number and
+// mention permission, but must NOT leak the raw scripted error text. This
+// proves the mapping is generic (doesn't depend on matching GitHub's exact
+// wording) without pinning any GitHub wire-format string.
+func TestGitHubDeleteCard_GenericErrorMapping(t *testing.T) {
+	issueNumber := 77
+	nonsenseToken := "qzx-9f31-opaque-wire-blob-zzyx"
+	gql := &fakeGraphQLClient{deleteIssueErr: errors.New(nonsenseToken)}
+	p := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", []string{"New"})
+
+	err := p.DeleteCard(context.Background(), issueNumber)
+	if err == nil {
+		t.Fatal("expected error for scripted generic GraphQL failure, got nil")
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(issueNumber)) {
+		t.Errorf("error = %q, want it to mention issue number %d", err.Error(), issueNumber)
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "permission") {
+		t.Errorf("error = %q, want it to mention permission", err.Error())
+	}
+	if strings.Contains(err.Error(), nonsenseToken) {
+		t.Errorf("error = %q, must not leak the raw scripted GraphQL error text %q", err.Error(), nonsenseToken)
 	}
 }
 

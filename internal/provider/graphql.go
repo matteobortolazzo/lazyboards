@@ -22,6 +22,12 @@ type graphQLBoardClient interface {
 	// issue's timelineItems connection, used when issueNode.hasMoreTimelineItems
 	// is true (i.e. an issue has more than 100 cross-referenced timeline items).
 	fetchIssueTimelinePage(ctx context.Context, owner, repo string, issueNumber int, cursor string) (timelinePage, error)
+
+	// deleteIssue permanently deletes the given issue via GraphQL's
+	// deleteIssue mutation (REST has no delete-issue endpoint). Number-based
+	// like the other seam methods; implementations resolve the issue's
+	// GraphQL node ID internally.
+	deleteIssue(ctx context.Context, owner, repo string, number int) error
 }
 
 // maxTimelineFollowupPages bounds the number of per-issue timeline follow-up
@@ -253,6 +259,61 @@ func (a *GitHubV4Adapter) fetchIssueTimelinePage(ctx context.Context, owner, rep
 	}
 
 	return mapIssueTimelineQuery(q), nil
+}
+
+// issueLookupQuery resolves an issue's GraphQL global node ID by number.
+// GitHub's deleteIssue mutation requires a node ID (DeleteIssueInput.IssueID),
+// not owner/repo/number, and issueQueryNode (used by FetchBoard's issuesQuery)
+// carries no ID field, so a preliminary lookup query is needed:
+//
+//	query($owner: String!, $name: String!, $number: Int!) {
+//	  repository(owner: $owner, name: $name) {
+//	    issue(number: $number) { id }
+//	  }
+//	}
+type issueLookupQuery struct {
+	Repository struct {
+		Issue struct {
+			ID githubv4.ID
+		} `graphql:"issue(number: $number)"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+// deleteIssueMutation is the githubv4 struct-tag-based mutation DSL
+// representation of:
+//
+//	mutation($input: DeleteIssueInput!) {
+//	  deleteIssue(input: $input) {
+//	    clientMutationId
+//	  }
+//	}
+type deleteIssueMutation struct {
+	DeleteIssue struct {
+		ClientMutationID githubv4.String
+	} `graphql:"deleteIssue(input: $input)"`
+}
+
+// deleteIssue permanently deletes the issue identified by owner/repo/number.
+// It first resolves the issue's GraphQL node ID via a lookup query, then runs
+// the deleteIssue mutation with that ID. Not unit-tested (like
+// fetchIssuePage, this is a real-network adapter path); the fakeGraphQLClient
+// test double covers the number-based seam contract instead.
+func (a *GitHubV4Adapter) deleteIssue(ctx context.Context, owner, repo string, number int) error {
+	var lookup issueLookupQuery
+	lookupVars := map[string]interface{}{
+		"owner":  githubv4.String(owner),
+		"name":   githubv4.String(repo),
+		"number": githubv4.Int(number),
+	}
+	if err := a.client.Query(ctx, &lookup, lookupVars); err != nil {
+		return err
+	}
+
+	input := githubv4.DeleteIssueInput{
+		IssueID: lookup.Repository.Issue.ID,
+	}
+	var mutation deleteIssueMutation
+	return a.client.Mutate(ctx, &mutation, input, nil)
 }
 
 // mapIssuesQuery converts a githubv4 issuesQuery response into a plain

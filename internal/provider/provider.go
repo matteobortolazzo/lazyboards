@@ -55,4 +55,5 @@ type BoardProvider interface {
 	GetAuthenticatedUser(ctx context.Context) (string, error)
 	CloseCard(ctx context.Context, number int) (Card, error)
 	AddComment(ctx context.Context, number int, body string) error
+	DeleteCard(ctx context.Context, number int) error
 }

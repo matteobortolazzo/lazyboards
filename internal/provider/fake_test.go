@@ -492,6 +492,50 @@ func TestFakeProvider_AddComment_NotFound(t *testing.T) {
 	}
 }
 
+// --- DeleteCard Tests ---
+
+// TestFakeProvider_DeleteCard_Success asserts DeleteCard actually removes the
+// card from the fixture (unlike CloseCard, which only finds/returns without
+// mutating) -- a subsequent FetchBoard must no longer contain it.
+func TestFakeProvider_DeleteCard_Success(t *testing.T) {
+	fp := NewFakeProvider()
+
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	existingCard := board.Columns[0].Cards[0]
+
+	if err := fp.DeleteCard(context.Background(), existingCard.Number); err != nil {
+		t.Fatalf("DeleteCard returned error: %v", err)
+	}
+
+	boardAfter, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard after DeleteCard returned error: %v", err)
+	}
+	for _, col := range boardAfter.Columns {
+		for _, c := range col.Cards {
+			if c.Number == existingCard.Number {
+				t.Fatalf("card #%d still present after DeleteCard", existingCard.Number)
+			}
+		}
+	}
+}
+
+func TestFakeProvider_DeleteCard_NotFound(t *testing.T) {
+	fp := NewFakeProvider()
+	nonExistentNumber := 9999
+
+	err := fp.DeleteCard(context.Background(), nonExistentNumber)
+	if err == nil {
+		t.Fatal("expected error for non-existent card number, got nil")
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(nonExistentNumber)) {
+		t.Errorf("error = %q, want it to mention card number %d", err.Error(), nonExistentNumber)
+	}
+}
+
 // --- GetAuthenticatedUser Tests ---
 
 func TestFakeProvider_GetAuthenticatedUser(t *testing.T) {

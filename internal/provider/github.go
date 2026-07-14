@@ -280,6 +280,34 @@ func (g *GitHubProvider) AddComment(ctx context.Context, number int, body string
 	return err
 }
 
+// DeleteCard permanently deletes a GitHub issue via GraphQL's deleteIssue
+// mutation (REST has no delete-issue endpoint). Errors are mapped by
+// mapDeleteError to avoid leaking raw GraphQL error text to the user.
+func (g *GitHubProvider) DeleteCard(ctx context.Context, number int) error {
+	err := g.gql.deleteIssue(ctx, g.owner, g.repo, number)
+	return mapDeleteError(number, err)
+}
+
+// mapDeleteError maps a raw error from graphQLBoardClient.deleteIssue into a
+// clean, user-safe message. shurcooL/graphql only surfaces GraphQL errors as
+// a plain message string (no structured error code), so:
+//   - nil error passes through as nil.
+//   - a not-found lookup failure ("Could not resolve to an Issue" -- the only
+//     not-found signal the library exposes) maps to a clean "issue #N not
+//     found" message.
+//   - anything else (including permission-denied) maps to a single generic,
+//     non-leaking message. This deliberately avoids matching GitHub's exact
+//     wording for permission errors, which is fragile and could change.
+func mapDeleteError(number int, err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "Could not resolve to an Issue") {
+		return fmt.Errorf("issue #%d not found", number)
+	}
+	return fmt.Errorf("could not delete issue #%d (check you have permission)", number)
+}
+
 // FetchCollaborators retrieves all collaborators for the repository.
 func (g *GitHubProvider) FetchCollaborators(ctx context.Context) ([]Assignee, error) {
 	var allCollaborators []Assignee
