@@ -1472,6 +1472,9 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b.handlePROpenKey(b.selectedCard())
+	case "v":
+		b.enterPRList()
+		return b, nil
 	case "?":
 		b.helpFromDetailFocused = true
 		b.detailFocused = false

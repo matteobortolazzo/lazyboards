@@ -1209,6 +1209,10 @@ func (b Board) viewGitPanelModal() string {
 // empty state when no card on the board has a linked PR.
 func (b Board) viewPRListModal() string {
 	modalWidth := 60
+	// renderModal uses Padding(1, 2), so the usable text width inside the box
+	// is modalWidth minus the 4 columns of horizontal padding. Rows wider than
+	// this wrap and break row alignment and the selection highlight.
+	contentWidth := modalWidth - prListModalPadding
 
 	var lines []string
 	lines = append(lines, "Pull Requests")
@@ -1218,9 +1222,7 @@ func (b Board) viewPRListModal() string {
 		lines = append(lines, "No linked PRs")
 	} else {
 		for i, entry := range b.prList.entries {
-			title := truncateOutput(entry.pr.Title, 32)
-			ref := fmt.Sprintf("%s #%d", entry.columnTitle, entry.cardNumber)
-			display := fmt.Sprintf("  #%d  %s  —  %s", entry.pr.Number, title, ref)
+			display := formatPRListRow(entry, contentWidth)
 			if i == b.prList.cursor {
 				display = selectedCardStyle.Render(display)
 			}
@@ -1234,6 +1236,45 @@ func (b Board) viewPRListModal() string {
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
+}
+
+// prListModalPadding is the total horizontal padding (both sides) applied by
+// renderModal, subtracted from the modal width to get the usable text width.
+const prListModalPadding = 4
+
+// formatPRListRow renders one PR list row as "  #<pr>  <title>  —  <column>
+// #<card>", truncating so the row's terminal width never exceeds maxWidth. The
+// PR title absorbs truncation first; if the fixed head+reference alone already
+// overflow, the whole row is capped so it can never wrap inside the modal.
+func formatPRListRow(entry prListEntry, maxWidth int) string {
+	head := fmt.Sprintf("  #%d  ", entry.pr.Number)
+	sep := "  —  "
+	ref := fmt.Sprintf("%s #%d", entry.columnTitle, entry.cardNumber)
+
+	titleBudget := maxWidth - lipgloss.Width(head) - lipgloss.Width(sep) - lipgloss.Width(ref)
+	if titleBudget < 1 {
+		return truncateToWidth(head+entry.pr.Title+sep+ref, maxWidth)
+	}
+	title := truncateToWidth(entry.pr.Title, titleBudget)
+	return truncateToWidth(head+title+sep+ref, maxWidth)
+}
+
+// truncateToWidth shortens s so its terminal display width is at most maxWidth,
+// appending a single-cell ellipsis when it trims. It measures with
+// lipgloss.Width so wide runes (CJK, emoji) are counted as 2 cells rather than
+// 1 (see lessons-learned on terminal width).
+func truncateToWidth(s string, maxWidth int) string {
+	if lipgloss.Width(s) <= maxWidth {
+		return s
+	}
+	if maxWidth <= 1 {
+		return "…"
+	}
+	runes := []rune(s)
+	for len(runes) > 0 && lipgloss.Width(string(runes))+1 > maxWidth {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes) + "…"
 }
 
 // viewDispatchModal renders the agent dispatch modal. State precedence:

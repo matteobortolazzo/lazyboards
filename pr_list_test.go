@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -10,6 +11,9 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
+
+// errAnyOpenURL is a sentinel used to force the FakeExecutor's OpenURL to fail.
+var errAnyOpenURL = errors.New("open failed")
 
 // The shared newBoardWithPRsAndExecutor fixture has one column with three
 // cards: card 1 (0 PRs), card 2 (1 PR #10), card 3 (2 PRs #20, #21) — three
@@ -158,13 +162,59 @@ func TestPRList_View_ListsAllPRsWithCardRefs(t *testing.T) {
 	}
 }
 
-func TestPRList_View_TitleFitsModalWidth(t *testing.T) {
+func TestPRList_DetailPanel_V_OpensPRListModal(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
+
+	// Focus the detail panel first, then press "v": the global PR list must be
+	// reachable from detail focus too, like p/o/r/e/?.
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatalf("expected detailFocused after l")
+	}
 	b = sendKey(t, b, keyMsg("v"))
 
-	for _, line := range strings.Split(b.viewPRListModal(), "\n") {
-		if w := lipgloss.Width(line); w > b.Width {
-			t.Errorf("modal line wider than terminal (%d > %d): %q", w, b.Width, line)
-		}
+	if b.mode != prListMode {
+		t.Fatalf("mode after v from detail panel = %d, want prListMode (%d)", b.mode, prListMode)
+	}
+	if len(b.prList.entries) != 3 {
+		t.Errorf("entries = %d, want 3", len(b.prList.entries))
+	}
+}
+
+func TestPRList_Enter_OpenURLError_ShowsErrorAndReturns(t *testing.T) {
+	b, fe := newBoardWithPRsAndExecutor(t)
+	fe.OpenURLErr = errAnyOpenURL
+	b = sendKey(t, b, keyMsg("v"))
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != normalMode {
+		t.Errorf("mode after failed open = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if !strings.Contains(b.statusBar.View(200, 0, 0), "Error:") {
+		t.Errorf("status = %q, want it to contain %q", b.statusBar.View(200, 0, 0), "Error:")
+	}
+}
+
+// TestPRList_View_RowsFitModalContentWidth guards the invariant that a row can
+// never wrap inside the modal. Wrapping is invisible in the fully rendered
+// modal (lipgloss.Place pads to the full terminal), so this asserts on the
+// pure row formatter directly, with realistic long column + PR titles.
+func TestPRList_View_RowsFitModalContentWidth(t *testing.T) {
+	entry := prListEntry{
+		pr:          LinkedPR{Number: 12345, Title: strings.Repeat("very long pr title ", 6)},
+		cardNumber:  6789,
+		columnTitle: "In Progress / Waiting For Review",
+	}
+	const contentWidth = 60 - prListModalPadding
+	row := formatPRListRow(entry, contentWidth)
+	if w := lipgloss.Width(row); w > contentWidth {
+		t.Errorf("row width %d exceeds content width %d: %q", w, contentWidth, row)
+	}
+	// The row must still carry its identifying number so it stays useful.
+	if !strings.Contains(row, "#12345") {
+		t.Errorf("row dropped the PR number: %q", row)
 	}
 }
