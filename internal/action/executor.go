@@ -2,10 +2,8 @@ package action
 
 import (
 	"bytes"
-	"fmt"
 	"os/exec"
 	"runtime"
-	"strings"
 )
 
 // Executor defines methods for executing actions.
@@ -13,7 +11,6 @@ type Executor interface {
 	OpenURL(url string) error
 	RunShell(command string) (stderr string, err error)
 	RunShellOutput(command string) (stdout, stderr string, err error)
-	SwitchToWindow(session, windowIndex string) error
 
 	// StartDetached spawns command (run via the same shell invocation style
 	// as RunShell) fully detached from the current process -- a new
@@ -62,28 +59,6 @@ func (d DefaultExecutor) RunShellOutput(command string) (string, string, error) 
 	return outBuf.String(), errBuf.String(), err
 }
 
-// SwitchToWindow selects and switches to the tmux window identified by
-// session and windowIndex ("<session>:<windowIndex>"). It runs
-// `tmux select-window` followed by `tmux switch-client`, using discrete
-// exec.Command args (never a shell string) since session/windowIndex values
-// ultimately derive from untrusted ticket data.
-func (d DefaultExecutor) SwitchToWindow(session, windowIndex string) error {
-	target := session + ":" + windowIndex
-	if output, err := exec.Command("tmux", "select-window", "-t", target).CombinedOutput(); err != nil {
-		return fmt.Errorf("select-window: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	if output, err := exec.Command("tmux", "switch-client", "-t", target).CombinedOutput(); err != nil {
-		return fmt.Errorf("switch-client: %w: %s", err, strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
-// SwitchWindowCall records a single SwitchToWindow invocation.
-type SwitchWindowCall struct {
-	Session     string
-	WindowIndex string
-}
-
 // StartDetachedCall records a single StartDetached invocation.
 type StartDetachedCall struct {
 	Command string
@@ -100,12 +75,11 @@ type RunShellOutputResult struct {
 
 // FakeExecutor records calls for testing.
 type FakeExecutor struct {
-	OpenURLCalls      []string
-	RunShellCalls     []string
-	SwitchWindowCalls []SwitchWindowCall
-	OpenURLErr        error
-	RunShellErr       error
-	RunShellStderr    string
+	OpenURLCalls   []string
+	RunShellCalls  []string
+	OpenURLErr     error
+	RunShellErr    error
+	RunShellStderr string
 
 	// RunShellOutputResults, when non-empty, scripts successive
 	// RunShellOutput calls in order (mirroring FakeWatcher.Results in
@@ -120,7 +94,6 @@ type FakeExecutor struct {
 	RunShellOutputStdout string
 	RunShellOutputStderr string
 	RunShellOutputErr    error
-	SwitchWindowErr      error
 
 	StartDetachedCalls []StartDetachedCall
 	StartDetachedPid   int
@@ -156,12 +129,6 @@ func (f *FakeExecutor) RunShellOutput(command string) (string, string, error) {
 		return result.Stdout, result.Stderr, result.Err
 	}
 	return f.RunShellOutputStdout, f.RunShellOutputStderr, f.RunShellOutputErr
-}
-
-// SwitchToWindow records the call and returns the configured error.
-func (f *FakeExecutor) SwitchToWindow(session, windowIndex string) error {
-	f.SwitchWindowCalls = append(f.SwitchWindowCalls, SwitchWindowCall{Session: session, WindowIndex: windowIndex})
-	return f.SwitchWindowErr
 }
 
 // StartDetached records the call and returns the configured pid and error.

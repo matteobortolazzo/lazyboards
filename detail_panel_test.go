@@ -1130,3 +1130,47 @@ func TestComposeDetailMarkdown_NoAssignees_ShowsNone(t *testing.T) {
 		t.Errorf("composeDetailMarkdown should contain 'assignees: (none)' for cards without assignees, got:\n%s", md)
 	}
 }
+
+func TestDetailFocus_PKey_OpensLinkedPR(t *testing.T) {
+	b, fe := newBoardWithPRsAndExecutor(t)
+
+	// Move to the card with exactly one linked PR, then focus the detail panel.
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detail panel should be focused after 'l'")
+	}
+
+	b = sendKey(t, b, keyMsg("p"))
+
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
+	}
+	if fe.OpenURLCalls[0] != "https://github.com/owner/repo/pull/10" {
+		t.Errorf("OpenURL called with %q, want the linked PR URL", fe.OpenURLCalls[0])
+	}
+}
+
+func TestDetailFocus_PKey_MultiplePRs_OpensPicker(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+
+	// Move to the card with two linked PRs, then focus the detail panel.
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("l"))
+
+	b = sendKey(t, b, keyMsg("p"))
+
+	if b.mode != prPickerMode {
+		t.Errorf("after 'p' on a card with two PRs: mode = %d, want prPickerMode (%d)", b.mode, prPickerMode)
+	}
+
+	// Escaping the picker must keep the detail panel focused.
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+	if b.mode != normalMode {
+		t.Errorf("after Esc from PR picker: mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if !b.detailFocused {
+		t.Error("after Esc from PR picker opened via detail panel, detail panel should still be focused")
+	}
+}

@@ -128,6 +128,7 @@ var detailFocusHints = []Hint{
 var searchModeHints = []Hint{
 	{Key: "enter", Desc: "Apply"},
 	{Key: "esc", Desc: "Clear"},
+	{Key: "↑/↓", Desc: "Navigate"},
 }
 
 // prPickerHints are the status bar hints shown when the PR picker modal is open.
@@ -685,12 +686,12 @@ func (b *Board) enterConfigMode() {
 	}
 }
 
-// gitPanelBuiltinOrder is the fixed display/dispatch order of the git panel's
-// built-in shortcuts: Push, Pull, Mergetool, Fetch, Stash push, Stash pop.
+// gitPanelBuiltinOrder is the fixed display/dispatch order of the git menu's
+// built-in shortcuts: Push, Pull, Fetch, Mergetool, Stash push, Stash pop.
 // This must hold regardless of Go map iteration order over defaultActions.
-var gitPanelBuiltinOrder = []string{"P", "L", "M", "F", "S", "X"}
+var gitPanelBuiltinOrder = []string{"P", "p", "f", "m", "s", "S"}
 
-// enterGitPanel opens the git panel modal, populating its items from
+// enterGitPanel opens the git menu modal, populating its items from
 // b.defaultActions in a fixed order (not map iteration order). If no default
 // git actions are available (e.g. outside a git repo), this is a no-op and
 // the panel does not open.
@@ -805,10 +806,8 @@ func (b *Board) resolveAction(key string) (config.Action, bool) {
 	if act, ok := b.actions[key]; ok {
 		return act, true
 	}
-	// Fall back to built-in git defaults so any user key overrides them.
-	if act, ok := b.defaultActions[key]; ok {
-		return act, true
-	}
+	// No fallback to b.defaultActions: built-in git actions are scoped to the
+	// git menu (see handleGitPanelKey) so normal-mode keys stay user-owned.
 	return config.Action{}, false
 }
 

@@ -11,11 +11,11 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
-// gitPanelKeyOrder is the fixed display/dispatch order of the git panel's
-// built-in shortcuts, per the approved plan: Push, Pull, Mergetool, Fetch,
+// gitPanelKeyOrder is the fixed display/dispatch order of the git menu's
+// built-in shortcuts (lazygit-style keys): Push, Pull, Fetch, Mergetool,
 // Stash push, Stash pop. This must hold regardless of Go map iteration order
 // over defaultActions.
-var gitPanelKeyOrder = []string{"P", "L", "M", "F", "S", "X"}
+var gitPanelKeyOrder = []string{"P", "p", "f", "m", "s", "S"}
 
 // newGitPanelTestBoard creates a loaded Board seeded with the built-in git
 // default actions (config.DefaultGitActions()) plus any user-provided
@@ -125,7 +125,7 @@ func TestGitPanel_ItemsFixedOrder_RegardlessOfMapIteration(t *testing.T) {
 		}
 		for j, wantKey := range gitPanelKeyOrder {
 			if b.gitPanel.items[j].key != wantKey {
-				t.Fatalf("iteration %d: gitPanel.items[%d].key = %q, want %q (fixed order: Push, Pull, Mergetool, Fetch, Stash push, Stash pop)", i, j, b.gitPanel.items[j].key, wantKey)
+				t.Fatalf("iteration %d: gitPanel.items[%d].key = %q, want %q (fixed order: Push, Pull, Fetch, Mergetool, Stash push, Stash pop)", i, j, b.gitPanel.items[j].key, wantKey)
 			}
 		}
 		b = sendKey(t, b, arrowMsg(tea.KeyEsc))
@@ -190,9 +190,9 @@ func TestGitPanel_Enter_DefaultKey_DispatchesBuiltinAction(t *testing.T) {
 		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
 	}
 
-	idx := gitPanelItemIndex(b, "F")
+	idx := gitPanelItemIndex(b, "f")
 	if idx == -1 {
-		t.Fatal("expected a Fetch (key F) entry in the git panel items")
+		t.Fatal("expected a Fetch (key f) entry in the git panel items")
 	}
 	b.gitPanel.cursor = idx
 
@@ -211,9 +211,11 @@ func TestGitPanel_Enter_DefaultKey_DispatchesBuiltinAction(t *testing.T) {
 	}
 }
 
-func TestGitPanel_Enter_UserOverride_DispatchesOverriddenAction(t *testing.T) {
+func TestGitPanel_MenuKeysAreScopedFromUserActions(t *testing.T) {
+	// A normal-mode custom action on the same letter must not shadow the git
+	// menu entry: menu keys dispatch from defaultActions, not resolveAction.
 	userActions := map[string]config.Action{
-		"S": {Name: "Custom Stash", Type: "shell", Command: "echo custom-stash", Scope: "board"},
+		"S": {Name: "Custom S", Type: "shell", Command: "echo custom-s", Scope: "board"},
 	}
 	b, fe := newGitPanelTestBoard(t, userActions, nil)
 
@@ -224,7 +226,7 @@ func TestGitPanel_Enter_UserOverride_DispatchesOverriddenAction(t *testing.T) {
 
 	idx := gitPanelItemIndex(b, "S")
 	if idx == -1 {
-		t.Fatal("expected a Stash push (key S) entry in the git panel items")
+		t.Fatal("expected a Stash pop (key S) entry in the git panel items")
 	}
 	b.gitPanel.cursor = idx
 
@@ -236,10 +238,82 @@ func TestGitPanel_Enter_UserOverride_DispatchesOverriddenAction(t *testing.T) {
 	execCmds(cmd)
 
 	if len(fe.RunShellCalls) == 0 {
-		t.Fatal("expected RunShell to be called for the overridden Stash push entry, got no calls")
+		t.Fatal("expected RunShell to be called for the Stash pop entry, got no calls")
 	}
-	if fe.RunShellCalls[0] != "echo custom-stash" {
-		t.Errorf("RunShellCalls[0] = %q, want the user-overridden command %q (not the built-in %q); Enter must dispatch via resolveAction so overrides win", fe.RunShellCalls[0], "echo custom-stash", "git stash push")
+	if fe.RunShellCalls[0] != "git stash pop" {
+		t.Errorf("RunShellCalls[0] = %q, want the built-in %q; a user action on the same letter must not shadow the menu entry", fe.RunShellCalls[0], "git stash pop")
+	}
+}
+
+// --- Direct key dispatch (lazygit-style) ---
+
+func TestGitPanel_DirectKey_DispatchesAndClosesPanel(t *testing.T) {
+	b, fe := newGitPanelTestBoard(t, nil, nil)
+
+	b = sendKey(t, b, keyMsg("g"))
+	if b.mode != gitPanelMode {
+		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+	}
+
+	m, cmd := b.Update(keyMsg("P"))
+	b = m.(Board)
+	if cmd == nil {
+		t.Fatal("pressing 'P' in the git menu should return a non-nil cmd")
+	}
+	execCmds(cmd)
+
+	if b.mode != normalMode {
+		t.Errorf("after direct key dispatch: mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if len(fe.RunShellCalls) == 0 || fe.RunShellCalls[0] != "git push" {
+		t.Errorf("RunShellCalls = %v, want first call to be %q", fe.RunShellCalls, "git push")
+	}
+}
+
+func TestGitPanel_DirectKey_LowercasePull(t *testing.T) {
+	b, fe := newGitPanelTestBoard(t, nil, nil)
+
+	b = sendKey(t, b, keyMsg("g"))
+	m, cmd := b.Update(keyMsg("p"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) == 0 || fe.RunShellCalls[0] != "git pull --rebase" {
+		t.Errorf("RunShellCalls = %v, want first call to be %q", fe.RunShellCalls, "git pull --rebase")
+	}
+	if b.mode != normalMode {
+		t.Errorf("after direct key dispatch: mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+}
+
+func TestGitPanel_UnboundKey_IsIgnored(t *testing.T) {
+	b, fe := newGitPanelTestBoard(t, nil, nil)
+
+	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("z"))
+
+	if b.mode != gitPanelMode {
+		t.Errorf("after unbound key 'z': mode = %d, want gitPanelMode (%d)", b.mode, gitPanelMode)
+	}
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("unbound key must not dispatch, got RunShell calls: %v", fe.RunShellCalls)
+	}
+}
+
+func TestGitPanel_JK_NavigateWithoutDispatching(t *testing.T) {
+	// j/k must stay pure navigation even though the menu dispatches on bare
+	// letters — they are not menu keys.
+	b, fe := newGitPanelTestBoard(t, nil, nil)
+
+	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("k"))
+
+	if b.mode != gitPanelMode {
+		t.Errorf("after j/k: mode = %d, want gitPanelMode (%d)", b.mode, gitPanelMode)
+	}
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("j/k must not dispatch, got RunShell calls: %v", fe.RunShellCalls)
 	}
 }
 

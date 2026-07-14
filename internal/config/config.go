@@ -116,17 +116,18 @@ var DefaultColumns = []ColumnConfig{
 }
 
 // DefaultGitActions returns the built-in lazygit-style git actions. These are
-// board-scope shell actions available inside a git repo with a remote. They are
-// kept separate from Config.Actions so they can be surfaced in the help popup
-// only (never the compact hint bar) and overridden by any user-defined key.
+// board-scope shell actions available inside a git repo with a remote. Their
+// keys are scoped to the git menu (opened with `g` in normal mode) and never
+// dispatch from normal mode, so the normal-mode uppercase A-Z namespace stays
+// fully reserved for user-defined custom actions.
 func DefaultGitActions() map[string]Action {
 	return map[string]Action{
 		"P": {Name: "Push", Type: "shell", Command: "git push", Scope: "board"},
-		"L": {Name: "Pull (rebase)", Type: "shell", Command: "git pull --rebase", Scope: "board"},
-		"M": {Name: "Mergetool", Type: "shell", Command: "git mergetool", Scope: "board"},
-		"F": {Name: "Fetch", Type: "shell", Command: "git fetch", Scope: "board"},
-		"S": {Name: "Stash push", Type: "shell", Command: "git stash push", Scope: "board"},
-		"X": {Name: "Stash pop", Type: "shell", Command: "git stash pop", Scope: "board"},
+		"p": {Name: "Pull (rebase)", Type: "shell", Command: "git pull --rebase", Scope: "board"},
+		"f": {Name: "Fetch", Type: "shell", Command: "git fetch", Scope: "board"},
+		"m": {Name: "Mergetool", Type: "shell", Command: "git mergetool", Scope: "board"},
+		"s": {Name: "Stash push", Type: "shell", Command: "git stash push", Scope: "board"},
+		"S": {Name: "Stash pop", Type: "shell", Command: "git stash pop", Scope: "board"},
 	}
 }
 

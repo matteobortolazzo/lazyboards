@@ -651,3 +651,15 @@ func TestViewCardList_WorkingLabelAndBadgeCoexist(t *testing.T) {
 		t.Errorf("running badge symbol missing; got:\n%s", out)
 	}
 }
+
+// TestAgentStatusFailed_ConstantMatchesLiteral guards the agentStatusFailed
+// constant against drifting from the "failed" literal used across the
+// agentwatch join (agentBadgeText, agentCounts, agentStatusFor callers).
+func TestAgentStatusFailed_ConstantMatchesLiteral(t *testing.T) {
+	if agentStatusFailed != "failed" {
+		t.Errorf("agentStatusFailed = %q, want %q", agentStatusFailed, "failed")
+	}
+	if !strings.Contains(agentStatusFailed, "fail") {
+		t.Errorf("agentStatusFailed = %q, want it to describe a failed dispatch", agentStatusFailed)
+	}
+}

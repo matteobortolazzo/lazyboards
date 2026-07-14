@@ -27,19 +27,17 @@ func gitDefaultsBoard(t *testing.T, userActions map[string]config.Action) (Board
 	return b, fe
 }
 
-func TestResolveAction_FallsBackToGitDefault(t *testing.T) {
+// Git defaults are menu-scoped: resolveAction (the normal-mode custom action
+// path) must never surface them, keeping A-Z fully user-owned.
+func TestResolveAction_DoesNotFallBackToGitDefault(t *testing.T) {
 	b, _ := gitDefaultsBoard(t, nil)
 
-	act, ok := b.resolveAction("P")
-	if !ok {
-		t.Fatal("resolveAction(\"P\") returned ok=false, want a git default")
-	}
-	if act.Command != "git push" || act.Scope != "board" {
-		t.Errorf("resolveAction(\"P\") = %+v, want git push board-scope action", act)
+	if act, ok := b.resolveAction("P"); ok {
+		t.Fatalf("resolveAction(\"P\") = %+v, ok=true; git defaults must be git-menu-scoped, not normal-mode keys", act)
 	}
 }
 
-func TestResolveAction_UserActionOverridesGitDefault(t *testing.T) {
+func TestResolveAction_UserActionOnGitDefaultKey_ResolvesUserAction(t *testing.T) {
 	userActions := map[string]config.Action{
 		"P": {Name: "Custom P", Type: "shell", Command: "echo custom", Scope: "board"},
 	}
@@ -50,7 +48,7 @@ func TestResolveAction_UserActionOverridesGitDefault(t *testing.T) {
 		t.Fatal("resolveAction(\"P\") returned ok=false")
 	}
 	if act.Command != "echo custom" {
-		t.Errorf("resolveAction(\"P\").Command = %q, want user override %q", act.Command, "echo custom")
+		t.Errorf("resolveAction(\"P\").Command = %q, want user action %q", act.Command, "echo custom")
 	}
 }
 
@@ -72,70 +70,27 @@ func TestGitDefaults_NotInHintBar(t *testing.T) {
 	}
 }
 
-func TestGitDefaults_PressPushRunsGitPush(t *testing.T) {
+func TestGitDefaults_NormalModeUppercaseKey_DoesNotDispatch(t *testing.T) {
 	b, fe := gitDefaultsBoard(t, nil)
 
 	_, cmd := b.Update(keyMsg("P"))
 	execCmds(cmd)
 
-	if len(fe.RunShellCalls) == 0 {
-		t.Fatal("expected RunShell to be called for git default P, got no calls")
-	}
-	if fe.RunShellCalls[0] != "git push" {
-		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], "git push")
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("normal-mode P must not dispatch a git default, got RunShell calls: %v", fe.RunShellCalls)
 	}
 }
 
-func TestBuildHelpContent_ListsGitDefaults(t *testing.T) {
+func TestBuildHelpContent_ListsGitMenuKeys(t *testing.T) {
 	b, _ := gitDefaultsBoard(t, nil)
 
 	content := b.buildHelpContent()
-	if !strings.Contains(content, "Built-in Git Actions") {
-		t.Fatalf("help content missing \"Built-in Git Actions\" section, got:\n%s", content)
+	if !strings.Contains(content, "Git Menu") {
+		t.Fatalf("help content missing \"Git Menu\" section, got:\n%s", content)
 	}
-	for _, name := range []string{"Push", "Pull (rebase)", "Mergetool"} {
+	for _, name := range []string{"Push", "Pull (rebase)", "Fetch", "Mergetool", "Stash push", "Stash pop"} {
 		if !strings.Contains(content, name) {
-			t.Errorf("help content missing git default %q, got:\n%s", name, content)
+			t.Errorf("help content missing git menu entry %q, got:\n%s", name, content)
 		}
-	}
-}
-
-func TestBuildHelpContent_OmitsOverriddenGitDefault(t *testing.T) {
-	// User overrides P via a global action; it must not appear under Built-in Git Actions.
-	userActions := map[string]config.Action{
-		"P": {Name: "Custom Push", Type: "shell", Command: "echo custom", Scope: "board"},
-	}
-	b, _ := gitDefaultsBoard(t, userActions)
-
-	content := b.buildHelpContent()
-	gitSection := content[strings.Index(content, "Built-in Git Actions"):]
-	if strings.Contains(gitSection, "Push (shell)") {
-		t.Errorf("Built-in Git Actions section should omit overridden key P, got:\n%s", gitSection)
-	}
-	// The other defaults remain.
-	if !strings.Contains(gitSection, "Mergetool") {
-		t.Errorf("Built-in Git Actions section should still list Mergetool, got:\n%s", gitSection)
-	}
-}
-
-func TestBuildHelpContent_OmitsColumnOverriddenGitDefault(t *testing.T) {
-	// User overrides M via a per-column action; it must not appear under Built-in Git Actions.
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	columnConfigs := []config.ColumnConfig{
-		{Name: "Empty", Actions: map[string]config.Action{
-			"M": {Name: "Col Merge", Type: "shell", Command: "echo m", Scope: "board"},
-		}},
-	}
-	b := NewBoard(p, nil, config.DefaultGitActions(), columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
-	m, _ := b.Update(boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{{Title: "Empty", Cards: nil}},
-	}})
-	b = m.(Board)
-
-	content := b.buildHelpContent()
-	gitSection := content[strings.Index(content, "Built-in Git Actions"):]
-	if strings.Contains(gitSection, "Mergetool") {
-		t.Errorf("Built-in Git Actions section should omit column-overridden key M, got:\n%s", gitSection)
 	}
 }
