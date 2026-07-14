@@ -166,6 +166,21 @@ func (f *FakeProvider) SetAssignees(_ context.Context, number int, logins []stri
 	return Card{}, fmt.Errorf("card #%d not found", number)
 }
 
+// CloseCard finds a card by number and returns it. It does not remove or
+// mutate the card in f.columns, so unlike the real GitHub provider, a
+// subsequent FetchBoard() on the same fake instance still returns the
+// "closed" card.
+func (f *FakeProvider) CloseCard(_ context.Context, number int) (Card, error) {
+	for ci := range f.columns {
+		for i := range f.columns[ci].Cards {
+			if f.columns[ci].Cards[i].Number == number {
+				return f.columns[ci].Cards[i], nil
+			}
+		}
+	}
+	return Card{}, fmt.Errorf("card #%d not found", number)
+}
+
 // GetAuthenticatedUser returns a hardcoded username for the fake provider.
 func (f *FakeProvider) GetAuthenticatedUser(_ context.Context) (string, error) {
 	f.GetAuthenticatedUserCalls++

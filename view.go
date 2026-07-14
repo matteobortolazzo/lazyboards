@@ -93,6 +93,10 @@ func (b Board) View() string {
 		label := b.labelConfirm.unknownLabels[b.labelConfirm.currentIdx]
 		helpBar = fmt.Sprintf("Label %q doesn't exist. Create it? (y/n)", label)
 	}
+	if b.mode == closeConfirmMode {
+		card := b.closeConfirm.card
+		helpBar = fmt.Sprintf("Close #%d %q? (y/n)", card.Number, card.Title)
+	}
 
 	// Assemble inner content.
 	inner := lipgloss.JoinVertical(lipgloss.Left, panels, helpBar)
@@ -899,6 +903,7 @@ var helpSections = []helpSection{
 		{"o", "Open ticket"},
 		{"r", "Refresh"},
 		{"p", "Open PR"},
+		{"x", "Close card"},
 		{"v", "PR list"},
 		{"/", "Search"},
 		{"a", "Assign"},

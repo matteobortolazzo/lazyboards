@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 func TestWrapTitle_ShortTitleSingleLine(t *testing.T) {
@@ -259,5 +261,49 @@ func TestRunShellCmd_TruncatesLongStderr(t *testing.T) {
 	// The message should still contain the "Error: " prefix.
 	if !strings.HasPrefix(result.message, "Error: ") {
 		t.Errorf("actionResultMsg.message should start with %q, got %q", "Error: ", result.message[:20])
+	}
+}
+
+// --- closeCardCmd ---
+
+func TestCloseCardCmd_Success(t *testing.T) {
+	p := provider.NewFakeProvider()
+	board, err := p.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	existingCard := board.Columns[0].Cards[0]
+
+	cmd := closeCardCmd(p, existingCard.Number)
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from closeCardCmd")
+	}
+
+	msg := cmd()
+	result, ok := msg.(cardClosedMsg)
+	if !ok {
+		t.Fatalf("closeCardCmd() returned %T, want cardClosedMsg", msg)
+	}
+	if result.card.Number != existingCard.Number {
+		t.Errorf("result.card.Number = %d, want %d", result.card.Number, existingCard.Number)
+	}
+}
+
+func TestCloseCardCmd_Error(t *testing.T) {
+	p := provider.NewFakeProvider()
+	nonExistentNumber := 9999
+
+	cmd := closeCardCmd(p, nonExistentNumber)
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from closeCardCmd")
+	}
+
+	msg := cmd()
+	result, ok := msg.(cardCloseErrorMsg)
+	if !ok {
+		t.Fatalf("closeCardCmd() returned %T, want cardCloseErrorMsg", msg)
+	}
+	if result.err == nil {
+		t.Error("expected non-nil err in cardCloseErrorMsg")
 	}
 }

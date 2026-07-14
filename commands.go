@@ -539,6 +539,17 @@ func setAssigneesCmd(p provider.BoardProvider, number int, logins []string) tea.
 	}
 }
 
+// closeCardCmd returns a tea.Cmd that closes a card via the provider.
+func closeCardCmd(p provider.BoardProvider, number int) tea.Cmd {
+	return func() tea.Msg {
+		card, err := p.CloseCard(context.Background(), number)
+		if err != nil {
+			return cardCloseErrorMsg{err: err}
+		}
+		return cardClosedMsg{card: mapProviderCard(card)}
+	}
+}
+
 // createLabelCmd returns a tea.Cmd that creates a label via the provider.
 func createLabelCmd(p provider.BoardProvider, name string) tea.Cmd {
 	return func() tea.Msg {
