@@ -71,7 +71,7 @@ func (s *StatusBar) SetGitStatus(segment string) {
 
 // formatGitSegment formats a git Status into a compact, plain-ASCII segment,
 // e.g. "main +2~1 ↑3↓0", colored: staged (added) in green, unstaged (deleted)
-// in red, ahead (push) and behind (pull) both in the same gentle blue since
+// in red, ahead (push) and behind (pull) both in the same gentle orange since
 // they're sync state rather than a warning. The ahead/behind portion is
 // omitted entirely when HasUpstream is false.
 func formatGitSegment(status gitdetect.Status) string {
