@@ -350,6 +350,7 @@ Press `?` at any time to open the in-app help popup.
 | `o` | Open ticket |
 | `r` | Refresh board |
 | `p` | Open PR |
+| `v` | PR list (all linked PRs on the board) |
 | `/` | Search |
 | `a` | Assign collaborator |
 | `g` | Git menu |
@@ -400,6 +401,17 @@ Press `?` at any time to open the in-app help popup.
 |-----|--------|
 | `←` / `→` | Cycle PR |
 | `Enter` | Select |
+| `Esc` | Cancel |
+
+### Pull Requests
+
+Opened with `v` from normal mode. Lists every linked PR across the whole board
+(all columns and cards) in one place, regardless of any active search/filter.
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Navigate |
+| `Enter` | Open selected PR |
 | `Esc` | Cancel |
 
 ### Comment Mode

@@ -190,6 +190,7 @@ const (
 	assignMode
 	gitPanelMode
 	dispatchMode
+	prListMode
 )
 
 const (
@@ -460,6 +461,27 @@ var gitPanelModeHints = []Hint{
 	{Key: "enter", Desc: "Run"},
 }
 
+// prListEntry is one row in the global PR list: a linked PR together with the
+// card and column it belongs to, so rows stay disambiguated across the board.
+type prListEntry struct {
+	pr          LinkedPR
+	cardNumber  int
+	columnTitle string
+}
+
+// prListState groups fields related to the global PR list modal.
+type prListState struct {
+	entries []prListEntry
+	cursor  int
+}
+
+// prListModeHints are the status bar hints shown in PR list mode.
+var prListModeHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+	{Key: "j/k", Desc: "Navigate"},
+	{Key: "enter", Desc: "Open"},
+}
+
 // dispatchState groups fields related to the agent dispatch modal.
 type dispatchState struct {
 	loading    bool
@@ -604,6 +626,7 @@ type Board struct {
 	agentWatchConsecutiveErrors int
 	gitReader                   gitdetect.Reader
 	gitPanel                    gitPanelState
+	prList                      prListState
 	dispatch                    dispatchState
 }
 
@@ -753,6 +776,31 @@ func (b *Board) enterGitPanel() {
 	b.gitPanel = gitPanelState{items: items, cursor: 0}
 	b.mode = gitPanelMode
 	b.statusBar.SetActionHints(gitPanelModeHints)
+}
+
+// enterPRList opens the global PR list modal, aggregating every linked PR
+// across all columns and cards into a single navigable list. The aggregation
+// is board-wide and deliberately ignores any active search/filter — the
+// modal's purpose is to survey every open PR "across the whole board". Order
+// is column, then card, then PR within the card. It always opens, even with
+// no linked PRs, so the modal can render its empty state.
+func (b *Board) enterPRList() {
+	var entries []prListEntry
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			for _, pr := range card.LinkedPRs {
+				entries = append(entries, prListEntry{
+					pr:          pr,
+					cardNumber:  card.Number,
+					columnTitle: col.Title,
+				})
+			}
+		}
+	}
+
+	b.prList = prListState{entries: entries, cursor: 0}
+	b.mode = prListMode
+	b.statusBar.SetActionHints(prListModeHints)
 }
 
 // createModalWidth returns the modal width for the create-card dialog (60% of terminal width, min 20).

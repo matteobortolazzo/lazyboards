@@ -291,6 +291,28 @@ func newBoardWithInlineCards(t *testing.T, cards []provider.Card, width, height 
 	return board
 }
 
+// newBoardWithInlineCardsAndExecutor is newBoardWithInlineCards with a
+// FakeExecutor wired in so tests can assert OpenURL/shell side effects.
+func newBoardWithInlineCardsAndExecutor(t *testing.T, cards []provider.Card, fe *action.FakeExecutor) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: cards},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
 // newActionTestBoardWithColumns creates a loaded Board with the given actions
 // and custom columns. It returns the board and the FakeExecutor for assertion.
 func newActionTestBoardWithColumns(t *testing.T, actions map[string]config.Action, columns []provider.Column) (Board, *action.FakeExecutor) {

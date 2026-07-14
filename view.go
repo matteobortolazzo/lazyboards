@@ -124,6 +124,10 @@ func (b Board) View() string {
 		return b.viewGitPanelModal()
 	}
 
+	if b.mode == prListMode {
+		return b.viewPRListModal()
+	}
+
 	if b.mode == dispatchMode {
 		return b.viewDispatchModal()
 	}
@@ -894,6 +898,7 @@ var helpSections = []helpSection{
 		{"o", "Open ticket"},
 		{"r", "Refresh"},
 		{"p", "Open PR"},
+		{"v", "PR list"},
 		{"/", "Search"},
 		{"a", "Assign"},
 		{"g", "Git menu"},
@@ -931,6 +936,12 @@ var helpSections = []helpSection{
 	{"PR Picker", [][2]string{
 		{"\u2190/\u2192", "Cycle PR"},
 		{"enter", "Select"},
+		{"esc", "Cancel"},
+	}},
+	{"Pull Requests", [][2]string{
+		{"v", "Open PR list"},
+		{"j/k", "Navigate"},
+		{"enter", "Open PR"},
 		{"esc", "Cancel"},
 	}},
 	{"Comment", [][2]string{
@@ -1187,6 +1198,39 @@ func (b Board) viewGitPanelModal() string {
 	lines = append(lines, "")
 	gitPanelHints := NewStatusBar(gitPanelModeHints)
 	lines = append(lines, gitPanelHints.View(modalWidth, 0, 0))
+
+	modalContent := strings.Join(lines, "\n")
+	return b.renderModal(modalContent, modalWidth)
+}
+
+// viewPRListModal renders the global PR list: every linked PR across the board
+// in one navigable list. Each row shows the PR number, its (truncated) title,
+// and the owning column + card so rows stay disambiguated. Renders an explicit
+// empty state when no card on the board has a linked PR.
+func (b Board) viewPRListModal() string {
+	modalWidth := 60
+
+	var lines []string
+	lines = append(lines, "Pull Requests")
+	lines = append(lines, "")
+
+	if len(b.prList.entries) == 0 {
+		lines = append(lines, "No linked PRs")
+	} else {
+		for i, entry := range b.prList.entries {
+			title := truncateOutput(entry.pr.Title, 32)
+			ref := fmt.Sprintf("%s #%d", entry.columnTitle, entry.cardNumber)
+			display := fmt.Sprintf("  #%d  %s  —  %s", entry.pr.Number, title, ref)
+			if i == b.prList.cursor {
+				display = selectedCardStyle.Render(display)
+			}
+			lines = append(lines, display)
+		}
+	}
+
+	lines = append(lines, "")
+	prListHints := NewStatusBar(prListModeHints)
+	lines = append(lines, prListHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)

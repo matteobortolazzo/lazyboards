@@ -277,6 +277,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleAssignModeKey(msg)
 		case gitPanelMode:
 			return b.handleGitPanelKey(msg)
+		case prListMode:
+			return b.handlePRListModeKey(msg)
 		case dispatchMode:
 			return b.handleDispatchModeKey(msg)
 		default:
@@ -928,6 +930,9 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b.handlePROpenKey(b.selectedCard())
+	case "v":
+		b.enterPRList()
+		return b, nil
 	case "/":
 		b.mode = searchMode
 		cmd := b.searchInput.Focus()
@@ -1626,6 +1631,42 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), StatusSuccess, statusMessageDuration)
 		return b, cmd
+	}
+	return b, nil
+}
+
+func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyEnter:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		if len(b.prList.entries) == 0 || b.prList.cursor >= len(b.prList.entries) {
+			return b, nil
+		}
+		pr := b.prList.entries[b.prList.cursor].pr
+		if err := b.executor.OpenURL(pr.URL); err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+			return b, cmd
+		}
+		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), StatusSuccess, statusMessageDuration)
+		return b, cmd
+	}
+
+	switch msg.String() {
+	case "j", "down":
+		if b.prList.cursor < len(b.prList.entries)-1 {
+			b.prList.cursor++
+		}
+		return b, nil
+	case "k", "up":
+		if b.prList.cursor > 0 {
+			b.prList.cursor--
+		}
+		return b, nil
 	}
 	return b, nil
 }
