@@ -17,7 +17,19 @@ import (
 // brittle. Returning plain result structs keeps fakes trivial to write.
 type graphQLBoardClient interface {
 	fetchIssuePage(ctx context.Context, owner, repo, afterCursor string) (issuePage, error)
+
+	// fetchIssueTimelinePage fetches a bounded follow-up page of a single
+	// issue's timelineItems connection, used when issueNode.hasMoreTimelineItems
+	// is true (i.e. an issue has more than 100 cross-referenced timeline items).
+	fetchIssueTimelinePage(ctx context.Context, owner, repo string, issueNumber int, cursor string) (timelinePage, error)
 }
+
+// maxTimelineFollowupPages bounds the number of per-issue timeline follow-up
+// queries fetchIssueTimelinePage can be called for a single issue (100
+// initial + 500 follow-up = 600 cross-refs/issue max). At the cap, callers
+// keep whatever LinkedPRs were collected so far and continue rather than
+// erroring the whole board fetch.
+const maxTimelineFollowupPages = 5
 
 // issuePage is one page of issues returned by a GraphQL query, decoupled
 // from any githubv4-specific types.
@@ -128,6 +140,61 @@ type timelineItemQueryNode struct {
 	} `graphql:"... on CrossReferencedEvent"`
 }
 
+// timelinePage is one follow-up page of an issue's timelineItems
+// connection, decoupled from any githubv4-specific types. It mirrors
+// issuePage's pagination shape but for the nested per-issue timeline
+// connection rather than the outer issues connection.
+type timelinePage struct {
+	linkedPRs   []LinkedPR
+	hasNextPage bool
+	endCursor   string
+}
+
+// issueTimelineQuery is the githubv4 struct-tag-based query DSL
+// representation of a bounded follow-up query for a single issue's
+// timelineItems connection, used when issueNode.hasMoreTimelineItems is true
+// (i.e. an issue has more than 100 cross-referenced timeline items):
+//
+//	query($owner: String!, $name: String!, $issueNumber: Int!, $timelineCursor: String) {
+//	  repository(owner: $owner, name: $name) {
+//	    issue(number: $issueNumber) {
+//	      timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 100, after: $timelineCursor) {
+//	        nodes {
+//	          ... on CrossReferencedEvent {
+//	            source {
+//	              ... on PullRequest { number title url }
+//	            }
+//	          }
+//	        }
+//	        pageInfo { hasNextPage endCursor }
+//	      }
+//	    }
+//	  }
+//	}
+type issueTimelineQuery struct {
+	Repository struct {
+		Issue struct {
+			TimelineItems struct {
+				Nodes    []timelineItemQueryNode
+				PageInfo pageInfoFragment
+			} `graphql:"timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT], after: $timelineCursor)"`
+		} `graphql:"issue(number: $issueNumber)"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+// mapIssueTimelineQuery converts a githubv4 issueTimelineQuery response into
+// a plain timelinePage, decoupled from any githubv4-specific types. It
+// reuses mapLinkedPRs for the same skip/dedup semantics as the outer
+// issuesQuery timeline mapping (mapIssueQueryNode).
+func mapIssueTimelineQuery(q issueTimelineQuery) timelinePage {
+	items := q.Repository.Issue.TimelineItems
+	return timelinePage{
+		linkedPRs:   mapLinkedPRs(items.Nodes),
+		hasNextPage: bool(items.PageInfo.HasNextPage),
+		endCursor:   string(items.PageInfo.EndCursor),
+	}
+}
+
 // Compile-time check: *githubv4Adapter implements graphQLBoardClient.
 var _ graphQLBoardClient = (*githubv4Adapter)(nil)
 
@@ -160,6 +227,26 @@ func (a *githubv4Adapter) fetchIssuePage(ctx context.Context, owner, repo, after
 	}
 
 	return mapIssuesQuery(q), nil
+}
+
+func (a *githubv4Adapter) fetchIssueTimelinePage(ctx context.Context, owner, repo string, issueNumber int, cursor string) (timelinePage, error) {
+	variables := map[string]interface{}{
+		"owner":          githubv4.String(owner),
+		"name":           githubv4.String(repo),
+		"issueNumber":    githubv4.Int(issueNumber),
+		"timelineCursor": (*githubv4.String)(nil),
+	}
+	if cursor != "" {
+		c := githubv4.String(cursor)
+		variables["timelineCursor"] = &c
+	}
+
+	var q issueTimelineQuery
+	if err := a.client.Query(ctx, &q, variables); err != nil {
+		return timelinePage{}, err
+	}
+
+	return mapIssueTimelineQuery(q), nil
 }
 
 // mapIssuesQuery converts a githubv4 issuesQuery response into a plain
