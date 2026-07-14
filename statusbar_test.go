@@ -501,7 +501,7 @@ func TestStatusBar_ViewPRCount_AfterAgentTokens(t *testing.T) {
 		t.Fatalf("View() = %q, want running, need_input, PR count, and hints all present", view)
 	}
 	// Order: running -> need_input -> PR count -> hints.
-	if !(ri < ni && ni < pi && pi < qi) {
+	if ri >= ni || ni >= pi || pi >= qi {
 		t.Errorf("View() = %q, want order ▶2 < !1 < PR-count < hints (got %d,%d,%d,%d)", view, ri, ni, pi, qi)
 	}
 }
