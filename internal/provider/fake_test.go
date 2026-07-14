@@ -453,6 +453,45 @@ func TestFakeProvider_CloseCard_NotFound(t *testing.T) {
 	}
 }
 
+// --- AddComment Tests ---
+
+func TestFakeProvider_AddComment_Success(t *testing.T) {
+	fp := NewFakeProvider()
+
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	existingCard := board.Columns[0].Cards[0]
+	commentBody := "Closing this out, thanks!"
+
+	err = fp.AddComment(context.Background(), existingCard.Number, commentBody)
+	if err != nil {
+		t.Fatalf("AddComment returned error: %v", err)
+	}
+
+	recorded := fp.Comments[existingCard.Number]
+	if len(recorded) == 0 {
+		t.Fatalf("no comment recorded for card #%d", existingCard.Number)
+	}
+	if recorded[len(recorded)-1] != commentBody {
+		t.Errorf("recorded comment = %q, want %q", recorded[len(recorded)-1], commentBody)
+	}
+}
+
+func TestFakeProvider_AddComment_NotFound(t *testing.T) {
+	fp := NewFakeProvider()
+	nonExistentNumber := 9999
+
+	err := fp.AddComment(context.Background(), nonExistentNumber, "test comment")
+	if err == nil {
+		t.Fatal("expected error for non-existent card number, got nil")
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(nonExistentNumber)) {
+		t.Errorf("error = %q, want it to mention card number %d", err.Error(), nonExistentNumber)
+	}
+}
+
 // --- GetAuthenticatedUser Tests ---
 
 func TestFakeProvider_GetAuthenticatedUser(t *testing.T) {

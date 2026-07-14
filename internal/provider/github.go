@@ -25,6 +25,7 @@ type GitHubClient interface {
 	ListLabels(ctx context.Context, owner string, repo string, opts *github.ListOptions) ([]*github.Label, *github.Response, error)
 	ListCollaborators(ctx context.Context, owner string, repo string, opts *github.ListCollaboratorsOptions) ([]*github.User, *github.Response, error)
 	GetUser(ctx context.Context, user string) (*github.User, *github.Response, error)
+	CreateComment(ctx context.Context, owner string, repo string, number int, comment *github.IssueComment) (*github.IssueComment, *github.Response, error)
 }
 
 // GitHubProvider fetches board data from GitHub Issues.
@@ -268,6 +269,15 @@ func (g *GitHubProvider) CloseCard(ctx context.Context, number int) (Card, error
 	}
 
 	return issueToCard(issue), nil
+}
+
+// AddComment posts a new comment on a GitHub issue.
+func (g *GitHubProvider) AddComment(ctx context.Context, number int, body string) error {
+	comment := &github.IssueComment{
+		Body: github.Ptr(body),
+	}
+	_, _, err := g.client.CreateComment(ctx, g.owner, g.repo, number, comment)
+	return err
 }
 
 // FetchCollaborators retrieves all collaborators for the repository.

@@ -13,22 +13,26 @@ import (
 
 // mockGitHubClient implements GitHubClient with configurable return values.
 type mockGitHubClient struct {
-	issues            []*github.Issue
-	err               error
-	createdIssue      *github.Issue                  // returned by Create
-	createErr         error                          // returned by Create
-	editedIssue       *github.Issue                  // returned by Edit
-	editErr           error                          // returned by Edit
-	createdLabel      *github.Label                  // returned by CreateLabel
-	createLabelErr    error                          // returned by CreateLabel
-	capturedOpts      *github.IssueListByRepoOptions // captured from ListByRepo
-	collaborators     []*github.User                 // returned by ListCollaborators
-	collaboratorsErr  error                          // returned by ListCollaborators
-	authenticatedUser *github.User                   // returned by GetUser
-	authUserErr       error                          // returned by GetUser
-	capturedEditReq   *github.IssueRequest           // captured from Edit for assertion
-	labels            []*github.Label                // returned by ListLabels
-	labelsErr         error                          // returned by ListLabels
+	issues                []*github.Issue
+	err                   error
+	createdIssue          *github.Issue                  // returned by Create
+	createErr             error                          // returned by Create
+	editedIssue           *github.Issue                  // returned by Edit
+	editErr               error                          // returned by Edit
+	createdLabel          *github.Label                  // returned by CreateLabel
+	createLabelErr        error                          // returned by CreateLabel
+	capturedOpts          *github.IssueListByRepoOptions // captured from ListByRepo
+	collaborators         []*github.User                 // returned by ListCollaborators
+	collaboratorsErr      error                          // returned by ListCollaborators
+	authenticatedUser     *github.User                   // returned by GetUser
+	authUserErr           error                          // returned by GetUser
+	capturedEditReq       *github.IssueRequest           // captured from Edit for assertion
+	labels                []*github.Label                // returned by ListLabels
+	labelsErr             error                          // returned by ListLabels
+	createdComment        *github.IssueComment           // returned by CreateComment
+	createCommentErr      error                          // returned by CreateComment
+	capturedCommentNumber int                            // captured issue number from CreateComment
+	capturedComment       *github.IssueComment           // captured comment body from CreateComment
 }
 
 func (m *mockGitHubClient) ListByRepo(
@@ -93,6 +97,18 @@ func (m *mockGitHubClient) ListLabels(
 	_ *github.ListOptions,
 ) ([]*github.Label, *github.Response, error) {
 	return m.labels, nil, m.labelsErr
+}
+
+func (m *mockGitHubClient) CreateComment(
+	_ context.Context,
+	_ string,
+	_ string,
+	number int,
+	comment *github.IssueComment,
+) (*github.IssueComment, *github.Response, error) {
+	m.capturedCommentNumber = number
+	m.capturedComment = comment
+	return m.createdComment, nil, m.createCommentErr
 }
 
 // makeIssue builds a github.Issue with the given number, title, and label names.
@@ -1650,6 +1666,82 @@ func TestGitHubCloseCard_APIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), apiErrMsg) {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
+	}
+}
+
+// --- AddComment Tests ---
+
+func TestGitHubAddComment_Success(t *testing.T) {
+	issueNumber := 42
+	commentBody := "This has been resolved, closing now."
+
+	client := &mockGitHubClient{
+		createdComment: &github.IssueComment{Body: github.Ptr(commentBody)},
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
+
+	err := p.AddComment(context.Background(), issueNumber, commentBody)
+	if err != nil {
+		t.Fatalf("AddComment returned error: %v", err)
+	}
+
+	if client.capturedCommentNumber != issueNumber {
+		t.Errorf("CreateComment was called with issue number %d, want %d", client.capturedCommentNumber, issueNumber)
+	}
+	if client.capturedComment == nil || client.capturedComment.GetBody() != commentBody {
+		t.Errorf("CreateComment was called with body %v, want %q", client.capturedComment, commentBody)
+	}
+}
+
+func TestGitHubAddComment_IssueNotFound_MapsToCleanError(t *testing.T) {
+	// Simulate GitHub's 404 response, including a raw API message that must
+	// NOT leak into the sanitized, user-facing error string.
+	rawAPIMessage := "Not Found"
+	client := &mockGitHubClient{
+		createCommentErr: &github.ErrorResponse{
+			Response: &http.Response{StatusCode: http.StatusNotFound},
+			Message:  rawAPIMessage,
+		},
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
+
+	err := p.AddComment(context.Background(), 9999, "test comment")
+	if err == nil {
+		t.Fatal("expected error from AddComment for a non-existent issue, got nil")
+	}
+
+	clean := SanitizeError(err)
+	if !strings.Contains(clean, "not found") {
+		t.Errorf("SanitizeError(err) = %q, want it to mention %q", clean, "not found")
+	}
+	if strings.Contains(clean, rawAPIMessage) {
+		t.Errorf("SanitizeError(err) = %q, must not leak the raw API message %q", clean, rawAPIMessage)
+	}
+}
+
+func TestGitHubAddComment_GenericAPIError_PassesThrough(t *testing.T) {
+	apiErrMsg := "connection reset by peer"
+	client := &mockGitHubClient{
+		createCommentErr: errors.New(apiErrMsg),
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
+
+	err := p.AddComment(context.Background(), 1, "test comment")
+	if err == nil {
+		t.Fatal("expected error from AddComment, got nil")
+	}
+	if !strings.Contains(err.Error(), apiErrMsg) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
+	}
+
+	// The sanitized message must be clean of stack traces / internal details --
+	// for a plain error it is simply the error string itself, never more.
+	clean := SanitizeError(err)
+	if clean != apiErrMsg {
+		t.Errorf("SanitizeError(err) = %q, want %q", clean, apiErrMsg)
 	}
 }
 

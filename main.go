@@ -57,6 +57,10 @@ func (c *gitHubClient) GetUser(ctx context.Context, user string) (*github.User, 
 	return c.users.Get(ctx, user)
 }
 
+func (c *gitHubClient) CreateComment(ctx context.Context, owner string, repo string, number int, comment *github.IssueComment) (*github.IssueComment, *github.Response, error) {
+	return c.issues.CreateComment(ctx, owner, repo, number, comment)
+}
+
 // version is injected at release time via -ldflags "-X main.version=...".
 // Empty in local builds; appVersion() then falls back to build info.
 var version = ""

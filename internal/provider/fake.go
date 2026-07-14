@@ -16,6 +16,10 @@ type FakeProvider struct {
 	nextNumber int
 	labels     []string
 
+	// Comments records posted comments keyed by card number, in the order
+	// they were added.
+	Comments map[int][]string
+
 	// Call counters for tests that need to assert which provider methods
 	// were (or were not) invoked during a given operation, e.g. verifying
 	// that metadata calls are skipped when gated behind a TTL.
@@ -66,7 +70,8 @@ func NewFakeProvider() *FakeProvider {
 		// Repo label set: every label attached to a card above, plus "planned"
 		// which is intentionally not on any card (an existing repo label not
 		// shown on the board).
-		labels: []string{"infra", "design", "docs", "feature", "backend", "ui", "planned"},
+		labels:   []string{"infra", "design", "docs", "feature", "backend", "ui", "planned"},
+		Comments: make(map[int][]string),
 	}
 }
 
@@ -179,6 +184,19 @@ func (f *FakeProvider) CloseCard(_ context.Context, number int) (Card, error) {
 		}
 	}
 	return Card{}, fmt.Errorf("card #%d not found", number)
+}
+
+// AddComment records a comment against a card in the fake provider.
+func (f *FakeProvider) AddComment(_ context.Context, number int, body string) error {
+	for ci := range f.columns {
+		for i := range f.columns[ci].Cards {
+			if f.columns[ci].Cards[i].Number == number {
+				f.Comments[number] = append(f.Comments[number], body)
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("card #%d not found", number)
 }
 
 // GetAuthenticatedUser returns a hardcoded username for the fake provider.
