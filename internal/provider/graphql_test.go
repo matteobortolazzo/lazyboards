@@ -29,6 +29,16 @@ func (f *fakeGraphQLClient) fetchIssuePage(_ context.Context, _, _, afterCursor 
 	return f.pages[afterCursor], nil
 }
 
+func TestNewGitHubV4Adapter_WrapsGivenClient(t *testing.T) {
+	client := githubv4.NewClient(nil)
+
+	adapter := newGitHubV4Adapter(client)
+
+	if adapter.client != client {
+		t.Fatalf("newGitHubV4Adapter().client = %p, want the same client instance %p passed in", adapter.client, client)
+	}
+}
+
 func TestFakeGraphQLClient_ReturnsScriptedPageForCursor(t *testing.T) {
 	firstPage := issuePage{
 		issues:      []issueNode{{number: 1, title: "first page issue"}},
