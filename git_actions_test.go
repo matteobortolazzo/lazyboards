@@ -15,7 +15,7 @@ func gitDefaultsBoard(t *testing.T, userActions map[string]config.Action) (Board
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, userActions, config.DefaultGitActions(), nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, userActions, config.DefaultGitActions(), nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with an empty column so board-scope actions can dispatch.
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{

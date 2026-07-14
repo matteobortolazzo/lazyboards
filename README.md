@@ -89,7 +89,15 @@ Press `d` to open the agent dispatch panel for the repo you're currently in. It 
 
 Once a repo is enrolled, `o` triggers a dispatch run — but this is **fleet-wide**: it dispatches across *all* enrolled repos, not just the one currently open. The panel shows a summary of the last run (dispatched/skipped counts) after it completes.
 
-Press `s` to start or stop a background dispatch loop (`agentwatch dispatch --interval 5m`), which repeats the fleet-wide dispatch automatically. The loop is fleet-wide and detached: it keeps running after you quit lazyboards, and reopening the panel re-detects whether it's still alive. It's tracked via a pidfile and log under `$XDG_STATE_HOME/lazyboards/` (falling back to `~/.local/state/lazyboards/` when `XDG_STATE_HOME` is unset). See the [Dispatch keybindings](#dispatch) for the full key reference.
+The panel also shows a read-only "Loop" line reporting the daemon-owned background dispatch loop's state (off, on with its interval, daemon not running, no runs yet, or the last run's dispatched/skipped counts and any error) — lazyboards never starts or stops this loop itself. To start or stop the loop, configure a custom shell action that calls `agentwatch dispatch loop on`/`off` directly, for example in `~/.config/lazyboards/config.yml` (global) or `.lazyboards.yml` (per-project):
+
+```yaml
+actions:
+  S: { name: Start dispatch loop, type: shell, command: "agentwatch dispatch loop on", scope: board }
+  X: { name: Stop dispatch loop, type: shell, command: "agentwatch dispatch loop off", scope: board }
+```
+
+See the [Dispatch keybindings](#dispatch) for the full key reference.
 
 ### Example: agentwatch + agent-stack
 
@@ -131,7 +139,7 @@ This walks through wiring lazyboards to a real [agentwatch](https://github.com/m
 
    Pressing `R` on a `New` card runs `agentwatch run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, the `G` custom action above jumps straight to it (via `{window}`, the live agentwatch window name), and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup).
 
-4. **Let agentwatch pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `agentwatch dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or start the recurring loop with `s`. Tune concurrency, quiet hours, and per-agent budgets in agentwatch's own `dispatch` config block (`$XDG_CONFIG_HOME/agentwatch/config.json`) — see the [agentwatch README](https://github.com/matteobortolazzo/agent-stack/tree/main/agentwatch#configuration-1) for the full reference.
+4. **Let agentwatch pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `agentwatch dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or start the recurring loop with the custom `agentwatch dispatch loop on` action described above. Tune concurrency, quiet hours, and per-agent budgets in agentwatch's own `dispatch` config block (`$XDG_CONFIG_HOME/agentwatch/config.json`) — see the [agentwatch README](https://github.com/matteobortolazzo/agent-stack/tree/main/agentwatch#configuration-1) for the full reference.
 
 ## Configuration
 
@@ -443,7 +451,6 @@ All letters and digits type into the query (queries match titles, labels, and ca
 |-----|--------|
 | `Enter` | Enroll/Unenroll current repo |
 | `o` | Dispatch once (all enrolled repos) |
-| `s` | Start/stop background dispatch loop (fleet-wide) |
 | `Esc` | Close |
 
 ### Error Mode

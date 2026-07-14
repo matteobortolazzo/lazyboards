@@ -195,64 +195,6 @@ func TestDefaultExecutor_RunShellOutput_Failure(t *testing.T) {
 	}
 }
 
-func TestFakeExecutor_RecordsStartDetachedCalls(t *testing.T) {
-	fe := &FakeExecutor{}
-	command := "agentwatch dispatch --interval 5m"
-	logPath := "/tmp/dispatch-loop.log"
-
-	_, _ = fe.StartDetached(command, logPath)
-
-	if len(fe.StartDetachedCalls) != 1 {
-		t.Fatalf("StartDetachedCalls length = %d, want 1", len(fe.StartDetachedCalls))
-	}
-	if fe.StartDetachedCalls[0].Command != command {
-		t.Errorf("StartDetachedCalls[0].Command = %q, want %q", fe.StartDetachedCalls[0].Command, command)
-	}
-	if fe.StartDetachedCalls[0].LogPath != logPath {
-		t.Errorf("StartDetachedCalls[0].LogPath = %q, want %q", fe.StartDetachedCalls[0].LogPath, logPath)
-	}
-}
-
-func TestFakeExecutor_ReturnsConfiguredStartDetachedResult(t *testing.T) {
-	expectedErr := errors.New("spawn failed")
-	fe := &FakeExecutor{StartDetachedPid: 4242, StartDetachedErr: expectedErr}
-
-	pid, err := fe.StartDetached("cmd", "/tmp/log")
-	if pid != 4242 {
-		t.Errorf("StartDetached pid = %d, want 4242", pid)
-	}
-	if !errors.Is(err, expectedErr) {
-		t.Errorf("StartDetached error = %v, want %v", err, expectedErr)
-	}
-}
-
-func TestFakeExecutor_RecordsProcessAliveCalls(t *testing.T) {
-	fe := &FakeExecutor{ProcessAliveResult: true}
-
-	alive := fe.ProcessAlive(1234)
-
-	if !alive {
-		t.Error("ProcessAlive = false, want true (configured)")
-	}
-	if len(fe.ProcessAliveCalls) != 1 || fe.ProcessAliveCalls[0] != 1234 {
-		t.Errorf("ProcessAliveCalls = %v, want [1234]", fe.ProcessAliveCalls)
-	}
-}
-
-func TestFakeExecutor_RecordsSignalProcessCalls(t *testing.T) {
-	expectedErr := errors.New("signal failed")
-	fe := &FakeExecutor{SignalProcessErr: expectedErr}
-
-	err := fe.SignalProcess(5678)
-
-	if !errors.Is(err, expectedErr) {
-		t.Errorf("SignalProcess error = %v, want %v", err, expectedErr)
-	}
-	if len(fe.SignalProcessCalls) != 1 || fe.SignalProcessCalls[0] != 5678 {
-		t.Errorf("SignalProcessCalls = %v, want [5678]", fe.SignalProcessCalls)
-	}
-}
-
 func TestDefaultExecutor_RunShellOutput_StderrOnly(t *testing.T) {
 	d := DefaultExecutor{}
 	stdout, stderr, err := d.RunShellOutput("echo boom >&2")

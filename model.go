@@ -458,21 +458,35 @@ type dispatchState struct {
 	lastResult string
 	lastLines  []string
 
-	// loop* fields track the fleet-wide background dispatch loop (a detached
-	// `agentwatch dispatch --interval` process tracked via pidfile). They are
-	// independent of the repo enroll fields above -- the loop is fleet-wide,
-	// not scoped to the current repo.
-	loopChecking bool
-	loopBusy     bool
-	loopPid      int
-	loopErr      string
+	// loop is the daemon-owned background dispatch loop state, decoded
+	// verbatim from the "loop" object in `agentwatch dispatch status --json`
+	// (ticket #313). lazyboards is a pure reader of this state -- starting
+	// and stopping the loop is a user-configured custom shell action, not a
+	// code path here. loop is nil only when the top-level "loop" key was
+	// entirely absent from the decoded JSON (an agentwatch binary that
+	// predates this feature); in that case loopErr holds a guard message.
+	loop    *dispatchLoopInfo
+	loopErr string
+}
+
+// dispatchLoopInfo mirrors the "loop" object decoded from
+// `agentwatch dispatch status --json`. See queryDispatchStatusCmd, which
+// unmarshals directly into this type.
+type dispatchLoopInfo struct {
+	Enabled        bool   `json:"enabled"`
+	DaemonRunning  bool   `json:"daemon_running"`
+	Interval       string `json:"interval"`
+	PassRunning    bool   `json:"pass_running"`
+	LastRunAt      string `json:"last_run_at"`
+	LastDispatched int    `json:"last_dispatched"`
+	LastSkipped    int    `json:"last_skipped"`
+	LastError      string `json:"last_error"`
 }
 
 // dispatchModeHints are the status bar hints shown in dispatch mode.
 var dispatchModeHints = []Hint{
 	{Key: "enter", Desc: "Enroll/Unenroll"},
 	{Key: "o", Desc: "Dispatch once"},
-	{Key: "s", Desc: "Start/stop loop"},
 	{Key: "esc", Desc: "Close"},
 }
 
@@ -482,6 +496,7 @@ type dispatchStatusMsg struct {
 	repo     string
 	dir      string
 	enrolled bool
+	loop     *dispatchLoopInfo
 	err      string
 }
 
@@ -497,27 +512,6 @@ type dispatchRunMsg struct {
 	result string
 	err    string
 	lines  []string
-}
-
-// dispatchLoopStatusMsg is sent when dispatchLoopStatusCmd finishes
-// determining whether the background dispatch loop is currently running.
-// pid is 0 when the loop is stopped.
-type dispatchLoopStatusMsg struct {
-	pid int
-	err error
-}
-
-// dispatchLoopStartedMsg is sent when dispatchLoopStartCmd finishes spawning
-// (or discovering an already-running) background dispatch loop.
-type dispatchLoopStartedMsg struct {
-	pid int
-	err error
-}
-
-// dispatchLoopStoppedMsg is sent when dispatchLoopStopCmd finishes signaling
-// the background dispatch loop to stop.
-type dispatchLoopStoppedMsg struct {
-	err error
 }
 
 // configState groups fields related to the config modal.
@@ -597,16 +591,11 @@ type Board struct {
 	gitReader             gitdetect.Reader
 	gitPanel              gitPanelState
 	dispatch              dispatchState
-	dispatchLoopPidPath   string
-	dispatchLoopLogPath   string
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
-// Call Init() to start fetching data. dispatchLoopPidPath/dispatchLoopLogPath
-// locate the background dispatch loop's pidfile and log file (see
-// internal/dispatchloop); callers typically compute them from
-// dispatchloop.DefaultDir(), and tests pass t.TempDir()-based paths.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher agentwatch.Watcher, gitReader gitdetect.Reader, dispatchLoopPidPath, dispatchLoopLogPath string) Board {
+// Call Init() to start fetching data.
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher agentwatch.Watcher, gitReader gitdetect.Reader) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 0
@@ -654,28 +643,26 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 	}
 
 	b := Board{
-		mode:                loadingMode,
-		provider:            p,
-		spinner:             s,
-		statusBar:           sb,
-		actions:             actions,
-		defaultActions:      defaultActions,
-		columnConfigs:       columnConfigs,
-		executor:            executor,
-		repoOwner:           repoOwner,
-		repoName:            repoName,
-		providerName:        providerName,
-		sessionMaxLen:       sessionMaxLen,
-		refreshInterval:     refreshInterval,
-		actionRefreshDelay:  actionRefreshDelay,
-		metadataTTL:         metadataTTL,
-		workingLabel:        workingLabel,
-		mouseEnabled:        mouseEnabled,
-		normalHints:         hints,
-		agentWatcher:        watcher,
-		gitReader:           gitReader,
-		dispatchLoopPidPath: dispatchLoopPidPath,
-		dispatchLoopLogPath: dispatchLoopLogPath,
+		mode:               loadingMode,
+		provider:           p,
+		spinner:            s,
+		statusBar:          sb,
+		actions:            actions,
+		defaultActions:     defaultActions,
+		columnConfigs:      columnConfigs,
+		executor:           executor,
+		repoOwner:          repoOwner,
+		repoName:           repoName,
+		providerName:       providerName,
+		sessionMaxLen:      sessionMaxLen,
+		refreshInterval:    refreshInterval,
+		actionRefreshDelay: actionRefreshDelay,
+		metadataTTL:        metadataTTL,
+		workingLabel:       workingLabel,
+		mouseEnabled:       mouseEnabled,
+		normalHints:        hints,
+		agentWatcher:       watcher,
+		gitReader:          gitReader,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
 			providerIndex:   0,

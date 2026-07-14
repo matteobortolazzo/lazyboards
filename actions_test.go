@@ -81,7 +81,7 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, actions, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Board starts in loadingMode. Press the action key.
 	b = sendKey(t, b, keyMsg("X"))
@@ -98,7 +98,7 @@ func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, actions, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -345,7 +345,7 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with a card that has labels containing URL-special characters.
 	cardLabels := []provider.Label{{Name: "bug&fix"}, {Name: "feature?v2"}}
@@ -433,7 +433,7 @@ func TestAction_CommentVariableExpansion(t *testing.T) {
 func TestTicketOpen_NormalMode_OpensCardURL(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with a card that has a URL.
 	cardURL := "https://github.com/matteobortolazzo/lazyboards/issues/42"
@@ -463,7 +463,7 @@ func TestTicketOpen_NormalMode_OpensCardURL(t *testing.T) {
 func TestTicketOpen_NormalMode_EmptyURL_ShowsMessage(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with a card that has no URL.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -494,7 +494,7 @@ func TestTicketOpen_NormalMode_EmptyURL_ShowsMessage(t *testing.T) {
 func TestTicketOpen_NormalMode_NoCards_DoesNothing(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -518,7 +518,7 @@ func TestTicketOpen_NormalMode_NoCards_DoesNothing(t *testing.T) {
 func TestTicketOpen_DetailFocused_OpensCardURL(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with a card that has a URL.
 	cardURL := "https://github.com/matteobortolazzo/lazyboards/issues/7"
@@ -549,7 +549,7 @@ func TestTicketOpen_DetailFocused_OpensCardURL(t *testing.T) {
 func TestTicketOpen_ShowsOpenedMessage(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with a card that has a URL.
 	cardNumber := 99
@@ -581,7 +581,7 @@ func TestTicketOpen_ShowsOpenedMessage(t *testing.T) {
 func TestTicketOpen_OpenHintHiddenOnEmptyColumn(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -604,7 +604,7 @@ func TestTicketOpen_OpenHintHiddenOnEmptyColumn(t *testing.T) {
 func TestTicketOpen_OpenHintVisibleWithCards(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 	b = loadFromFakeProvider(t, b, p)
 
 	// With cards loaded, the "Open" hint should be visible.
@@ -622,7 +622,7 @@ func TestAction_BoardScope_URLFiresWithEmptyColumn(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -691,7 +691,7 @@ func TestAction_BoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -728,7 +728,7 @@ func TestAction_CardScope_StillIgnoredWhenNoCards(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -757,7 +757,7 @@ func TestAction_BoardScopeHint_VisibleOnEmptyColumn(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -782,7 +782,7 @@ func TestAction_CardScopeHint_HiddenOnEmptyColumn(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 
 	// Load a board with an empty column.
 	msg := boardFetchedMsg{board: provider.Board{

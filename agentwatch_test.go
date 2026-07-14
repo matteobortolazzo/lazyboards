@@ -27,7 +27,7 @@ import (
 func newAgentWatchTestBoard(t *testing.T, watcher agentwatch.Watcher) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	return NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, watcher, nil, "", "")
+	return NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, watcher, nil)
 }
 
 // newAgentWatchCardTestBoard creates a loaded Board with a single card in a
@@ -35,7 +35,7 @@ func newAgentWatchTestBoard(t *testing.T, watcher agentwatch.Watcher) Board {
 func newAgentWatchCardTestBoard(t *testing.T, cardNumber int, cardTitle string, sessionMaxLen int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", sessionMaxLen, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", sessionMaxLen, 0, 0, "Working", false, false, nil, nil)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -358,7 +358,7 @@ func TestBoard_Init_WithWatcher_SubscriptionDeliversSnapshot(t *testing.T) {
 func newAgentCountsBoard(t *testing.T, cards []provider.Card) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil)
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{{Title: "Column A", Cards: cards}},
 	}}
@@ -630,7 +630,7 @@ func TestViewCardList_WorkingLabelAndBadgeCoexist(t *testing.T) {
 	const cardNumber = 7
 	const cardTitle = "Fix flaky test"
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil)
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: []provider.Card{
