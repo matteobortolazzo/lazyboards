@@ -9,6 +9,7 @@ GitHub Issues for tracking. GitHub for code and PRs.
 - No PR should exceed ~300 lines. Split into stacked PRs if larger.
 - Use git worktrees for all feature work. Never modify code in main worktree.
 - When adding a new mode or keybinding, update `helpSections` in `view.go` and the README Keybindings section.
+- Keybinding case convention: **lowercase** single keys are built-in normal-mode commands (`n e c o r p a g d f l j k q`, etc.). **Uppercase `A-Z`** is reserved — in normal mode it is claimed by the user's custom-action system (`resolveAction` in `update.go`), and inside sub-panels/modals it denotes scoped sub-commands (e.g. Git Menu `P` = Push, `S` = Stash pop). Never assign a new top-level built-in feature to an uppercase key; pick a free lowercase key instead.
 - When a new feature consumes a state struct that already has an established rendering or handling precedence elsewhere in the codebase (in an earlier feature or related component), the new consumer must implement the FULL precedence, not just the happy path and obvious errors. Write tests that verify every state the existing precedence distinguishes — a missing intermediate state (e.g., "daemon not running" vs. "healthy running") will silently render incorrectly and undermine the feature's purpose.
 
 ## File Structure
