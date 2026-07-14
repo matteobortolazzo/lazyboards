@@ -256,6 +256,7 @@ type LinkedPR struct {
 	Number int
 	Title  string
 	URL    string
+	Branch string
 }
 
 // Label represents a card label with an optional hex color.
@@ -931,7 +932,7 @@ func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
 	}
 	result := make([]LinkedPR, len(prs))
 	for i, pr := range prs {
-		result[i] = LinkedPR{Number: pr.Number, Title: pr.Title, URL: pr.URL}
+		result[i] = LinkedPR{Number: pr.Number, Title: pr.Title, URL: pr.URL, Branch: pr.Branch}
 	}
 	return result
 }

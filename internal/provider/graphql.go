@@ -77,7 +77,7 @@ type issueNode struct {
 //	          nodes {
 //	            ... on CrossReferencedEvent {
 //	              source {
-//	                ... on PullRequest { number title url }
+//	                ... on PullRequest { number title url headRefName }
 //	              }
 //	            }
 //	          }
@@ -137,9 +137,10 @@ type timelineItemQueryNode struct {
 	CrossReferencedEvent struct {
 		Source struct {
 			PullRequest struct {
-				Number githubv4.Int
-				Title  githubv4.String
-				URL    githubv4.String
+				Number      githubv4.Int
+				Title       githubv4.String
+				URL         githubv4.String
+				HeadRefName githubv4.String
 			} `graphql:"... on PullRequest"`
 		}
 	} `graphql:"... on CrossReferencedEvent"`
@@ -167,7 +168,7 @@ type timelinePage struct {
 //	        nodes {
 //	          ... on CrossReferencedEvent {
 //	            source {
-//	              ... on PullRequest { number title url }
+//	              ... on PullRequest { number title url headRefName }
 //	            }
 //	          }
 //	        }
@@ -318,6 +319,7 @@ func mapLinkedPRs(items []timelineItemQueryNode) []LinkedPR {
 			Number: number,
 			Title:  string(pr.Title),
 			URL:    string(pr.URL),
+			Branch: string(pr.HeadRefName),
 		})
 	}
 	return linkedPRs

@@ -151,6 +151,28 @@ func buildTimelineItem(number int, title, url string) timelineItemQueryNode {
 	return item
 }
 
+// TestMapLinkedPRs_PopulatesBranchFromHeadRefName asserts that mapLinkedPRs
+// carries the PullRequest's headRefName GraphQL field through to the plain
+// LinkedPR.Branch field. The node is built directly (rather than via
+// buildTimelineItem, which has no Branch parameter) since HeadRefName is new.
+func TestMapLinkedPRs_PopulatesBranchFromHeadRefName(t *testing.T) {
+	wantBranch := "feature/widget-support"
+	var item timelineItemQueryNode
+	item.CrossReferencedEvent.Source.PullRequest.Number = githubv4.Int(99)
+	item.CrossReferencedEvent.Source.PullRequest.Title = githubv4.String("feat: add widget support")
+	item.CrossReferencedEvent.Source.PullRequest.URL = githubv4.String("https://github.com/o/r/pull/99")
+	item.CrossReferencedEvent.Source.PullRequest.HeadRefName = githubv4.String(wantBranch)
+
+	got := mapLinkedPRs([]timelineItemQueryNode{item})
+
+	if len(got) != 1 {
+		t.Fatalf("mapLinkedPRs() returned %d PRs, want 1", len(got))
+	}
+	if got[0].Branch != wantBranch {
+		t.Errorf("mapLinkedPRs()[0].Branch = %q, want %q", got[0].Branch, wantBranch)
+	}
+}
+
 func TestMapLinkedPRs_SkipsCrossReferenceSourcedFromPlainIssue(t *testing.T) {
 	items := []timelineItemQueryNode{
 		buildTimelineItem(42, "fix: real linked PR", "https://github.com/o/r/pull/42"),

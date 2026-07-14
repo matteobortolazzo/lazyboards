@@ -7,6 +7,7 @@ type LinkedPR struct {
 	Number int
 	Title  string
 	URL    string
+	Branch string
 }
 
 // Label represents a card label with an optional hex color from the provider.
