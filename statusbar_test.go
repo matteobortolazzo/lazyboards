@@ -645,8 +645,8 @@ func TestFormatGitSegment_NoUpstream_OmitsAheadBehind(t *testing.T) {
 
 // TestFormatGitSegment_LazygitStyleColors verifies staged/unstaged/ahead/behind
 // counts are each individually colored (lazygit-style: additions green,
-// deletions red, unpushed commits orange, unpulled commits yellow) rather than
-// rendered as one plain-text segment.
+// deletions red, ahead/behind both a gentle orange) rather than rendered as
+// one plain-text segment.
 func TestFormatGitSegment_LazygitStyleColors(t *testing.T) {
 	status := gitdetect.Status{
 		Branch:      "main",

@@ -44,12 +44,12 @@ var (
 	hintDescStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	// Git status segment styles (status bar), lazygit-style but muted to match
 	// the rest of the palette: additions green, deletions red, push/pull
-	// (ahead/behind) share one gentle blue since they're both just "sync"
+	// (ahead/behind) share one gentle orange since they're both just "sync"
 	// state, not a warning.
 	gitAddedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
 	gitDeletedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	gitAheadStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))
-	gitBehindStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))
+	gitAheadStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("215"))
+	gitBehindStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("215"))
 	// Status bar message styles use a dedicated renderer with forced ANSI256
 	// so that colored messages always render, even in non-TTY environments.
 	statusRenderer     = newStatusRenderer()
