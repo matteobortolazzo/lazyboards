@@ -14,10 +14,21 @@ import (
 var hexColorRE = regexp.MustCompile(`^[0-9a-fA-F]{6}$`)
 
 // maxTimelineConcurrency limits the number of concurrent timeline API calls.
+//
+// Unreferenced now that FetchBoard uses the GraphQL client instead of the
+// REST timeline fan-out below. Left in place intentionally — ticket #324
+// owns removing this and the rest of the REST timeline path.
+//
+//nolint:unused
 const maxTimelineConcurrency = 10
 
 // cardLocation records where a card was placed so concurrent timeline results
 // can be assigned back without reordering.
+//
+// Unreferenced now that FetchBoard uses the GraphQL client; see the note on
+// maxTimelineConcurrency above.
+//
+//nolint:unused
 type cardLocation struct {
 	colIdx   int
 	cardIdx  int
@@ -218,6 +229,11 @@ func issueToCard(issue *github.Issue) Card {
 }
 
 // fetchLinkedPRs retrieves cross-referenced pull requests from the issue timeline.
+//
+// Unreferenced now that FetchBoard uses the GraphQL client; see the note on
+// maxTimelineConcurrency above.
+//
+//nolint:unused
 func (g *GitHubProvider) fetchLinkedPRs(ctx context.Context, issueNumber int) ([]LinkedPR, error) {
 	opts := &github.ListOptions{PerPage: 100}
 	seen := make(map[int]bool)
