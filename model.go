@@ -21,6 +21,11 @@ import (
 )
 
 // Package-level styles.
+// linkedPRGlyph is the Nerd Font glyph marking a linked pull request. It is
+// rendered per-card (see cardDisplayText) and, prefixed to the aggregate count,
+// in the status-bar PR indicator (see StatusBar.View).
+const linkedPRGlyph = "\ue728"
+
 var (
 	activeBorderTitleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	inactiveBorderTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
@@ -1332,6 +1337,20 @@ func (b Board) agentCounts() (running, needInput int) {
 		}
 	}
 	return
+}
+
+// prCounts sums the linked pull requests across every card in every column,
+// producing the board-wide total shown in the status-bar PR indicator. It is a
+// raw count of linked PRs with no open/merged/closed filtering (LinkedPR has no
+// state today). Mirrors agentCounts' full-board iteration.
+func (b Board) prCounts() int {
+	total := 0
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			total += len(card.LinkedPRs)
+		}
+	}
+	return total
 }
 
 func (b Board) Init() tea.Cmd {

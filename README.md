@@ -239,6 +239,12 @@ Inside a git repository with a remote, press `g` to open the **Git Menu** — si
 
 Inside the menu, press an action's key to run it immediately (like lazygit), or navigate with `j`/`k` and press `Enter`; `Esc` cancels. The keys are scoped to the menu: they do nothing in normal mode, so the normal-mode uppercase namespace stays fully reserved for your [custom actions](#custom-actions) (a custom `P` and the menu's Push coexist without conflict). The menu is also listed in the `?` help popup and only opens inside a git repo.
 
+### Status Bar Prefix (agent + PR counts)
+
+At the left of the status bar, an always-visible prefix summarizes the whole board: agent-status counts (`▶N` running, `!N` awaiting input) followed by the board-wide linked-PR total (` N`, using the same PR glyph shown on cards). Each token is omitted when its count is zero, and the prefix disappears entirely when all are zero. Because the prefix is reserved before anything else, it stays visible through timed status messages and is never truncated to make room for hints or the right-aligned git/dispatch segments.
+
+The PR total is a raw count of PRs linked to cards, with no open/merged/closed filtering — it can include PRs that have since merged but remain linked. Press `v` to open the [global PR list](#pull-requests) for the details behind the count.
+
 ### Git Status Segment
 
 Inside a git repository with a remote, the status bar shows a compact, right-aligned, plain-ASCII git segment: current branch, staged/unstaged file counts, and commits ahead/behind upstream — e.g. `main +2~1 ↑3↓0`. The `↑N↓N` portion is omitted when the branch has no upstream configured. The segment is hidden entirely (no error shown) outside a git repo, when there's no remote, or on narrow terminals where there isn't room — hints always keep priority over the segment.
