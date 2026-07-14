@@ -25,7 +25,7 @@ func newGitPanelTestBoard(t *testing.T, userActions map[string]config.Action, re
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, userActions, config.DefaultGitActions(), nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, reader, "", "")
+	b := NewBoard(p, userActions, config.DefaultGitActions(), nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, reader)
 
 	// Load a board with an empty column so board-scope actions (and the git
 	// panel, which is board-scope with no active-card requirement) can dispatch.
@@ -65,7 +65,7 @@ func TestGitPanel_PressG_Noop_WhenNoDefaultActions(t *testing.T) {
 	// Simulate being outside a git repo: defaultActions is empty/nil.
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, "", "")
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{{Title: "Empty", Cards: nil}},
 	}})

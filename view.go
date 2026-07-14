@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
@@ -968,7 +969,6 @@ var helpSections = []helpSection{
 		{"d", "Open"},
 		{"enter", "Enroll/Unenroll"},
 		{"o", "Dispatch once"},
-		{"s", "Start/stop loop"},
 		{"esc", "Close"},
 	}},
 	{"Error", [][2]string{
@@ -1261,18 +1261,7 @@ func (b Board) viewDispatchModal() string {
 		}
 
 		lines = append(lines, "")
-		sDesc := "Start loop"
-		switch {
-		case b.dispatch.loopChecking:
-			lines = append(lines, "Loop: checking...")
-		case b.dispatch.loopErr != "":
-			lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render("Loop: "+b.dispatch.loopErr))
-		case b.dispatch.loopPid > 0:
-			lines = append(lines, fmt.Sprintf("Loop: running (pid %d)", b.dispatch.loopPid))
-			sDesc = "Stop loop"
-		default:
-			lines = append(lines, "Loop: stopped")
-		}
+		lines = append(lines, renderLoopLine(b.dispatch.loop, b.dispatch.loopErr))
 
 		enterDesc := "Enroll"
 		if b.dispatch.enrolled {
@@ -1282,7 +1271,6 @@ func (b Board) viewDispatchModal() string {
 		if b.dispatch.enrolled {
 			hints = append(hints, Hint{Key: "o", Desc: "Dispatch once"})
 		}
-		hints = append(hints, Hint{Key: "s", Desc: sDesc})
 	}
 
 	lines = append(lines, "")
@@ -1291,4 +1279,55 @@ func (b Board) viewDispatchModal() string {
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
+}
+
+// renderLoopLine renders the "Loop: ..." status line describing the
+// daemon-owned background dispatch loop, decoded verbatim from the "loop"
+// object in `agentwatch dispatch status --json` (ticket #313). lazyboards is
+// a pure reader of this state -- starting/stopping the loop is a
+// user-configured custom shell action, not a code path here. Precedence:
+// old-binary guard > nil loop (defensive) > last_error > enabled/off >
+// daemon-not-running > never-run > normal summary.
+func renderLoopLine(loop *dispatchLoopInfo, loopErr string) string {
+	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+
+	if loop == nil {
+		if loopErr == "" {
+			loopErr = "status unavailable — upgrade agentwatch"
+		}
+		return errStyle.Render("Loop: " + loopErr)
+	}
+
+	if loop.LastError != "" {
+		return errStyle.Render("Loop: error — " + loop.LastError)
+	}
+	if !loop.Enabled {
+		return "Loop: off"
+	}
+
+	intervalSuffix := ""
+	if loop.Interval != "" {
+		intervalSuffix = " (" + loop.Interval + ")"
+	}
+
+	if !loop.DaemonRunning {
+		return fmt.Sprintf("Loop: on%s — daemon not running", intervalSuffix)
+	}
+	if loop.LastRunAt == "" {
+		return fmt.Sprintf("Loop: on%s — no runs yet", intervalSuffix)
+	}
+
+	return fmt.Sprintf("Loop: on%s — last run %s, %d dispatched / %d skipped",
+		intervalSuffix, formatLoopRunTime(loop.LastRunAt), loop.LastDispatched, loop.LastSkipped)
+}
+
+// formatLoopRunTime parses raw as RFC3339 and formats it as a local HH:MM
+// string. If raw cannot be parsed, it is returned unchanged (never NaN,
+// never a panic) -- a regression guard for malformed last_run_at values.
+func formatLoopRunTime(raw string) string {
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return raw
+	}
+	return parsed.Local().Format("15:04")
 }
