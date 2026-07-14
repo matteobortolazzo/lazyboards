@@ -921,6 +921,8 @@ var helpSections = []helpSection{
 		{"r", "Refresh"},
 		{"q", "Quit"},
 		{"?", "Help"},
+		{"A-Z", "Custom action"},
+		{"alt+shift+key", "Comment action"},
 	}},
 	{"Create Card", [][2]string{
 		{"esc", "Cancel"},

@@ -349,6 +349,102 @@ func TestCommentMode_BlocksNavigation(t *testing.T) {
 	}
 }
 
+// --- Comment mode triggered from the detail-focused panel ---
+
+func TestCommentMode_AltKeyFromDetailFocus_EntersCommentModeAndUnfocusesDetail(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true")
+	}
+
+	b = sendKey(t, b, altKeyMsg("X"))
+
+	if b.mode != commentMode {
+		t.Fatalf("after Alt+x in detail focus: mode = %d, want %d (commentMode)", b.mode, commentMode)
+	}
+	if b.detailFocused {
+		t.Error("entering commentMode should unfocus the detail panel while comment input is active, mirroring the help-mode pattern")
+	}
+}
+
+func TestCommentMode_Escape_FromDetailFocus_RestoresDetailFocusAndHints(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, altKeyMsg("X"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	if b.mode != normalMode {
+		t.Fatalf("after Escape in commentMode: mode = %d, want %d (normalMode)", b.mode, normalMode)
+	}
+	if !b.detailFocused {
+		t.Error("Escape from a comment triggered in detail focus should restore detailFocused")
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "Back") {
+		t.Errorf("View() after returning from comment mode should show detail-focus hints, got:\n%s", view)
+	}
+	// "n: New" is the normal-mode hint rendering; check the hint form (not
+	// bare "New") since a column in this fixture is itself titled "New".
+	if strings.Contains(view, "n: New") {
+		t.Errorf("View() after returning from comment mode should NOT show normal-mode hints, got:\n%s", view)
+	}
+}
+
+func TestCommentMode_Enter_FromDetailFocus_RestoresDetailFocusAndHints(t *testing.T) {
+	// Use a "url" action, not "shell": a shell submit shows a transient
+	// "Running..." status message that would mask the hint-bar assertion
+	// below without indicating a hint-restoration bug.
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "url", URL: "https://example.com/{number}?body={comment}"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, altKeyMsg("X"))
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if !b.detailFocused {
+		t.Error("Enter/submit from a comment triggered in detail focus should restore detailFocused")
+	}
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called after submitting comment from detail focus, but no calls recorded")
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "Back") {
+		t.Errorf("View() after submitting comment from detail focus should show detail-focus hints, got:\n%s", view)
+	}
+}
+
+func TestCommentMode_AltKeyFromNormalMode_DoesNotSetDetailFocused(t *testing.T) {
+	// Regression: comment mode triggered from normal (non-focused) mode must
+	// not leave detailFocused set on return.
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+
+	b = sendKey(t, b, altKeyMsg("X"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	if b.detailFocused {
+		t.Error("comment mode triggered from normal mode should not set detailFocused on return")
+	}
+}
+
 func TestCommentMode_EmptyCommentStillSubmits(t *testing.T) {
 	// An empty comment is valid — the user may want to pass an empty string.
 	// The action should execute with {comment} expanded to an empty shell-escaped value.

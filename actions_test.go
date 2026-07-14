@@ -812,3 +812,106 @@ func TestAction_CardScopeHint_VisibleWithCards(t *testing.T) {
 		t.Errorf("View() should contain card-scope hint %q when cards exist, got:\n%s", "Card action", view)
 	}
 }
+
+// --- Custom actions dispatch from the detail-focused panel ---
+
+func TestAction_DetailFocused_CardScopeURLTriggersOpenURL(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+
+	selectedCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	expectedURL := fmt.Sprintf("https://example.com/%d", selectedCard.Number)
+
+	// Focus the detail panel, then press the action key.
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true")
+	}
+	b = sendKey(t, b, keyMsg("X"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called from detail-focused panel, but no calls recorded")
+	}
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+func TestAction_DetailFocused_ShellTriggersRunShell(t *testing.T) {
+	actions := map[string]config.Action{
+		"S": {Name: "Shell", Type: "shell", Command: "echo {title}"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+
+	selectedCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	expectedCmd := "echo " + action.ShellEscape(action.Slugify(selectedCard.Title))
+
+	b = sendKey(t, b, keyMsg("l"))
+	m, cmd := b.Update(keyMsg("S"))
+	b = m.(Board)
+
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called from detail-focused panel, but no calls recorded")
+	}
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
+	}
+	if !b.detailFocused {
+		t.Error("firing a card-scope action from detail focus should not drop detailFocused")
+	}
+}
+
+func TestAction_DetailFocused_BoardScopeFires(t *testing.T) {
+	actions := map[string]config.Action{
+		"B": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
+	}
+	b, fe := newActionTestBoard(t, actions)
+
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("B"))
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called for board-scope action from detail-focused panel, but no calls recorded")
+	}
+	expectedURL := "https://github.com/matteobortolazzo/lazyboards/issues"
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+func TestAction_DetailFocused_UnboundKeyIsNoop(t *testing.T) {
+	b, fe := newActionTestBoard(t, nil)
+
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("Z"))
+
+	if !b.detailFocused {
+		t.Error("an unbound custom-action key should not affect detailFocused")
+	}
+	if len(fe.OpenURLCalls) != 0 || len(fe.RunShellCalls) != 0 {
+		t.Error("an unbound custom-action key should not trigger any action")
+	}
+}
+
+func TestAction_DetailFocused_BuiltinKeysStillWin(t *testing.T) {
+	// A custom action bound to "e" is impossible (lowercase is reserved for
+	// built-ins), but this test locks in that the built-in "e" (Edit) inside
+	// detail focus always dispatches openEditorCmd, never a custom action --
+	// there is no custom-action code path for lowercase keys to begin with.
+	b := newLoadedTestBoard(t)
+
+	b = sendKey(t, b, keyMsg("l"))
+	m, cmd := b.Update(keyMsg("e"))
+	b = m.(Board)
+
+	if cmd == nil {
+		t.Error("'e' in detail focus should still trigger openEditorCmd")
+	}
+	if !b.detailFocused {
+		t.Error("'e' in detail focus should not drop detailFocused")
+	}
+}
