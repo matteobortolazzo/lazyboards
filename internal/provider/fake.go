@@ -204,3 +204,18 @@ func (f *FakeProvider) GetAuthenticatedUser(_ context.Context) (string, error) {
 	f.GetAuthenticatedUserCalls++
 	return "fake-user", nil
 }
+
+// DeleteCard finds a card by number and removes it from f.columns, unlike
+// CloseCard, which only finds/returns without mutating. A subsequent
+// FetchBoard() on the same fake instance no longer returns the deleted card.
+func (f *FakeProvider) DeleteCard(_ context.Context, number int) error {
+	for ci := range f.columns {
+		for i := range f.columns[ci].Cards {
+			if f.columns[ci].Cards[i].Number == number {
+				f.columns[ci].Cards = append(f.columns[ci].Cards[:i], f.columns[ci].Cards[i+1:]...)
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("card #%d not found", number)
+}

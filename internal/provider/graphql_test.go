@@ -27,6 +27,11 @@ type fakeGraphQLClient struct {
 	timelinePages map[int]map[string]timelinePage
 
 	calledTimelineCursors []timelineCursorCall
+
+	// deleteIssueErr scripts the error DeleteIssue returns, letting tests
+	// exercise GitHubProvider.DeleteCard's success / not-found / generic-error
+	// mapping without a real GraphQL round-trip.
+	deleteIssueErr error
 }
 
 // timelineCursorCall records one fetchIssueTimelinePage call so tests can
@@ -53,6 +58,12 @@ func (f *fakeGraphQLClient) fetchIssueTimelinePage(_ context.Context, _, _ strin
 		return timelinePage{}, f.err
 	}
 	return f.timelinePages[issueNumber][afterCursor], nil
+}
+
+// deleteIssue returns the scripted deleteIssueErr, letting tests script
+// success (nil), not-found, or an arbitrary generic-error scenario.
+func (f *fakeGraphQLClient) deleteIssue(_ context.Context, _, _ string, _ int) error {
+	return f.deleteIssueErr
 }
 
 func TestNewGitHubV4Adapter_WrapsGivenClient(t *testing.T) {
