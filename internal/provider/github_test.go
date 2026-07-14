@@ -1599,6 +1599,60 @@ func TestGitHubSetAssignees_EmptyLogins(t *testing.T) {
 	}
 }
 
+// --- CloseCard Tests ---
+
+func TestGitHubCloseCard_Success(t *testing.T) {
+	issueNumber := 42
+
+	client := &mockGitHubClient{
+		editedIssue: &github.Issue{
+			Number: github.Ptr(issueNumber),
+			Title:  github.Ptr("Test issue"),
+			State:  github.Ptr("closed"),
+			Labels: []*github.Label{{Name: github.Ptr("bug")}},
+		},
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
+
+	card, err := p.CloseCard(context.Background(), issueNumber)
+	if err != nil {
+		t.Fatalf("CloseCard returned error: %v", err)
+	}
+
+	if card.Number != issueNumber {
+		t.Errorf("card.Number = %d, want %d", card.Number, issueNumber)
+	}
+
+	// The Edit request must set the issue state to "closed".
+	if client.capturedEditReq == nil {
+		t.Fatal("Edit was not called")
+	}
+	if client.capturedEditReq.State == nil {
+		t.Fatal("Edit request State should be non-nil")
+	}
+	if *client.capturedEditReq.State != "closed" {
+		t.Errorf("Edit request State = %q, want %q", *client.capturedEditReq.State, "closed")
+	}
+}
+
+func TestGitHubCloseCard_APIError(t *testing.T) {
+	apiErrMsg := "API request failed"
+	client := &mockGitHubClient{
+		editErr: errors.New(apiErrMsg),
+	}
+	columns := []string{"New"}
+	p := NewGitHubProvider(client, nil, "owner", "repo", columns)
+
+	_, err := p.CloseCard(context.Background(), 1)
+	if err == nil {
+		t.Fatal("expected error from CloseCard, got nil")
+	}
+	if !strings.Contains(err.Error(), apiErrMsg) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), apiErrMsg)
+	}
+}
+
 // --- GetAuthenticatedUser Tests ---
 
 func TestGitHubGetAuthenticatedUser_Success(t *testing.T) {

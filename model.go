@@ -409,6 +409,16 @@ type labelConfirmState struct {
 	currentIdx    int
 }
 
+// cardClosedMsg is sent when a card has been closed successfully.
+type cardClosedMsg struct {
+	card Card
+}
+
+// cardCloseErrorMsg is sent when closing a card fails.
+type cardCloseErrorMsg struct {
+	err error
+}
+
 // commentState groups fields related to the comment input modal.
 type commentState struct {
 	input             textinput.Model

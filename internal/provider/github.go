@@ -256,6 +256,20 @@ func (g *GitHubProvider) UpdateCard(ctx context.Context, number int, title strin
 	return issueToCard(issue), nil
 }
 
+// CloseCard closes a GitHub issue by setting its state to "closed".
+func (g *GitHubProvider) CloseCard(ctx context.Context, number int) (Card, error) {
+	req := &github.IssueRequest{
+		State: github.Ptr("closed"),
+	}
+
+	issue, _, err := g.client.Edit(ctx, g.owner, g.repo, number, req)
+	if err != nil {
+		return Card{}, err
+	}
+
+	return issueToCard(issue), nil
+}
+
 // FetchCollaborators retrieves all collaborators for the repository.
 func (g *GitHubProvider) FetchCollaborators(ctx context.Context) ([]Assignee, error) {
 	var allCollaborators []Assignee

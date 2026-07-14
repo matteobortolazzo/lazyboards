@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -411,6 +413,43 @@ func TestFakeProvider_SetAssignees_NotFound(t *testing.T) {
 	_, err := fp.SetAssignees(context.Background(), nonExistentNumber, []string{"alice"})
 	if err == nil {
 		t.Fatal("expected error for non-existent card number, got nil")
+	}
+}
+
+// --- CloseCard Tests ---
+
+func TestFakeProvider_CloseCard_Success(t *testing.T) {
+	fp := NewFakeProvider()
+
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	existingCard := board.Columns[0].Cards[0]
+
+	closed, err := fp.CloseCard(context.Background(), existingCard.Number)
+	if err != nil {
+		t.Fatalf("CloseCard returned error: %v", err)
+	}
+
+	if closed.Number != existingCard.Number {
+		t.Errorf("closed.Number = %d, want %d", closed.Number, existingCard.Number)
+	}
+	if closed.Title != existingCard.Title {
+		t.Errorf("closed.Title = %q, want %q", closed.Title, existingCard.Title)
+	}
+}
+
+func TestFakeProvider_CloseCard_NotFound(t *testing.T) {
+	fp := NewFakeProvider()
+	nonExistentNumber := 9999
+
+	_, err := fp.CloseCard(context.Background(), nonExistentNumber)
+	if err == nil {
+		t.Fatal("expected error for non-existent card number, got nil")
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(nonExistentNumber)) {
+		t.Errorf("error = %q, want it to mention card number %d", err.Error(), nonExistentNumber)
 	}
 }
 

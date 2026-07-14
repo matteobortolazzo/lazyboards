@@ -53,4 +53,5 @@ type BoardProvider interface {
 	FetchCollaborators(ctx context.Context) ([]Assignee, error)
 	SetAssignees(ctx context.Context, number int, logins []string) (Card, error)
 	GetAuthenticatedUser(ctx context.Context) (string, error)
+	CloseCard(ctx context.Context, number int) (Card, error)
 }
