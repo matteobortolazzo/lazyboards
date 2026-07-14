@@ -245,6 +245,10 @@ Inside a git repository with a remote, the status bar shows a compact, right-ali
 
 The segment refreshes on board start, after every board refresh, after any successful action, and on a background poll every ~12s to catch changes made outside the app.
 
+### Dispatch Status Segment
+
+When the agentwatch daemon reports the background dispatch loop enabled, the status bar shows a `⟳ dispatch` segment, right-aligned to the left of the git segment (see [Git Status Segment](#git-status-segment) for priority rules — the dispatch segment is dropped first on narrow terminals). It's sourced live from the same watcher subscription that drives agent-status badges, so it appears and disappears immediately as the loop is toggled or the daemon becomes unreachable — no restart needed. If the last dispatch pass failed, the segment renders in red instead of its normal color.
+
 ### Column-Specific Actions
 
 Define actions under a column to override global actions for that column:

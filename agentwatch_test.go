@@ -666,3 +666,154 @@ func TestAgentStatusFailed_ConstantMatchesLiteral(t *testing.T) {
 		t.Errorf("agentStatusFailed = %q, want it to describe a failed dispatch", agentStatusFailed)
 	}
 }
+
+// --- Update: agentSnapshotMsg / agentWatchErrorMsg wire the dispatch status
+// bar segment (#315) ---
+
+// TestUpdate_AgentSnapshotMsg_DispatchEnabled_SetsDispatchStatusSegment
+// verifies a snapshot carrying an enabled dispatch loop sets a non-empty
+// status bar segment, mirroring the existing gitStatusMsg wiring test
+// (TestUpdate_GitStatusMsg_Success_SetsGitStatusSegment in
+// gitstatus_wiring_test.go).
+func TestUpdate_AgentSnapshotMsg_DispatchEnabled_SetsDispatchStatusSegment(t *testing.T) {
+	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	snap := &agentwatch.StateSnapshot{
+		Dispatch: &agentwatch.DispatchState{Enabled: true, DaemonRunning: true},
+	}
+
+	m, _ := b.Update(agentSnapshotMsg{snapshot: snap})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.statusBar.dispatchStatus == "" {
+		t.Fatal("agentSnapshotMsg with Dispatch.Enabled=true should set a non-empty dispatch status segment")
+	}
+}
+
+// TestUpdate_AgentSnapshotMsg_DispatchDisabled_ClearsDispatchStatusSegment
+// verifies the segment is hidden (cleared) once a snapshot reports the loop
+// disabled, even if a previous snapshot had it set.
+func TestUpdate_AgentSnapshotMsg_DispatchDisabled_ClearsDispatchStatusSegment(t *testing.T) {
+	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b.statusBar.SetDispatchStatus("⟳ dispatch")
+
+	snap := &agentwatch.StateSnapshot{
+		Dispatch: &agentwatch.DispatchState{Enabled: false},
+	}
+	m, _ := b.Update(agentSnapshotMsg{snapshot: snap})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.statusBar.dispatchStatus != "" {
+		t.Errorf("dispatchStatus = %q, want empty after a snapshot reports the loop disabled", updated.statusBar.dispatchStatus)
+	}
+}
+
+// TestUpdate_AgentSnapshotMsg_NilDispatch_ClearsDispatchStatusSegment covers
+// the pre-#219 daemon guard: a snapshot with no dispatch data at all also
+// hides the segment.
+func TestUpdate_AgentSnapshotMsg_NilDispatch_ClearsDispatchStatusSegment(t *testing.T) {
+	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b.statusBar.SetDispatchStatus("⟳ dispatch")
+
+	snap := &agentwatch.StateSnapshot{}
+	m, _ := b.Update(agentSnapshotMsg{snapshot: snap})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.statusBar.dispatchStatus != "" {
+		t.Errorf("dispatchStatus = %q, want empty after a snapshot with no dispatch data (pre-#219 daemon)", updated.statusBar.dispatchStatus)
+	}
+}
+
+// TestUpdate_AgentWatchErrorMsg_ClearsDispatchStatusSegment verifies the
+// watcher-down visibility rule: an agentWatchErrorMsg clears the dispatch
+// segment live, independent of the stale agent-count snapshot (which is
+// deliberately left untouched on error, per the existing behavior).
+func TestUpdate_AgentWatchErrorMsg_ClearsDispatchStatusSegment(t *testing.T) {
+	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b.statusBar.SetDispatchStatus("⟳ dispatch")
+
+	m, _ := b.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.statusBar.dispatchStatus != "" {
+		t.Errorf("dispatchStatus = %q, want empty after agentWatchErrorMsg (watcher-down hides the segment live)", updated.statusBar.dispatchStatus)
+	}
+}
+
+// TestBoard_DispatchStatusSegment_AppearsThenClearsLiveViaWatcher is the
+// board-level integration test for the ticket's core acceptance criterion:
+// using a real FakeWatcher subscription (driven the way Init() drives it,
+// via subscribeAgentWatchCmd + collectCmdMsgs per the repo's established
+// goroutine+timeout tea.Cmd testing pattern), a snapshot with an enabled
+// dispatch loop makes the segment appear in the rendered View(); a
+// subsequent watcher-down error then clears it live, with no restart.
+func TestBoard_DispatchStatusSegment_AppearsThenClearsLiveViaWatcher(t *testing.T) {
+	snap := &agentwatch.StateSnapshot{
+		Dispatch: &agentwatch.DispatchState{Enabled: true, DaemonRunning: true},
+	}
+	fw := &agentwatch.FakeWatcher{
+		Results: []agentwatch.FakeWatcherResult{{Snap: snap}},
+	}
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, fw, nil)
+	b.Width = 120
+	b.Height = 40
+
+	boardMsg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{{Title: "Column A", Cards: []provider.Card{{Number: 1, Title: "A card"}}}},
+	}}
+	m, _ := b.Update(boardMsg)
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	b = board
+
+	// Drive the watcher subscription live, the way Init()/the self-chaining
+	// Cmd would deliver it.
+	msgs := collectCmdMsgs(subscribeAgentWatchCmd(fw))
+	found := false
+	for _, msg := range msgs {
+		if snapMsg, ok := msg.(agentSnapshotMsg); ok {
+			found = true
+			m, _ := b.Update(snapMsg)
+			board, ok := m.(Board)
+			if !ok {
+				t.Fatalf("Update returned %T, want Board", m)
+			}
+			b = board
+		}
+	}
+	if !found {
+		t.Fatal("subscribeAgentWatchCmd(fw) did not deliver an agentSnapshotMsg (test setup)")
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "dispatch") {
+		t.Fatalf("View() after a live snapshot with Dispatch.Enabled=true = %q, want the dispatch segment visible", view)
+	}
+
+	// The daemon becomes unreachable: the segment must clear live, no restart.
+	m2, _ := b.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
+	afterError, ok := m2.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m2)
+	}
+	b = afterError
+
+	view2 := b.View()
+	if strings.Contains(view2, "dispatch") {
+		t.Errorf("View() after agentWatchErrorMsg = %q, want the dispatch segment cleared live (watcher-down hides it)", view2)
+	}
+}

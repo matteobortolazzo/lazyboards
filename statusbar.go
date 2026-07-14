@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 )
 
@@ -31,10 +32,11 @@ type clearStatusMsg struct{}
 
 // StatusBar displays contextual key hints and timed messages.
 type StatusBar struct {
-	hints     []Hint
-	message   string
-	level     StatusLevel
-	gitStatus string
+	hints          []Hint
+	message        string
+	level          StatusLevel
+	gitStatus      string
+	dispatchStatus string
 }
 
 // NewStatusBar creates a StatusBar with the given default hints.
@@ -69,6 +71,13 @@ func (s *StatusBar) SetGitStatus(segment string) {
 	s.gitStatus = segment
 }
 
+// SetDispatchStatus sets the pre-formatted dispatch-loop status segment shown
+// right-aligned in the status bar, to the left of the git segment. Pass ""
+// to hide the segment (e.g. the loop is disabled or the watcher is down).
+func (s *StatusBar) SetDispatchStatus(segment string) {
+	s.dispatchStatus = segment
+}
+
 // formatGitSegment formats a git Status into a compact, plain-ASCII segment,
 // e.g. "main +2~1 ↑3↓0", colored: staged (added) in green, unstaged (deleted)
 // in red, ahead (push) and behind (pull) both in the same gentle orange since
@@ -84,6 +93,32 @@ func formatGitSegment(status gitdetect.Status) string {
 			gitBehindStyle.Render("↓"+strconv.Itoa(status.Behind))
 	}
 	return segment
+}
+
+// formatDispatchSegment formats a dispatch loop DispatchState into a compact
+// segment, e.g. "⟳ dispatch". Visibility mirrors the daemon's own status
+// frontend: hidden (returns "") when state is nil (watcher hasn't delivered
+// dispatch data, e.g. a pre-#219 daemon) or when the loop is disabled.
+// Precedence for the visible states: a failed last dispatch pass (LastError
+// set) always renders via statusErrorStyle, the highest-priority visible
+// state. Otherwise, when the loop is enabled but the daemon managing it
+// isn't actually running (Enabled && !DaemonRunning — the same "daemon not
+// running" problem state the dispatch modal's renderLoopLine distinguishes),
+// the segment also renders via statusErrorStyle so it isn't mistaken for a
+// healthy running loop. Only Enabled && DaemonRunning with no error renders
+// via the normal "on" dispatchSegmentStyle.
+func formatDispatchSegment(state *agentwatch.DispatchState) string {
+	if state == nil || !state.Enabled {
+		return ""
+	}
+	const segment = "⟳ dispatch"
+	if state.LastError != "" {
+		return statusErrorStyle.Render(segment)
+	}
+	if !state.DaemonRunning {
+		return statusErrorStyle.Render(segment)
+	}
+	return dispatchSegmentStyle.Render(segment)
 }
 
 // style returns the lipgloss style for this level, or nil for unstyled (StatusInfo).
@@ -167,10 +202,13 @@ func renderHints(hints []Hint, width int) string {
 // counts is variadic (running, needInput) for caller convenience; missing
 // values default to 0.
 //
-// When a git status segment is set (via SetGitStatus), it is right-aligned
-// after the hints, taking priority for space: hints truncate to make room
-// for it, and it is dropped entirely (not truncated itself) when there
-// isn't enough width for both. Timed messages always override it.
+// When a git status segment is set (via SetGitStatus) and/or a dispatch
+// status segment is set (via SetDispatchStatus), they are right-aligned
+// after the hints, taking priority for space over hints: hints truncate to
+// make room for them. When both are set and there isn't enough width for
+// both, the dispatch segment is dropped first (git wins the contention);
+// when even the git segment alone doesn't fit, it is dropped too (not
+// truncated). Timed messages always override both.
 func (s StatusBar) View(width int, counts ...int) string {
 	var running, needInput int
 	if len(counts) > 0 {
@@ -195,19 +233,35 @@ func (s StatusBar) View(width int, counts ...int) string {
 	// The prefix consumes width that is no longer available for hints.
 	width -= lipgloss.Width(prefix)
 
-	if s.gitStatus != "" {
-		gitWidth := lipgloss.Width(s.gitStatus)
-		reserved := gitWidth + 1 // 1-space separator before the git segment
-		if reserved <= width {
-			hintsWidth := width - reserved
-			hintsView := renderHints(s.hints, hintsWidth)
-			if lipgloss.Width(hintsView) <= hintsWidth {
-				padding := width - lipgloss.Width(hintsView) - gitWidth
-				return prefix + hintsView + strings.Repeat(" ", padding) + s.gitStatus
-			}
+	// Build the candidate tail segments (dispatch + git) in priority order:
+	// try both together first, then fall back to git alone (dispatch is
+	// dropped first on width contention), then dispatch alone if there is no
+	// git segment to compete with. Whichever candidate first fits (together
+	// with at least the truncated hints) wins.
+	var candidates []string
+	switch {
+	case s.dispatchStatus != "" && s.gitStatus != "":
+		candidates = []string{s.dispatchStatus + " " + s.gitStatus, s.gitStatus}
+	case s.gitStatus != "":
+		candidates = []string{s.gitStatus}
+	case s.dispatchStatus != "":
+		candidates = []string{s.dispatchStatus}
+	}
+
+	for _, tail := range candidates {
+		tailWidth := lipgloss.Width(tail)
+		reserved := tailWidth + 1 // 1-space separator before the tail segment
+		if reserved > width {
+			continue
 		}
-		// Not enough room for the git segment even with truncated hints;
-		// drop it entirely and give hints back the full width.
+		hintsWidth := width - reserved
+		hintsView := renderHints(s.hints, hintsWidth)
+		if lipgloss.Width(hintsView) <= hintsWidth {
+			padding := width - lipgloss.Width(hintsView) - tailWidth
+			return prefix + hintsView + strings.Repeat(" ", padding) + tail
+		}
+		// Not enough room for hints alongside this candidate; try the next
+		// (lower-priority) candidate.
 	}
 
 	return prefix + renderHints(s.hints, width)

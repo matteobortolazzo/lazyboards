@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 )
 
@@ -691,5 +692,226 @@ func TestFormatGitSegment_NoNerdFontGlyphs(t *testing.T) {
 		if r > 127 && r != '↑' && r != '↓' {
 			t.Errorf("formatGitSegment(%+v) = %q, contains unexpected non-ASCII glyph %q; want plain ASCII plus only ↑/↓ arrows", status, segment, r)
 		}
+	}
+}
+
+// --- StatusBar: Dispatch Status Segment (#315) ---
+
+func TestStatusBar_SetDispatchStatus_AppearsInView(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetDispatchStatus("⟳ dispatch")
+	view := sb.View(200)
+
+	if !strings.Contains(view, "dispatch") {
+		t.Errorf("View(200) = %q, want it to contain the dispatch segment %q", view, "dispatch")
+	}
+	if !strings.Contains(view, "Quit") {
+		t.Errorf("View(200) = %q, want hints to still be present alongside the dispatch segment", view)
+	}
+}
+
+func TestStatusBar_ViewDispatchSegment_HiddenWhenNeverSet(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200)
+
+	if strings.Contains(view, "dispatch") {
+		t.Errorf("View(200) = %q, should NOT contain a dispatch segment when SetDispatchStatus was never called", view)
+	}
+}
+
+func TestStatusBar_ViewDispatchSegment_HiddenWhenCleared(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetDispatchStatus("⟳ dispatch")
+	sb.SetDispatchStatus("")
+	view := sb.View(200)
+
+	if strings.Contains(view, "dispatch") {
+		t.Errorf("View(200) = %q, should NOT contain the dispatch segment after clearing with SetDispatchStatus(\"\")", view)
+	}
+}
+
+func TestStatusBar_ViewDispatchAndGitSegments_BothFit_DispatchLeftOfGit(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	dispatchSegment := "⟳ dispatch"
+	gitSegment := "main +0~0"
+	sb.SetDispatchStatus(dispatchSegment)
+	sb.SetGitStatus(gitSegment)
+	view := sb.View(200)
+
+	dispatchIdx := strings.Index(view, "dispatch")
+	gitIdx := strings.Index(view, gitSegment)
+
+	if dispatchIdx == -1 {
+		t.Fatalf("View(200) = %q, want it to contain the dispatch segment", view)
+	}
+	if gitIdx == -1 {
+		t.Fatalf("View(200) = %q, want it to contain the git segment %q", view, gitSegment)
+	}
+	if dispatchIdx >= gitIdx {
+		t.Errorf("View(200) dispatch segment at index %d, git segment at index %d; want the dispatch segment positioned before (left of) the git segment", dispatchIdx, gitIdx)
+	}
+}
+
+// TestStatusBar_ViewDispatchSegment_DroppedFirstWhenWidthContendsWithGit pins
+// the width-contention drop priority (#315 implementer's call, mirrors the
+// existing git-segment width tests): when both the dispatch and git segments
+// are set but there is only enough room for hints + the git segment, the
+// dispatch segment is dropped first and the git segment still renders.
+func TestStatusBar_ViewDispatchSegment_DroppedFirstWhenWidthContendsWithGit(t *testing.T) {
+	dispatchSegment := "⟳ dispatch"
+	gitSegment := "feature-branch +5~3 ↑10↓2"
+
+	hint0 := hintKeyStyle.Render("q") + hintDescStyle.Render(": Quit")
+	width := lipgloss.Width(hint0) + 1 + lipgloss.Width(gitSegment)
+
+	// Sanity check: with only the git segment set (no dispatch), this width
+	// is enough to show it fully (test setup).
+	sbGitOnly := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sbGitOnly.SetGitStatus(gitSegment)
+	baseline := sbGitOnly.View(width)
+	if !strings.Contains(baseline, gitSegment) {
+		t.Fatalf("baseline View(%d) = %q, want the git segment alone to fit at this width (test setup)", width, baseline)
+	}
+
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetDispatchStatus(dispatchSegment)
+	sb.SetGitStatus(gitSegment)
+	view := sb.View(width)
+
+	if !strings.Contains(view, gitSegment) {
+		t.Errorf("View(%d) = %q, want the git segment to still render (git wins the width contention)", width, view)
+	}
+	if strings.Contains(view, "dispatch") {
+		t.Errorf("View(%d) = %q, want the dispatch segment dropped first when width contends with the git segment", width, view)
+	}
+}
+
+// TestStatusBar_ViewDispatchSegment_DropsWhenWidthInsufficient mirrors
+// TestStatusBar_ViewGitSegment_DropsWhenWidthInsufficient for the
+// dispatch-segment-alone case (no git segment set to contend with): at a
+// width that exactly fits the hints and leaves no room for the dispatch
+// segment's own width plus its separator, the dispatch segment is dropped
+// entirely rather than truncated or garbling output.
+func TestStatusBar_ViewDispatchSegment_DropsWhenWidthInsufficient(t *testing.T) {
+	hints := []Hint{{Key: "q", Desc: "Quit"}}
+	sb := NewStatusBar(hints)
+
+	hint0 := hintKeyStyle.Render(hints[0].Key) + hintDescStyle.Render(": "+hints[0].Desc)
+	fullHintsWidth := lipgloss.Width(hint0)
+
+	dispatchSegment := "⟳ dispatch"
+	sb.SetDispatchStatus(dispatchSegment)
+
+	// Width has exactly enough room for the hints and nothing else -- no
+	// room for even a single extra column for the dispatch segment.
+	view := sb.View(fullHintsWidth)
+
+	if strings.Contains(view, "dispatch") {
+		t.Errorf("View(%d) = %q, want the dispatch segment dropped entirely when there is no room for it", fullHintsWidth, view)
+	}
+	if !strings.Contains(view, hints[0].Desc) {
+		t.Errorf("View(%d) = %q, want hints to keep priority and render fully when the dispatch segment is dropped", fullHintsWidth, view)
+	}
+	if strings.Contains(view, "...") {
+		t.Errorf("View(%d) = %q, hints fit fully on their own; want no truncation indicator just because the dispatch segment was dropped", fullHintsWidth, view)
+	}
+	if got := lipgloss.Width(view); got > fullHintsWidth {
+		t.Errorf("lipgloss.Width(View(%d)) = %d, want at most %d; view = %q", fullHintsWidth, got, fullHintsWidth, view)
+	}
+}
+
+func TestStatusBar_ViewDispatchSegment_TimedMessageOverridesDispatchSegment(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetDispatchStatus("⟳ dispatch")
+	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
+	view := sb.View(200)
+
+	if !strings.Contains(view, "Board refreshed") {
+		t.Errorf("View(200) = %q, want it to contain the timed message %q", view, "Board refreshed")
+	}
+	if strings.Contains(view, "dispatch") {
+		t.Errorf("View(200) = %q, should NOT contain the dispatch segment while a timed message is active", view)
+	}
+}
+
+// --- formatDispatchSegment (#315) ---
+
+func TestFormatDispatchSegment_EnabledShowsGlyph(t *testing.T) {
+	state := &agentwatch.DispatchState{Enabled: true, DaemonRunning: true}
+	got := formatDispatchSegment(state)
+
+	if got == "" {
+		t.Fatal("formatDispatchSegment(Enabled=true) = \"\", want a non-empty segment")
+	}
+	if !strings.Contains(got, "dispatch") {
+		t.Errorf("formatDispatchSegment(Enabled=true) = %q, want it to contain %q", got, "dispatch")
+	}
+}
+
+func TestFormatDispatchSegment_NilDispatchStateReturnsEmpty(t *testing.T) {
+	got := formatDispatchSegment(nil)
+	if got != "" {
+		t.Errorf("formatDispatchSegment(nil) = %q, want empty (segment hidden when the watcher hasn't delivered dispatch data, e.g. pre-#219 daemon)", got)
+	}
+}
+
+func TestFormatDispatchSegment_DisabledReturnsEmpty(t *testing.T) {
+	state := &agentwatch.DispatchState{Enabled: false, DaemonRunning: true}
+	got := formatDispatchSegment(state)
+	if got != "" {
+		t.Errorf("formatDispatchSegment(Enabled=false) = %q, want empty (segment hidden when the loop is disabled)", got)
+	}
+}
+
+// TestFormatDispatchSegment_LastErrorRendersDistinctly verifies a failing
+// loop (LastError set) renders distinctly from the normal "on" state, via
+// ANSI styling (the shared statusErrorStyle, forced to ANSI256 so tests don't
+// depend on TTY detection).
+func TestFormatDispatchSegment_LastErrorRendersDistinctly(t *testing.T) {
+	ok := &agentwatch.DispatchState{Enabled: true, DaemonRunning: true}
+	failing := &agentwatch.DispatchState{Enabled: true, DaemonRunning: true, LastError: "exit status 1"}
+
+	okSegment := formatDispatchSegment(ok)
+	failingSegment := formatDispatchSegment(failing)
+
+	if okSegment == "" {
+		t.Fatal("formatDispatchSegment(enabled, no error) = \"\", want a non-empty segment (test setup)")
+	}
+	if failingSegment == okSegment {
+		t.Errorf("formatDispatchSegment(LastError set) = %q, want it to render distinctly from the no-error state %q", failingSegment, okSegment)
+	}
+	if !strings.ContainsRune(failingSegment, '\x1b') {
+		t.Errorf("formatDispatchSegment(LastError set) = %q, want ANSI styling (e.g. via statusErrorStyle) marking the error state distinctly", failingSegment)
+	}
+}
+
+// TestFormatDispatchSegment_DaemonNotRunningRendersDistinctly verifies a loop
+// that is Enabled but whose daemon isn't actually running (Enabled &&
+// !DaemonRunning — the same "daemon not running" problem state the dispatch
+// modal's renderLoopLine distinguishes, per #313) renders distinctly from
+// both the hidden case and the healthy Enabled && DaemonRunning "on" state,
+// reusing statusErrorStyle rather than a third style.
+func TestFormatDispatchSegment_DaemonNotRunningRendersDistinctly(t *testing.T) {
+	healthy := &agentwatch.DispatchState{Enabled: true, DaemonRunning: true}
+	daemonDown := &agentwatch.DispatchState{Enabled: true, DaemonRunning: false}
+
+	healthySegment := formatDispatchSegment(healthy)
+	daemonDownSegment := formatDispatchSegment(daemonDown)
+
+	if healthySegment == "" {
+		t.Fatal("formatDispatchSegment(enabled, daemon running) = \"\", want a non-empty segment (test setup)")
+	}
+	if daemonDownSegment == "" {
+		t.Fatal("formatDispatchSegment(enabled, daemon not running) = \"\", want a non-empty segment, not hidden")
+	}
+	if daemonDownSegment == healthySegment {
+		t.Errorf("formatDispatchSegment(Enabled && !DaemonRunning) = %q, want it to render distinctly from the healthy on-state %q", daemonDownSegment, healthySegment)
+	}
+	if !strings.ContainsRune(daemonDownSegment, '\x1b') {
+		t.Errorf("formatDispatchSegment(Enabled && !DaemonRunning) = %q, want ANSI styling (statusErrorStyle) marking the daemon-not-running state distinctly", daemonDownSegment)
+	}
+	wantSegment := statusErrorStyle.Render("⟳ dispatch")
+	if daemonDownSegment != wantSegment {
+		t.Errorf("formatDispatchSegment(Enabled && !DaemonRunning) = %q, want it to reuse statusErrorStyle like the LastError case: %q", daemonDownSegment, wantSegment)
 	}
 }
