@@ -15,6 +15,9 @@ Set Framerate 30
 # ---- Silent setup ----
 Hide
 Type "cd ~/Repos/lazyboards-demo" Enter
+# Pin the demo columns to the labels seeded by docs/demo-repo-seed.sh, so the
+# recording is deterministic regardless of any personal global config.
+Type "printf 'columns:\n  - name: New\n  - name: Refined\n  - name: Implementing\n' > .lazyboards.yml" Enter
 Type "clear" Enter
 Show
 
@@ -65,6 +68,12 @@ Sleep 500ms
 # ---- Filter flow ----
 Type "f"
 Sleep 1500ms
+Escape
+Sleep 500ms
+
+# ---- Git menu ----
+Type "g"
+Sleep 2s
 Escape
 Sleep 500ms
 
