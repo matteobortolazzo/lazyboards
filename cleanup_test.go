@@ -149,10 +149,10 @@ func TestCleanup_FirstLoad_NoPrevCards(t *testing.T) {
 func TestCleanup_CardMovesColumn(t *testing.T) {
 	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session} 2>/dev/null || true")
 
-	b.refreshing = true
-	m, cmd := b.Update(boardFetchedMsg{board: fakeRefreshBoard(1)})
-	b = m.(Board)
-	execCmds(cmd)
+	// The move-debounce (#363) defers a column-change departure to the second
+	// consecutive fetch, so two refreshes are needed before cleanup fires.
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 
 	if len(fe.RunShellCalls) == 0 {
 		t.Fatal("expected cleanup RunShell call for card leaving column, got none")
@@ -166,6 +166,48 @@ func TestCleanup_CardMovesColumn(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected cleanup command containing 'tmux kill-window', got: %v", fe.RunShellCalls)
+	}
+}
+
+// TestCleanup_CardMovesColumn_DebouncedToSecondFetch asserts the move-debounce
+// explicitly: a single fetch observing a column change must never fire
+// cleanup on its own, since a single bad fetch that misplaces cards (e.g. a
+// dropped-label fallback moving everything to column 0) must not trigger a
+// board-wide cleanup in one shot.
+func TestCleanup_CardMovesColumn_DebouncedToSecondFetch(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session} 2>/dev/null || true")
+
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("expected no cleanup after a single fetch observing the move, got: %v", fe.RunShellCalls)
+	}
+
+	refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected cleanup RunShell call after card moved on two consecutive fetches, got none")
+	}
+}
+
+// TestCleanup_CardMovesBackBeforeSecondFetch_NoCleanup asserts that a card
+// which reverts to its original column before the second fetch resets the
+// move-debounce entirely -- cleanup must never fire for it.
+func TestCleanup_CardMovesBackBeforeSecondFetch_NoCleanup(t *testing.T) {
+	b, fe, p := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("expected cleanup deferred on first move, got: %v", fe.RunShellCalls)
+	}
+
+	board, err := p.FetchBoard(context.TODO())
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	b = refreshCleanupBoard(t, b, board)
+	refreshCleanupBoard(t, b, board)
+
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("expected no cleanup for card that moved back before second fetch, got: %v", fe.RunShellCalls)
 	}
 }
 
@@ -238,11 +280,10 @@ func TestCleanup_NoCleanupConfigured(t *testing.T) {
 func TestCleanup_MultipleCards(t *testing.T) {
 	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
 
-	// Cards #1 and #2 both leave col 0.
-	b.refreshing = true
-	m, cmd := b.Update(boardFetchedMsg{board: fakeRefreshBoard(1, 2)})
-	b = m.(Board)
-	execCmds(cmd)
+	// Cards #1 and #2 both leave col 0. The move-debounce (#363) defers to
+	// the second consecutive fetch.
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1, 2))
+	refreshCleanupBoard(t, b, fakeRefreshBoard(1, 2))
 
 	if len(fe.RunShellCalls) < 2 {
 		t.Errorf("expected at least 2 RunShell calls for 2 cards leaving column, got %d: %v", len(fe.RunShellCalls), fe.RunShellCalls)
@@ -252,10 +293,8 @@ func TestCleanup_MultipleCards(t *testing.T) {
 func TestCleanup_TemplateVarsExpanded(t *testing.T) {
 	b, fe, _ := newCleanupTestBoard(t, "cleanup {number} {session}")
 
-	b.refreshing = true
-	m, cmd := b.Update(boardFetchedMsg{board: fakeRefreshBoard(1)})
-	b = m.(Board)
-	execCmds(cmd)
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 
 	if len(fe.RunShellCalls) == 0 {
 		t.Fatal("expected cleanup RunShell call, got none")
@@ -404,6 +443,7 @@ func TestCleanup_WindowVariable_UsesLiveWindowName(t *testing.T) {
 	liveWindow := "1-refine"
 	b.agentSnapshot = cleanupSnapshotWithWindow(liveWindow, "done")
 	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 
 	if len(fe.RunShellCalls) == 0 {
 		t.Fatal("expected cleanup RunShell call, got none")
@@ -419,6 +459,7 @@ func TestCleanup_WindowVariable_FallsBackToSessionWhenSnapshotNil(t *testing.T) 
 
 	// No agentwatch snapshot at all (agentwatch off/absent).
 	b.agentSnapshot = nil
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 
 	if len(fe.RunShellCalls) == 0 {
@@ -436,6 +477,7 @@ func TestCleanup_WindowVariable_FallsBackToSessionWhenNoWindowMatches(t *testing
 
 	// Snapshot exists but its only window belongs to a different ticket.
 	b.agentSnapshot = cleanupSnapshotWithWindow("99-refine", "done")
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 
 	if len(fe.RunShellCalls) == 0 {

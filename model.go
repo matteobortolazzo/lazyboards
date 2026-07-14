@@ -337,6 +337,11 @@ type prevCardInfo struct {
 	// only counts as departed once it stays missing on a second consecutive
 	// fetch, so transient fetch glitches don't trigger cleanup.
 	missingSeen bool
+	// movedSeen marks a card already observed in a different column on one
+	// fetch; a moved card only counts as departed once the move holds on a
+	// second consecutive fetch, so a single bad fetch that misplaces cards
+	// (e.g. a dropped-label fallback) can't trigger cleanup board-wide.
+	movedSeen bool
 }
 
 // Column represents a Kanban column containing cards.

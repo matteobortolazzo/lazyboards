@@ -548,16 +548,20 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		// Guard A — agentwatch liveness: join by ticket number, so a title
 		// rewrite (refine edits titles) can't hide a live agent's window.
 		if b.agentSessionBusy(cardNum) {
-			// A miss observed here still counts toward Guard C's debounce, so
-			// cleanup runs on the first fetch after the agent finishes.
+			// A miss or move observed here still counts toward Guards C/D's
+			// debounce, so cleanup runs on the first fetch after the agent
+			// finishes rather than waiting an extra cycle once it's free.
 			prev.missingSeen = prev.missingSeen || !exists
+			prev.movedSeen = prev.movedSeen || (exists && newInfo.colIdx != prev.colIdx)
 			newCards[cardNum] = prev
 			continue
 		}
 
 		// Guard B — working label: marks an in-flight agent even when
-		// agentwatch is off or its snapshot lags behind.
+		// agentwatch is off or its snapshot lags behind. Only reached when
+		// exists && moved (the same-column case already continued above).
 		if exists && b.hasWorkingLabel(newInfo.labels) {
+			prev.movedSeen = true
 			newCards[cardNum] = prev
 			continue
 		}
@@ -567,6 +571,19 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		// issues close mid-fetch), so require two consecutive misses.
 		if !exists && !prev.missingSeen {
 			prev.missingSeen = true
+			newCards[cardNum] = prev
+			continue
+		}
+
+		// Guard D — moved-column debounce: a card can be misplaced by a
+		// single bad fetch (e.g. a dropped-label fallback moving it to
+		// column 0), so require the move to hold across two consecutive
+		// fetches before cleanup fires. Guards A/B above accumulate
+		// movedSeen too, so a liveness-deferred move still fires on the
+		// first fetch after the agent becomes free, mirroring Guard C's
+		// missing-card debounce semantics.
+		if exists && !prev.movedSeen {
+			prev.movedSeen = true
 			newCards[cardNum] = prev
 			continue
 		}
