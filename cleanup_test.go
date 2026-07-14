@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -511,5 +515,146 @@ func TestCleanup_DeferredWhenAgentwatchEnabledButSnapshotNotYetDelivered(t *test
 
 	if len(fe.RunShellCalls) == 0 {
 		t.Error("expected cleanup RunShell call once snapshot is delivered, got none")
+	}
+}
+
+// --- Circuit breaker (#363): skip implausible mass cleanups ---
+
+func TestCleanupCircuitBreakerTripped_BelowBothThresholds_NotTripped(t *testing.T) {
+	if cleanupCircuitBreakerTripped(2, 10) {
+		t.Error("expected not tripped: 2 cleanups on a 10-card board is plausible")
+	}
+}
+
+func TestCleanupCircuitBreakerTripped_AtOrAboveAbsoluteFloor_Tripped(t *testing.T) {
+	if !cleanupCircuitBreakerTripped(cleanupCircuitBreakerMinCount, 1000) {
+		t.Error("expected tripped: hitting the absolute floor count trips regardless of board size")
+	}
+}
+
+func TestCleanupCircuitBreakerTripped_AboveFractionOnSmallBoard_Tripped(t *testing.T) {
+	// 3 cleanups on a 4-card board is 75% of tracked cards -- implausible
+	// even though 3 is below the absolute floor.
+	if !cleanupCircuitBreakerTripped(3, 4) {
+		t.Error("expected tripped: 3 of 4 tracked cards cleaning up in one fetch is implausible")
+	}
+}
+
+// newCircuitBreakerTestBoard creates a Board with cardCount synthetic cards
+// (numbered 1..cardCount) all placed in column 0 ("New", cleanup-configured)
+// and loaded into prevCards.
+func newCircuitBreakerTestBoard(t *testing.T, cleanup string, cardCount int) (Board, *action.FakeExecutor) {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	columnConfigs := []config.ColumnConfig{
+		{Name: "New", Cleanup: &cleanup},
+		{Name: "Refined"},
+	}
+	b := NewBoard(p, nil, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false, false, nil, nil)
+	m, cmd := b.Update(boardFetchedMsg{board: circuitBreakerBoard(cardCount, nil)})
+	b = m.(Board)
+	execCmds(cmd)
+	b.Width = 120
+	b.Height = 40
+	return b, fe
+}
+
+// circuitBreakerBoard builds a synthetic provider.Board with cardCount cards
+// numbered 1..cardCount. Cards whose number is in movedNumbers are placed in
+// column 1 ("Refined"); all others stay in column 0 ("New").
+func circuitBreakerBoard(cardCount int, movedNumbers []int) provider.Board {
+	moved := make(map[int]bool, len(movedNumbers))
+	for _, n := range movedNumbers {
+		moved[n] = true
+	}
+	var col0, col1 []provider.Card
+	for i := 1; i <= cardCount; i++ {
+		card := provider.Card{Number: i, Title: fmt.Sprintf("Card %d", i)}
+		if moved[i] {
+			col1 = append(col1, card)
+		} else {
+			col0 = append(col0, card)
+		}
+	}
+	return provider.Board{Columns: []provider.Column{
+		{Title: "New", Cards: col0},
+		{Title: "Refined", Cards: col1},
+	}}
+}
+
+// circuitBreakerSnapshot builds an agentwatch snapshot with a running window
+// for each of busyNumbers, so the liveness guard defers those cards
+// indefinitely regardless of how many fetches occur.
+func circuitBreakerSnapshot(busyNumbers []int) *agentwatch.StateSnapshot {
+	windows := make([]agentwatch.WindowState, len(busyNumbers))
+	for i, n := range busyNumbers {
+		windows[i] = agentwatch.WindowState{WindowName: fmt.Sprintf("%d-work", n), Status: "running", Agent: "claude"}
+	}
+	return &agentwatch.StateSnapshot{Windows: windows}
+}
+
+func TestCleanupCircuitBreaker_TripsOnMassDeparture(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "debug.log")
+	if err := debuglog.Init(logPath); err != nil {
+		t.Fatalf("debuglog.Init(%q) error = %v, want nil", logPath, err)
+	}
+	t.Cleanup(func() { _ = debuglog.Init("") })
+
+	b, fe := newCircuitBreakerTestBoard(t, "tmux kill-window -t {session}", 8)
+
+	// All 8 cards move at once -- the move-debounce (#363) requires two
+	// consecutive fetches before departures are confirmed, so drive both.
+	moved := []int{1, 2, 3, 4, 5, 6, 7, 8}
+	b = refreshCleanupBoard(t, b, circuitBreakerBoard(8, moved))
+	b = refreshCleanupBoard(t, b, circuitBreakerBoard(8, moved))
+
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("expected circuit breaker to block all cleanups for an implausible mass departure, got: %v", fe.RunShellCalls)
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "Cleanup skipped") {
+		t.Errorf("expected status bar warning after circuit breaker trip, view:\n%s", view)
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("failed to read debug log %q: %v", logPath, err)
+	}
+	if !strings.Contains(string(data), "circuit breaker") {
+		t.Errorf("expected debug log to record the circuit breaker trip, got: %q", string(data))
+	}
+}
+
+func TestCleanupCircuitBreaker_DoesNotTripOnSmallDeparture(t *testing.T) {
+	b, fe := newCircuitBreakerTestBoard(t, "tmux kill-window -t {session}", 8)
+
+	// Only 2 of 8 cards depart -- well under both thresholds.
+	moved := []int{1, 2}
+	b = refreshCleanupBoard(t, b, circuitBreakerBoard(8, moved))
+	refreshCleanupBoard(t, b, circuitBreakerBoard(8, moved))
+
+	if len(fe.RunShellCalls) < 2 {
+		t.Errorf("expected circuit breaker not to trip for 2 of 8 departures, got %d RunShell calls: %v", len(fe.RunShellCalls), fe.RunShellCalls)
+	}
+}
+
+func TestCleanupCircuitBreaker_DoesNotCountGuardDeferredCards(t *testing.T) {
+	b, fe := newCircuitBreakerTestBoard(t, "tmux kill-window -t {session}", 10)
+
+	// 8 of the 10 cards move while their agent is still running (deferred by
+	// the liveness guard, never counted); the other 2 depart for real. The
+	// circuit breaker must judge only the 2 real departures against the
+	// 10 tracked cards, not the raw count of 10 cards that moved.
+	busy := []int{1, 2, 3, 4, 5, 6, 7, 8}
+	allMoved := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+
+	b.agentSnapshot = circuitBreakerSnapshot(busy)
+	b = refreshCleanupBoard(t, b, circuitBreakerBoard(10, allMoved))
+	b = refreshCleanupBoard(t, b, circuitBreakerBoard(10, allMoved))
+
+	if len(fe.RunShellCalls) < 2 {
+		t.Errorf("expected the 2 non-busy departures to fire despite 8 busy cards also moving, got %d RunShell calls: %v", len(fe.RunShellCalls), fe.RunShellCalls)
 	}
 }
