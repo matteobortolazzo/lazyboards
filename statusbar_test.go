@@ -325,7 +325,7 @@ func TestStatusBar_ViewAgentPrefix_RunningCountShown(t *testing.T) {
 	if !strings.Contains(view, "▶2") {
 		t.Errorf("View() = %q, want running token %q", view, "▶2")
 	}
-	if strings.Contains(view, "‼") {
+	if strings.Contains(view, "!") {
 		t.Errorf("View() = %q, should NOT contain need_input symbol when needInput=0", view)
 	}
 }
@@ -334,8 +334,8 @@ func TestStatusBar_ViewAgentPrefix_NeedInputCountShown(t *testing.T) {
 	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
 	view := sb.View(200, 0, 3)
 
-	if !strings.Contains(view, "‼3") {
-		t.Errorf("View() = %q, want need_input token %q", view, "‼3")
+	if !strings.Contains(view, "!3") {
+		t.Errorf("View() = %q, want need_input token %q", view, "!3")
 	}
 	if strings.Contains(view, "▶") {
 		t.Errorf("View() = %q, should NOT contain running symbol when running=0", view)
@@ -351,18 +351,18 @@ func TestStatusBar_ViewAgentPrefix_BothCountsAndSeparator(t *testing.T) {
 	if !strings.Contains(view, "▶2") {
 		t.Errorf("View() = %q, want running token %q", view, "▶2")
 	}
-	if !strings.Contains(view, "‼1") {
-		t.Errorf("View() = %q, want need_input token %q", view, "‼1")
+	if !strings.Contains(view, "!1") {
+		t.Errorf("View() = %q, want need_input token %q", view, "!1")
 	}
 	if !strings.Contains(view, "|") {
 		t.Errorf("View() = %q, want a separator between the prefix and hints", view)
 	}
 	// The running token must precede the need_input token, which must precede
 	// the hint key.
-	if strings.Index(view, "▶2") > strings.Index(view, "‼1") {
+	if strings.Index(view, "▶2") > strings.Index(view, "!1") {
 		t.Errorf("View() = %q, want running token before need_input token", view)
 	}
-	if strings.Index(view, "‼1") > strings.Index(view, "Quit") {
+	if strings.Index(view, "!1") > strings.Index(view, "Quit") {
 		t.Errorf("View() = %q, want prefix before the hints", view)
 	}
 }
@@ -373,7 +373,7 @@ func TestStatusBar_ViewAgentPrefix_BothZeroOmitsPrefixAndSeparator(t *testing.T)
 	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
 	view := sb.View(200, 0, 0)
 
-	if strings.Contains(view, "▶") || strings.Contains(view, "‼") {
+	if strings.Contains(view, "▶") || strings.Contains(view, "!") {
 		t.Errorf("View() = %q, want no agent symbols when both counts are zero", view)
 	}
 	if strings.Contains(view, "|") {
@@ -387,7 +387,7 @@ func TestStatusBar_ViewAgentPrefix_ShownWithTimedMessage(t *testing.T) {
 	view := sb.View(200, 2, 1)
 
 	// The prefix stays visible even while a timed message is active.
-	if !strings.Contains(view, "▶2") || !strings.Contains(view, "‼1") {
+	if !strings.Contains(view, "▶2") || !strings.Contains(view, "!1") {
 		t.Errorf("View() = %q, want agent counts visible alongside a timed message", view)
 	}
 	if !strings.Contains(view, "Opened PR #10") {
@@ -640,6 +640,36 @@ func TestFormatGitSegment_NoUpstream_OmitsAheadBehind(t *testing.T) {
 	}
 	if strings.ContainsRune(segment, '↑') || strings.ContainsRune(segment, '↓') {
 		t.Errorf("formatGitSegment(%+v) = %q, should NOT contain ahead/behind arrows when HasUpstream is false", status, segment)
+	}
+}
+
+// TestFormatGitSegment_LazygitStyleColors verifies staged/unstaged/ahead/behind
+// counts are each individually colored (lazygit-style: additions green,
+// deletions red, unpushed commits orange, unpulled commits yellow) rather than
+// rendered as one plain-text segment.
+func TestFormatGitSegment_LazygitStyleColors(t *testing.T) {
+	status := gitdetect.Status{
+		Branch:      "main",
+		Staged:      2,
+		Unstaged:    1,
+		Ahead:       3,
+		Behind:      4,
+		HasUpstream: true,
+	}
+
+	segment := formatGitSegment(status)
+
+	if !strings.Contains(segment, gitAddedStyle.Render("+2")) {
+		t.Errorf("formatGitSegment(%+v) = %q, want staged count colored via gitAddedStyle", status, segment)
+	}
+	if !strings.Contains(segment, gitDeletedStyle.Render("~1")) {
+		t.Errorf("formatGitSegment(%+v) = %q, want unstaged count colored via gitDeletedStyle", status, segment)
+	}
+	if !strings.Contains(segment, gitAheadStyle.Render("↑3")) {
+		t.Errorf("formatGitSegment(%+v) = %q, want ahead count colored via gitAheadStyle", status, segment)
+	}
+	if !strings.Contains(segment, gitBehindStyle.Render("↓4")) {
+		t.Errorf("formatGitSegment(%+v) = %q, want behind count colored via gitBehindStyle", status, segment)
 	}
 }
 

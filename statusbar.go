@@ -70,12 +70,17 @@ func (s *StatusBar) SetGitStatus(segment string) {
 }
 
 // formatGitSegment formats a git Status into a compact, plain-ASCII segment,
-// e.g. "main +2~1 ↑3↓0". The ahead/behind portion is omitted entirely when
-// HasUpstream is false.
+// e.g. "main +2~1 ↑3↓0", lazygit-style colored: staged (added) in green,
+// unstaged (deleted) in red, ahead (push) in orange, behind (pull) in yellow.
+// The ahead/behind portion is omitted entirely when HasUpstream is false.
 func formatGitSegment(status gitdetect.Status) string {
-	segment := status.Branch + " +" + strconv.Itoa(status.Staged) + "~" + strconv.Itoa(status.Unstaged)
+	segment := status.Branch + " " +
+		gitAddedStyle.Render("+"+strconv.Itoa(status.Staged)) +
+		gitDeletedStyle.Render("~"+strconv.Itoa(status.Unstaged))
 	if status.HasUpstream {
-		segment += " ↑" + strconv.Itoa(status.Ahead) + "↓" + strconv.Itoa(status.Behind)
+		segment += " " +
+			gitAheadStyle.Render("↑"+strconv.Itoa(status.Ahead)) +
+			gitBehindStyle.Render("↓"+strconv.Itoa(status.Behind))
 	}
 	return segment
 }
@@ -95,7 +100,7 @@ func (l StatusLevel) style() *lipgloss.Style {
 }
 
 // agentPrefix builds the styled agent-status count prefix shown at the head of
-// the status bar (e.g. "▶2 ‼1"): running via agentRunningStyle, need_input via
+// the status bar (e.g. "▶2 !1"): running via agentRunningStyle, need_input via
 // agentNeedInputStyle. Zero-valued counts are omitted; both zero yields "".
 func agentPrefix(running, needInput int) string {
 	var tokens []string
@@ -103,7 +108,7 @@ func agentPrefix(running, needInput int) string {
 		tokens = append(tokens, agentRunningStyle.Render("▶"+strconv.Itoa(running)))
 	}
 	if needInput > 0 {
-		tokens = append(tokens, agentNeedInputStyle.Render("‼"+strconv.Itoa(needInput)))
+		tokens = append(tokens, agentNeedInputStyle.Render("!"+strconv.Itoa(needInput)))
 	}
 	return strings.Join(tokens, " ")
 }

@@ -434,7 +434,7 @@ func TestAgentBadgeText_StatusSymbolAndKind(t *testing.T) {
 		{"running", "running", "claude", "▶"},
 		{"done", "done", "claude", "✓"},
 		{"stopped", "stopped", "claude", "■"},
-		{"need-input", "need-input", "claude", "‼"},
+		{"need-input", "need-input", "claude", "!"},
 		{"failed", "failed", "claude", "✗"},
 		{"idle has no badge", "idle", "claude", ""},
 		{"unknown has no badge", "banana", "claude", ""},
@@ -584,9 +584,10 @@ func TestViewCardList_RunningBadgeRendered(t *testing.T) {
 	}
 }
 
-// TestViewCardList_NeedInputIsLoudest verifies need_input renders with the
-// reverse/bold style — the loudest attention badge.
-func TestViewCardList_NeedInputIsLoudest(t *testing.T) {
+// TestViewCardList_NeedInputRendersSingleMarkInRed verifies need-input renders
+// as a single "!" mark styled via agentNeedInputStyle — consistent with the
+// other single-mark status badges, no reverse/background.
+func TestViewCardList_NeedInputRendersSingleMarkInRed(t *testing.T) {
 	const cardNumber = 7
 	const cardTitle = "Fix flaky test"
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
@@ -596,8 +597,11 @@ func TestViewCardList_NeedInputIsLoudest(t *testing.T) {
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
-	if !strings.Contains(out, agentNeedInputStyle.Render("‼")) {
-		t.Errorf("need_input badge not rendered with agentNeedInputStyle; got:\n%s", out)
+	if !strings.Contains(out, agentNeedInputStyle.Render("!")) {
+		t.Errorf("need-input badge not rendered with agentNeedInputStyle; got:\n%s", out)
+	}
+	if agentNeedInputStyle.GetReverse() {
+		t.Error("agentNeedInputStyle should not use Reverse (no background swap); want plain colored text")
 	}
 }
 
@@ -613,7 +617,7 @@ func TestViewCardList_IdleRendersNoSymbol(t *testing.T) {
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
-	for _, sym := range []string{"▶", "✓", "■", "‼", "✗"} {
+	for _, sym := range []string{"▶", "✓", "■", "!", "✗"} {
 		if strings.Contains(out, sym) {
 			t.Errorf("idle card unexpectedly rendered status symbol %q; got:\n%s", sym, out)
 		}
