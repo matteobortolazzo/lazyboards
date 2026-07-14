@@ -451,6 +451,12 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		} else {
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 		}
+		if b.cleanupBreakerWarning != "" {
+			// Applied after the refreshed/filter message above so it isn't
+			// clobbered -- SetTimedMessage mutates the status bar synchronously.
+			cmd = b.statusBar.SetTimedMessage(b.cleanupBreakerWarning, StatusWarning, statusMessageDuration)
+			b.cleanupBreakerWarning = ""
+		}
 		if cleanupCmd != nil {
 			cmd = tea.Batch(cmd, cleanupCmd)
 		}
@@ -488,6 +494,12 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		} else {
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 		}
+	}
+	if b.cleanupBreakerWarning != "" {
+		// Applied after the refreshed/filter message above so it isn't
+		// clobbered -- SetTimedMessage mutates the status bar synchronously.
+		cmd = b.statusBar.SetTimedMessage(b.cleanupBreakerWarning, StatusWarning, statusMessageDuration)
+		b.cleanupBreakerWarning = ""
 	}
 	b.loaded = true
 	if cleanupCmd != nil {
@@ -598,7 +610,44 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 	if len(commands) == 0 {
 		return nil
 	}
+
+	trackedCount := len(b.prevCards)
+	if cleanupCircuitBreakerTripped(len(commands), trackedCount) {
+		// A single bad fetch that misplaces or drops many cards at once
+		// (e.g. a label-fetch failure resetting columns to the fallback) is
+		// far more likely than that many agents genuinely finishing in the
+		// same refresh cycle. Skip every cleanup for this fetch rather than
+		// firing any of them -- intentionally conservative: these cards
+		// already passed the move/missing debounce and now sit at their new
+		// position in newCards, so they won't automatically re-trigger
+		// cleanup unless they move again. The warning is applied by the
+		// caller, not here -- see cleanupBreakerWarning's doc comment.
+		debuglog.Errorf("cleanup circuit breaker tripped: %d cleanups for %d tracked cards", len(commands), trackedCount)
+		b.cleanupBreakerWarning = fmt.Sprintf("Cleanup skipped: %d cleanups looked implausible for one fetch", len(commands))
+		return nil
+	}
+
 	return runCleanupCmds(b.executor, commands)
+}
+
+// cleanupCircuitBreakerMinCount and cleanupCircuitBreakerFraction are
+// hardcoded (no config surface): a fetch with this many cleanup commands, or
+// this fraction of all tracked cards, is treated as an implausible mass
+// departure rather than genuine agent completions.
+const (
+	cleanupCircuitBreakerMinCount = 5
+	cleanupCircuitBreakerFraction = 0.5
+)
+
+// cleanupCircuitBreakerTripped reports whether cmdCount would-fire cleanup
+// commands for a single fetch is implausible given trackedCount tracked
+// cards: either the absolute floor is met, or cmdCount exceeds half of all
+// tracked cards on a smaller board.
+func cleanupCircuitBreakerTripped(cmdCount, trackedCount int) bool {
+	if cmdCount >= cleanupCircuitBreakerMinCount {
+		return true
+	}
+	return trackedCount > 0 && float64(cmdCount) > cleanupCircuitBreakerFraction*float64(trackedCount)
 }
 
 // agentSessionBusy reports whether the agentwatch window joined to the card

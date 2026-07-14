@@ -644,6 +644,13 @@ type Board struct {
 	metadataTTL                 time.Duration
 	pendingAutoRefresh          bool
 	prevCards                   map[int]prevCardInfo
+	// cleanupBreakerWarning holds a status-bar warning set by
+	// detectDepartures when the cleanup circuit breaker trips. It's a
+	// transient hand-off: handleBoardFetched applies it as the timed status
+	// message right after "Board refreshed"/"Filter has no matches" (which
+	// would otherwise clobber it, since SetTimedMessage mutates the status
+	// bar synchronously), then clears it. Empty means no trip occurred.
+	cleanupBreakerWarning string
 	searchQuery                 string
 	searchInput                 textinput.Model
 	helpScrollOffset            int
