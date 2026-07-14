@@ -585,9 +585,15 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 }
 
 // agentSessionBusy reports whether the agentwatch window joined to the card
-// number has an agent that is running or waiting for input. Always false when
-// no snapshot is stored (agentwatch off/absent).
+// number has an agent that is running or waiting for input. Fails closed
+// (reports busy) when agentwatch is enabled but no snapshot has been
+// delivered yet -- daemon down/restarting, or a startup race -- so cleanup
+// never fires against stale "not busy" information. Always false when
+// agentwatch is off/absent (no watcher configured).
 func (b *Board) agentSessionBusy(cardNum int) bool {
+	if b.agentWatcher != nil && b.agentSnapshot == nil {
+		return true
+	}
 	ws := b.agentStatusForNumber(cardNum)
 	if ws == nil {
 		return false

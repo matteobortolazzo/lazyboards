@@ -36,6 +36,33 @@ func newCleanupTestBoard(t *testing.T, cleanup string) (Board, *action.FakeExecu
 	return b, fe, p
 }
 
+// newCleanupTestBoardWithWatcher mirrors newCleanupTestBoard but wires a
+// non-nil agentwatch.Watcher (an empty FakeWatcher) so b.agentWatcher != nil,
+// while leaving b.agentSnapshot nil (no snapshot delivered yet).
+func newCleanupTestBoardWithWatcher(t *testing.T, cleanup string) (Board, *action.FakeExecutor, *provider.FakeProvider) {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	columnConfigs := []config.ColumnConfig{
+		{Name: "New", Cleanup: &cleanup},
+		{Name: "Refined"},
+		{Name: "Implementing"},
+		{Name: "Implemented"},
+	}
+	b := NewBoard(p, nil, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false, false, &agentwatch.FakeWatcher{}, nil)
+	board, err := p.FetchBoard(context.TODO())
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, cmd := b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+	execCmds(cmd)
+	b.Width = 120
+	b.Height = 40
+	b.agentSnapshot = nil
+	return b, fe, p
+}
+
 // fakeRefreshBoard builds a provider.Board based on FakeProvider data but with
 // the given card numbers removed from col 0 ("New") and added to col 1 ("Refined").
 // If a card number is negative, it is removed entirely (simulating closure).
@@ -418,5 +445,29 @@ func TestCleanup_WindowVariable_FallsBackToSessionWhenNoWindowMatches(t *testing
 	expectedSession := action.BuildSessionName(1, "Setup CI", 32)
 	if !strings.Contains(call, action.ShellEscape(expectedSession)) {
 		t.Errorf("cleanup command should fall back to session name %q when no window matches card #1, got: %s", expectedSession, call)
+	}
+}
+
+// --- Fail-closed guard (#362): agentwatch enabled but no snapshot delivered yet ---
+
+func TestCleanup_DeferredWhenAgentwatchEnabledButSnapshotNotYetDelivered(t *testing.T) {
+	b, fe, _ := newCleanupTestBoardWithWatcher(t, "tmux kill-window -t {session}")
+
+	// Two fetches while agentwatch is enabled but no snapshot has arrived yet:
+	// the fail-closed guard must defer cleanup both times, same as a live agent.
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("expected no RunShell calls while agentwatch snapshot is nil, got %d: %v", len(fe.RunShellCalls), fe.RunShellCalls)
+	}
+
+	// Snapshot arrives (empty — no windows in it): the guard no longer fails
+	// closed, so the deferred departure fires on the next fetch.
+	b.agentSnapshot = cleanupSnapshot("")
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Error("expected cleanup RunShell call once snapshot is delivered, got none")
 	}
 }
