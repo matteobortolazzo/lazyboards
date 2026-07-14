@@ -13,6 +13,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
+	gitutil "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -1507,8 +1508,36 @@ func (b Board) runPRAction(act config.Action, card Card, pr LinkedPR, comment st
 	}
 	window := b.resolveWindowName(card.Number, card.Title)
 	baseVars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, comment, window)
-	vars := action.BuildPRTemplateVars(baseVars, pr.Number, pr.Title, pr.URL, pr.Branch)
+	prWorktree := ""
+	if strings.Contains(act.URL+act.Command, "{pr_worktree}") {
+		var err error
+		prWorktree, err = b.resolvePRWorktree(pr.Branch)
+		if err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+			return b, cmd
+		}
+	}
+	vars := action.BuildPRTemplateVars(baseVars, pr.Number, pr.Title, pr.URL, pr.Branch, prWorktree)
 	return b.dispatchExpandedAction(act, vars)
+}
+
+// resolvePRWorktree returns the registered worktree for branch. Git's
+// porcelain output is used instead of assuming a project-specific directory
+// convention.
+func (b Board) resolvePRWorktree(branch string) (string, error) {
+	stdout, stderr, err := b.executor.RunShellOutput("git worktree list --porcelain")
+	if err != nil {
+		detail := strings.TrimSpace(stderr)
+		if detail == "" {
+			detail = err.Error()
+		}
+		return "", fmt.Errorf("could not list Git worktrees: %s", detail)
+	}
+	worktree := gitutil.WorktreeForBranch(stdout, branch)
+	if worktree == "" {
+		return "", fmt.Errorf("no Git worktree found for branch %q", branch)
+	}
+	return worktree, nil
 }
 
 // handlePRActionKeyWithComment implements the full 0/1/2+ linked-PR

@@ -136,10 +136,10 @@ This walks through wiring lazyboards to a real [agentwatch](https://github.com/m
          I: { name: Implement, type: shell, command: "agentwatch run implement {number} --model sonnet -- {comment}" }
      - name: In Review
        actions:
-         W: { name: Checkout PR, type: shell, scope: pr, command: 'tmux new-window -d -n pr-{pr_number} "git fetch origin {pr_branch} && git switch {pr_branch}"' }
+         W: { name: Open worktree, type: shell, scope: pr, command: 'tmux new-window -d -n pr-{pr_number} "cd {pr_worktree}"' }
    ```
 
-   Pressing `R` on a `New` card runs `agentwatch run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, the `G` custom action above jumps straight to it (via `{window}`, the live agentwatch window name), and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup). When the agent's PR lands the card in `In Review`, `W` checks out the PR branch in a fresh tmux window so you can review and run it locally — append the project's run command (`ng serve`, `dotnet run`, …) in a per-project `.lazyboards.yml` (see [Action Scope](#action-scope)).
+   Pressing `R` on a `New` card runs `agentwatch run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, the `G` custom action above jumps straight to it (via `{window}`, the live agentwatch window name), and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup). When the agent's PR lands the card in `In Review`, `W` opens its worktree in a fresh tmux window so you can review and run it locally — append the project's run command (`ng serve`, `dotnet run`, …) in a per-project `.lazyboards.yml` (see [Action Scope](#action-scope)).
 
 4. **Let agentwatch pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `agentwatch dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or start the recurring loop with the custom `agentwatch dispatch loop on` action described above. Tune concurrency, quiet hours, and per-agent budgets in agentwatch's own `dispatch` config block (`$XDG_CONFIG_HOME/agentwatch/config.json`) — see the [agentwatch README](https://github.com/matteobortolazzo/agent-stack/tree/main/agentwatch#configuration-1) for the full reference.
 
@@ -223,33 +223,34 @@ Press the key to execute the action on the selected card. Custom actions and `Al
 | `{pr_number}` | pr | Linked PR's number |
 | `{pr_url}` | pr | Linked PR's URL |
 | `{pr_title}` | pr | Slugified linked PR title (lowercase, hyphens) |
+| `{pr_worktree}` | pr | Absolute path of the registered Git worktree for the linked PR's branch |
 
 Shell commands automatically escape template variables with POSIX single quotes to prevent injection.
 
-`{pr_branch}`, `{pr_number}`, `{pr_url}`, and `{pr_title}` are only available in `pr`-scope actions — using them in a `card`- or `board`-scope action is a config validation error.
+`{pr_branch}`, `{pr_number}`, `{pr_url}`, `{pr_title}`, and `{pr_worktree}` are only available in `pr`-scope actions — using them in a `card`- or `board`-scope action is a config validation error. `{pr_worktree}` is resolved from `git worktree list` when the action runs; if the PR branch has no registered local worktree, the action reports an error instead of running from an unintended directory.
 
 Actions that include `{comment}` support the same [Comment Mode](#comment-mode) first-then-run flow regardless of scope: press the key, type a comment, submit — then the action's normal scope resolution runs (immediate for `card`/`board`, and for `pr` immediate with 1 linked PR or via the PR picker with 2+).
 
 ### Action Scope
 
-Actions default to `scope: "card"` (operate on the selected card). Set `scope: "board"` for actions that don't need a selected card — board-scope actions cannot use card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) or PR-specific variables (`{pr_branch}`, `{pr_number}`, `{pr_url}`, `{pr_title}`).
+Actions default to `scope: "card"` (operate on the selected card). Set `scope: "board"` for actions that don't need a selected card — board-scope actions cannot use card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) or PR-specific variables (`{pr_branch}`, `{pr_number}`, `{pr_url}`, `{pr_title}`, `{pr_worktree}`).
 
-Set `scope: "pr"` for actions that operate on a card's linked pull request — a stricter cousin of `card` scope that additionally requires the selected card to have at least one linked PR. With 0 linked PRs the action is unavailable (no-op, absent from hints). With exactly 1 linked PR it runs immediately against that PR's data. With 2+ linked PRs it opens the same PR-picker modal used by the built-in `p` key; selecting a PR runs the action against that PR's data. `pr`-scope actions can use both card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) and the [PR-specific template variables](#template-variables) (`{pr_branch}`, `{pr_number}`, `{pr_url}`, `{pr_title}`).
+Set `scope: "pr"` for actions that operate on a card's linked pull request — a stricter cousin of `card` scope that additionally requires the selected card to have at least one linked PR. With 0 linked PRs the action is unavailable (no-op, absent from hints). With exactly 1 linked PR it runs immediately against that PR's data. With 2+ linked PRs it opens the same PR-picker modal used by the built-in `p` key; selecting a PR runs the action against that PR's data. `pr`-scope actions can use both card-specific variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) and the [PR-specific template variables](#template-variables) (`{pr_branch}`, `{pr_number}`, `{pr_url}`, `{pr_title}`, `{pr_worktree}`).
 
-A typical PR action checks out the linked PR's branch and runs the project, so reviewing a PR is one keypress on the card:
+A typical PR action opens the card's worktree and runs the project, so reviewing a PR is one keypress on the card:
 
 ```yaml
 columns:
   - name: In Review
     actions:
       W:
-        name: Run PR branch
+        name: Run worktree
         type: shell
         scope: pr
-        command: 'tmux new-window -d -n pr-{pr_number} "git fetch origin {pr_branch} && git switch {pr_branch} && ng serve"'
+        command: 'tmux new-window -d -n pr-{pr_number} "cd {pr_worktree} && ng serve"'
 ```
 
-Swap `ng serve` for whatever the project runs — `dotnet run`, `npm run dev`, `go run .`, `make dev`. Since the run command is project-specific, define it in that project's `.lazyboards.yml`; a global `~/.config/lazyboards/config.yml` can keep a command-agnostic variant (checkout only, no run step) that works everywhere.
+Swap `ng serve` for whatever the project runs — `dotnet run`, `npm run dev`, `go run .`, `make dev`. `{pr_worktree}` finds the PR branch's registered Git worktree, so the action does not depend on a worktree directory naming convention. Since the run command is project-specific, define it in that project's `.lazyboards.yml`; a global `~/.config/lazyboards/config.yml` can keep a command-agnostic variant (open the worktree only, no run step) that works everywhere.
 
 Long-running or foreground shell commands will block that action's key slot until the command exits. Prefer a self-detaching command such as `tmux new-window -d '<command>'` for anything long-running (like the `ng serve` example above) — see [Tmux Integration](#tmux-integration).
 

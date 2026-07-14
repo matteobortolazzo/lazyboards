@@ -373,7 +373,7 @@ func validateColumns(cfg *Config) error {
 var cardSpecificVarPattern = regexp.MustCompile(`\{(number|title|tags|session)\}`)
 
 // prSpecificVarPattern matches PR-specific template variables (scope: pr only).
-var prSpecificVarPattern = regexp.MustCompile(`\{(pr_branch|pr_number|pr_url|pr_title)\}`)
+var prSpecificVarPattern = regexp.MustCompile(`\{(pr_branch|pr_number|pr_url|pr_title|pr_worktree)\}`)
 
 // validateActions checks that all action definitions are well-formed.
 func validateActions(actions map[string]Action) error {
@@ -415,13 +415,13 @@ func validateActions(actions map[string]Action) error {
 				return fmt.Errorf("action %q: scope \"board\" cannot use card-specific variables ({number}, {title}, {tags}, {session})", key)
 			}
 			if prSpecificVarPattern.MatchString(template) {
-				return fmt.Errorf("action %q: scope \"board\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title})", key)
+				return fmt.Errorf("action %q: scope \"board\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title}, {pr_worktree})", key)
 			}
 		}
 		// Card-scope actions must not reference pr-specific variables.
 		if action.Scope == "card" {
 			if prSpecificVarPattern.MatchString(template) {
-				return fmt.Errorf("action %q: scope \"card\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title})", key)
+				return fmt.Errorf("action %q: scope \"card\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title}, {pr_worktree})", key)
 			}
 		}
 	}

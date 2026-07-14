@@ -453,9 +453,9 @@ func TestBuildPRTemplateVars_MergesBaseAndPRVars(t *testing.T) {
 		"number": "42",
 		"title":  "add-actions",
 	}
-	got := BuildPRTemplateVars(base, 10, "Feat: add PR support", "https://github.com/owner/repo/pull/10", "feature/add-pr-support")
+	got := BuildPRTemplateVars(base, 10, "Feat: add PR support", "https://github.com/owner/repo/pull/10", "feature/add-pr-support", "/repo/.worktrees/add-pr-support")
 
-	expectedKeys := []string{"number", "title", "pr_branch", "pr_number", "pr_url", "pr_title"}
+	expectedKeys := []string{"number", "title", "pr_branch", "pr_number", "pr_url", "pr_title", "pr_worktree"}
 	if len(got) != len(expectedKeys) {
 		t.Fatalf("BuildPRTemplateVars() returned %d keys, want %d", len(got), len(expectedKeys))
 	}
@@ -474,7 +474,7 @@ func TestBuildPRTemplateVars_MergesBaseAndPRVars(t *testing.T) {
 
 func TestBuildPRTemplateVars_DoesNotMutateBaseMap(t *testing.T) {
 	base := map[string]string{"number": "42"}
-	_ = BuildPRTemplateVars(base, 10, "Some title", "https://example.com/pull/10", "some-branch")
+	_ = BuildPRTemplateVars(base, 10, "Some title", "https://example.com/pull/10", "some-branch", "/repo/worktree")
 
 	if len(base) != 1 {
 		t.Errorf("BuildPRTemplateVars() mutated the caller's base map: got %d keys, want 1", len(base))
@@ -486,7 +486,7 @@ func TestBuildPRTemplateVars_DoesNotMutateBaseMap(t *testing.T) {
 
 func TestBuildPRTemplateVars_PRTitleSlugified(t *testing.T) {
 	base := map[string]string{}
-	got := BuildPRTemplateVars(base, 1, "Fix Bug #42!", "https://example.com", "some-branch")
+	got := BuildPRTemplateVars(base, 1, "Fix Bug #42!", "https://example.com", "some-branch", "/repo/worktree")
 
 	want := Slugify("Fix Bug #42!")
 	if got["pr_title"] != want {
@@ -496,7 +496,7 @@ func TestBuildPRTemplateVars_PRTitleSlugified(t *testing.T) {
 
 func TestBuildPRTemplateVars_PRNumberFormatted(t *testing.T) {
 	base := map[string]string{}
-	got := BuildPRTemplateVars(base, 99, "Some title", "https://example.com", "some-branch")
+	got := BuildPRTemplateVars(base, 99, "Some title", "https://example.com", "some-branch", "/repo/worktree")
 
 	if got["pr_number"] != "99" {
 		t.Errorf("vars[pr_number] = %q, want %q", got["pr_number"], "99")
@@ -507,12 +507,16 @@ func TestBuildPRTemplateVars_BranchAndURLPassThroughRaw(t *testing.T) {
 	base := map[string]string{}
 	branch := "feature/my-branch"
 	url := "https://github.com/owner/repo/pull/10"
-	got := BuildPRTemplateVars(base, 10, "Some title", url, branch)
+	worktree := "/repo/.worktrees/my-branch"
+	got := BuildPRTemplateVars(base, 10, "Some title", url, branch, worktree)
 
 	if got["pr_branch"] != branch {
 		t.Errorf("vars[pr_branch] = %q, want %q (raw passthrough; escaping happens later)", got["pr_branch"], branch)
 	}
 	if got["pr_url"] != url {
 		t.Errorf("vars[pr_url] = %q, want %q (raw passthrough; escaping happens later)", got["pr_url"], url)
+	}
+	if got["pr_worktree"] != worktree {
+		t.Errorf("vars[pr_worktree] = %q, want %q (raw passthrough; escaping happens later)", got["pr_worktree"], worktree)
 	}
 }
