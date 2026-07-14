@@ -146,6 +146,32 @@ func TestHelpHint_PresentWhenCardSelected(t *testing.T) {
 	}
 }
 
+func TestNormalHints_TrimmedAndReorderedAfterFetch(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	// n (New) must come before e (Edit) in the static hint ordering.
+	n := hintIndex(b.normalHints, "n")
+	e := hintIndex(b.normalHints, "e")
+	if n == -1 {
+		t.Fatalf("normalHints should contain an %q hint, got: %+v", "n", b.normalHints)
+	}
+	if e == -1 {
+		t.Fatalf("normalHints should contain an %q hint, got: %+v", "e", b.normalHints)
+	}
+	if n > e {
+		t.Errorf("n hint (index %d) should appear before e hint (index %d): %+v", n, e, b.normalHints)
+	}
+
+	// The conditional o/p/a/f hints must never appear in the always-visible
+	// hint bar; the keybindings stay functional and remain listed in the
+	// '?' Help popup, but hint-bar visibility is removed.
+	for _, key := range []string{"o", "p", "a", "f"} {
+		if i := hintIndex(b.normalHints, key); i != -1 {
+			t.Errorf("normalHints should NOT include %q hint, found at index %d: %+v", key, i, b.normalHints)
+		}
+	}
+}
+
 func TestStatusBar_ColumnOnlyActionAppearsOnlyInColumn(t *testing.T) {
 	// No global action for "X".
 	globalActions := map[string]config.Action{}

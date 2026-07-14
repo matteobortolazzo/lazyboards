@@ -642,22 +642,20 @@ func TestFilterMode_ShowsFilterModeHints(t *testing.T) {
 	}
 }
 
-func TestFilterMode_NormalModeHintsIncludeF(t *testing.T) {
+func TestFilterMode_NormalBarExcludesF(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
-	// Check that normal mode hints include a filter-related hint with "toggle".
+	// The 'f' keybinding remains functional (see other filter mode tests) but
+	// should no longer appear in the always-visible normal-mode hint bar.
 	foundFilter := false
 	for _, hint := range b.normalHints {
 		if hint.Key == "f" {
 			foundFilter = true
-			if !strings.Contains(strings.ToLower(hint.Desc), "toggle") {
-				t.Errorf("hint for 'f' should contain 'toggle', got %q", hint.Desc)
-			}
 			break
 		}
 	}
-	if !foundFilter {
-		t.Error("normalHints should include 'f' for filter")
+	if foundFilter {
+		t.Error("normalHints should NOT include 'f' for filter; it stays available via the '?' Help popup")
 	}
 }
 
