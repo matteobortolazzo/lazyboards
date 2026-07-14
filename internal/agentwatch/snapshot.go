@@ -13,6 +13,34 @@ type StateSnapshot struct {
 	Windows []WindowState `json:"windows"`
 	// Summary holds aggregate counts across Windows.
 	Summary StatusSummary `json:"summary"`
+	// Dispatch describes the fleet-wide dispatch loop's live state, if the
+	// daemon reports it (nil on pre-#219 daemons that predate the loop).
+	Dispatch *DispatchState `json:"dispatch,omitempty"`
+}
+
+// DispatchState describes the fleet-wide dispatch loop's live state, as
+// broadcast by the agentwatch daemon. Field names and JSON tags are pinned
+// to the authoritative producer source (agent-stack's
+// agentwatch/pkg/watch/snapshot.go), not guessed or copied from a doc
+// comment (see #316/#317 lesson).
+type DispatchState struct {
+	// Enabled reports whether the dispatch loop is turned on.
+	Enabled bool `json:"enabled"`
+	// DaemonRunning reports whether the agentwatch daemon process is running.
+	DaemonRunning bool `json:"daemon_running"`
+	// Interval is the configured dispatch interval, e.g. "5m".
+	Interval string `json:"interval,omitempty"`
+	// PassRunning reports whether a dispatch pass is currently executing.
+	PassRunning bool `json:"pass_running"`
+	// LastRunAt is the RFC 3339 time of the last completed dispatch pass.
+	LastRunAt string `json:"last_run_at,omitempty"`
+	// LastDispatched is the number of cards dispatched in the last pass.
+	LastDispatched int `json:"last_dispatched"`
+	// LastSkipped is the number of cards skipped in the last pass.
+	LastSkipped int `json:"last_skipped"`
+	// LastError is the error message from the last failed dispatch pass, if
+	// any.
+	LastError string `json:"last_error,omitempty"`
 }
 
 // WindowState describes a single tracked window.

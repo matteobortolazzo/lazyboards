@@ -29,12 +29,14 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Reset the backoff to the zero sentinel so the ladder restarts at the
 		// initial delay (1s) on the next error, not a doubled value.
 		b.agentBackoff = 0
+		b.statusBar.SetDispatchStatus(formatDispatchSegment(msg.snapshot.Dispatch))
 		if b.agentWatcher == nil {
 			return b, nil
 		}
 		return b, subscribeAgentWatchCmd(b.agentWatcher)
 
 	case agentWatchErrorMsg:
+		b.statusBar.SetDispatchStatus("")
 		if b.agentBackoff <= 0 {
 			b.agentBackoff = agentWatchInitialBackoff
 		} else {

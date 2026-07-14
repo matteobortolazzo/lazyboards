@@ -56,6 +56,11 @@ var (
 	statusErrorStyle   = statusRenderer.NewStyle().Foreground(lipgloss.Color("203"))
 	statusWarningStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("222"))
 	statusSuccessStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("114"))
+	// dispatchSegmentStyle colors the normal ("on", no error) dispatch loop
+	// status bar segment. The failing (LastError set) variant reuses
+	// statusErrorStyle instead, consistent with other error states in the
+	// status bar.
+	dispatchSegmentStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("75"))
 )
 
 // newStatusRenderer creates a lipgloss renderer with ANSI256 forced,
