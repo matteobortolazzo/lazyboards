@@ -31,15 +31,23 @@ var (
 	helpStyle                = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	prIndicatorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 	workingIndicatorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
-	// Agent status badge styles (agentwatch card badges).
+	// Agent status badge styles (agentwatch card badges). All statuses render
+	// as a single mark in plain foreground color -- no reverse/background --
+	// so the badges read as one consistent family.
 	agentRunningStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))
 	agentDoneStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
 	agentStoppedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	agentNeedInputStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Reverse(true).Bold(true)
+	agentNeedInputStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	agentFailedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	cardNumberStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	hintKeyStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	hintDescStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	// Git status segment styles (status bar), lazygit-style: additions green,
+	// deletions red, unpushed (push) orange, unpulled (pull) yellow.
+	gitAddedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
+	gitDeletedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	gitAheadStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
+	gitBehindStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
 	// Status bar message styles use a dedicated renderer with forced ANSI256
 	// so that colored messages always render, even in non-TTY environments.
 	statusRenderer     = newStatusRenderer()

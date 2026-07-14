@@ -296,7 +296,7 @@ func agentStatusSymbol(status string) string {
 	case "stopped":
 		return "■" // ■
 	case "need-input":
-		return "‼" // ‼
+		return "!" // ! (single mark, consistent with the other statuses)
 	case "failed":
 		return "✗" // ✗
 	default:
