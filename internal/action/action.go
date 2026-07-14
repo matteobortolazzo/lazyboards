@@ -151,3 +151,22 @@ func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, re
 		"window":     window,
 	}
 }
+
+// BuildPRTemplateVars returns a new variable map layering PR-specific
+// template variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title}) on top
+// of a copy of base (typically the result of BuildTemplateVars). It does not
+// mutate base. pr_title is slugified via Slugify; pr_number is formatted as a
+// plain integer string; pr_branch and pr_url pass through raw — escaping for
+// shell/URL contexts happens uniformly later via BuildShellSafeVars/
+// BuildURLSafeVars at the dispatch call site.
+func BuildPRTemplateVars(base map[string]string, prNumber int, prTitle, prURL, prBranch string) map[string]string {
+	vars := make(map[string]string, len(base)+4)
+	for k, v := range base {
+		vars[k] = v
+	}
+	vars["pr_branch"] = prBranch
+	vars["pr_number"] = fmt.Sprintf("%d", prNumber)
+	vars["pr_url"] = prURL
+	vars["pr_title"] = Slugify(prTitle)
+	return vars
+}

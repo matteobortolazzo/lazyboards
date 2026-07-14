@@ -415,7 +415,17 @@ type commentState struct {
 	pendingAction     config.Action
 	pendingCard       Card
 	boardScope        bool
+	prScope           bool
 	fromDetailFocused bool
+}
+
+// pendingPRAction carries a scope: pr action (and any comment already
+// gathered for it) while the PR picker is open, awaiting the user's PR
+// selection. A nil pendingPRAction on Board means the picker's Enter key
+// falls back to its original open-URL behavior.
+type pendingPRAction struct {
+	action  config.Action
+	comment string
 }
 
 // assignItem represents a single entry in the assignee picker list.
@@ -605,6 +615,7 @@ type Board struct {
 	detailFocused               bool
 	detailScrollOffset          int
 	prPickerIndex               int
+	pendingPRAction             *pendingPRAction
 	refreshing                  bool
 	refreshInterval             time.Duration
 	actionRefreshDelay          time.Duration
@@ -886,12 +897,17 @@ func (b Board) layoutDimensions() (panelHeight, leftContentWidth, rightContentWi
 
 // resolveAction looks up an action by key, checking the active column's
 // per-column actions first (if any), then falling back to global actions.
+// scope: pr actions are only returned when the active card has at least one
+// linked PR (mirrors the gating on the hardcoded "p" open-PR hint/key).
 func (b *Board) resolveAction(key string) (config.Action, bool) {
 	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
 		colTitle := b.Columns[b.ActiveTab].Title
 		for _, cc := range b.columnConfigs {
 			if strings.EqualFold(cc.Name, colTitle) {
 				if act, ok := cc.Actions[key]; ok {
+					if b.prScopeGated(act) {
+						return config.Action{}, false
+					}
 					return act, true
 				}
 				break
@@ -899,11 +915,21 @@ func (b *Board) resolveAction(key string) (config.Action, bool) {
 		}
 	}
 	if act, ok := b.actions[key]; ok {
+		if b.prScopeGated(act) {
+			return config.Action{}, false
+		}
 		return act, true
 	}
 	// No fallback to b.defaultActions: built-in git actions are scoped to the
 	// git menu (see handleGitPanelKey) so normal-mode keys stay user-owned.
 	return config.Action{}, false
+}
+
+// prScopeGated reports whether act is a scope: pr action that must be
+// hidden/refused because the active card has no linked PRs (mirrors the
+// gating on the hardcoded "p" open-PR hint/key).
+func (b *Board) prScopeGated(act config.Action) bool {
+	return act.Scope == "pr" && len(b.selectedCard().LinkedPRs) == 0
 }
 
 // rebuildNormalHints reconstructs the normalHints slice by merging global
@@ -970,10 +996,22 @@ func (b *Board) rebuildNormalHints() {
 		}
 	}
 
-	// Filter: show board-scope hints always; card-scope hints only when column has cards.
+	// Filter: show board-scope hints always; card-scope hints only when column
+	// has cards; pr-scope hints only when the selected card has a linked PR
+	// (same gate as the hardcoded "p" open-PR hint above).
+	hasLinkedPR := hasCards && len(b.selectedCard().LinkedPRs) > 0
 	for _, entry := range actionEntries {
-		if entry.scope == "board" || hasCards {
+		switch entry.scope {
+		case "board":
 			hints = append(hints, entry.hint)
+		case "pr":
+			if hasLinkedPR {
+				hints = append(hints, entry.hint)
+			}
+		default:
+			if hasCards {
+				hints = append(hints, entry.hint)
+			}
 		}
 	}
 
