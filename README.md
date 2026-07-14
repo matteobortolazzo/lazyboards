@@ -312,7 +312,17 @@ columns:
   - name: Refined
 ```
 
-The `cleanup` command uses the same template variables as actions. It runs when a card moves to another column or disappears. Prefer `{window}` over `{session}` for reaping tmux windows — agentwatch names dispatched windows `{number}-{skill}` (e.g. `230-refine`), not the reconstructed `{session}` name, so `{window}` is the target that actually matches the live window (falling back to `{session}` when no agent window is live).
+The `cleanup` command uses the same template variables as actions. It runs when a card moves to another column or disappears.
+
+If you're running agentwatch, prefer `agentwatch close {number}` over a raw `tmux kill-window`:
+
+```yaml
+cleanup: 'agentwatch close {number}'
+```
+
+`agentwatch close` asks the daemon for the window's exact `session:index` target instead of guessing a name, so it reaps the right window regardless of which tmux session it's running in. It also refuses to kill a window whose agent is still `running` or waiting for input (unless passed `--force`), exits non-zero without touching tmux if the daemon is unreachable, and exits `0` when no window matches (safe to run even if the agent already finished). No `|| true` needed.
+
+`tmux kill-window -t {window}` still works, but has a sharp edge: a bare window name is resolved by tmux **only within lazyboards' own tmux session**. If the agent's window lives in a different session, the kill silently no-ops; if you run one lazyboards instance per session, each instance only ever reaps windows in its own session. Prefer `{window}` over `{session}` for this target — agentwatch names dispatched windows `{number}-{skill}` (e.g. `230-refine`), not the reconstructed `{session}` name — but be aware of the cross-session limitation either way.
 
 Set a top-level `cleanup` to apply the same command to every column that doesn't define its own:
 
