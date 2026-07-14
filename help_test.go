@@ -510,7 +510,7 @@ func TestHelpContent_ColumnActionsAreSortedByKey(t *testing.T) {
 func TestHelpMode_ViewShowsUsageSection(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
-	b.Height = 120
+	b.Height = 150 // Tall enough that full help content (incl. Status Bar section) renders without scrolling.
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()

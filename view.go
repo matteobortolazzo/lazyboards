@@ -82,9 +82,10 @@ func (b Board) View() string {
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
-	// Help bar. Board-scoped agent counts render as an always-visible prefix.
+	// Help bar. Board-scoped agent counts and the linked-PR total render as an
+	// always-visible prefix.
 	running, needInput := b.agentCounts()
-	helpBar := b.statusBar.View(innerWidth, running, needInput)
+	helpBar := b.statusBar.View(innerWidth, running, needInput, b.prCounts())
 	if b.refreshing {
 		helpBar = b.spinner.View() + " Refreshing..."
 	}
@@ -359,7 +360,7 @@ func cardDisplayText(card Card, columnNames []string, workingLabel string, agent
 	prefix := fmt.Sprintf("#%d ", card.Number)
 	text := prefix + card.Title
 	if len(card.LinkedPRs) > 0 {
-		text += " \ue728"
+		text += " " + linkedPRGlyph
 	}
 	// Spinner icon uses case-insensitive match against the configured working label.
 	for _, label := range card.Labels {
@@ -536,7 +537,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		// Style PR indicator.
 		if hasPR && len(lines) > 0 {
 			last := len(lines) - 1
-			lines[last] = strings.Replace(lines[last], "\ue728", prIndicatorStyle.Render("\ue728"), 1)
+			lines[last] = strings.Replace(lines[last], linkedPRGlyph, prIndicatorStyle.Render(linkedPRGlyph), 1)
 		}
 		// Style Working indicator.
 		if hasWorking && len(lines) > 0 {
@@ -987,6 +988,13 @@ var helpSections = []helpSection{
 	{"Error", [][2]string{
 		{"r", "Retry"},
 		{"q", "Quit"},
+	}},
+	// Always-visible status-bar prefix indicators (not keys). Each is omitted
+	// when its count is zero.
+	{"Status Bar", [][2]string{
+		{"▶N", "Agents running"},
+		{"!N", "Agents awaiting input"},
+		{linkedPRGlyph + "N", "Linked PRs across the board"},
 	}},
 }
 
