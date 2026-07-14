@@ -451,7 +451,7 @@ func TestHelpMode_ViewShowsColumnActions(t *testing.T) {
 		{Name: "Implemented"},
 	}
 	b, _ := newColumnActionTestBoard(t, globalActions, columnConfigs)
-	b.Height = 120
+	b.Height = 200 // Tall enough that full help content (incl. column-specific actions) renders without scrolling.
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()

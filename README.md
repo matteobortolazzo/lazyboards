@@ -368,6 +368,7 @@ Press `?` at any time to open the in-app help popup.
 | `o` | Open ticket |
 | `r` | Refresh board |
 | `p` | Open PR |
+| `x` | Close card (with confirmation) |
 | `v` | PR list (all linked PRs on the board) |
 | `/` | Search |
 | `a` | Assign collaborator |
