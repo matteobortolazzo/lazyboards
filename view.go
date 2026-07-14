@@ -295,7 +295,7 @@ func agentStatusSymbol(status string) string {
 		return "✓" // ✓
 	case "stopped":
 		return "■" // ■
-	case "need_input":
+	case "need-input":
 		return "‼" // ‼
 	case "failed":
 		return "✗" // ✗
@@ -336,7 +336,7 @@ func agentBadgeStyle(status string) lipgloss.Style {
 		return agentDoneStyle
 	case "stopped":
 		return agentStoppedStyle
-	case "need_input":
+	case "need-input":
 		return agentNeedInputStyle
 	case "failed":
 		return agentFailedStyle

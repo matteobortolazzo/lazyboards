@@ -198,7 +198,7 @@ const gitStatusPollInterval = 12 * time.Second
 // Only the two surfaced as status-bar counts are named here.
 const (
 	agentStatusRunning   = "running"
-	agentStatusNeedInput = "need_input"
+	agentStatusNeedInput = "need-input"
 	agentStatusFailed    = "failed"
 )
 
