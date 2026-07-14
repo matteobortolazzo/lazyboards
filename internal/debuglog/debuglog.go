@@ -79,3 +79,9 @@ func Init(path string) error {
 func Errorf(format string, args ...any) {
 	std.Errorf(format, args...)
 }
+
+// Log delegates to the package-level logger. Safe to call before Init (std
+// is nil) or after a failed Init, matching Errorf's nil-safety.
+func Log(msg string) {
+	std.Log(msg)
+}

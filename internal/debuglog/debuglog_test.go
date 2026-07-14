@@ -196,6 +196,67 @@ func TestInit_EmptyPath_PackageErrorfIsNoOp(t *testing.T) {
 	}
 }
 
+// --- Package-level Log (#361) ---
+
+// TestInit_WithPath_PackageLogWritesToFile verifies the package-level Log
+// free function delegates to a file-backed logger once Init is given a path.
+func TestInit_WithPath_PackageLogWritesToFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "debug.log")
+
+	if err := Init(path); err != nil {
+		t.Fatalf("Init(%q) error = %v, want nil", path, err)
+	}
+	t.Cleanup(func() { std = nil })
+
+	Log("cleanup: executed: tmux kill-window -t =mysession:3")
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read log file %q: %v", path, err)
+	}
+	if !strings.Contains(string(data), "cleanup: executed: tmux kill-window -t =mysession:3") {
+		t.Errorf("log file content = %q, want it to contain the logged message", string(data))
+	}
+}
+
+// TestInit_EmptyPath_PackageLogIsNoOp verifies Init("") makes the
+// package-level Log a complete no-op: no file is created.
+func TestInit_EmptyPath_PackageLogIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := Init(""); err != nil {
+		t.Fatalf("Init(\"\") error = %v, want nil", err)
+	}
+	t.Cleanup(func() { std = nil })
+
+	Log("should not be logged anywhere")
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("failed to read temp dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("Init(\"\") + Log created %d file(s), want a complete no-op (zero files)", len(entries))
+	}
+}
+
+// TestPackageLog_BeforeInit_DoesNotPanic verifies calling the free function
+// Log before Init has ever been called (std is nil) is safe, since std
+// defaults to a nil *Logger.
+func TestPackageLog_BeforeInit_DoesNotPanic(t *testing.T) {
+	std = nil
+	t.Cleanup(func() { std = nil })
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("package-level Log panicked before Init was ever called: %v", r)
+		}
+	}()
+	Log("boom")
+}
+
 // TestPackageErrorf_BeforeInit_DoesNotPanic verifies calling the free
 // function Errorf before Init has ever been called (std is nil) is safe,
 // since std defaults to a nil *Logger.

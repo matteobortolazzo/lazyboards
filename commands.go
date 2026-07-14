@@ -14,6 +14,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
@@ -207,12 +208,20 @@ type cleanupResultMsg struct {
 	count int
 }
 
-// runCleanupCmds returns a tea.Cmd that executes cleanup shell commands.
+// runCleanupCmds returns a tea.Cmd that executes cleanup shell commands. Each
+// command's outcome is logged via debuglog so cleanup executions are
+// forensically traceable after an incident (#361); the returned count and
+// message contract is unchanged.
 func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
 	return func() tea.Msg {
 		count := 0
 		for _, cmd := range commands {
-			_, _ = executor.RunShell(cmd)
+			stderr, err := executor.RunShell(cmd)
+			if err != nil {
+				debuglog.Log(fmt.Sprintf("cleanup: command failed: %s: %v (stderr: %s)", cmd, err, stderr))
+			} else {
+				debuglog.Log(fmt.Sprintf("cleanup: executed: %s", cmd))
+			}
 			count++
 		}
 		return cleanupResultMsg{count: count}

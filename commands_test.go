@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -261,6 +264,86 @@ func TestRunShellCmd_TruncatesLongStderr(t *testing.T) {
 	// The message should still contain the "Error: " prefix.
 	if !strings.HasPrefix(result.message, "Error: ") {
 		t.Errorf("actionResultMsg.message should start with %q, got %q", "Error: ", result.message[:20])
+	}
+}
+
+// --- runCleanupCmds observability (#361) ---
+
+// TestRunCleanupCmds_LogsSuccessfulCommand verifies a successfully executed
+// cleanup command is logged via debuglog for post-incident forensics.
+func TestRunCleanupCmds_LogsSuccessfulCommand(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "debug.log")
+	if err := debuglog.Init(path); err != nil {
+		t.Fatalf("debuglog.Init(%q) error = %v, want nil", path, err)
+	}
+
+	fe := &action.FakeExecutor{}
+	cmd := runCleanupCmds(fe, []string{"agentwatch close 42"})
+	cmd()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read log file %q: %v", path, err)
+	}
+	if !strings.Contains(string(data), "cleanup: executed: agentwatch close 42") {
+		t.Errorf("log file content = %q, want it to mention the executed command", string(data))
+	}
+}
+
+// TestRunCleanupCmds_LogsFailedCommandWithError verifies a cleanup command
+// that fails is logged with both the error and stderr so an incident can be
+// diagnosed after the fact.
+func TestRunCleanupCmds_LogsFailedCommandWithError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "debug.log")
+	if err := debuglog.Init(path); err != nil {
+		t.Fatalf("debuglog.Init(%q) error = %v, want nil", path, err)
+	}
+
+	fe := &action.FakeExecutor{
+		RunShellErr:    errors.New("exit status 1"),
+		RunShellStderr: "no matching windows",
+	}
+	cmd := runCleanupCmds(fe, []string{"agentwatch close 99"})
+	cmd()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read log file %q: %v", path, err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "agentwatch close 99") {
+		t.Errorf("log file content = %q, want it to mention the failed command", content)
+	}
+	if !strings.Contains(content, "exit status 1") {
+		t.Errorf("log file content = %q, want it to mention the error", content)
+	}
+	if !strings.Contains(content, "no matching windows") {
+		t.Errorf("log file content = %q, want it to mention stderr", content)
+	}
+}
+
+// TestRunCleanupCmds_StillReturnsCleanupResultMsgWithCorrectCount verifies
+// the added logging does not change the existing cleanupResultMsg count
+// contract, even when some commands fail.
+func TestRunCleanupCmds_StillReturnsCleanupResultMsgWithCorrectCount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "debug.log")
+	if err := debuglog.Init(path); err != nil {
+		t.Fatalf("debuglog.Init(%q) error = %v, want nil", path, err)
+	}
+
+	fe := &action.FakeExecutor{
+		RunShellErr: errors.New("boom"),
+	}
+	commands := []string{"agentwatch close 1", "agentwatch close 2", "agentwatch close 3"}
+	cmd := runCleanupCmds(fe, commands)
+	msg := cmd()
+
+	result, ok := msg.(cleanupResultMsg)
+	if !ok {
+		t.Fatalf("runCleanupCmds() returned %T, want cleanupResultMsg", msg)
+	}
+	if result.count != len(commands) {
+		t.Errorf("cleanupResultMsg.count = %d, want %d", result.count, len(commands))
 	}
 }
 
