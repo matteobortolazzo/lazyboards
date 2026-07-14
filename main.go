@@ -49,10 +49,6 @@ func (c *gitHubClient) ListLabels(ctx context.Context, owner string, repo string
 	return c.issues.ListLabels(ctx, owner, repo, opts)
 }
 
-func (c *gitHubClient) ListIssueTimeline(ctx context.Context, owner string, repo string, number int, opts *github.ListOptions) ([]*github.Timeline, *github.Response, error) {
-	return c.issues.ListIssueTimeline(ctx, owner, repo, number, opts)
-}
-
 func (c *gitHubClient) ListCollaborators(ctx context.Context, owner string, repo string, opts *github.ListCollaboratorsOptions) ([]*github.User, *github.Response, error) {
 	return c.repos.ListCollaborators(ctx, owner, repo, opts)
 }
