@@ -19,6 +19,21 @@ type fakeGraphQLClient struct {
 	err   error
 
 	calledCursors []string
+
+	// timelinePages scripts fetchIssueTimelinePage results, keyed by issue
+	// number and then by the afterCursor that would request them, mirroring
+	// the pages/calledCursors pattern above but for the nested per-issue
+	// timeline follow-up query.
+	timelinePages map[int]map[string]timelinePage
+
+	calledTimelineCursors []timelineCursorCall
+}
+
+// timelineCursorCall records one fetchIssueTimelinePage call so tests can
+// assert call order for multi-page follow-up sequences.
+type timelineCursorCall struct {
+	issueNumber int
+	cursor      string
 }
 
 func (f *fakeGraphQLClient) fetchIssuePage(_ context.Context, _, _, afterCursor string) (issuePage, error) {
@@ -27,6 +42,17 @@ func (f *fakeGraphQLClient) fetchIssuePage(_ context.Context, _, _, afterCursor 
 		return issuePage{}, f.err
 	}
 	return f.pages[afterCursor], nil
+}
+
+// fetchIssueTimelinePage returns the scripted timelinePage for the given
+// issue number and afterCursor, recording each call in calledTimelineCursors
+// so tests can assert call order for multi-page follow-up sequences.
+func (f *fakeGraphQLClient) fetchIssueTimelinePage(_ context.Context, _, _ string, issueNumber int, afterCursor string) (timelinePage, error) {
+	f.calledTimelineCursors = append(f.calledTimelineCursors, timelineCursorCall{issueNumber: issueNumber, cursor: afterCursor})
+	if f.err != nil {
+		return timelinePage{}, f.err
+	}
+	return f.timelinePages[issueNumber][afterCursor], nil
 }
 
 func TestNewGitHubV4Adapter_WrapsGivenClient(t *testing.T) {
@@ -96,6 +122,20 @@ func TestFakeGraphQLClient_ReturnsScriptedError(t *testing.T) {
 	_, err := fake.fetchIssuePage(context.Background(), "owner", "repo", "")
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("fetchIssuePage() error = %v, want %v", err, wantErr)
+	}
+}
+
+// TestFakeGraphQLClient_FetchIssueTimelinePage_ReturnsScriptedError mirrors
+// TestFakeGraphQLClient_ReturnsScriptedError for fetchIssueTimelinePage's own
+// err branch, so the timeline follow-up query's error path is exercised
+// directly rather than only indirectly via the sibling fetchIssuePage test.
+func TestFakeGraphQLClient_FetchIssueTimelinePage_ReturnsScriptedError(t *testing.T) {
+	wantErr := errors.New("graphql: rate limited")
+	fake := &fakeGraphQLClient{err: wantErr}
+
+	_, err := fake.fetchIssueTimelinePage(context.Background(), "owner", "repo", 55, "")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("fetchIssueTimelinePage() error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -184,6 +224,94 @@ func TestMapIssueQueryNode_CapturesTimelineContinuationCursor(t *testing.T) {
 	}
 	if got.timelineEndCursor != "timeline-cursor-1" {
 		t.Fatalf("mapIssueQueryNode().timelineEndCursor = %q, want %q", got.timelineEndCursor, "timeline-cursor-1")
+	}
+}
+
+// TestMapIssueTimelineQuery_MapsLinkedPRsAndPageInfo pins mapIssueTimelineQuery's
+// expected behavior: it must reuse mapLinkedPRs' skip/dedup semantics (proven
+// separately by TestMapLinkedPRs_SkipsCrossReferenceSourcedFromPlainIssue and
+// TestMapLinkedPRs_DedupesByPRNumberWithinIssue) for the nested timelineItems
+// nodes, plus carry through the connection's own pageInfo.
+func TestMapIssueTimelineQuery_MapsLinkedPRsAndPageInfo(t *testing.T) {
+	var q issueTimelineQuery
+	q.Repository.Issue.TimelineItems.Nodes = []timelineItemQueryNode{
+		buildTimelineItem(42, "fix: real linked PR", "https://github.com/o/r/pull/42"),
+		buildTimelineItem(42, "fix: real linked PR", "https://github.com/o/r/pull/42"),
+		{}, // cross-reference sourced from a plain Issue; must be skipped
+	}
+	q.Repository.Issue.TimelineItems.PageInfo.HasNextPage = githubv4.Boolean(true)
+	q.Repository.Issue.TimelineItems.PageInfo.EndCursor = githubv4.String("timeline-cursor-2")
+
+	got := mapIssueTimelineQuery(q)
+
+	if len(got.linkedPRs) != 1 {
+		t.Fatalf("mapIssueTimelineQuery().linkedPRs has %d entries, want 1 (duplicate PR must be deduped, issue-sourced cross-reference must be skipped): %+v", len(got.linkedPRs), got.linkedPRs)
+	}
+	if got.linkedPRs[0].Number != 42 || got.linkedPRs[0].Title != "fix: real linked PR" || got.linkedPRs[0].URL != "https://github.com/o/r/pull/42" {
+		t.Fatalf("mapIssueTimelineQuery().linkedPRs[0] = %+v, want {Number:42 Title:%q URL:%q}", got.linkedPRs[0], "fix: real linked PR", "https://github.com/o/r/pull/42")
+	}
+	if !got.hasNextPage || got.endCursor != "timeline-cursor-2" {
+		t.Fatalf("mapIssueTimelineQuery() pagination = hasNextPage=%v endCursor=%q, want hasNextPage=true endCursor=%q", got.hasNextPage, got.endCursor, "timeline-cursor-2")
+	}
+}
+
+// TestFakeGraphQLClient_FetchIssueTimelinePage_ReturnsScriptedPageForIssueAndCursor
+// pins fakeGraphQLClient's timeline-scripting scaffolding, keyed by
+// (issueNumber, cursor), so a follow-up green-phase FetchBoard loop test can
+// script multi-page per-issue timeline sequences.
+func TestFakeGraphQLClient_FetchIssueTimelinePage_ReturnsScriptedPageForIssueAndCursor(t *testing.T) {
+	firstPage := timelinePage{
+		linkedPRs:   []LinkedPR{{Number: 101, Title: "first timeline page PR", URL: "https://github.com/o/r/pull/101"}},
+		hasNextPage: true,
+		endCursor:   "timeline-cursor-A",
+	}
+	secondPage := timelinePage{
+		linkedPRs:   []LinkedPR{{Number: 102, Title: "second timeline page PR", URL: "https://github.com/o/r/pull/102"}},
+		hasNextPage: false,
+	}
+	const issueNumber = 55
+	fake := &fakeGraphQLClient{
+		timelinePages: map[int]map[string]timelinePage{
+			issueNumber: {
+				"":                  firstPage,
+				"timeline-cursor-A": secondPage,
+			},
+		},
+	}
+
+	got, err := fake.fetchIssueTimelinePage(context.Background(), "owner", "repo", issueNumber, "")
+	if err != nil {
+		t.Fatalf("fetchIssueTimelinePage(first page): unexpected error: %v", err)
+	}
+	if len(got.linkedPRs) != 1 || got.linkedPRs[0].Number != firstPage.linkedPRs[0].Number {
+		t.Fatalf("fetchIssueTimelinePage(first page) = %+v, want linked PR number %d", got, firstPage.linkedPRs[0].Number)
+	}
+	if !got.hasNextPage || got.endCursor != "timeline-cursor-A" {
+		t.Fatalf("fetchIssueTimelinePage(first page) pagination = %+v, want hasNextPage=true endCursor=timeline-cursor-A", got)
+	}
+
+	got, err = fake.fetchIssueTimelinePage(context.Background(), "owner", "repo", issueNumber, got.endCursor)
+	if err != nil {
+		t.Fatalf("fetchIssueTimelinePage(second page): unexpected error: %v", err)
+	}
+	if len(got.linkedPRs) != 1 || got.linkedPRs[0].Number != secondPage.linkedPRs[0].Number {
+		t.Fatalf("fetchIssueTimelinePage(second page) = %+v, want linked PR number %d", got, secondPage.linkedPRs[0].Number)
+	}
+	if got.hasNextPage {
+		t.Fatalf("fetchIssueTimelinePage(second page).hasNextPage = true, want false (last page)")
+	}
+
+	wantCalls := []timelineCursorCall{
+		{issueNumber: issueNumber, cursor: ""},
+		{issueNumber: issueNumber, cursor: "timeline-cursor-A"},
+	}
+	if len(fake.calledTimelineCursors) != len(wantCalls) {
+		t.Fatalf("calledTimelineCursors = %+v, want %+v", fake.calledTimelineCursors, wantCalls)
+	}
+	for i, want := range wantCalls {
+		if fake.calledTimelineCursors[i] != want {
+			t.Fatalf("calledTimelineCursors = %+v, want %+v", fake.calledTimelineCursors, wantCalls)
+		}
 	}
 }
 
