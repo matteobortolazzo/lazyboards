@@ -196,11 +196,12 @@ func renderHints(hints []Hint, width int) string {
 }
 
 // View renders the status bar, truncating hints that exceed the given width.
-// The agent-status counts (running, needInput) render as an always-visible
-// prefix ahead of both hints and timed messages; when both are zero the prefix
-// and its separator are omitted. Timed messages are still shown untruncated.
-// counts is variadic (running, needInput) for caller convenience; missing
-// values default to 0.
+// The agent-status counts (running, needInput) and the board-wide linked-PR
+// count render as an always-visible prefix ahead of both hints and timed
+// messages; each token is omitted when its count is zero, and when all are zero
+// the prefix and its separator are omitted entirely. Timed messages are still
+// shown untruncated. counts is variadic (running, needInput, prCount) for
+// caller convenience; missing values default to 0.
 //
 // When a git status segment is set (via SetGitStatus) and/or a dispatch
 // status segment is set (via SetDispatchStatus), they are right-aligned
@@ -210,15 +211,29 @@ func renderHints(hints []Hint, width int) string {
 // when even the git segment alone doesn't fit, it is dropped too (not
 // truncated). Timed messages always override both.
 func (s StatusBar) View(width int, counts ...int) string {
-	var running, needInput int
+	var running, needInput, prCount int
 	if len(counts) > 0 {
 		running = counts[0]
 	}
 	if len(counts) > 1 {
 		needInput = counts[1]
 	}
+	if len(counts) > 2 {
+		prCount = counts[2]
+	}
 
 	prefix := agentPrefix(running, needInput)
+	// The board-wide linked-PR count trails the agent tokens in the same
+	// always-visible prefix: omitted when zero, and (because the prefix is
+	// reserved out of the width before hints/tail segments) never truncated.
+	if prCount > 0 {
+		prToken := prIndicatorStyle.Render(linkedPRGlyph + strconv.Itoa(prCount))
+		if prefix != "" {
+			prefix += " " + prToken
+		} else {
+			prefix = prToken
+		}
+	}
 	if prefix != "" {
 		prefix += hintDescStyle.Render(" | ")
 	}
