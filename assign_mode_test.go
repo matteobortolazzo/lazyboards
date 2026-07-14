@@ -445,7 +445,7 @@ func TestAssignMode_WithGlobalFilter_UsesSelectedCard(t *testing.T) {
 
 // --- Normal hints ---
 
-func TestAssignMode_HintShown_WhenCollaboratorsAvailable(t *testing.T) {
+func TestAssignMode_HintNotInNormalBar(t *testing.T) {
 	b := newBoardWithCollaborators(t)
 
 	foundAssignHint := false
@@ -455,8 +455,8 @@ func TestAssignMode_HintShown_WhenCollaboratorsAvailable(t *testing.T) {
 			break
 		}
 	}
-	if !foundAssignHint {
-		t.Error("normalHints should include 'a' hint when collaborators are cached and cards exist")
+	if foundAssignHint {
+		t.Error("normalHints should NOT include 'a' hint even when collaborators are cached and cards exist; the keybinding stays functional but is no longer shown in the always-visible hint bar")
 	}
 }
 

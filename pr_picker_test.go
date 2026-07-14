@@ -224,61 +224,6 @@ func TestPRPicker_Enter_ShowsStatusMessage(t *testing.T) {
 	}
 }
 
-func TestNormalMode_HintShowsOpenPR(t *testing.T) {
-	b, _ := newBoardWithPRsAndExecutor(t)
-
-	// Navigate to card 1 which has a linked PR.
-	b = sendKey(t, b, keyMsg("j"))
-	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
-	if len(card.LinkedPRs) == 0 {
-		t.Fatalf("test setup: expected card at cursor to have LinkedPRs")
-	}
-
-	view := b.statusBar.View(200, 0, 0)
-	if !strings.Contains(view, "Open PR") {
-		t.Errorf("statusBar.View(, 0, 0) = %q, want it to contain %q", view, "Open PR")
-	}
-}
-
-func TestNormalMode_HintHidesOpenPR_NoPRs(t *testing.T) {
-	b, _ := newBoardWithPRsAndExecutor(t)
-
-	// Cursor starts on card 0 which has no linked PRs.
-	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
-	if len(card.LinkedPRs) != 0 {
-		t.Fatalf("test setup: expected card at cursor to have 0 LinkedPRs, got %d", len(card.LinkedPRs))
-	}
-
-	view := b.statusBar.View(200, 0, 0)
-	if strings.Contains(view, "Open PR") {
-		t.Errorf("statusBar.View(, 0, 0) = %q, should NOT contain %q when card has no linked PRs", view, "Open PR")
-	}
-}
-
-func TestNormalMode_HintUpdatesOnCursorMove(t *testing.T) {
-	b, _ := newBoardWithPRsAndExecutor(t)
-
-	// Card 0 (cursor start): no linked PRs — hint should be absent.
-	view := b.statusBar.View(200, 0, 0)
-	if strings.Contains(view, "Open PR") {
-		t.Errorf("card with no PRs: statusBar.View(, 0, 0) = %q, should NOT contain %q", view, "Open PR")
-	}
-
-	// Move to card 1: has linked PRs — hint should appear.
-	b = sendKey(t, b, keyMsg("j"))
-	view = b.statusBar.View(200, 0, 0)
-	if !strings.Contains(view, "Open PR") {
-		t.Errorf("card with PRs: statusBar.View(, 0, 0) = %q, want it to contain %q", view, "Open PR")
-	}
-
-	// Move back to card 0: no linked PRs — hint should disappear.
-	b = sendKey(t, b, keyMsg("k"))
-	view = b.statusBar.View(200, 0, 0)
-	if strings.Contains(view, "Open PR") {
-		t.Errorf("back to card with no PRs: statusBar.View(, 0, 0) = %q, should NOT contain %q", view, "Open PR")
-	}
-}
-
 func TestPRPicker_ViewShowsModal(t *testing.T) {
 	b := newBoardWithPRs(t)
 

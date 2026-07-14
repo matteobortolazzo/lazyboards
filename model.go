@@ -131,8 +131,8 @@ var helpHint = Hint{Key: "?", Desc: "Help"}
 
 // normalModeHints are the default status bar hints shown in normal mode.
 var normalModeHints = []Hint{
-	{Key: "e", Desc: "Edit"},
 	{Key: "n", Desc: "New"},
+	{Key: "e", Desc: "Edit"},
 }
 
 // detailFocusHints are the status bar hints shown when the detail panel is focused.
@@ -945,22 +945,6 @@ func (b *Board) rebuildNormalHints() {
 	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
 		hasCards = len(b.Columns[b.ActiveTab].Cards) > 0
 	}
-
-	// Conditional hints: only show when the active column has cards.
-	if hasCards {
-		hints = append(hints, Hint{Key: "o", Desc: "Open"})
-		col := b.Columns[b.ActiveTab]
-		if col.Cursor < len(col.Cards) && len(b.selectedCard().LinkedPRs) > 0 {
-			hints = append(hints, Hint{Key: "p", Desc: "Open PR"})
-		}
-	}
-
-	if hasCards && len(b.collaborators) > 0 {
-		hints = append(hints, Hint{Key: "a", Desc: "Assign"})
-	}
-
-	// Filter hint.
-	hints = append(hints, Hint{Key: "f", Desc: "Filter (toggle)"})
 
 	// Default mode hints.
 	hints = append(hints, normalModeHints...)

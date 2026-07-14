@@ -601,16 +601,24 @@ func TestTicketOpen_OpenHintHiddenOnEmptyColumn(t *testing.T) {
 	}
 }
 
-func TestTicketOpen_OpenHintVisibleWithCards(t *testing.T) {
+func TestTicketOpen_OpenHintNotInNormalBar(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 	b = loadFromFakeProvider(t, b, p)
 
-	// With cards loaded, the "Open" hint should be visible.
-	view := b.View()
-	if !strings.Contains(view, "Open") {
-		t.Errorf("View() should contain %q hint in the status bar when cards exist, got:\n%s", "Open", view)
+	// Even with cards loaded, the "o" (Open) hint should NOT appear in the
+	// always-visible normal-mode hint bar; the keybinding stays functional
+	// and remains listed in the '?' Help popup.
+	foundOpenHint := false
+	for _, hint := range b.normalHints {
+		if hint.Key == "o" {
+			foundOpenHint = true
+			break
+		}
+	}
+	if foundOpenHint {
+		t.Error("normalHints should NOT include 'o' hint even when cards exist; the keybinding stays functional but is no longer shown in the always-visible hint bar")
 	}
 }
 
