@@ -84,7 +84,7 @@ type FakeExecutor struct {
 
 	// RunShellOutputResults, when non-empty, scripts successive
 	// RunShellOutput calls in order (mirroring FakeWatcher.Results in
-	// internal/agentwatch/fake.go). Once exhausted, RunShellOutput falls
+	// internal/cenciwatch/fake.go). Once exhausted, RunShellOutput falls
 	// back to the single canned RunShellOutputStdout/Stderr/Err fields
 	// below, keeping this fully backward-compatible with existing tests
 	// that only set the canned fields.

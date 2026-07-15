@@ -208,7 +208,7 @@ func main() {
 	}
 
 	var watcher cenciwatch.Watcher
-	if cfg.AgentWatchValue() {
+	if cfg.CenciValue() {
 		watcher = cenciwatch.NewSocketWatcher()
 	}
 
