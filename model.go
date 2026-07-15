@@ -483,6 +483,10 @@ type cardDeletedMsg struct {
 // cardDeleteErrorMsg is sent when deleteCardCmd fails to delete a card.
 type cardDeleteErrorMsg struct {
 	err error
+	// commentPosted is true when this failure was reached via the
+	// comment-then-delete chain (the comment successfully posted before
+	// DeleteCard failed), indicating a partial-success state.
+	commentPosted bool
 }
 
 // commentState groups fields related to the comment input modal.
