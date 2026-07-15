@@ -19,21 +19,21 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
-// subscribeAgentWatchCmd returns a tea.Cmd that reads the next snapshot from
-// the agentwatch watcher, delivering agentSnapshotMsg on success or
-// agentWatchErrorMsg on failure.
-func subscribeAgentWatchCmd(w cenciwatch.Watcher) tea.Cmd {
+// subscribeCenciWatchCmd returns a tea.Cmd that reads the next snapshot from
+// the cenci-watch watcher, delivering agentSnapshotMsg on success or
+// cenciWatchErrorMsg on failure.
+func subscribeCenciWatchCmd(w cenciwatch.Watcher) tea.Cmd {
 	return func() tea.Msg {
 		snap, err := w.ReadNext()
 		if err != nil {
-			return agentWatchErrorMsg{err: err}
+			return cenciWatchErrorMsg{err: err}
 		}
 		if snap == nil {
 			// A nil snapshot with no error (e.g. a clean socket close or an
 			// exhausted watcher) is not a usable read: route it through the
 			// reconnect backoff instead of resetting and re-subscribing in a
 			// tight loop.
-			return agentWatchErrorMsg{err: errors.New("agentwatch: watcher returned nil snapshot")}
+			return cenciWatchErrorMsg{err: errors.New("cenci: watcher returned nil snapshot")}
 		}
 		return agentSnapshotMsg{snapshot: snap}
 	}
@@ -228,17 +228,17 @@ func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
 	}
 }
 
-// agentwatchTooOldMsg and agentwatchNoOutputMsg are the user-facing messages
-// for the two ways an old/misbehaving agentwatch binary can be detected.
+// cenciTooOldMsg and cenciNoOutputMsg are the user-facing messages
+// for the two ways an old/misbehaving cenci binary can be detected.
 const (
-	agentwatchTooOldMsg   = "agentwatch version too old — upgrade to use dispatch enrollment"
-	agentwatchNoOutputMsg = "agentwatch produced no output — check that the correct binary is on PATH"
+	cenciTooOldMsg   = "cenci version too old — upgrade to use dispatch enrollment"
+	cenciNoOutputMsg = "cenci produced no output — check that the correct binary is on PATH"
 )
 
-// isAgentwatchNotFound reports whether err/stderr indicate that the
-// agentwatch binary itself could not be found/executed on PATH (as opposed
+// isCenciNotFound reports whether err/stderr indicate that the
+// cenci binary itself could not be found/executed on PATH (as opposed
 // to running but failing for some other reason).
-func isAgentwatchNotFound(err error, stderr string) bool {
+func isCenciNotFound(err error, stderr string) bool {
 	// exit 127 is "command not found" from sh; match the exact os/exec format
 	// ("exit status 127") rather than a bare "127" substring that could appear
 	// in unrelated error text.
@@ -249,11 +249,11 @@ func isAgentwatchNotFound(err error, stderr string) bool {
 	return notFound
 }
 
-// classifyAgentwatchError maps a shell execution error/stderr pair from an
-// agentwatch invocation into a user-facing message.
-func classifyAgentwatchError(err error, stderr string) string {
-	if isAgentwatchNotFound(err, stderr) {
-		return "agentwatch not found on PATH — install it to use dispatch"
+// classifyCenciError maps a shell execution error/stderr pair from an
+// cenci invocation into a user-facing message.
+func classifyCenciError(err error, stderr string) string {
+	if isCenciNotFound(err, stderr) {
+		return "cenci not found on PATH — install it to use dispatch"
 	}
 
 	if strings.Contains(stderr, "is not a git repository") || strings.Contains(stderr, "getting origin remote url") {
@@ -261,22 +261,22 @@ func classifyAgentwatchError(err error, stderr string) string {
 	}
 
 	if stderr != "" {
-		return "agentwatch: " + truncateOutput(strings.TrimSpace(stderr), maxErrorOutputLen)
+		return "cenci: " + truncateOutput(strings.TrimSpace(stderr), maxErrorOutputLen)
 	}
 	if err != nil {
-		return "agentwatch: " + truncateOutput(err.Error(), maxErrorOutputLen)
+		return "cenci: " + truncateOutput(err.Error(), maxErrorOutputLen)
 	}
-	return "agentwatch: unknown error"
+	return "cenci: unknown error"
 }
 
-// resolveAgentwatchPathSuffix runs a side-effect-free `command -v agentwatch`
+// resolveCenciPathSuffix runs a side-effect-free `command -v cenci`
 // lookup and returns a " (using <path>)" suffix (leading space) so error
 // messages can name the resolved binary -- making PATH shadowing (e.g. a
 // stale ~/go/bin build shadowing the plugin-installed binary) instantly
 // visible. Returns "" when resolution fails or produces no output; callers
 // should only invoke this on error paths, never on success.
-func resolveAgentwatchPathSuffix(executor action.Executor) string {
-	stdout, _, err := executor.RunShellOutput("command -v agentwatch")
+func resolveCenciPathSuffix(executor action.Executor) string {
+	stdout, _, err := executor.RunShellOutput("command -v cenci")
 	if err != nil {
 		return ""
 	}
@@ -287,11 +287,11 @@ func resolveAgentwatchPathSuffix(executor action.Executor) string {
 	return " (using " + path + ")"
 }
 
-// queryDispatchStatusCmd returns a tea.Cmd that queries agentwatch for the
+// queryDispatchStatusCmd returns a tea.Cmd that queries cenci for the
 // current working directory's repo/dir/enrollment status.
 //
-// It first runs a side-effect-free `agentwatch version` probe. An old
-// agentwatch binary that predates the `dispatch status` verb does not fail
+// It first runs a side-effect-free `cenci version` probe. An old
+// cenci binary that predates the `dispatch status` verb does not fail
 // cleanly on an unrecognized subcommand -- Go's flag parsing stops at the
 // first positional argument and silently discards the rest of argv, so
 // `dispatch status --json --dir <cwd>` degrades, on such a binary, into a
@@ -304,27 +304,27 @@ func queryDispatchStatusCmd(executor action.Executor) tea.Cmd {
 	return func() tea.Msg {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return dispatchStatusMsg{err: classifyAgentwatchError(err, "")}
+			return dispatchStatusMsg{err: classifyCenciError(err, "")}
 		}
 
-		_, versionStderr, versionErr := executor.RunShellOutput("agentwatch version")
+		_, versionStderr, versionErr := executor.RunShellOutput("cenci version")
 		if versionErr != nil {
-			if isAgentwatchNotFound(versionErr, versionStderr) {
+			if isCenciNotFound(versionErr, versionStderr) {
 				// The binary doesn't exist at all -- a resolved path would be
 				// misleading, so skip the path-suffix lookup entirely.
-				return dispatchStatusMsg{err: classifyAgentwatchError(versionErr, versionStderr)}
+				return dispatchStatusMsg{err: classifyCenciError(versionErr, versionStderr)}
 			}
-			return dispatchStatusMsg{err: agentwatchTooOldMsg + resolveAgentwatchPathSuffix(executor)}
+			return dispatchStatusMsg{err: cenciTooOldMsg + resolveCenciPathSuffix(executor)}
 		}
 
-		command := "agentwatch dispatch status --json --dir " + action.ShellEscape(cwd)
+		command := "cenci dispatch status --json --dir " + action.ShellEscape(cwd)
 		stdout, stderr, err := executor.RunShellOutput(command)
 		if err != nil {
-			return dispatchStatusMsg{err: classifyAgentwatchError(err, stderr)}
+			return dispatchStatusMsg{err: classifyCenciError(err, stderr)}
 		}
 
 		if strings.TrimSpace(stdout) == "" {
-			return dispatchStatusMsg{err: agentwatchNoOutputMsg + resolveAgentwatchPathSuffix(executor)}
+			return dispatchStatusMsg{err: cenciNoOutputMsg + resolveCenciPathSuffix(executor)}
 		}
 
 		var v struct {
@@ -334,7 +334,7 @@ func queryDispatchStatusCmd(executor action.Executor) tea.Cmd {
 			Loop     *dispatchLoopInfo `json:"loop"`
 		}
 		if err := json.Unmarshal([]byte(stdout), &v); err != nil {
-			return dispatchStatusMsg{err: agentwatchTooOldMsg + resolveAgentwatchPathSuffix(executor)}
+			return dispatchStatusMsg{err: cenciTooOldMsg + resolveCenciPathSuffix(executor)}
 		}
 
 		return dispatchStatusMsg{repo: v.Repo, dir: v.Dir, enrolled: v.Enrolled, loop: v.Loop}
@@ -342,46 +342,46 @@ func queryDispatchStatusCmd(executor action.Executor) tea.Cmd {
 }
 
 // toggleEnrollCmd returns a tea.Cmd that enrolls or unenrolls the current
-// working directory's repo with agentwatch, based on the current enrolled
+// working directory's repo with cenci, based on the current enrolled
 // state. It only checks the exec exit status; stdout content is ignored.
 func toggleEnrollCmd(executor action.Executor, enrolled bool) tea.Cmd {
 	return func() tea.Msg {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return dispatchEnrollMsg{err: classifyAgentwatchError(err, "")}
+			return dispatchEnrollMsg{err: classifyCenciError(err, "")}
 		}
 
 		sub := "enroll"
 		if enrolled {
 			sub = "unenroll"
 		}
-		command := "agentwatch dispatch " + sub + " --dir " + action.ShellEscape(cwd)
+		command := "cenci dispatch " + sub + " --dir " + action.ShellEscape(cwd)
 		_, stderr, err := executor.RunShellOutput(command)
 		if err != nil {
-			return dispatchEnrollMsg{err: classifyAgentwatchError(err, stderr)}
+			return dispatchEnrollMsg{err: classifyCenciError(err, stderr)}
 		}
 		return dispatchEnrollMsg{}
 	}
 }
 
-// dispatchOnceCmd returns a tea.Cmd that runs a single fleet-wide agentwatch
+// dispatchOnceCmd returns a tea.Cmd that runs a single fleet-wide cenci
 // dispatch pass across all enrolled repos, parsing the dispatched/skipped
 // counts from its stdout.
 func dispatchOnceCmd(executor action.Executor) tea.Cmd {
 	return func() tea.Msg {
-		command := "agentwatch dispatch --once"
+		command := "cenci dispatch --once"
 		stdout, stderr, err := executor.RunShellOutput(command)
 		if err != nil {
-			return dispatchRunMsg{err: classifyAgentwatchError(err, stderr)}
+			return dispatchRunMsg{err: classifyCenciError(err, stderr)}
 		}
 
-		// agentwatch prints one line per repo: "#N dispatch (...)" or
+		// cenci prints one line per repo: "#N dispatch (...)" or
 		// "#N skip: ...". Count those two forms; any other line (headers,
 		// summaries, or future format additions) is deliberately ignored so a
 		// minor output-format drift degrades gracefully to a count rather than
 		// an error (ticket #283, Q3). The matching is intentionally
 		// prefix-agnostic (strings.Contains, not anchored on a leading "#")
-		// so it survives agentwatch's output changing from "#N …" to
+		// so it survives cenci's output changing from "#N …" to
 		// "owner/repo#N …" (ticket #302) without requiring an update here.
 		dispatched := 0
 		skipped := 0

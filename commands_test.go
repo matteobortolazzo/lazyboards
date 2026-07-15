@@ -278,14 +278,14 @@ func TestRunCleanupCmds_LogsSuccessfulCommand(t *testing.T) {
 	}
 
 	fe := &action.FakeExecutor{}
-	cmd := runCleanupCmds(fe, []string{"agentwatch close 42"})
+	cmd := runCleanupCmds(fe, []string{"cenci close 42"})
 	cmd()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("failed to read log file %q: %v", path, err)
 	}
-	if !strings.Contains(string(data), "cleanup: executed: agentwatch close 42") {
+	if !strings.Contains(string(data), "cleanup: executed: cenci close 42") {
 		t.Errorf("log file content = %q, want it to mention the executed command", string(data))
 	}
 }
@@ -303,7 +303,7 @@ func TestRunCleanupCmds_LogsFailedCommandWithError(t *testing.T) {
 		RunShellErr:    errors.New("exit status 1"),
 		RunShellStderr: "no matching windows",
 	}
-	cmd := runCleanupCmds(fe, []string{"agentwatch close 99"})
+	cmd := runCleanupCmds(fe, []string{"cenci close 99"})
 	cmd()
 
 	data, err := os.ReadFile(path)
@@ -311,7 +311,7 @@ func TestRunCleanupCmds_LogsFailedCommandWithError(t *testing.T) {
 		t.Fatalf("failed to read log file %q: %v", path, err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "agentwatch close 99") {
+	if !strings.Contains(content, "cenci close 99") {
 		t.Errorf("log file content = %q, want it to mention the failed command", content)
 	}
 	if !strings.Contains(content, "exit status 1") {
@@ -334,7 +334,7 @@ func TestRunCleanupCmds_StillReturnsCleanupResultMsgWithCorrectCount(t *testing.
 	fe := &action.FakeExecutor{
 		RunShellErr: errors.New("boom"),
 	}
-	commands := []string{"agentwatch close 1", "agentwatch close 2", "agentwatch close 3"}
+	commands := []string{"cenci close 1", "cenci close 2", "cenci close 3"}
 	cmd := runCleanupCmds(fe, commands)
 	msg := cmd()
 

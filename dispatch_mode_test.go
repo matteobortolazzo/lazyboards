@@ -191,7 +191,7 @@ func TestDispatchModeHints_IncludesEnterAndO(t *testing.T) {
 func TestDispatch_PressD_FiresStatusQueryCmd(t *testing.T) {
 	fe := &action.FakeExecutor{
 		RunShellOutputResults: []action.RunShellOutputResult{
-			{}, // agentwatch version probe succeeds
+			{}, // cenci version probe succeeds
 			{Stdout: `{"repo":"owner/repo","dir":"/tmp/x","enrolled":false}`},
 		},
 	}
@@ -391,7 +391,7 @@ func TestDispatch_HandleStatusMsg_Error(t *testing.T) {
 	b.mode = dispatchMode
 	b.dispatch = dispatchState{loading: true}
 
-	msg := dispatchStatusMsg{err: "agentwatch not found on PATH — install it to use dispatch"}
+	msg := dispatchStatusMsg{err: "cenci not found on PATH — install it to use dispatch"}
 	m, _ := b.Update(msg)
 	b2, ok := m.(Board)
 	if !ok {
@@ -540,9 +540,9 @@ func TestDispatch_HandleRunMsg_StoresLines(t *testing.T) {
 	}
 }
 
-// --- classifyAgentwatchError (#283) ---
+// --- classifyCenciError (#283) ---
 
-func TestClassifyAgentwatchError(t *testing.T) {
+func TestClassifyCenciError(t *testing.T) {
 	cases := []struct {
 		name   string
 		err    error
@@ -555,17 +555,17 @@ func TestClassifyAgentwatchError(t *testing.T) {
 			stderr: "",
 			assert: func(t *testing.T, got string) {
 				if !strings.Contains(strings.ToLower(got), "not found") {
-					t.Errorf("classifyAgentwatchError() = %q, want a message indicating agentwatch is not found", got)
+					t.Errorf("classifyCenciError() = %q, want a message indicating cenci is not found", got)
 				}
 			},
 		},
 		{
 			name:   "stderr command not found -> not found",
 			err:    errors.New("exit status 1"),
-			stderr: "sh: agentwatch: command not found",
+			stderr: "sh: cenci: command not found",
 			assert: func(t *testing.T, got string) {
 				if !strings.Contains(strings.ToLower(got), "not found") {
-					t.Errorf("classifyAgentwatchError() = %q, want a message indicating agentwatch is not found", got)
+					t.Errorf("classifyCenciError() = %q, want a message indicating cenci is not found", got)
 				}
 			},
 		},
@@ -576,7 +576,7 @@ func TestClassifyAgentwatchError(t *testing.T) {
 			assert: func(t *testing.T, got string) {
 				lower := strings.ToLower(got)
 				if !strings.Contains(lower, "git") && !strings.Contains(lower, "repo") {
-					t.Errorf("classifyAgentwatchError() = %q, want a message mentioning the repo could not be resolved", got)
+					t.Errorf("classifyCenciError() = %q, want a message mentioning the repo could not be resolved", got)
 				}
 			},
 		},
@@ -587,7 +587,7 @@ func TestClassifyAgentwatchError(t *testing.T) {
 			assert: func(t *testing.T, got string) {
 				lower := strings.ToLower(got)
 				if !strings.Contains(lower, "git") && !strings.Contains(lower, "repo") {
-					t.Errorf("classifyAgentwatchError() = %q, want a message mentioning the repo could not be resolved", got)
+					t.Errorf("classifyCenciError() = %q, want a message mentioning the repo could not be resolved", got)
 				}
 			},
 		},
@@ -596,9 +596,9 @@ func TestClassifyAgentwatchError(t *testing.T) {
 			err:    errors.New("exit status 2"),
 			stderr: "some unexpected failure",
 			assert: func(t *testing.T, got string) {
-				want := "agentwatch: some unexpected failure"
+				want := "cenci: some unexpected failure"
 				if got != want {
-					t.Errorf("classifyAgentwatchError() = %q, want %q", got, want)
+					t.Errorf("classifyCenciError() = %q, want %q", got, want)
 				}
 			},
 		},
@@ -606,7 +606,7 @@ func TestClassifyAgentwatchError(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := classifyAgentwatchError(tc.err, tc.stderr)
+			got := classifyCenciError(tc.err, tc.stderr)
 			tc.assert(t, got)
 		})
 	}
@@ -617,7 +617,7 @@ func TestClassifyAgentwatchError(t *testing.T) {
 func TestQueryDispatchStatusCmd_Success(t *testing.T) {
 	fe := &action.FakeExecutor{
 		RunShellOutputResults: []action.RunShellOutputResult{
-			{}, // agentwatch version probe succeeds (empty stdout, no error)
+			{}, // cenci version probe succeeds (empty stdout, no error)
 			{Stdout: `{"repo":"owner/repo","dir":"/some/dir","enrolled":true}`},
 		},
 	}
@@ -645,7 +645,7 @@ func TestQueryDispatchStatusCmd_Success(t *testing.T) {
 	if len(fe.RunShellOutputCalls) != 2 {
 		t.Fatalf("expected 2 RunShellOutput calls (version probe + dispatch status), got %d: %v", len(fe.RunShellOutputCalls), fe.RunShellOutputCalls)
 	}
-	if !strings.Contains(fe.RunShellOutputCalls[0], "agentwatch version") {
+	if !strings.Contains(fe.RunShellOutputCalls[0], "cenci version") {
 		t.Errorf("RunShellOutputCalls[0] = %q, want the side-effect-free version probe", fe.RunShellOutputCalls[0])
 	}
 	cmdStr := fe.RunShellOutputCalls[1]
@@ -668,7 +668,7 @@ func TestQueryDispatchStatusCmd_ExecError(t *testing.T) {
 	// first RunShellOutput call) sees -- dispatch status must never run.
 	fe := &action.FakeExecutor{
 		RunShellOutputErr:    errors.New("exit status 127"),
-		RunShellOutputStderr: "agentwatch: command not found",
+		RunShellOutputStderr: "cenci: command not found",
 	}
 
 	cmd := queryDispatchStatusCmd(fe)
@@ -682,7 +682,7 @@ func TestQueryDispatchStatusCmd_ExecError(t *testing.T) {
 		t.Fatal("expected dispatchStatusMsg.err to be non-empty on exec error")
 	}
 	if !strings.Contains(strings.ToLower(statusMsg.err), "not found") {
-		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating agentwatch is not found", statusMsg.err)
+		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating cenci is not found", statusMsg.err)
 	}
 }
 
@@ -695,7 +695,7 @@ func TestQueryDispatchStatusCmd_ExecError(t *testing.T) {
 func TestQueryDispatchStatusCmd_OldBinaryNonJSON(t *testing.T) {
 	fe := &action.FakeExecutor{
 		RunShellOutputResults: []action.RunShellOutputResult{
-			{},                   // agentwatch version probe succeeds
+			{},                   // cenci version probe succeeds
 			{Stdout: "not json"}, // dispatch status returns garbage
 		},
 	}
@@ -712,7 +712,7 @@ func TestQueryDispatchStatusCmd_OldBinaryNonJSON(t *testing.T) {
 	}
 	lower := strings.ToLower(statusMsg.err)
 	if !strings.Contains(lower, "upgrade") && !strings.Contains(lower, "old") {
-		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating the agentwatch binary is too old", statusMsg.err)
+		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating the cenci binary is too old", statusMsg.err)
 	}
 	if len(fe.RunShellOutputCalls) < 2 || !strings.Contains(fe.RunShellOutputCalls[1], "dispatch status") {
 		t.Errorf("expected dispatch status to run after a successful probe, calls = %v", fe.RunShellOutputCalls)
@@ -737,18 +737,18 @@ func TestQueryDispatchStatusCmd_EmptyOutput(t *testing.T) {
 		t.Errorf("dispatchStatusMsg.err = %q, want a message about missing output, not a version mismatch", statusMsg.err)
 	}
 	if !strings.Contains(lower, "no output") && !strings.Contains(lower, "path") {
-		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating agentwatch produced no output", statusMsg.err)
+		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating cenci produced no output", statusMsg.err)
 	}
 }
 
 // TestQueryDispatchStatusCmd_VersionProbeFails_TooOldWithoutRunningStatus is
-// the core regression test (#299): an old agentwatch binary that predates
+// the core regression test (#299): an old cenci binary that predates
 // the `dispatch status` verb does not fail cleanly on an unknown subcommand
 // -- Go's flag parsing stops at the first positional argument and silently
 // discards the rest of argv, so `dispatch status --json --dir <cwd>`
 // degrades, on such a binary, to a REAL `dispatch` pass with real
 // side effects (dispatching tickets, creating tmux windows). Probing
-// `agentwatch version` first, and refusing to run `dispatch status` when
+// `cenci version` first, and refusing to run `dispatch status` when
 // that probe fails for any non-"not found" reason, is what prevents a status
 // poll from ever accidentally dispatching.
 func TestQueryDispatchStatusCmd_VersionProbeFails_TooOldWithoutRunningStatus(t *testing.T) {
@@ -767,7 +767,7 @@ func TestQueryDispatchStatusCmd_VersionProbeFails_TooOldWithoutRunningStatus(t *
 	}
 	lower := strings.ToLower(statusMsg.err)
 	if !strings.Contains(lower, "old") && !strings.Contains(lower, "upgrade") {
-		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating the agentwatch binary is too old", statusMsg.err)
+		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating the cenci binary is too old", statusMsg.err)
 	}
 
 	// Justified negative-call assertion (see lessons-learned.md): this guards
@@ -783,7 +783,7 @@ func TestQueryDispatchStatusCmd_VersionProbeFails_TooOldWithoutRunningStatus(t *
 func TestQueryDispatchStatusCmd_VersionProbeSucceeds_StatusRunsAsBefore(t *testing.T) {
 	fe := &action.FakeExecutor{
 		RunShellOutputResults: []action.RunShellOutputResult{
-			{}, // agentwatch version probe succeeds
+			{}, // cenci version probe succeeds
 			{Stdout: `{"repo":"owner/repo","dir":"/some/dir","enrolled":false}`},
 		},
 	}
@@ -807,11 +807,11 @@ func TestQueryDispatchStatusCmd_VersionProbeSucceeds_StatusRunsAsBefore(t *testi
 }
 
 func TestQueryDispatchStatusCmd_TooOldError_IncludesBinaryPath(t *testing.T) {
-	resolvedPath := "/home/user/go/bin/agentwatch"
+	resolvedPath := "/home/user/go/bin/cenci"
 	fe := &action.FakeExecutor{
 		RunShellOutputResults: []action.RunShellOutputResult{
 			{Err: errors.New("exit status 2"), Stderr: "flag provided but not defined: -json"}, // version probe fails, not "not found"
-			{Stdout: resolvedPath + "\n"}, // command -v agentwatch resolves a path
+			{Stdout: resolvedPath + "\n"}, // command -v cenci resolves a path
 		},
 	}
 
@@ -831,7 +831,7 @@ func TestQueryDispatchStatusCmd_TooOldError_IncludesBinaryPath(t *testing.T) {
 func TestQueryDispatchStatusCmd_NotFoundError_HasNoBinaryPathSuffix(t *testing.T) {
 	fe := &action.FakeExecutor{
 		RunShellOutputResults: []action.RunShellOutputResult{
-			{Err: errors.New("exit status 127"), Stderr: "sh: agentwatch: command not found"},
+			{Err: errors.New("exit status 127"), Stderr: "sh: cenci: command not found"},
 		},
 	}
 
@@ -843,7 +843,7 @@ func TestQueryDispatchStatusCmd_NotFoundError_HasNoBinaryPathSuffix(t *testing.T
 		t.Fatalf("queryDispatchStatusCmd() returned %T, want dispatchStatusMsg", msg)
 	}
 	if !strings.Contains(strings.ToLower(statusMsg.err), "not found") {
-		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating agentwatch is not found", statusMsg.err)
+		t.Errorf("dispatchStatusMsg.err = %q, want a message indicating cenci is not found", statusMsg.err)
 	}
 	if strings.Contains(statusMsg.err, "(using") {
 		t.Errorf("dispatchStatusMsg.err = %q, want no binary path suffix when the binary itself cannot be found (a path would be misleading)", statusMsg.err)
@@ -1013,7 +1013,7 @@ func TestDispatchOnceCmd_ParsesCounts(t *testing.T) {
 }
 
 // TestDispatchOnceCmd_RetainsBothIssueRefFormats is a regression test for the
-// agentwatch output format transitioning from "#N …" to "owner/repo#N …".
+// cenci output format transitioning from "#N …" to "owner/repo#N …".
 // The line-matching in dispatchOnceCmd is deliberately prefix-agnostic
 // (strings.Contains on " dispatch "/" skip:", not anchored on a leading "#"),
 // so both the old bare "#N" form and the new "owner/repo#N" form must survive
@@ -1050,7 +1050,7 @@ func TestDispatchOnceCmd_RetainsBothIssueRefFormats(t *testing.T) {
 func TestDispatchOnceCmd_Error(t *testing.T) {
 	fe := &action.FakeExecutor{
 		RunShellOutputErr:    errors.New("exit status 127"),
-		RunShellOutputStderr: "agentwatch: command not found",
+		RunShellOutputStderr: "cenci: command not found",
 	}
 
 	cmd := dispatchOnceCmd(fe)
@@ -1097,7 +1097,7 @@ func TestDispatchView_Running(t *testing.T) {
 func TestDispatchView_ErrorWithRepoAndDir(t *testing.T) {
 	b := newDispatchTestBoard(t)
 	b.mode = dispatchMode
-	errMsg := "agentwatch not found on PATH — install it to use dispatch"
+	errMsg := "cenci not found on PATH — install it to use dispatch"
 	b.dispatch = dispatchState{err: errMsg, repo: "owner/repo", dir: "/tmp/some-dir"}
 
 	view := b.View()

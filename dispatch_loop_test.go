@@ -10,7 +10,7 @@ import (
 )
 
 // Ticket #313: the dispatch panel becomes a pure reader of the daemon-owned
-// "loop" object returned by `agentwatch dispatch status --json`. All
+// "loop" object returned by `cenci dispatch status --json`. All
 // in-app pidfile-based process management (start/stop of the dispatch loop)
 // is deleted outright -- starting/stopping the loop becomes a
 // user-configured custom shell action (README-documented only, no code).
@@ -55,7 +55,7 @@ func driveDispatchStatus(t *testing.T, fe *action.FakeExecutor) Board {
 func scriptedStatusExecutor(stdout string) *action.FakeExecutor {
 	return &action.FakeExecutor{
 		RunShellOutputResults: []action.RunShellOutputResult{
-			{}, // agentwatch version probe succeeds
+			{}, // cenci version probe succeeds
 			{Stdout: stdout},
 		},
 	}
@@ -64,7 +64,7 @@ func scriptedStatusExecutor(stdout string) *action.FakeExecutor {
 // --- Loop line rendering: on + daemon running + has run at least once ---
 
 func TestDispatchView_Loop_OnAndRunning_ShowsIntervalTimeAndCounts(t *testing.T) {
-	// Real captured wire sample from a live agentwatch v2.17.0 binary.
+	// Real captured wire sample from a live cenci v2.17.0 binary.
 	sample := `{"repo":"matteobortolazzo/lazyboards","dir":"/workspace","enrolled":false,"loop":{"enabled":true,"daemon_running":true,"interval":"5m","pass_running":false,"last_run_at":"2026-07-14T10:09:50Z","last_dispatched":0,"last_skipped":8}}`
 	fe := scriptedStatusExecutor(sample)
 
@@ -153,12 +153,12 @@ func TestDispatchView_Loop_ErrorTakesPrecedenceOverOnRendering(t *testing.T) {
 // --- Old-binary guard: top-level "loop" key entirely absent ---
 
 // TestDispatchView_Loop_OldBinaryGuard_MissingLoopKey covers a current
-// agentwatch binary new enough to run `dispatch status --json` successfully,
+// cenci binary new enough to run `dispatch status --json` successfully,
 // but whose response omits the "loop" key entirely (a binary that predates
 // this feature). This must render a clear error line inside the loop
 // section -- not crash the panel -- while repo/enrolled info (decoded from
 // the same successful top-level parse) still renders normally. This is a
-// distinct guard from the existing agentwatchTooOldMsg version-probe guard,
+// distinct guard from the existing cenciTooOldMsg version-probe guard,
 // which fires when the CLI verb itself doesn't exist.
 func TestDispatchView_Loop_OldBinaryGuard_MissingLoopKey(t *testing.T) {
 	sample := `{"repo":"owner/repo","dir":"/tmp/x","enrolled":true}`
@@ -198,7 +198,7 @@ func TestFormatLoopRunTime_ValidRFC3339_FormatsLocalHHMM(t *testing.T) {
 }
 
 // TestFormatLoopRunTime_Malformed_ReturnsRawInputUnchanged is a regression
-// test for agent-stack's own frontend script bug: a malformed/unparseable
+// test for cenci's own frontend script bug: a malformed/unparseable
 // last_run_at value must come back verbatim, never "NaN:NaN" and never a
 // panic.
 func TestFormatLoopRunTime_Malformed_ReturnsRawInputUnchanged(t *testing.T) {
