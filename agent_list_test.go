@@ -277,6 +277,9 @@ func TestAgentList_Enter_EscapesShellMetacharacters(t *testing.T) {
 	b = m.(Board)
 	execCmds(cmd)
 
+	if b.mode != normalMode {
+		t.Errorf("mode after enter = %d, want normalMode (%d)", b.mode, normalMode)
+	}
 	if len(fe.RunShellCalls) != 1 {
 		t.Fatalf("RunShell called %d times, want 1", len(fe.RunShellCalls))
 	}
