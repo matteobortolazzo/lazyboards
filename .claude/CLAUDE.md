@@ -69,6 +69,10 @@ Tests are split by domain to mirror production code:
 
 Internal packages: `internal/action`, `internal/auth`, `internal/cenciwatch`, `internal/config`, `internal/debuglog`, `internal/git`, `internal/provider`.
 
+## Sandbox Image
+- `.cenci/Dockerfile` — committed, per-repo image tailored to this repo's stack; the whole team builds the same image
+- Rebuild after changing the stack or the Dockerfile: `cenci sandbox build` (run from inside this repo)
+
 ## Rule Files
 See `.claude/rules/` for conventions:
 - `lessons-learned.md` — pointer to topic-specific lessons (see below); authoritative, overrides assumptions

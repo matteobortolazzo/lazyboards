@@ -33,6 +33,9 @@ go.work.sum
 *.swp
 *.swo
 
+# Local personal Claude Code settings (machine-specific overrides)
+.claude/settings.local.json
+
 # Environment
 .env
 .env.*
