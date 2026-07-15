@@ -171,16 +171,25 @@ func (g *GitHubProvider) fetchClosingPRFollowups(ctx context.Context, issue issu
 	return linkedPRs, nil
 }
 
+// normalizeLabelColor strips the optional "#" prefix from a label color
+// value and validates 6-character hex format, returning an empty string if
+// the result is not valid hex. Shared by the REST (extractLabels) and
+// GraphQL (mapIssueQueryNode) label-mapping paths so both normalize colors
+// identically.
+func normalizeLabelColor(raw string) string {
+	color := strings.TrimPrefix(raw, "#")
+	if !hexColorRE.MatchString(color) {
+		return ""
+	}
+	return color
+}
+
 // extractLabels converts GitHub API labels to provider Labels, stripping the
 // optional "#" prefix from color values and validating 6-character hex format.
 func extractLabels(ghLabels []*github.Label) []Label {
 	labels := make([]Label, 0, len(ghLabels))
 	for _, l := range ghLabels {
-		color := strings.TrimPrefix(l.GetColor(), "#")
-		if !hexColorRE.MatchString(color) {
-			color = ""
-		}
-		labels = append(labels, Label{Name: l.GetName(), Color: color})
+		labels = append(labels, Label{Name: l.GetName(), Color: normalizeLabelColor(l.GetColor())})
 	}
 	return labels
 }
