@@ -238,7 +238,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, cmd
 
 	case deleteCommentPostedMsg:
-		return b, deleteCardCmd(b.provider, msg.card)
+		return b, deleteCardCmd(b.provider, msg.card, true)
 
 	case deleteCommentErrorMsg:
 		b.mode = normalMode
@@ -250,6 +250,10 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cardDeleteErrorMsg:
 		b.mode = normalMode
+		if msg.commentPosted {
+			cmd := b.statusBar.SetTimedMessage("Comment posted, but delete failed: "+provider.SanitizeError(msg.err), StatusError, longStatusMessageDuration)
+			return b, cmd
+		}
 		cmd := b.statusBar.SetTimedMessage("Delete error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
 		return b, cmd
 

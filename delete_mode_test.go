@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v68/github"
@@ -34,6 +35,70 @@ func newDeleteTestBoard(t *testing.T) (Board, *provider.FakeProvider) {
 	loaded.Width = 120
 	loaded.Height = 40
 	return loaded, p
+}
+
+// failingDeleteProvider wraps a FakeProvider so DeleteCard always fails with a
+// fixed error, while every other method (notably AddComment) behaves exactly
+// like the embedded FakeProvider. This lets tests exercise the real
+// deleteCommentPostedMsg -> deleteCardCmd production chain and observe
+// exactly what commentPosted value that chain produces, without conflating a
+// comment-post failure with a delete failure (a plain FakeProvider can't
+// fail DeleteCard alone while leaving AddComment working, since both key off
+// the same findCard lookup).
+type failingDeleteProvider struct {
+	*provider.FakeProvider
+	deleteErr error
+}
+
+func (f *failingDeleteProvider) DeleteCard(_ context.Context, _ int) error {
+	return f.deleteErr
+}
+
+// newDeleteTestBoardWithFailingDelete mirrors newDeleteTestBoard but backs
+// the Board with a failingDeleteProvider, so DeleteCard always fails with
+// deleteErr regardless of which card is targeted.
+func newDeleteTestBoardWithFailingDelete(t *testing.T, deleteErr error) (Board, *failingDeleteProvider) {
+	t.Helper()
+	fp := provider.NewFakeProvider()
+	fd := &failingDeleteProvider{FakeProvider: fp, deleteErr: deleteErr}
+	b := NewBoard(fd, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, _ := b.Update(boardFetchedMsg{board: board})
+	loaded, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	loaded.Width = 120
+	loaded.Height = 40
+	return loaded, fd
+}
+
+// waitClearedWithin runs cmd (the tea.Cmd returned from a StatusBar
+// SetTimedMessage call, e.g. via Update()) in a goroutine and reports whether
+// it produced its clearStatusMsg within timeout. It never blocks the test for
+// longer than timeout, so it can distinguish the short statusMessageDuration
+// path from the long longStatusMessageDuration path without ever waiting out
+// the full 30s duration: a timeout set just past statusMessageDuration is
+// enough, since those are the only two durations this feature uses.
+func waitClearedWithin(t *testing.T, cmd tea.Cmd, timeout time.Duration) bool {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("expected a non-nil cmd carrying the timed-message clear tick")
+	}
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	select {
+	case msg := <-done:
+		if _, ok := msg.(clearStatusMsg); !ok {
+			t.Fatalf("expected cmd to produce a clearStatusMsg, got %T", msg)
+		}
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 // --- PR-linked gating ---
@@ -475,14 +540,22 @@ func TestDeleteMode_CardDeleteErrorMsg_SanitizesGitHubAPIErrorCardUntouched(t *t
 		Message:  rawMessage,
 	}
 
-	m, _ := b.Update(cardDeleteErrorMsg{err: ghErr})
+	// commentPosted is explicitly false: this is the direct no-comment path
+	// (blank comment -> deleteCardCmd called straight from
+	// handleDeleteModeKey), which must render the existing generic message
+	// unchanged (#376).
+	m, cmd := b.Update(cardDeleteErrorMsg{err: ghErr, commentPosted: false})
 	b = m.(Board)
 
 	if strings.Contains(b.statusBar.message, rawMessage) {
 		t.Errorf("status bar message leaked raw internal error text, got: %q", b.statusBar.message)
 	}
-	if b.statusBar.message == "" {
-		t.Error("expected a sanitized status bar message after cardDeleteErrorMsg")
+	wantMsg := "Delete error: " + provider.SanitizeError(ghErr)
+	if b.statusBar.message != wantMsg {
+		t.Errorf("statusBar.message = %q, want %q", b.statusBar.message, wantMsg)
+	}
+	if b.statusBar.level != StatusError {
+		t.Errorf("statusBar.level = %d, want StatusError", b.statusBar.level)
 	}
 	if b.mode != normalMode {
 		t.Errorf("mode = %d after cardDeleteErrorMsg, want normalMode", b.mode)
@@ -495,6 +568,216 @@ func TestDeleteMode_CardDeleteErrorMsg_SanitizesGitHubAPIErrorCardUntouched(t *t
 	}
 	if !found {
 		t.Error("expected card to remain in Columns after a delete-permission failure")
+	}
+
+	// commentPosted=false must keep the existing short duration, not the new
+	// long duration reserved for the partial-success (comment-posted) path.
+	threshold := statusMessageDuration + 500*time.Millisecond
+	if !waitClearedWithin(t, cmd, threshold) {
+		t.Errorf("expected the generic delete-error message to clear within statusMessageDuration (%s); commentPosted=false must not use longStatusMessageDuration (%s)", statusMessageDuration, longStatusMessageDuration)
+	}
+}
+
+// TestDeleteMode_CardDeleteErrorMsg_CommentPosted_SanitizesAndShowsPartialSuccessMessage
+// is the commentPosted=true sibling of the sanitization test above: when the
+// comment successfully posted before DeleteCard failed, the status bar must
+// show a distinct "partial success" message (not the generic "Delete error:"
+// text), still sanitized, and held for the long duration so the user has time
+// to notice the comment landed but the card was not removed (#376).
+func TestDeleteMode_CardDeleteErrorMsg_CommentPosted_SanitizesAndShowsPartialSuccessMessage(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	card := b.selectedCard()
+
+	rawMessage := "internal trace: panic at /srv/app/internal/db.go:99 token=SECRET"
+	ghErr := &github.ErrorResponse{
+		Response: &http.Response{StatusCode: http.StatusForbidden},
+		Message:  rawMessage,
+	}
+
+	m, cmd := b.Update(cardDeleteErrorMsg{err: ghErr, commentPosted: true})
+	b = m.(Board)
+
+	if strings.Contains(b.statusBar.message, rawMessage) {
+		t.Errorf("status bar message leaked raw internal error text, got: %q", b.statusBar.message)
+	}
+	wantMsg := "Comment posted, but delete failed: " + provider.SanitizeError(ghErr)
+	if b.statusBar.message != wantMsg {
+		t.Errorf("statusBar.message = %q, want %q", b.statusBar.message, wantMsg)
+	}
+	if b.statusBar.message == "Delete error: "+provider.SanitizeError(ghErr) {
+		t.Error("expected the commentPosted=true message to be distinct from the generic 'Delete error:' text")
+	}
+	if b.statusBar.level != StatusError {
+		t.Errorf("statusBar.level = %d, want StatusError", b.statusBar.level)
+	}
+	if b.mode != normalMode {
+		t.Errorf("mode = %d after commentPosted cardDeleteErrorMsg, want normalMode", b.mode)
+	}
+	found := false
+	for _, c := range b.Columns[0].Cards {
+		if c.Number == card.Number {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected the card to remain in Columns after a partial-success delete failure")
+	}
+
+	// commentPosted=true must use the long duration, not the default 3s.
+	threshold := statusMessageDuration + 500*time.Millisecond
+	if waitClearedWithin(t, cmd, threshold) {
+		t.Errorf("expected the partial-success message to persist past statusMessageDuration (%s); commentPosted=true must use longStatusMessageDuration (%s), not the short default", statusMessageDuration, longStatusMessageDuration)
+	}
+}
+
+// --- Partial-success: comment posts, then delete fails (full production chain) ---
+//
+// These two tests exercise the actual handleDeleteModeKey -> [commentCmd ->]
+// deleteCardCmd production wiring (not a hand-constructed message), to verify
+// the real code sets cardDeleteErrorMsg.commentPosted correctly depending on
+// which path was taken (#376).
+
+func TestDeleteMode_HappyPath_WithComment_DeleteFailsAfterCommentPosted_ShowsPartialSuccess(t *testing.T) {
+	deleteErr := errSentinel("delete failed after comment posted")
+	b, fd := newDeleteTestBoardWithFailingDelete(t, deleteErr)
+	card := b.selectedCard()
+
+	b = sendKey(t, b, keyMsg("t"))
+	const commentText = "cleaning up before delete"
+	for _, ch := range commentText {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // -> confirm step
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+	for _, ch := range strconv.Itoa(card.Number) {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	if cmd == nil {
+		t.Fatal("expected a non-nil cmd after confirming delete with a comment")
+	}
+
+	msgs := collectMsgs(cmd)
+	if len(msgs) == 0 {
+		t.Fatal("expected the confirm cmd to produce at least one message")
+	}
+	posted, ok := msgs[0].(deleteCommentPostedMsg)
+	if !ok {
+		t.Fatalf("expected the confirm cmd to first post the comment (deleteCommentPostedMsg), got %T", msgs[0])
+	}
+	if len(fd.Comments[card.Number]) == 0 {
+		t.Fatalf("expected the comment to actually post before the delete attempt, got: %v", fd.Comments[card.Number])
+	}
+
+	m, cmd2 := b.Update(posted)
+	b = m.(Board)
+	if cmd2 == nil {
+		t.Fatal("expected deleteCommentPostedMsg to chain to deleteCardCmd")
+	}
+
+	msgs2 := collectMsgs(cmd2)
+	if len(msgs2) == 0 {
+		t.Fatal("expected deleteCardCmd to produce a message")
+	}
+	deleteErrMsg, ok := msgs2[0].(cardDeleteErrorMsg)
+	if !ok {
+		t.Fatalf("expected deleteCardCmd's result to be cardDeleteErrorMsg (DeleteCard always fails in this test), got %T", msgs2[0])
+	}
+	if !deleteErrMsg.commentPosted {
+		t.Error("expected cardDeleteErrorMsg.commentPosted = true when the failure is reached via the comment-then-delete chain")
+	}
+
+	m, cmd3 := b.Update(deleteErrMsg)
+	b = m.(Board)
+
+	wantMsg := "Comment posted, but delete failed: " + provider.SanitizeError(deleteErrMsg.err)
+	if b.statusBar.message != wantMsg {
+		t.Errorf("statusBar.message = %q, want %q", b.statusBar.message, wantMsg)
+	}
+	if b.statusBar.level != StatusError {
+		t.Errorf("statusBar.level = %d, want StatusError", b.statusBar.level)
+	}
+	if b.mode != normalMode {
+		t.Errorf("mode = %d after partial-success cardDeleteErrorMsg, want normalMode", b.mode)
+	}
+	found := false
+	for _, c := range b.Columns[0].Cards {
+		if c.Number == card.Number {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected the card to remain in Columns after a partial-success delete failure (comment landed but delete failed)")
+	}
+
+	threshold := statusMessageDuration + 500*time.Millisecond
+	if waitClearedWithin(t, cmd3, threshold) {
+		t.Errorf("expected the partial-success message to persist past statusMessageDuration (%s); it must use longStatusMessageDuration (%s), not the short default", statusMessageDuration, longStatusMessageDuration)
+	}
+}
+
+func TestDeleteMode_HappyPath_NoComment_DeleteFails_ShowsGenericErrorWithShortDuration(t *testing.T) {
+	deleteErr := errSentinel("delete failed, no comment involved")
+	b, _ := newDeleteTestBoardWithFailingDelete(t, deleteErr)
+	card := b.selectedCard()
+
+	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // blank comment -> confirm step
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+	for _, ch := range strconv.Itoa(card.Number) {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	if cmd == nil {
+		t.Fatal("expected a non-nil cmd after confirming delete with no comment")
+	}
+
+	msgs := collectMsgs(cmd)
+	if len(msgs) == 0 {
+		t.Fatal("expected the confirm cmd to produce at least one message")
+	}
+	deleteErrMsg, ok := msgs[0].(cardDeleteErrorMsg)
+	if !ok {
+		t.Fatalf("expected the no-comment confirm cmd to call deleteCardCmd directly and fail with cardDeleteErrorMsg, got %T", msgs[0])
+	}
+	if deleteErrMsg.commentPosted {
+		t.Error("expected cardDeleteErrorMsg.commentPosted = false on the direct no-comment path")
+	}
+
+	m, cmd2 := b.Update(deleteErrMsg)
+	b = m.(Board)
+
+	wantMsg := "Delete error: " + provider.SanitizeError(deleteErrMsg.err)
+	if b.statusBar.message != wantMsg {
+		t.Errorf("statusBar.message = %q, want %q", b.statusBar.message, wantMsg)
+	}
+	if b.statusBar.level != StatusError {
+		t.Errorf("statusBar.level = %d, want StatusError", b.statusBar.level)
+	}
+	if b.mode != normalMode {
+		t.Errorf("mode = %d after cardDeleteErrorMsg, want normalMode", b.mode)
+	}
+	found := false
+	for _, c := range b.Columns[0].Cards {
+		if c.Number == card.Number {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected the card to remain in Columns after a delete failure")
+	}
+
+	threshold := statusMessageDuration + 500*time.Millisecond
+	if !waitClearedWithin(t, cmd2, threshold) {
+		t.Errorf("expected the generic delete-error message to clear within statusMessageDuration (%s), unchanged existing behavior", statusMessageDuration)
 	}
 }
 

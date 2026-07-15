@@ -800,7 +800,7 @@ func (b Board) handleDeleteModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if comment != "" {
 				return b, addCommentForDeleteCmd(b.provider, card, comment)
 			}
-			return b, deleteCardCmd(b.provider, card)
+			return b, deleteCardCmd(b.provider, card, false)
 		}
 		var cmd tea.Cmd
 		b.delete.confirmInput, cmd = b.delete.confirmInput.Update(msg)

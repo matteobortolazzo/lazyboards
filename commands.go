@@ -575,10 +575,13 @@ func addCommentForDeleteCmd(p provider.BoardProvider, card Card, comment string)
 // deleteCardCmd returns a tea.Cmd that permanently deletes a card via the
 // provider. DeleteCard returns only an error (no Card), so the Card is
 // carried through the closure rather than derived from a provider response.
-func deleteCardCmd(p provider.BoardProvider, card Card) tea.Cmd {
+// commentPosted indicates whether this call was reached via the
+// comment-then-delete chain, so a failure can be reported as a partial
+// success (comment landed but delete failed).
+func deleteCardCmd(p provider.BoardProvider, card Card, commentPosted bool) tea.Cmd {
 	return func() tea.Msg {
 		if err := p.DeleteCard(context.Background(), card.Number); err != nil {
-			return cardDeleteErrorMsg{err: err}
+			return cardDeleteErrorMsg{err: err, commentPosted: commentPosted}
 		}
 		return cardDeletedMsg{card: card}
 	}
