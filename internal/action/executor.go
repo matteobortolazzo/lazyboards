@@ -2,8 +2,11 @@ package action
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // Executor defines methods for executing actions.
@@ -16,8 +19,23 @@ type Executor interface {
 // DefaultExecutor executes actions using real OS calls.
 type DefaultExecutor struct{}
 
+// errInvalidURLScheme is returned by OpenURL when the URL does not use the
+// http or https scheme.
+var errInvalidURLScheme = errors.New("invalid URL scheme")
+
+// isValidURLScheme reports whether url starts with http:// or https://.
+// Action templates can embed untrusted values (e.g. GitHub issue/PR URLs),
+// so OpenURL must reject anything else before shelling out to
+// open/xdg-open/cmd start.
+func isValidURLScheme(url string) bool {
+	return strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")
+}
+
 // OpenURL opens a URL in the system browser.
 func (d DefaultExecutor) OpenURL(url string) error {
+	if !isValidURLScheme(url) {
+		return fmt.Errorf("%w: %q", errInvalidURLScheme, url)
+	}
 	switch runtime.GOOS {
 	case "darwin":
 		return exec.Command("open", url).Start()
