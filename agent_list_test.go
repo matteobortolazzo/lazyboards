@@ -352,6 +352,53 @@ func TestAgentList_SnapshotUpdate_ClampsCursorWhileOpen(t *testing.T) {
 	}
 }
 
+// TestAgentList_SnapshotUpdate_ShrinkToZero_SwitchesToEmptyHints: when every
+// window of an open (card-scoped) modal closes, the view falls to its "No
+// agent windows" branch, so the hints must stop advertising enter/j/k
+// (docs/view-state-consistency.md).
+func TestAgentList_SnapshotUpdate_ShrinkToZero_SwitchesToEmptyHints(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, cardJumpWindows())
+	b = sendKey(t, b, keyMsg("s")) // card #42 scoped: two windows
+
+	// Both of #42's windows close; only another card's window survives.
+	m, cmd := b.Update(agentSnapshotMsg{snapshot: &cenciwatch.StateSnapshot{Windows: []cenciwatch.WindowState{
+		{Session: "dev", WindowIndex: "4", WindowName: "7-fix", Status: agentStatusRunning},
+	}}})
+	b = m.(Board)
+	if cmd == nil {
+		t.Errorf("agentSnapshotMsg with a live watcher must re-subscribe; got nil cmd")
+	}
+
+	if !strings.Contains(b.View(), agentListMsgNoWindows) {
+		t.Errorf("view after shrink-to-zero missing the empty message")
+	}
+	status := b.statusBar.View(200, 0, 0)
+	if strings.Contains(status, "Go to window") {
+		t.Errorf("hints = %q, still advertising enter on an empty modal", status)
+	}
+	if !strings.Contains(status, "Cancel") {
+		t.Errorf("hints = %q, want esc/Cancel to remain", status)
+	}
+}
+
+func TestAgentList_SnapshotUpdate_GrowFromZero_RestoresHints(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, nil)
+	b = sendKey(t, b, keyMsg("w")) // opens empty: esc-only hints
+
+	m, cmd := b.Update(agentSnapshotMsg{snapshot: &cenciwatch.StateSnapshot{Windows: threeWindows()}})
+	b = m.(Board)
+	if cmd == nil {
+		t.Errorf("agentSnapshotMsg with a live watcher must re-subscribe; got nil cmd")
+	}
+
+	status := b.statusBar.View(200, 0, 0)
+	if !strings.Contains(status, "Go to window") {
+		t.Errorf("hints = %q, want enter hint restored once rows exist", status)
+	}
+}
+
 // --- Closing ---
 
 func TestAgentList_Esc_ReturnsToNormal(t *testing.T) {
@@ -363,6 +410,190 @@ func TestAgentList_Esc_ReturnsToNormal(t *testing.T) {
 
 	if b.mode != normalMode {
 		t.Errorf("mode after esc = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+}
+
+// --- Card-scoped jump (s) ---
+
+// cardJumpWindows: card #42 has two agent windows, card #7 has one.
+func cardJumpWindows() []cenciwatch.WindowState {
+	return []cenciwatch.WindowState{
+		{Session: "dev", WindowIndex: "1", WindowName: "42-plan", Status: "done"},
+		{Session: "dev", WindowIndex: "2", WindowName: "42-implement", Status: agentStatusRunning, Agent: "claude"},
+		{Session: "dev", WindowIndex: "4", WindowName: "7-fix", Status: agentStatusRunning},
+	}
+}
+
+func TestNormalMode_S_SingleWindow_SwitchesDirectly(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, cardJumpWindows())
+	b = sendKey(t, b, keyMsg("j")) // select card #7 (one window: 7-fix)
+
+	m, cmd := b.Update(keyMsg("s"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != normalMode {
+		t.Errorf("mode after single-window jump = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if len(fe.RunShellCalls) != 1 {
+		t.Fatalf("RunShell called %d times, want 1", len(fe.RunShellCalls))
+	}
+	want := "tmux select-window -t 'dev:4' && tmux switch-client -t 'dev'"
+	if fe.RunShellCalls[0] != want {
+		t.Errorf("RunShell = %q, want %q", fe.RunShellCalls[0], want)
+	}
+	if !strings.Contains(b.statusBar.View(200, 0, 0), "7-fix") {
+		t.Errorf("status = %q, want it to mention the window", b.statusBar.View(200, 0, 0))
+	}
+}
+
+func TestNormalMode_S_MultipleWindows_OpensModalFilteredToCard(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, cardJumpWindows())
+
+	m, cmd := b.Update(keyMsg("s")) // card #42 selected: two windows
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != agentListMode {
+		t.Fatalf("mode after multi-window jump = %d, want agentListMode (%d)", b.mode, agentListMode)
+	}
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("RunShell called %d times before a window was chosen, want 0", len(fe.RunShellCalls))
+	}
+	entries := b.agentListEntries()
+	if len(entries) != 2 {
+		t.Fatalf("filtered entries = %d, want 2 (only #42's windows)", len(entries))
+	}
+	for i, e := range entries {
+		if e.cardNumber != 42 {
+			t.Errorf("entry %d joined card #%d, want 42", i, e.cardNumber)
+		}
+	}
+	view := b.View()
+	if !strings.Contains(view, "Agents — #42") {
+		t.Errorf("view missing the card-scoped title, got:\n%s", view)
+	}
+	if strings.Contains(view, "7-fix") {
+		t.Errorf("card-scoped view leaked another card's window")
+	}
+}
+
+func TestNormalMode_S_FilteredModal_EnterSwitches(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, cardJumpWindows())
+	b = sendKey(t, b, keyMsg("s"))
+	b = sendKey(t, b, keyMsg("j")) // select 42-implement (dev:2)
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != normalMode {
+		t.Errorf("mode after enter = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if len(fe.RunShellCalls) != 1 {
+		t.Fatalf("RunShell called %d times, want 1", len(fe.RunShellCalls))
+	}
+	want := "tmux select-window -t 'dev:2' && tmux switch-client -t 'dev'"
+	if fe.RunShellCalls[0] != want {
+		t.Errorf("RunShell = %q, want %q", fe.RunShellCalls[0], want)
+	}
+}
+
+func TestNormalMode_S_NoWindows_ShowsStatusMessage(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, []cenciwatch.WindowState{
+		{Session: "dev", WindowIndex: "9", WindowName: "999-other", Status: "idle"},
+	})
+
+	m, cmd := b.Update(keyMsg("s")) // card #42 selected: no windows
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != normalMode {
+		t.Errorf("mode after no-window jump = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("RunShell called %d times, want 0", len(fe.RunShellCalls))
+	}
+	if !strings.Contains(b.statusBar.View(200, 0, 0), "No agent windows") {
+		t.Errorf("status = %q, want a no-agent-windows message", b.statusBar.View(200, 0, 0))
+	}
+}
+
+// TestNormalMode_S_StatePrecedence locks the full cenciwatch state precedence
+// for the jump's zero-window branch: "no windows for this card" must only be
+// claimed when a daemon snapshot is actually connected.
+func TestNormalMode_S_StatePrecedence(t *testing.T) {
+	press := func(t *testing.T, mutate func(*Board)) Board {
+		t.Helper()
+		fe := &action.FakeExecutor{}
+		b := newAgentListBoard(t, fe, nil)
+		mutate(&b)
+		m, cmd := b.Update(keyMsg("s"))
+		updated := m.(Board)
+		execCmds(cmd)
+		return updated
+	}
+
+	t.Run("watcher disabled", func(t *testing.T) {
+		b := press(t, func(b *Board) { b.cenciWatcher = nil; b.agentSnapshot = nil })
+		if status := b.statusBar.View(200, 0, 0); !strings.Contains(status, "not enabled") {
+			t.Errorf("status = %q, want the watcher-disabled message", status)
+		}
+	})
+
+	t.Run("daemon not connected", func(t *testing.T) {
+		b := press(t, func(b *Board) { b.agentSnapshot = nil })
+		if status := b.statusBar.View(200, 0, 0); !strings.Contains(status, "Waiting for cenci-watch") {
+			t.Errorf("status = %q, want the not-connected message", status)
+		}
+	})
+
+	t.Run("connected with no matching windows", func(t *testing.T) {
+		b := press(t, func(b *Board) {})
+		if status := b.statusBar.View(200, 0, 0); !strings.Contains(status, "No agent windows for #42") {
+			t.Errorf("status = %q, want the no-windows-for-card message", status)
+		}
+	})
+}
+
+// TestNormalMode_S_RespectsActiveSearch locks the cursor-invariant rule: with
+// a search active the cursor indexes the filtered list, so s must act on the
+// filtered selection (via selectedCard), not the raw column card at the same
+// index.
+func TestNormalMode_S_RespectsActiveSearch(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, cardJumpWindows())
+	b.searchQuery = "card b" // only card #7 visible; cursor 0 now means #7
+
+	m, cmd := b.Update(keyMsg("s"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) != 1 {
+		t.Fatalf("RunShell called %d times, want 1", len(fe.RunShellCalls))
+	}
+	want := "tmux select-window -t 'dev:4' && tmux switch-client -t 'dev'"
+	if fe.RunShellCalls[0] != want {
+		t.Errorf("RunShell = %q, want %q (card #7's window, not card #42's)", fe.RunShellCalls[0], want)
+	}
+}
+
+// TestNormalMode_W_AfterCardScopedOpen_ListsAll guards the reset: a global
+// open after a card-scoped one must not inherit the card filter.
+func TestNormalMode_W_AfterCardScopedOpen_ListsAll(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, cardJumpWindows())
+	b = sendKey(t, b, keyMsg("s")) // card-scoped (#42)
+	b = sendKey(t, b, arrowMsg(tea.KeyEscape))
+
+	b = sendKey(t, b, keyMsg("w"))
+
+	if got := len(b.agentListEntries()); got != 3 {
+		t.Errorf("global entries after a card-scoped open = %d, want 3", got)
 	}
 }
 
@@ -382,7 +613,7 @@ func TestHelp_ListsAgentListKeybindings(t *testing.T) {
 	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
 		sectionContent = sectionContent[:nextSection+1]
 	}
-	for _, want := range []string{"w", "Go to tmux window", "Navigate", "Cancel"} {
+	for _, want := range []string{"w", "Go to tmux window", "Navigate", "Cancel", "Card agents"} {
 		if !strings.Contains(sectionContent, want) {
 			t.Errorf("Agents help section missing %q", want)
 		}

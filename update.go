@@ -33,14 +33,23 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.cenciWatchConsecutiveErrors = 0
 		b.statusBar.SetDispatchStatus(formatDispatchSegment(msg.snapshot.Dispatch))
 		// Live snapshots can shrink the agents list while its modal is open;
-		// clamp at the mutation site (docs/list-cursor-invariants.md).
+		// clamp at the mutation site (docs/list-cursor-invariants.md) and
+		// keep the hints in step with the empty/non-empty branch the view
+		// renders (docs/view-state-consistency.md) — a list that empties
+		// mid-open must stop hinting enter/j/k, and vice versa.
 		if b.mode == agentListMode {
-			if n := len(b.agentListEntries()); b.agentList.cursor >= n {
+			n := len(b.agentListEntries())
+			if b.agentList.cursor >= n {
 				b.agentList.cursor = n - 1
 				if b.agentList.cursor < 0 {
 					b.agentList.cursor = 0
 				}
 			}
+			hints := agentListModeHints
+			if n == 0 {
+				hints = agentListEmptyHints
+			}
+			b.statusBar.SetActionHints(hints)
 		}
 		if b.cenciWatcher == nil {
 			return b, nil

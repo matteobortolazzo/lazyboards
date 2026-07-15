@@ -251,6 +251,14 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "w":
 		b.enterAgentList()
 		return b, nil
+	case "s":
+		if len(b.Columns) == 0 {
+			return b, nil
+		}
+		if len(b.visibleCards()) == 0 {
+			return b, nil
+		}
+		return b.handleAgentJumpKey(b.selectedCard())
 	case "/":
 		b.mode = searchMode
 		cmd := b.searchInput.Focus()
@@ -708,6 +716,39 @@ func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b.handlePRListActionKey(msg.String())
 	}
 	return b, nil
+}
+
+// handleAgentJumpKey jumps to the selected card's agent windows: a single
+// matching window switches tmux directly, several open the agents modal
+// scoped to the card, none reports so. Mirrors handlePROpenKey's single/multi
+// split.
+func (b Board) handleAgentJumpKey(card Card) (tea.Model, tea.Cmd) {
+	windows := b.cardAgentWindows(card.Number)
+	switch len(windows) {
+	case 0:
+		// Full cenciwatch state precedence, matching viewAgentListModal:
+		// "no windows for this card" is only true when a daemon snapshot is
+		// actually connected — otherwise report the real reason.
+		msg := fmt.Sprintf("%s for #%d", agentListMsgNoWindows, card.Number)
+		switch {
+		case b.cenciWatcher == nil:
+			msg = agentListMsgNotEnabled
+		case b.agentSnapshot == nil:
+			msg = agentListMsgWaiting
+		}
+		cmd := b.statusBar.SetTimedMessage(msg, StatusInfo, statusMessageDuration)
+		return b, cmd
+	case 1:
+		if err := b.switchToAgentWindow(windows[0]); err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+			return b, cmd
+		}
+		cmd := b.statusBar.SetTimedMessage("Switched to "+windows[0].WindowName, StatusSuccess, statusMessageDuration)
+		return b, cmd
+	default:
+		b.enterAgentListForCard(card.Number)
+		return b, nil
+	}
 }
 
 // handleAgentListModeKey handles keys in the agents list modal. Enter closes

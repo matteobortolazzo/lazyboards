@@ -432,6 +432,7 @@ Press `?` at any time to open the in-app help popup.
 | `t` | Delete card permanently (with two-step confirmation) |
 | `v` | Open PRs (all open PRs in the repo) |
 | `w` | Agents (all cenci-watch windows; `Enter` jumps to the tmux window) |
+| `s` | Card agents (jump to the selected card's agent window; picker when several) |
 | `/` | Search |
 | `a` | Assign collaborator |
 | `g` | Git menu |
