@@ -299,7 +299,7 @@ func isHiddenLabel(label string, columnNames []string, workingLabel string) bool
 // to, so badges align across cards regardless of agent-name length.
 const agentBadgeKindWidth = 6
 
-// agentStatusSymbol maps an agentwatch window status to its badge symbol.
+// agentStatusSymbol maps a cenci window status to its badge symbol.
 // Returns "" for idle and any unknown status (no badge).
 func agentStatusSymbol(status string) string {
 	switch status {
@@ -341,7 +341,7 @@ func agentBadgeText(status, agent string) string {
 	return string(runes) + " " + symbol
 }
 
-// agentBadgeStyle maps an agentwatch window status to its badge style.
+// agentBadgeStyle maps a cenci window status to its badge style.
 func agentBadgeStyle(status string) lipgloss.Style {
 	switch status {
 	case "running":
@@ -1294,8 +1294,8 @@ func (b Board) viewPRListModal() string {
 // loading -> running -> err -> ready (ready shows an optional "Last run"
 // summary line when dispatch.lastResult is populated).
 func (b Board) viewDispatchModal() string {
-	// Wider than the other modals' usual 50: the common "agentwatch not found
-	// on PATH" classifyAgentwatchError message (57 chars) wraps at width 60
+	// Wider than the other modals' usual 50: the common "cenci not found
+	// on PATH" classifyCenciError message (57 chars) wraps at width 60
 	// but fits on one line at 65. Longer classified messages (e.g. the
 	// git-repo-not-resolvable case) may still wrap onto a second line, which
 	// is acceptable — this width targets the common case, not every case.
@@ -1381,7 +1381,7 @@ func (b Board) viewDispatchModal() string {
 
 // renderLoopLine renders the "Loop: ..." status line describing the
 // daemon-owned background dispatch loop, decoded verbatim from the "loop"
-// object in `agentwatch dispatch status --json` (ticket #313). lazyboards is
+// object in `cenci dispatch status --json` (ticket #313). lazyboards is
 // a pure reader of this state -- starting/stopping the loop is a
 // user-configured custom shell action, not a code path here. Precedence:
 // old-binary guard > nil loop (defensive) > last_error > enabled/off >
@@ -1391,7 +1391,7 @@ func renderLoopLine(loop *dispatchLoopInfo, loopErr string) string {
 
 	if loop == nil {
 		if loopErr == "" {
-			loopErr = "status unavailable — upgrade agentwatch"
+			loopErr = "status unavailable — upgrade cenci"
 		}
 		return errStyle.Render("Loop: " + loopErr)
 	}

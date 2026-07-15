@@ -36,7 +36,7 @@ var (
 	helpStyle                = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	prIndicatorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("183"))
 	workingIndicatorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("215"))
-	// Agent status badge styles (agentwatch card badges). All statuses render
+	// Agent status badge styles (cenci card badges). All statuses render
 	// as a single mark in plain foreground color -- no reverse/background --
 	// so the badges read as one consistent family.
 	agentRunningStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("75"))
@@ -221,16 +221,16 @@ const (
 )
 
 const (
-	agentWatchInitialBackoff = 1 * time.Second
-	agentWatchMaxBackoff     = 30 * time.Second
+	cenciWatchInitialBackoff = 1 * time.Second
+	cenciWatchMaxBackoff     = 30 * time.Second
 )
 
-// agentWatchClearThreshold is the number of consecutive agentwatch watcher
+// cenciWatchClearThreshold is the number of consecutive cenci-watch watcher
 // errors, with no intervening successful snapshot, required before the
 // dispatch status-bar segment is cleared live. A lone transient blip (1
 // error) is tolerated since the reconnect backoff ladder self-heals within
 // ~1s; only a second consecutive error clears the segment (#333).
-const agentWatchClearThreshold = 2
+const cenciWatchClearThreshold = 2
 
 // gitStatusPollInterval is the fixed interval for the background git status
 // poll (a fallback for out-of-app changes), independent of any fetch/refresh
@@ -249,7 +249,7 @@ const (
 	minMetadataTTL        = 30 * time.Minute
 )
 
-// Agent window status values reported by the agentwatch daemon (plain strings).
+// Agent window status values reported by the cenci-watch daemon (plain strings).
 // Only the two surfaced as status-bar counts are named here.
 const (
 	agentStatusRunning   = "running"
@@ -315,18 +315,18 @@ type actionResultMsg struct {
 // autoRefreshMsg is sent when the auto-refresh delay timer fires.
 type autoRefreshMsg struct{}
 
-// agentSnapshotMsg is sent when the agentwatch watcher delivers a new state snapshot.
+// agentSnapshotMsg is sent when the cenci-watch watcher delivers a new state snapshot.
 type agentSnapshotMsg struct {
 	snapshot *cenciwatch.StateSnapshot
 }
 
-// agentWatchErrorMsg is sent when reading from the agentwatch watcher fails.
-type agentWatchErrorMsg struct {
+// cenciWatchErrorMsg is sent when reading from the cenci-watch watcher fails.
+type cenciWatchErrorMsg struct {
 	err error
 }
 
-// agentWatchRetryMsg is sent when the agentwatch reconnect backoff timer fires.
-type agentWatchRetryMsg struct{}
+// cenciWatchRetryMsg is sent when the cenci-watch reconnect backoff timer fires.
+type cenciWatchRetryMsg struct{}
 
 // gitStatusMsg is sent when a git status read completes (success or failure).
 type gitStatusMsg struct {
@@ -590,18 +590,18 @@ type dispatchState struct {
 	lastLines  []string
 
 	// loop is the daemon-owned background dispatch loop state, decoded
-	// verbatim from the "loop" object in `agentwatch dispatch status --json`
+	// verbatim from the "loop" object in `cenci dispatch status --json`
 	// (ticket #313). lazyboards is a pure reader of this state -- starting
 	// and stopping the loop is a user-configured custom shell action, not a
 	// code path here. loop is nil only when the top-level "loop" key was
-	// entirely absent from the decoded JSON (an agentwatch binary that
+	// entirely absent from the decoded JSON (a cenci binary that
 	// predates this feature); in that case loopErr holds a guard message.
 	loop    *dispatchLoopInfo
 	loopErr string
 }
 
 // dispatchLoopInfo mirrors the "loop" object decoded from
-// `agentwatch dispatch status --json`. See queryDispatchStatusCmd, which
+// `cenci dispatch status --json`. See queryDispatchStatusCmd, which
 // unmarshals directly into this type.
 type dispatchLoopInfo struct {
 	Enabled        bool   `json:"enabled"`
@@ -622,7 +622,7 @@ var dispatchModeHints = []Hint{
 }
 
 // dispatchStatusMsg is sent when queryDispatchStatusCmd finishes querying
-// agentwatch for the current repo's dispatch enrollment status.
+// cenci for the current repo's dispatch enrollment status.
 type dispatchStatusMsg struct {
 	repo     string
 	dir      string
@@ -632,7 +632,7 @@ type dispatchStatusMsg struct {
 }
 
 // dispatchEnrollMsg is sent when toggleEnrollCmd finishes enrolling or
-// unenrolling the current repo with agentwatch.
+// unenrolling the current repo with cenci.
 type dispatchEnrollMsg struct {
 	err string
 }
@@ -726,10 +726,10 @@ type Board struct {
 	collaborators               []Assignee
 	authenticatedUser           string
 	repoLabels                  []string
-	agentWatcher                cenciwatch.Watcher
+	cenciWatcher                cenciwatch.Watcher
 	agentSnapshot               *cenciwatch.StateSnapshot
 	agentBackoff                time.Duration
-	agentWatchConsecutiveErrors int
+	cenciWatchConsecutiveErrors int
 	gitReader                   gitdetect.Reader
 	gitPanel                    gitPanelState
 	prList                      prListState
@@ -801,7 +801,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		workingLabel:       workingLabel,
 		mouseEnabled:       mouseEnabled,
 		normalHints:        hints,
-		agentWatcher:       watcher,
+		cenciWatcher:       watcher,
 		gitReader:          gitReader,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
@@ -1370,18 +1370,18 @@ func (b *Board) collectKnownLabels() map[string]bool {
 	return known
 }
 
-// agentStatusFor returns the agentwatch window state joined to card by ticket
+// agentStatusFor returns the cenci window state joined to card by ticket
 // number, or nil if no snapshot is stored yet or no window matches.
 func (b Board) agentStatusFor(card Card) *cenciwatch.WindowState {
 	return b.agentStatusForNumber(card.Number)
 }
 
-// agentStatusForNumber returns the agentwatch window state whose name joins to
+// agentStatusForNumber returns the cenci window state whose name joins to
 // the given ticket number, or nil if no snapshot is stored yet or no window
 // matches. A window joins when its name is exactly "<number>" or starts with
-// "<number>-" (agentwatch names dispatched windows "<number>-<skill>", e.g.
+// "<number>-" (cenci names dispatched windows "<number>-<skill>", e.g.
 // "230-refine"). The trailing "-" is a boundary, so card #23 never matches
-// "230-...". This is backward-compatible with agentwatch's older
+// "230-...". This is backward-compatible with cenci's older
 // "<number>-<title-slug>" names. When several windows share the number, an
 // active one (running / need_input) wins over any other status, else the first
 // match in snapshot order.
@@ -1421,7 +1421,7 @@ func (b Board) agentBadgeFor(card Card) string {
 // window in the running / need_input states. Counts are board-scoped: only
 // windows that join to a visible card (via agentStatusFor) contribute, keeping
 // the status-bar summary consistent with the per-card badges. When no snapshot
-// is stored (agentwatch off/absent), agentStatusFor returns nil for every card
+// is stored (cenci off/absent), agentStatusFor returns nil for every card
 // and both counts are naturally zero.
 func (b Board) agentCounts() (running, needInput int) {
 	for _, col := range b.Columns {
@@ -1460,8 +1460,8 @@ func (b Board) Init() tea.Cmd {
 		return nil
 	}
 	cmd := tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
-	if b.agentWatcher != nil {
-		cmd = tea.Batch(cmd, subscribeAgentWatchCmd(b.agentWatcher))
+	if b.cenciWatcher != nil {
+		cmd = tea.Batch(cmd, subscribeCenciWatchCmd(b.cenciWatcher))
 	}
 	if b.gitReader != nil {
 		cmd = tea.Batch(cmd, fetchGitStatusCmd(b.gitReader, "."), scheduleGitStatusTick(b))

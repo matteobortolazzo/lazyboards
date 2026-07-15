@@ -50,7 +50,7 @@ func newCleanupTestBoard(t *testing.T, cleanup string) (Board, *action.FakeExecu
 }
 
 // newCleanupTestBoardWithWatcher mirrors newCleanupTestBoard but wires a
-// non-nil cenciwatch.Watcher (an empty FakeWatcher) so b.agentWatcher != nil,
+// non-nil cenciwatch.Watcher (an empty FakeWatcher) so b.cenciWatcher != nil,
 // while leaving b.agentSnapshot nil (no snapshot delivered yet).
 func newCleanupTestBoardWithWatcher(t *testing.T, cleanup string) (Board, *action.FakeExecutor, *provider.FakeProvider) {
 	t.Helper()
@@ -122,7 +122,7 @@ func withCardLabel(board provider.Board, cardNum int, label string) provider.Boa
 	return board
 }
 
-// cleanupSnapshot builds an agentwatch snapshot with a single window for card
+// cleanupSnapshot builds a cenci snapshot with a single window for card
 // #1 ("Setup CI") in the given status. An empty status means no windows.
 func cleanupSnapshot(status string) *cenciwatch.StateSnapshot {
 	if status == "" {
@@ -337,7 +337,7 @@ func TestCleanup_CleanupResultMsg_ZeroCount_NoMessage(t *testing.T) {
 func TestCleanup_DeferredWhileAgentRunning(t *testing.T) {
 	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t ={session}")
 
-	// Card #1 moves column while agentwatch reports its window as running.
+	// Card #1 moves column while cenci reports its window as running.
 	b.agentSnapshot = cleanupSnapshot("running")
 	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 	if len(fe.RunShellCalls) != 0 {
@@ -414,13 +414,13 @@ func TestCleanup_DeferredWhileWorkingLabelSet(t *testing.T) {
 
 // --- {window} template variable (#309) ---
 //
-// agentwatch names dispatched windows "{number}-{skill}" (e.g. "1-refine"),
+// cenci names dispatched windows "{number}-{skill}" (e.g. "1-refine"),
 // not the reconstructed "{number}-{title-slug}" that BuildSessionName
 // produces. The cleanup hook's kill-window target must resolve to the LIVE
 // window name so `tmux kill-window -t {window}` actually matches, falling
 // back to {session} only when no live window is available.
 
-// cleanupSnapshotWithWindow builds an agentwatch snapshot with a single
+// cleanupSnapshotWithWindow builds a cenci snapshot with a single
 // window using an explicit window name (distinct from BuildSessionName's
 // reconstructed name), so tests can distinguish live-window resolution from
 // the {session} fallback.
@@ -446,14 +446,14 @@ func TestCleanup_WindowVariable_UsesLiveWindowName(t *testing.T) {
 	}
 	call := fe.RunShellCalls[len(fe.RunShellCalls)-1]
 	if !strings.Contains(call, action.ShellEscape(liveWindow)) {
-		t.Errorf("cleanup command should target the live agentwatch window %q, got: %s", liveWindow, call)
+		t.Errorf("cleanup command should target the live cenci window %q, got: %s", liveWindow, call)
 	}
 }
 
 func TestCleanup_WindowVariable_FallsBackToSessionWhenSnapshotNil(t *testing.T) {
 	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {window} 2>/dev/null || true")
 
-	// No agentwatch snapshot at all (agentwatch off/absent).
+	// No cenci snapshot at all (cenci off/absent).
 	b.agentSnapshot = nil
 	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
@@ -486,18 +486,18 @@ func TestCleanup_WindowVariable_FallsBackToSessionWhenNoWindowMatches(t *testing
 	}
 }
 
-// --- Fail-closed guard (#362): agentwatch enabled but no snapshot delivered yet ---
+// --- Fail-closed guard (#362): cenci enabled but no snapshot delivered yet ---
 
-func TestCleanup_DeferredWhenAgentwatchEnabledButSnapshotNotYetDelivered(t *testing.T) {
+func TestCleanup_DeferredWhenCenciEnabledButSnapshotNotYetDelivered(t *testing.T) {
 	b, fe, _ := newCleanupTestBoardWithWatcher(t, "tmux kill-window -t {session}")
 
-	// Two fetches while agentwatch is enabled but no snapshot has arrived yet:
+	// Two fetches while cenci is enabled but no snapshot has arrived yet:
 	// the fail-closed guard must defer cleanup both times, same as a live agent.
 	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 	b = refreshCleanupBoard(t, b, fakeRefreshBoard(1))
 
 	if len(fe.RunShellCalls) != 0 {
-		t.Errorf("expected no RunShell calls while agentwatch snapshot is nil, got %d: %v", len(fe.RunShellCalls), fe.RunShellCalls)
+		t.Errorf("expected no RunShell calls while cenci snapshot is nil, got %d: %v", len(fe.RunShellCalls), fe.RunShellCalls)
 	}
 
 	// Snapshot arrives (empty — no windows in it): the guard no longer fails
@@ -575,7 +575,7 @@ func circuitBreakerBoard(cardCount int, movedNumbers []int) provider.Board {
 	}}
 }
 
-// circuitBreakerSnapshot builds an agentwatch snapshot with a running window
+// circuitBreakerSnapshot builds a cenci snapshot with a running window
 // for each of busyNumbers, so the liveness guard defers those cards
 // indefinitely regardless of how many fetches occur.
 func circuitBreakerSnapshot(busyNumbers []int) *cenciwatch.StateSnapshot {

@@ -268,7 +268,7 @@ func TestCloseMode_CardClosed_AgentBusy_GuardBlockDoesNotRefireOnNextFetch(t *te
 	}
 }
 
-func TestCloseMode_CardClosed_AgentwatchEnabledSnapshotNotYetDelivered_SkipsCleanupButRemovesCard(t *testing.T) {
+func TestCloseMode_CardClosed_CenciEnabledSnapshotNotYetDelivered_SkipsCleanupButRemovesCard(t *testing.T) {
 	b, fe, _ := newCleanupTestBoardWithWatcher(t, "tmux kill-window -t {session}")
 
 	card := b.Columns[0].Cards[0]
@@ -277,7 +277,7 @@ func TestCloseMode_CardClosed_AgentwatchEnabledSnapshotNotYetDelivered_SkipsClea
 	execCmds(cmd)
 
 	if len(fe.RunShellCalls) != 0 {
-		t.Fatalf("expected cleanup blocked while agentwatch snapshot is nil, got: %v", fe.RunShellCalls)
+		t.Fatalf("expected cleanup blocked while cenci snapshot is nil, got: %v", fe.RunShellCalls)
 	}
 	for _, c := range b.Columns[0].Cards {
 		if c.Number == card.Number {

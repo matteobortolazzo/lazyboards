@@ -30,35 +30,35 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A successful read means the watcher is healthy again: reset the
 		// consecutive-error counter so a future error is treated as the first
 		// (tolerated) strike, not a continuation of a prior run of errors.
-		b.agentWatchConsecutiveErrors = 0
+		b.cenciWatchConsecutiveErrors = 0
 		b.statusBar.SetDispatchStatus(formatDispatchSegment(msg.snapshot.Dispatch))
-		if b.agentWatcher == nil {
+		if b.cenciWatcher == nil {
 			return b, nil
 		}
-		return b, subscribeAgentWatchCmd(b.agentWatcher)
+		return b, subscribeCenciWatchCmd(b.cenciWatcher)
 
-	case agentWatchErrorMsg:
-		b.agentWatchConsecutiveErrors++
-		debuglog.Errorf("agentwatch: %v", msg.err)
-		if b.agentWatchConsecutiveErrors >= agentWatchClearThreshold {
+	case cenciWatchErrorMsg:
+		b.cenciWatchConsecutiveErrors++
+		debuglog.Errorf("cenci: %v", msg.err)
+		if b.cenciWatchConsecutiveErrors >= cenciWatchClearThreshold {
 			b.statusBar.SetDispatchStatus("")
 		}
 		if b.agentBackoff <= 0 {
-			b.agentBackoff = agentWatchInitialBackoff
+			b.agentBackoff = cenciWatchInitialBackoff
 		} else {
 			b.agentBackoff *= 2
-			if b.agentBackoff > agentWatchMaxBackoff {
-				b.agentBackoff = agentWatchMaxBackoff
+			if b.agentBackoff > cenciWatchMaxBackoff {
+				b.agentBackoff = cenciWatchMaxBackoff
 			}
 		}
-		cmd := b.scheduleAgentWatchRetry()
+		cmd := b.scheduleCenciWatchRetry()
 		return b, cmd
 
-	case agentWatchRetryMsg:
-		if b.agentWatcher == nil {
+	case cenciWatchRetryMsg:
+		if b.cenciWatcher == nil {
 			return b, nil
 		}
-		return b, subscribeAgentWatchCmd(b.agentWatcher)
+		return b, subscribeCenciWatchCmd(b.cenciWatcher)
 
 	case gitStatusMsg:
 		if msg.err != nil {
@@ -165,7 +165,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.dispatch.err = ""
 		b.dispatch.loop = msg.loop
 		if msg.loop == nil {
-			b.dispatch.loopErr = "agentwatch version too old for loop status — upgrade to use this feature"
+			b.dispatch.loopErr = "cenci version too old for loop status — upgrade to use this feature"
 		} else {
 			b.dispatch.loopErr = ""
 		}
@@ -352,11 +352,11 @@ func (b Board) scheduleRefreshTick() tea.Cmd {
 	})
 }
 
-// scheduleAgentWatchRetry returns a tea.Cmd that fires an agentWatchRetryMsg
+// scheduleCenciWatchRetry returns a tea.Cmd that fires an cenciWatchRetryMsg
 // after the current backoff duration, so the watcher can be re-subscribed.
-func (b Board) scheduleAgentWatchRetry() tea.Cmd {
+func (b Board) scheduleCenciWatchRetry() tea.Cmd {
 	return tea.Tick(b.agentBackoff, func(time.Time) tea.Msg {
-		return agentWatchRetryMsg{}
+		return cenciWatchRetryMsg{}
 	})
 }
 
@@ -576,7 +576,7 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		// prev entry into newCards (assigned to b.prevCards by the caller)
 		// re-detects the same departure on the next fetch.
 
-		// Guard A — agentwatch liveness: join by ticket number, so a title
+		// Guard A — cenci liveness: join by ticket number, so a title
 		// rewrite (refine edits titles) can't hide a live agent's window.
 		if b.agentSessionBusy(cardNum) {
 			// A miss or move observed here still counts toward Guards C/D's
@@ -589,7 +589,7 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		}
 
 		// Guard B — working label: marks an in-flight agent even when
-		// agentwatch is off or its snapshot lags behind. Only reached when
+		// cenci is off or its snapshot lags behind. Only reached when
 		// exists && moved (the same-column case already continued above).
 		if exists && b.hasWorkingLabel(newInfo.labels) {
 			prev.movedSeen = true
@@ -669,14 +669,14 @@ func cleanupCircuitBreakerTripped(cmdCount, trackedCount int) bool {
 	return trackedCount > 0 && float64(cmdCount) > cleanupCircuitBreakerFraction*float64(trackedCount)
 }
 
-// agentSessionBusy reports whether the agentwatch window joined to the card
+// agentSessionBusy reports whether the cenci window joined to the card
 // number has an agent that is running or waiting for input. Fails closed
-// (reports busy) when agentwatch is enabled but no snapshot has been
+// (reports busy) when cenci is enabled but no snapshot has been
 // delivered yet -- daemon down/restarting, or a startup race -- so cleanup
 // never fires against stale "not busy" information. Always false when
-// agentwatch is off/absent (no watcher configured).
+// cenci is off/absent (no watcher configured).
 func (b *Board) agentSessionBusy(cardNum int) bool {
-	if b.agentWatcher != nil && b.agentSnapshot == nil {
+	if b.cenciWatcher != nil && b.agentSnapshot == nil {
 		return true
 	}
 	ws := b.agentStatusForNumber(cardNum)
@@ -687,7 +687,7 @@ func (b *Board) agentSessionBusy(cardNum int) bool {
 }
 
 // resolveWindowName resolves the {window} template variable: the live
-// agentwatch window name joined to cardNum by ticket-number prefix (see
+// cenci window name joined to cardNum by ticket-number prefix (see
 // agentStatusForNumber), falling back to the {session} value when no
 // snapshot is stored or no window matches.
 func (b Board) resolveWindowName(cardNum int, title string) string {
