@@ -341,10 +341,10 @@ func queryDispatchStatusCmd(executor action.Executor) tea.Cmd {
 		}
 
 		var v struct {
-			Repo     string            `json:"repo"`
-			Dir      string            `json:"dir"`
-			Enrolled bool              `json:"enrolled"`
-			Loop     *dispatchLoopInfo `json:"loop"`
+			Repo     string                    `json:"repo"`
+			Dir      string                    `json:"dir"`
+			Enrolled bool                      `json:"enrolled"`
+			Loop     *cenciwatch.DispatchState `json:"loop"`
 		}
 		if err := json.Unmarshal([]byte(stdout), &v); err != nil {
 			return dispatchStatusMsg{err: cenciTooOldMsg + resolveCenciPathSuffix(executor)}
