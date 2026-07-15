@@ -195,6 +195,48 @@ func TestDefaultExecutor_RunShellOutput_Failure(t *testing.T) {
 	}
 }
 
+func TestDefaultExecutor_OpenURL_RejectsInvalidScheme(t *testing.T) {
+	d := DefaultExecutor{}
+
+	invalidURLs := []string{
+		"javascript:alert(1)",
+		"not-a-url",
+		"file:///etc/passwd",
+		"-rf",
+	}
+
+	for _, u := range invalidURLs {
+		err := d.OpenURL(u)
+		if err == nil {
+			t.Errorf("OpenURL(%q) error = nil, want non-nil (invalid scheme)", u)
+			continue
+		}
+		if !errors.Is(err, errInvalidURLScheme) {
+			t.Errorf("OpenURL(%q) error = %v, want errInvalidURLScheme", u, err)
+		}
+	}
+}
+
+func TestDefaultExecutor_OpenURL_AcceptsHTTPAndHTTPSSchemes(t *testing.T) {
+	d := DefaultExecutor{}
+
+	validURLs := []string{
+		"http://example.com",
+		"https://example.com/issues/42",
+	}
+
+	for _, u := range validURLs {
+		err := d.OpenURL(u)
+		// The underlying open/xdg-open/cmd binary may not exist in the test
+		// environment, so err may be non-nil -- what matters is that it is
+		// NOT the scheme-validation error, i.e. valid schemes reach the exec
+		// call instead of being rejected up front.
+		if errors.Is(err, errInvalidURLScheme) {
+			t.Errorf("OpenURL(%q) error = %v, want scheme validation to pass", u, err)
+		}
+	}
+}
+
 func TestDefaultExecutor_RunShellOutput_StderrOnly(t *testing.T) {
 	d := DefaultExecutor{}
 	stdout, stderr, err := d.RunShellOutput("echo boom >&2")
