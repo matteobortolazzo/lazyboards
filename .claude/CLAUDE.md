@@ -19,7 +19,10 @@ The main BubbleTea model is split by responsibility:
 | File | Responsibility |
 |------|---------------|
 | `model.go` | Board struct, types, constants, styles, `NewBoard()`, `Init()`, `enterConfigMode()`, `dispatchState`, `dispatchMode` |
-| `update.go` | `Update()` dispatcher + key/message handler methods, `handleDispatchModeKey` |
+| `update.go` | `Update()` dispatcher + async message handlers (`handleBoardFetched`, `handleCardClosed`, `handleCardUpdated`, `handleAssigneesUpdated`, etc.) + shared helpers (`findCard`, `onCursorMoved`, `moveCursor`) |
+| `mode_handlers.go` | Per-mode key handlers (`handleCreateModeKey`, `handleConfigModeKey`, `handleNormalModeKey`, `handleSearchModeKey`, `handleDispatchModeKey`, etc.) |
+| `action_dispatch.go` | Custom-action dispatch hierarchy (`handleCustomActionKey`, `dispatchResolvedAction`, `handleActionKey`, `handleBoardActionKey`, PR-scoped action handlers) |
+| `mouse_handlers.go` | Mouse event handling (`handleMouseMsg`, `handleMouseScroll`, `handleMouseClick`, `handleTabClick`, `handleCardClick`) |
 | `view.go` | `View()` dispatcher + rendering helpers (card list, detail, modals) + display helpers (`cardDisplayText`, `cardLineCount`, `clampScrollOffset`), `viewDispatchModal` |
 | `commands.go` | Async `tea.Cmd` builders (`fetchBoardCmd`, `createCardCmd`, `runShellCmd`, `runCleanupCmds`, `saveConfigCmd`, `queryDispatchStatusCmd`, `toggleEnrollCmd`, `dispatchOnceCmd`) + `wrapTitle` |
 | `statusbar.go` | `StatusBar` component (hints, timed messages) |
