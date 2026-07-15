@@ -266,6 +266,9 @@ func TestKeySequence_ColumnActionCanExtendPrefix(t *testing.T) {
 	if len(fe.OpenURLCalls) != 1 {
 		t.Fatalf("expected 1 OpenURL call for column-defined sequence, got %d", len(fe.OpenURLCalls))
 	}
+	if b.pendingSeq != "" {
+		t.Errorf("pendingSeq = %q after dispatch, want empty", b.pendingSeq)
+	}
 }
 
 func TestKeySequence_BoardRefreshCancelsPending(t *testing.T) {
