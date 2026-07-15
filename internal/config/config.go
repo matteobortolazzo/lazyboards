@@ -108,6 +108,15 @@ func (c Config) ActionRefreshDelayValue() int {
 	return *c.ActionRefreshDelay
 }
 
+// DefaultScope returns "card" when s is empty, otherwise s unchanged. An
+// action's scope defaults to "card" when not explicitly set.
+func DefaultScope(s string) string {
+	if s == "" {
+		return "card"
+	}
+	return s
+}
+
 // DefaultColumns is the default set of column names when none are configured.
 var DefaultColumns = []ColumnConfig{
 	{Name: "New"},
@@ -274,15 +283,23 @@ func Save(path, provider, repo string) error {
 	return os.WriteFile(path, out, 0600)
 }
 
+// columnsByNameLower builds a lookup map of columns keyed by their
+// lowercased name, so callers can match columns case-insensitively by name
+// (never by positional index).
+func columnsByNameLower(columns []ColumnConfig) map[string]ColumnConfig {
+	byName := make(map[string]ColumnConfig, len(columns))
+	for _, c := range columns {
+		byName[strings.ToLower(c.Name)] = c
+	}
+	return byName
+}
+
 // mergeColumnActions merges per-column actions from globalColumns into columns.
 // For each column, if a matching global column exists (case-insensitive name),
 // global-only action keys are preserved. Local action keys take priority.
 // If a local column has nil actions, it inherits all matching global column actions.
 func mergeColumnActions(columns []ColumnConfig, globalColumns []ColumnConfig) {
-	globalByName := make(map[string]ColumnConfig, len(globalColumns))
-	for _, gc := range globalColumns {
-		globalByName[strings.ToLower(gc.Name)] = gc
-	}
+	globalByName := columnsByNameLower(globalColumns)
 
 	for i := range columns {
 		gc, found := globalByName[strings.ToLower(columns[i].Name)]
@@ -314,10 +331,7 @@ func mergeColumnActions(columns []ColumnConfig, globalColumns []ColumnConfig) {
 // column when the local column didn't specify one. An explicit local value
 // (including an explicit empty string, which disables cleanup) always wins.
 func mergeColumnCleanup(columns []ColumnConfig, globalColumns []ColumnConfig) {
-	globalByName := make(map[string]ColumnConfig, len(globalColumns))
-	for _, gc := range globalColumns {
-		globalByName[strings.ToLower(gc.Name)] = gc
-	}
+	globalByName := columnsByNameLower(globalColumns)
 
 	for i := range columns {
 		if columns[i].Cleanup != nil {
@@ -438,10 +452,7 @@ func validateScopeConflicts(cfg *Config) error {
 
 	addScopes := func(actions map[string]Action) {
 		for key, action := range actions {
-			scope := action.Scope
-			if scope == "" {
-				scope = "card"
-			}
+			scope := DefaultScope(action.Scope)
 			if scopesByKey[key] == nil {
 				scopesByKey[key] = make(map[string]bool)
 			}

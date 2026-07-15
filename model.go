@@ -755,10 +755,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 	hints = append(hints, helpHint)
 	hints = append(hints, normalModeHints...)
 	for key, act := range actions {
-		scope := act.Scope
-		if scope == "" {
-			scope = "card"
-		}
+		scope := config.DefaultScope(act.Scope)
 		if scope == "board" {
 			hints = append(hints, Hint{Key: key, Desc: act.Name})
 		}
@@ -1041,10 +1038,7 @@ func (b *Board) rebuildNormalHints() {
 	}
 	actionEntries := make(map[string]actionEntry)
 	for key, act := range b.actions {
-		scope := act.Scope
-		if scope == "" {
-			scope = "card"
-		}
+		scope := config.DefaultScope(act.Scope)
 		actionEntries[key] = actionEntry{hint: Hint{Key: key, Desc: act.Name}, scope: scope}
 	}
 
@@ -1054,10 +1048,7 @@ func (b *Board) rebuildNormalHints() {
 		for _, cc := range b.columnConfigs {
 			if strings.EqualFold(cc.Name, colTitle) {
 				for key, act := range cc.Actions {
-					scope := act.Scope
-					if scope == "" {
-						scope = "card"
-					}
+					scope := config.DefaultScope(act.Scope)
 					actionEntries[key] = actionEntry{hint: Hint{Key: key, Desc: act.Name}, scope: scope}
 				}
 				break
@@ -1087,37 +1078,36 @@ func (b *Board) rebuildNormalHints() {
 	b.normalHints = hints
 }
 
-func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
-	if len(prs) == 0 {
+// mapSlice transforms each element of in with f, returning nil when in is
+// empty (never an empty non-nil slice) so callers preserve nil-vs-empty
+// semantics for downstream comparisons.
+func mapSlice[T, U any](in []T, f func(T) U) []U {
+	if len(in) == 0 {
 		return nil
 	}
-	result := make([]LinkedPR, len(prs))
-	for i, pr := range prs {
-		result[i] = LinkedPR{Number: pr.Number, Title: pr.Title, URL: pr.URL, Branch: pr.Branch}
+	result := make([]U, len(in))
+	for i, v := range in {
+		result[i] = f(v)
 	}
 	return result
+}
+
+func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
+	return mapSlice(prs, func(pr provider.LinkedPR) LinkedPR {
+		return LinkedPR{Number: pr.Number, Title: pr.Title, URL: pr.URL, Branch: pr.Branch}
+	})
 }
 
 func mapLabels(labels []provider.Label) []Label {
-	if len(labels) == 0 {
-		return nil
-	}
-	result := make([]Label, len(labels))
-	for i, l := range labels {
-		result[i] = Label{Name: l.Name, Color: l.Color}
-	}
-	return result
+	return mapSlice(labels, func(l provider.Label) Label {
+		return Label{Name: l.Name, Color: l.Color}
+	})
 }
 
 func mapAssignees(assignees []provider.Assignee) []Assignee {
-	if len(assignees) == 0 {
-		return nil
-	}
-	result := make([]Assignee, len(assignees))
-	for i, a := range assignees {
-		result[i] = Assignee{Login: a.Login}
-	}
-	return result
+	return mapSlice(assignees, func(a provider.Assignee) Assignee {
+		return Assignee{Login: a.Login}
+	})
 }
 
 // mapProviderCard converts a provider.Card to a main-package Card.
