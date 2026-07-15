@@ -1284,7 +1284,43 @@ func (b Board) viewPRListModal() string {
 			lines = append(lines, "No open PRs")
 		}
 	} else {
-		for i, entry := range b.prList.entries {
+		noteLines := 0
+		if b.prList.loading || b.prList.err != "" {
+			noteLines = 2
+		}
+		maxRowLines := b.Height - 8 - noteLines
+		if maxRowLines < 1 {
+			maxRowLines = 1
+		}
+		start, end := 0, len(b.prList.entries)
+		showUp, showDown := false, false
+		if len(b.prList.entries) > maxRowLines {
+			entryLines := maxRowLines - 2
+			if entryLines < 1 {
+				entryLines = 1
+			}
+			start = b.prList.cursor - entryLines/2
+			if start < 0 {
+				start = 0
+			}
+			end = start + entryLines
+			if end > len(b.prList.entries) {
+				end = len(b.prList.entries)
+				start = end - entryLines
+			}
+			showUp = start > 0
+			showDown = end < len(b.prList.entries)
+			// At very small terminal heights there is only room for the
+			// selected row and one directional indicator.
+			if maxRowLines < 3 && showUp && showDown {
+				showDown = false
+			}
+		}
+		if showUp {
+			lines = append(lines, helpStyle.Render("▲"))
+		}
+		for i := start; i < end; i++ {
+			entry := b.prList.entries[i]
 			title := truncateOutput(entry.pr.Title, 32)
 			display := fmt.Sprintf("  #%d  %s", entry.pr.Number, title)
 			if entry.cardNumber != 0 {
@@ -1294,6 +1330,9 @@ func (b Board) viewPRListModal() string {
 				display = selectedCardStyle.Render(display)
 			}
 			lines = append(lines, display)
+		}
+		if showDown {
+			lines = append(lines, helpStyle.Render("▼"))
 		}
 		if b.prList.loading {
 			lines = append(lines, "")

@@ -3,6 +3,7 @@ package main
 import (
 	"hash/fnv"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -573,17 +574,19 @@ type prListEntry struct {
 // repository; on error, the fallback entries are kept and err records the
 // sanitized failure.
 type prListState struct {
-	entries []prListEntry
-	cursor  int
-	loading bool
-	err     string
+	entries    []prListEntry
+	cursor     int
+	loading    bool
+	err        string
+	generation uint64
 }
 
 // openPRsMsg is sent when fetchOpenPRsCmd finishes listing the repository's
 // open pull requests for the PR list modal.
 type openPRsMsg struct {
-	prs []provider.LinkedPR
-	err error
+	prs        []provider.LinkedPR
+	err        error
+	generation uint64
 }
 
 // prListModeHints are the base status bar hints shown in PR list mode; see
@@ -601,7 +604,13 @@ var prListModeHints = []Hint{
 // hinting other scopes would advertise keys that silently no-op.
 func (b Board) prListActionHints() []Hint {
 	hints := append([]Hint{}, prListModeHints...)
-	for key, act := range b.actions {
+	keys := make([]string, 0, len(b.actions))
+	for key := range b.actions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		act := b.actions[key]
 		if config.DefaultScope(act.Scope) == "pr" {
 			hints = append(hints, Hint{Key: key, Desc: act.Name})
 		}
@@ -921,6 +930,7 @@ func (b *Board) enterGitPanel() {
 // always opens, even with no linked PRs, so the modal can render its
 // loading/empty states.
 func (b *Board) enterPRList() {
+	generation := b.prList.generation + 1
 	var entries []prListEntry
 	for _, col := range b.Columns {
 		for _, card := range col.Cards {
@@ -934,7 +944,7 @@ func (b *Board) enterPRList() {
 		}
 	}
 
-	b.prList = prListState{entries: entries, cursor: 0, loading: true}
+	b.prList = prListState{entries: entries, cursor: 0, loading: true, generation: generation}
 	b.mode = prListMode
 	b.statusBar.SetActionHints(b.prListActionHints())
 }

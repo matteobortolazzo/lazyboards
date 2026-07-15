@@ -132,13 +132,13 @@ func fetchBoardCmd(p provider.BoardProvider, includeMetadata bool) tea.Cmd {
 // fetchOpenPRsCmd returns a tea.Cmd that lists the repository's open pull
 // requests via the provider, delivering openPRsMsg for the PR list modal's
 // repo-wide view.
-func fetchOpenPRsCmd(p provider.BoardProvider) tea.Cmd {
+func fetchOpenPRsCmd(p provider.BoardProvider, generation uint64) tea.Cmd {
 	return func() tea.Msg {
 		prs, err := p.ListOpenPRs(context.Background())
 		if err != nil {
-			return openPRsMsg{err: err}
+			return openPRsMsg{err: err, generation: generation}
 		}
-		return openPRsMsg{prs: prs}
+		return openPRsMsg{prs: prs, generation: generation}
 	}
 }
 

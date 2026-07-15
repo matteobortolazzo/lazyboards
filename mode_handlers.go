@@ -240,7 +240,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.delete.commentInput.Focus()
 	case "v":
 		b.enterPRList()
-		return b, fetchOpenPRsCmd(b.provider)
+		return b, fetchOpenPRsCmd(b.provider, b.prList.generation)
 	case "/":
 		b.mode = searchMode
 		cmd := b.searchInput.Focus()

@@ -113,7 +113,7 @@ func TestPRList_OpenPRsFetched_ClampsCursor(t *testing.T) {
 		t.Fatalf("cursor = %d, want 2 before fetch lands", b.prList.cursor)
 	}
 
-	b = sendKey(t, b, openPRsMsg{prs: []provider.LinkedPR{
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
 		{Number: 40, Title: "chore: only PR", URL: "https://github.com/owner/repo/pull/40"},
 	}})
 
@@ -132,7 +132,7 @@ func TestPRList_OpenPRsError_KeepsFallbackEntries(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 	b = sendKey(t, b, keyMsg("v"))
 
-	b = sendKey(t, b, openPRsMsg{err: errors.New("boom")})
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, err: errors.New("boom")})
 
 	if b.prList.loading {
 		t.Error("prList.loading = true after error, want false")
@@ -157,7 +157,7 @@ func TestPRList_OpenPRsMsg_IgnoredAfterModalClosed(t *testing.T) {
 	b = sendKey(t, b, keyMsg("v"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
-	b = sendKey(t, b, openPRsMsg{prs: []provider.LinkedPR{
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
 		{Number: 40, Title: "chore: late arrival", URL: "https://github.com/owner/repo/pull/40"},
 	}})
 
@@ -166,6 +166,28 @@ func TestPRList_OpenPRsMsg_IgnoredAfterModalClosed(t *testing.T) {
 	}
 	if len(b.prList.entries) != 3 {
 		t.Errorf("entries = %d, want 3 (stale result must not replace closed modal's state)", len(b.prList.entries))
+	}
+}
+
+func TestPRList_OpenPRsMsg_IgnoredAfterModalReopened(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	staleGeneration := b.prList.generation
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+	b = sendKey(t, b, keyMsg("v"))
+
+	b = sendKey(t, b, openPRsMsg{
+		generation: staleGeneration,
+		prs: []provider.LinkedPR{
+			{Number: 40, Title: "stale result", URL: "https://github.com/owner/repo/pull/40"},
+		},
+	})
+
+	if !b.prList.loading {
+		t.Error("prList.loading = false after stale result, want current request to remain loading")
+	}
+	if len(b.prList.entries) != 3 {
+		t.Errorf("entries = %d, want the reopened modal's 3 fallback entries", len(b.prList.entries))
 	}
 }
 
@@ -226,7 +248,7 @@ func TestPRList_Enter_OpensSelectedPR(t *testing.T) {
 func TestPRList_Enter_OpensUnlinkedPR(t *testing.T) {
 	b, fe := newBoardWithPRsAndExecutor(t)
 	b = sendKey(t, b, keyMsg("v"))
-	b = sendKey(t, b, openPRsMsg{prs: []provider.LinkedPR{
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
 		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40"},
 	}})
 
@@ -279,7 +301,7 @@ func TestPRList_EmptyStates_LoadingThenNoOpenPRs(t *testing.T) {
 		t.Errorf("loading modal view = %q, want it to say it is loading", b.viewPRListModal())
 	}
 
-	b = sendKey(t, b, openPRsMsg{})
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation})
 	if !strings.Contains(b.viewPRListModal(), "No open PRs") {
 		t.Errorf("empty modal view = %q, want it to contain %q", b.viewPRListModal(), "No open PRs")
 	}
@@ -318,7 +340,7 @@ func TestPRList_View_ListsAllPRsWithCardRefs(t *testing.T) {
 func TestPRList_View_UnlinkedPRsCarryNoCardRef(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 	b = sendKey(t, b, keyMsg("v"))
-	b = sendKey(t, b, openPRsMsg{prs: []provider.LinkedPR{
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
 		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40"},
 		{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20"},
 	}})
@@ -352,6 +374,32 @@ func TestPRList_View_TitleFitsModalWidth(t *testing.T) {
 		if w := lipgloss.Width(line); w > b.Width {
 			t.Errorf("modal line wider than terminal (%d > %d): %q", w, b.Width, line)
 		}
+	}
+}
+
+func TestPRList_View_KeepsSelectedRowVisibleWithinTerminal(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b.Height = 12
+	b = sendKey(t, b, keyMsg("v"))
+	prs := make([]provider.LinkedPR, 20)
+	for i := range prs {
+		prs[i] = provider.LinkedPR{Number: i + 1, Title: "open PR"}
+	}
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: prs})
+	b.prList.cursor = len(prs) - 1
+
+	view := b.viewPRListModal()
+	if !strings.Contains(view, "#20") {
+		t.Errorf("view does not contain selected final row:\n%s", view)
+	}
+	if strings.Contains(view, "#1  ") {
+		t.Errorf("view still contains first row instead of a cursor-relative window:\n%s", view)
+	}
+	if lipgloss.Height(view) > b.Height {
+		t.Errorf("modal height = %d, want at most terminal height %d", lipgloss.Height(view), b.Height)
+	}
+	if !strings.Contains(view, "▲") {
+		t.Errorf("view does not indicate rows above the visible window:\n%s", view)
 	}
 }
 
@@ -398,7 +446,7 @@ func TestPRList_CustomAction_UnlinkedPR_ExpandsEmptyCardVars(t *testing.T) {
 	b, fe := prListActionFixture(t, map[string]config.Action{
 		"W": {Name: "Review", Type: "url", URL: "https://example.com/{number}/{pr_number}", Scope: "pr"},
 	})
-	b = sendKey(t, b, openPRsMsg{prs: []provider.LinkedPR{
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
 		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40"},
 	}})
 
@@ -448,7 +496,7 @@ func TestPRList_CustomAction_EmptyListNoOp(t *testing.T) {
 		"W": {Name: "Review", Type: "url", URL: "https://example.com/{pr_number}", Scope: "pr"},
 	}
 	b = sendKey(t, b, keyMsg("v"))
-	b = sendKey(t, b, openPRsMsg{})
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation})
 
 	m, cmd := b.Update(keyMsg("W"))
 	b = m.(Board)
@@ -477,5 +525,24 @@ func TestPRList_Hints_IncludePRScopedActions(t *testing.T) {
 	}
 	if strings.Contains(view, "Card thing") {
 		t.Errorf("modal view hints non-pr-scope action %q; card-scope actions cannot fire here", "Card thing")
+	}
+}
+
+func TestPRList_ActionHints_AreSortedByKey(t *testing.T) {
+	b, _ := prListActionFixture(t, map[string]config.Action{
+		"Z": {Name: "Last", Scope: "pr"},
+		"A": {Name: "First", Scope: "pr"},
+		"M": {Name: "Middle", Scope: "pr"},
+	})
+
+	hints := b.prListActionHints()
+	wantKeys := []string{"esc", "j/k", "enter", "A", "M", "Z"}
+	if len(hints) != len(wantKeys) {
+		t.Fatalf("hint count = %d, want %d: %+v", len(hints), len(wantKeys), hints)
+	}
+	for i, want := range wantKeys {
+		if hints[i].Key != want {
+			t.Errorf("hints[%d].Key = %q, want %q", i, hints[i].Key, want)
+		}
 	}
 }

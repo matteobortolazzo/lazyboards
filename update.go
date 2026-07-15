@@ -744,14 +744,14 @@ func (b *Board) columnCleanup(colIdx int) string {
 
 // handleOpenPRsFetched applies the repo-wide open-PR fetch result to the PR
 // list modal, following the prListState precedence (loading -> err ->
-// loaded). A result that lands after the user closed the modal is dropped:
-// enterPRList rebuilds the whole state on the next open, so a stale result
-// has nothing valid to update. On success, entries are replaced with the
-// repo-wide list in provider order, each PR annotated with the first board
-// card that links it (cardNumber 0 marks an unlinked PR); on error, the
-// card-linked fallback entries built by enterPRList are kept.
+// loaded). Results are scoped to a modal generation, so a response that lands
+// after the user closes or reopens the modal cannot overwrite the current
+// request. On success, entries are replaced with the repo-wide list in
+// provider order, each PR annotated with the first board card that links it
+// (cardNumber 0 marks an unlinked PR); on error, the card-linked fallback
+// entries built by enterPRList are kept.
 func (b Board) handleOpenPRsFetched(msg openPRsMsg) (tea.Model, tea.Cmd) {
-	if b.mode != prListMode {
+	if b.mode != prListMode || msg.generation != b.prList.generation {
 		return b, nil
 	}
 	b.prList.loading = false
