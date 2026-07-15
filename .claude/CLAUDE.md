@@ -44,6 +44,7 @@ Tests are split by domain to mirror production code:
 | `cleanup_test.go` | Column cleanup on card departure |
 | `statusbar_test.go` | StatusBar component tests |
 | `dispatch_mode_test.go` | Dispatch mode (agent dispatch modal) scaffolding |
+| `delete_mode_test.go` | Delete mode (two-step confirm flow, PR gating, cleanup guards) |
 
 Internal packages: `internal/action`, `internal/config`, `internal/git`, `internal/provider`.
 

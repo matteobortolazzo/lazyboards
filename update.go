@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -241,6 +242,22 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := b.statusBar.SetTimedMessage("Close error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
 		return b, cmd
 
+	case deleteCommentPostedMsg:
+		return b, deleteCardCmd(b.provider, msg.card)
+
+	case deleteCommentErrorMsg:
+		b.mode = normalMode
+		cmd := b.statusBar.SetTimedMessage("Comment error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
+		return b, cmd
+
+	case cardDeletedMsg:
+		return b.handleCardDeleted(msg)
+
+	case cardDeleteErrorMsg:
+		b.mode = normalMode
+		cmd := b.statusBar.SetTimedMessage("Delete error: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
+		return b, cmd
+
 	case tea.MouseMsg:
 		if !b.mouseEnabled || b.mode != normalMode {
 			return b, nil
@@ -282,6 +299,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleCloseConfirmModeKey(msg)
 		case commentMode:
 			return b.handleCommentModeKey(msg)
+		case deleteMode:
+			return b.handleDeleteModeKey(msg)
 		case filterMode:
 			return b.handleFilterModeKey(msg)
 		case assignMode:
@@ -802,6 +821,104 @@ func (b Board) handleCloseConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+// handleDeleteModeKey drives the two-step delete-confirm flow: an optional
+// comment step, then a retype-to-confirm step. Esc cancels the whole flow
+// (discarding any comment typed in step 1) from either step. The
+// retype-to-confirm step only accepts an exact string match of the card
+// number; a mismatch shows an inline message and remains in the step rather
+// than auto-cancelling.
+func (b Board) handleDeleteModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type == tea.KeyEsc {
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		cmd := b.statusBar.SetTimedMessage("Delete cancelled", StatusWarning, statusMessageDuration)
+		return b, cmd
+	}
+
+	switch b.delete.step {
+	case deleteStepComment:
+		if msg.Type == tea.KeyEnter {
+			ci := textinput.New()
+			ci.Placeholder = strconv.Itoa(b.delete.card.Number)
+			ci.CharLimit = 20
+			b.delete.step = deleteStepConfirm
+			b.delete.confirmInput = ci
+			b.delete.mismatchMsg = ""
+			b.statusBar.SetActionHints(deleteConfirmHints)
+			return b, b.delete.confirmInput.Focus()
+		}
+		var cmd tea.Cmd
+		b.delete.commentInput, cmd = b.delete.commentInput.Update(msg)
+		return b, cmd
+	case deleteStepConfirm:
+		if msg.Type == tea.KeyEnter {
+			card := b.delete.card
+			if b.delete.confirmInput.Value() != strconv.Itoa(card.Number) {
+				b.delete.mismatchMsg = fmt.Sprintf("Doesn't match #%d — try again or Esc to cancel", card.Number)
+				return b, nil
+			}
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
+			comment := strings.TrimSpace(b.delete.commentInput.Value())
+			if comment != "" {
+				return b, addCommentForDeleteCmd(b.provider, card, comment)
+			}
+			return b, deleteCardCmd(b.provider, card)
+		}
+		var cmd tea.Cmd
+		b.delete.confirmInput, cmd = b.delete.confirmInput.Update(msg)
+		return b, cmd
+	}
+	return b, nil
+}
+
+// handleCardDeleted removes the deleted card from its column and, unless a
+// cleanup guard blocks it (agent busy or working label present), fires the
+// column's cleanup command immediately -- no debounce, mirroring
+// handleCardClosed's full guard precedence in full (#174/#234 lessons). The
+// prevCards entry is unconditionally deleted regardless of guard outcome.
+func (b Board) handleCardDeleted(msg cardDeletedMsg) (tea.Model, tea.Cmd) {
+	cardNum := msg.card.Number
+	labelNames := make([]string, len(msg.card.Labels))
+	for j, l := range msg.card.Labels {
+		labelNames[j] = l.Name
+	}
+
+	var cleanupCmd tea.Cmd
+	for ci := range b.Columns {
+		for i := range b.Columns[ci].Cards {
+			if b.Columns[ci].Cards[i].Number != cardNum {
+				continue
+			}
+			cleanup := b.columnCleanup(ci)
+			if cleanup != "" && b.executor != nil && !b.agentSessionBusy(cardNum) && !b.hasWorkingLabel(labelNames) {
+				window := b.resolveWindowName(cardNum, msg.card.Title)
+				vars := action.BuildTemplateVars(cardNum, msg.card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", window)
+				expanded := action.ExpandTemplate(cleanup, action.BuildShellSafeVars(vars))
+				cleanupCmd = runCleanupCmds(b.executor, []string{expanded})
+			}
+			b.Columns[ci].Cards = append(b.Columns[ci].Cards[:i], b.Columns[ci].Cards[i+1:]...)
+			if b.Columns[ci].Cursor >= len(b.Columns[ci].Cards) {
+				b.Columns[ci].Cursor = len(b.Columns[ci].Cards) - 1
+				if b.Columns[ci].Cursor < 0 {
+					b.Columns[ci].Cursor = 0
+				}
+			}
+			break
+		}
+	}
+
+	delete(b.prevCards, cardNum)
+
+	b.clampScrollOffset()
+	b.rebuildNormalHints()
+	cmd := b.statusBar.SetTimedMessage("Card deleted", StatusSuccess, statusMessageDuration)
+	if cleanupCmd != nil {
+		cmd = tea.Batch(cmd, cleanupCmd)
+	}
+	return b, cmd
+}
+
 // handleCardClosed removes the closed card from its column and, unless a
 // cleanup guard blocks it (agent busy or working label present), fires the
 // column's cleanup command immediately -- no debounce, unlike detectDepartures'
@@ -1090,6 +1207,29 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.closeConfirm = closeConfirmState{card: b.selectedCard()}
 		b.mode = closeConfirmMode
 		return b, nil
+	case "t":
+		if len(b.Columns) == 0 {
+			return b, nil
+		}
+		if len(b.visibleCards()) == 0 {
+			return b, nil
+		}
+		card := b.selectedCard()
+		if len(card.LinkedPRs) > 0 {
+			cmd := b.statusBar.SetTimedMessage("Delete is not supported for cards with linked PRs", StatusError, statusMessageDuration)
+			return b, cmd
+		}
+		ci := textinput.New()
+		ci.Placeholder = "Optional comment..."
+		ci.CharLimit = 2000
+		b.delete = deleteState{
+			card:         card,
+			step:         deleteStepComment,
+			commentInput: ci,
+		}
+		b.mode = deleteMode
+		b.statusBar.SetActionHints(deleteCommentHints)
+		return b, b.delete.commentInput.Focus()
 	case "v":
 		b.enterPRList()
 		return b, nil

@@ -117,6 +117,10 @@ func (b Board) View() string {
 		return b.viewCommentModal()
 	}
 
+	if b.mode == deleteMode {
+		return b.viewDeleteModal()
+	}
+
 	if b.mode == filterMode {
 		return b.viewFilterModal()
 	}
@@ -904,6 +908,7 @@ var helpSections = []helpSection{
 		{"r", "Refresh"},
 		{"p", "Open PR"},
 		{"x", "Close card"},
+		{"t", "Delete card"},
 		{"v", "PR list"},
 		{"/", "Search"},
 		{"a", "Assign"},
@@ -955,6 +960,11 @@ var helpSections = []helpSection{
 	{"Comment", [][2]string{
 		{"esc", "Cancel"},
 		{"enter", "Submit"},
+	}},
+	{"Delete", [][2]string{
+		{"t", "Open (from Normal Mode)"},
+		{"enter", "Continue / Confirm"},
+		{"esc", "Cancel"},
 	}},
 	{"Filter", [][2]string{
 		{"f", "Filter (toggle)"},
@@ -1138,6 +1148,35 @@ func (b Board) viewCommentModal() string {
 	modalContent := b.comment.pendingAction.Name + "\n\n" +
 		b.comment.input.View() + "\n\n" +
 		commentHints.View(modalWidth, 0, 0)
+	return b.renderModal(modalContent, modalWidth)
+}
+
+// viewDeleteModal renders the two-step delete-confirm modal: the
+// optional-comment step or the retype-to-confirm step, mirroring
+// viewCommentModal's structure (prompt, active textinput, hints), plus a
+// card identifier and an inline mismatch message when present.
+func (b Board) viewDeleteModal() string {
+	modalWidth := b.createModalWidth()
+	card := b.delete.card
+
+	var prompt, activeInputView string
+	var hints StatusBar
+	switch b.delete.step {
+	case deleteStepConfirm:
+		prompt = fmt.Sprintf("Type %d to permanently delete #%d %q (Esc to cancel):", card.Number, card.Number, card.Title)
+		activeInputView = b.delete.confirmInput.View()
+		hints = NewStatusBar(deleteConfirmHints)
+	default:
+		prompt = fmt.Sprintf("Delete #%d %q — optional comment (Enter to continue, Esc to cancel):", card.Number, card.Title)
+		activeInputView = b.delete.commentInput.View()
+		hints = NewStatusBar(deleteCommentHints)
+	}
+
+	modalContent := prompt + "\n\n" + activeInputView
+	if b.delete.mismatchMsg != "" {
+		modalContent += "\n\n" + b.delete.mismatchMsg
+	}
+	modalContent += "\n\n" + hints.View(modalWidth, 0, 0)
 	return b.renderModal(modalContent, modalWidth)
 }
 

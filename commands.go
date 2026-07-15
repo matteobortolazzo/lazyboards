@@ -559,6 +559,31 @@ func closeCardCmd(p provider.BoardProvider, number int) tea.Cmd {
 	}
 }
 
+// addCommentForDeleteCmd returns a tea.Cmd that posts the delete flow's
+// optional comment via the provider. AddComment returns only an error (no
+// Card), so the Card is carried through the closure rather than derived from
+// a provider response.
+func addCommentForDeleteCmd(p provider.BoardProvider, card Card, comment string) tea.Cmd {
+	return func() tea.Msg {
+		if err := p.AddComment(context.Background(), card.Number, comment); err != nil {
+			return deleteCommentErrorMsg{err: err}
+		}
+		return deleteCommentPostedMsg{card: card}
+	}
+}
+
+// deleteCardCmd returns a tea.Cmd that permanently deletes a card via the
+// provider. DeleteCard returns only an error (no Card), so the Card is
+// carried through the closure rather than derived from a provider response.
+func deleteCardCmd(p provider.BoardProvider, card Card) tea.Cmd {
+	return func() tea.Msg {
+		if err := p.DeleteCard(context.Background(), card.Number); err != nil {
+			return cardDeleteErrorMsg{err: err}
+		}
+		return cardDeletedMsg{card: card}
+	}
+}
+
 // createLabelCmd returns a tea.Cmd that creates a label via the provider.
 func createLabelCmd(p provider.BoardProvider, name string) tea.Cmd {
 	return func() tea.Msg {
