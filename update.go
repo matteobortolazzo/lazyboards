@@ -899,26 +899,20 @@ func (b Board) handleCardDeleted(msg cardDeletedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var cleanupCmd tea.Cmd
-	for ci := range b.Columns {
-		for i := range b.Columns[ci].Cards {
-			if b.Columns[ci].Cards[i].Number != cardNum {
-				continue
+	if ci, i, ok := b.findCard(cardNum); ok {
+		cleanup := b.columnCleanup(ci)
+		if cleanup != "" && b.executor != nil && !b.agentSessionBusy(cardNum) && !b.hasWorkingLabel(labelNames) {
+			window := b.resolveWindowName(cardNum, msg.card.Title)
+			vars := action.BuildTemplateVars(cardNum, msg.card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", window)
+			expanded := action.ExpandTemplate(cleanup, action.BuildShellSafeVars(vars))
+			cleanupCmd = runCleanupCmds(b.executor, []string{expanded})
+		}
+		b.Columns[ci].Cards = append(b.Columns[ci].Cards[:i], b.Columns[ci].Cards[i+1:]...)
+		if b.Columns[ci].Cursor >= len(b.Columns[ci].Cards) {
+			b.Columns[ci].Cursor = len(b.Columns[ci].Cards) - 1
+			if b.Columns[ci].Cursor < 0 {
+				b.Columns[ci].Cursor = 0
 			}
-			cleanup := b.columnCleanup(ci)
-			if cleanup != "" && b.executor != nil && !b.agentSessionBusy(cardNum) && !b.hasWorkingLabel(labelNames) {
-				window := b.resolveWindowName(cardNum, msg.card.Title)
-				vars := action.BuildTemplateVars(cardNum, msg.card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", window)
-				expanded := action.ExpandTemplate(cleanup, action.BuildShellSafeVars(vars))
-				cleanupCmd = runCleanupCmds(b.executor, []string{expanded})
-			}
-			b.Columns[ci].Cards = append(b.Columns[ci].Cards[:i], b.Columns[ci].Cards[i+1:]...)
-			if b.Columns[ci].Cursor >= len(b.Columns[ci].Cards) {
-				b.Columns[ci].Cursor = len(b.Columns[ci].Cards) - 1
-				if b.Columns[ci].Cursor < 0 {
-					b.Columns[ci].Cursor = 0
-				}
-			}
-			break
 		}
 	}
 
