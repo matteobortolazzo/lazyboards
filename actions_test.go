@@ -960,6 +960,36 @@ func TestAction_PRScope_ZeroPRs_NoDispatchAndNoHint(t *testing.T) {
 	}
 }
 
+func TestAction_PRActionKeyWithComment_ZeroPRs_ShowsStatusMessage(t *testing.T) {
+	// Defensive-branch test: handlePRActionKeyWithComment's 0-linked-PR case
+	// is unreachable through the documented dispatch flow today —
+	// resolveAction's prScopeGated check already refuses to dispatch a
+	// scope: pr action against a 0-PR card (see
+	// TestAction_PRScope_ZeroPRs_NoDispatchAndNoHint above). This test calls
+	// the handler directly to exercise that defensive branch and confirm it
+	// gives the same user-facing feedback as the equivalent built-in "p"
+	// open-PR path (handlePROpenKey) instead of failing silently.
+	act := config.Action{Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch}"}
+	b, fe := newPRActionTestBoard(t, nil)
+
+	// Cursor starts on card 1 (0 linked PRs).
+	card := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	if len(card.LinkedPRs) != 0 {
+		t.Fatalf("test setup: expected card at cursor to have 0 LinkedPRs, got %d", len(card.LinkedPRs))
+	}
+
+	m, cmd := b.handlePRActionKeyWithComment(act, card, "")
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("expected no RunShell calls for a 0-linked-PR card, got %d", len(fe.RunShellCalls))
+	}
+	if !strings.Contains(b.statusBar.View(200, 0, 0), "No linked PRs") {
+		t.Errorf("statusBar.View(, 0, 0) = %q, want it to contain %q", b.statusBar.View(200, 0, 0), "No linked PRs")
+	}
+}
+
 func TestAction_PRScopeHint_VisibleWithLinkedPR(t *testing.T) {
 	actions := map[string]config.Action{
 		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch} && ng serve"},
