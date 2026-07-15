@@ -79,7 +79,7 @@ On first launch without a local config, an interactive configuration popup guide
 
 Cards are GitHub issues. Each column maps to a label — an issue with the label "Implementing" appears in the Implementing column. When a card has multiple matching labels, it appears in the rightmost matching column. Cards without a matching label default to the first column.
 
-Linked pull requests are auto-detected from the GitHub issue timeline (cross-references). Press `p` to open a linked PR, or pick from multiple.
+Linked pull requests come from GitHub's closing-PR relationship: supported closing keywords such as `Fixes #123`, `Closes #123`, and `Resolves #123`, plus links added manually through GitHub's Development sidebar. Mere issue mentions are ignored, as are closed PRs. Press `p` to open a linked PR, or pick from multiple.
 
 The board auto-refreshes in the background (default: every 5 minutes). Press `r` for an immediate refresh.
 
@@ -273,7 +273,7 @@ Inside the menu, press an action's key to run it immediately (like lazygit), or 
 
 At the left of the status bar, an always-visible prefix summarizes the whole board: agent-status counts (`▶N` running, `!N` awaiting input) followed by the board-wide linked-PR total (` N`, using the same PR glyph shown on cards). Each token is omitted when its count is zero, and the prefix disappears entirely when all are zero. Because the prefix is reserved before anything else, it stays visible through timed status messages and is never truncated to make room for hints or the right-aligned git/dispatch segments.
 
-The PR total is a raw count of PRs linked to cards, with no open/merged/closed filtering — it can include PRs that have since merged but remain linked. Press `v` to open the [global PR list](#pull-requests) for the details behind the count.
+The PR total counts open PRs that GitHub recognizes as closing linked cards. Mere issue mentions and closed PRs are excluded. Press `v` to open the [global PR list](#pull-requests) for the details behind the count.
 
 ### Git Status Segment
 

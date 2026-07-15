@@ -54,14 +54,14 @@ func NewGitHubProvider(client GitHubClient, gql graphQLBoardClient, owner, repo 
 
 // FetchBoard retrieves open issues and maps them to board columns, paging
 // through gql.fetchIssuePage (a single GraphQL query per page fetches each
-// issue's core fields plus its first 100 cross-referenced linked PRs).
+// issue's core fields plus its first 100 open closing PRs).
 //
 // GraphQL's `issues` connection excludes pull requests by construction
 // (unlike the REST Issues API, which mixes them in and requires a runtime
 // PullRequestLinks check), so no PR-skip step is needed here.
 //
-// Issues with more than 100 cross-references (issue.hasMoreTimelineItems)
-// trigger a bounded per-issue follow-up query via fetchTimelineFollowups.
+// Issues with more than 100 closing PRs (issue.hasMoreClosingPRs)
+// trigger a bounded per-issue follow-up query via fetchClosingPRFollowups.
 func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 	if len(g.columns) == 0 {
 		return Board{}, errors.New("at least one column is required")
@@ -88,8 +88,8 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 
 		for _, issue := range page.issues {
 			linkedPRs := issue.linkedPRs
-			if issue.hasMoreTimelineItems {
-				linkedPRs, err = g.fetchTimelineFollowups(ctx, issue)
+			if issue.hasMoreClosingPRs {
+				linkedPRs, err = g.fetchClosingPRFollowups(ctx, issue)
 				if err != nil {
 					return Board{}, err
 				}
@@ -131,29 +131,29 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 	return Board{Columns: columns}, nil
 }
 
-// fetchTimelineFollowups pages a single issue's timelineItems connection
+// fetchClosingPRFollowups pages a single issue's
+// closedByPullRequestsReferences connection
 // beyond its first page, merging follow-up LinkedPRs onto the issue's
 // already-collected list. PR-number dedup mirrors mapLinkedPRs' pattern
-// (graphql.go) so a PR cross-referenced on both the initial and a follow-up
-// page is only counted once.
+// (graphql.go) so a PR repeated across pages is only counted once.
 //
-// Bounded by maxTimelineFollowupPages: if the cap is reached, the loop stops
+// Bounded by maxClosingPRFollowupPages: if the cap is reached, the loop stops
 // and returns whatever LinkedPRs were collected so far WITHOUT an error --
 // one pathological issue must not fail the whole board fetch. A genuine
-// error from fetchIssueTimelinePage (network/API failure) is returned
+// error from fetchIssueClosingPRPage (network/API failure) is returned
 // immediately and DOES fail the board fetch (via FetchBoard's caller), since
 // it means we can no longer trust that issue's linked-PR list is complete.
-func (g *GitHubProvider) fetchTimelineFollowups(ctx context.Context, issue issueNode) ([]LinkedPR, error) {
+func (g *GitHubProvider) fetchClosingPRFollowups(ctx context.Context, issue issueNode) ([]LinkedPR, error) {
 	linkedPRs := issue.linkedPRs
 	seen := make(map[int]bool, len(linkedPRs))
 	for _, pr := range linkedPRs {
 		seen[pr.Number] = true
 	}
 
-	cursor := issue.timelineEndCursor
+	cursor := issue.closingPREndCursor
 	hasNext := true
-	for page := 0; hasNext && page < maxTimelineFollowupPages; page++ {
-		tp, err := g.gql.fetchIssueTimelinePage(ctx, g.owner, g.repo, issue.number, cursor)
+	for page := 0; hasNext && page < maxClosingPRFollowupPages; page++ {
+		tp, err := g.gql.fetchIssueClosingPRPage(ctx, g.owner, g.repo, issue.number, cursor)
 		if err != nil {
 			return nil, err
 		}
