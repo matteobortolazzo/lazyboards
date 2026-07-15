@@ -483,6 +483,7 @@ func TestTicketOpen_NormalMode_NoCards_DoesNothing(t *testing.T) {
 
 	// Press "o" with no cards in the column.
 	b = sendKey(t, b, keyMsg("o"))
+	_ = b
 
 	if len(fe.OpenURLCalls) != 0 {
 		t.Errorf("expected no OpenURL calls when no cards, got %d", len(fe.OpenURLCalls))
@@ -593,6 +594,7 @@ func TestAction_BoardScope_URLFiresWithEmptyColumn(t *testing.T) {
 
 	// Press the board-scope action key.
 	b = sendKey(t, b, keyMsg("B"))
+	_ = b
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called for board-scope action on empty column, but no calls recorded")
@@ -650,6 +652,7 @@ func TestAction_BoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
 	// Press the board-scope shell action key.
 	m2, cmd := b.Update(keyMsg("S"))
 	b = m2.(Board)
+	_ = b
 
 	// Execute the returned cmd(s) to trigger RunShell.
 	execCmds(cmd)
@@ -673,6 +676,7 @@ func TestAction_CardScope_StillIgnoredWhenNoCards(t *testing.T) {
 
 	// Press the card-scope action key with no cards.
 	b = sendKey(t, b, keyMsg("X"))
+	_ = b
 
 	if len(fe.OpenURLCalls) != 0 {
 		t.Errorf("expected no OpenURL calls for card-scope action on empty column, got %d", len(fe.OpenURLCalls))
