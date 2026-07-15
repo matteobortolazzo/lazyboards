@@ -1623,7 +1623,8 @@ func (b Board) handlePRActionKeyWithComment(act config.Action, card Card, commen
 	switch len(card.LinkedPRs) {
 	case 0:
 		debuglog.Errorf("scope:pr action %q dispatched against a card with 0 linked PRs (resolveAction gate bypassed)", act.Name)
-		return b, nil
+		cmd := b.statusBar.SetTimedMessage("No linked PRs", StatusWarning, statusMessageDuration)
+		return b, cmd
 	case 1:
 		return b.runPRAction(act, card, card.LinkedPRs[0], comment)
 	default:
@@ -1863,6 +1864,17 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	card := b.selectedCard()
 	prCount := len(card.LinkedPRs)
 
+	// Defensive: an async board refresh can shrink the selected card's
+	// LinkedPRs while the picker is still open, leaving prPickerIndex one or
+	// more positions past the new end. Clamp it before any branch below reads
+	// card.LinkedPRs[b.prPickerIndex].
+	if b.prPickerIndex >= prCount {
+		b.prPickerIndex = prCount - 1
+		if b.prPickerIndex < 0 {
+			b.prPickerIndex = 0
+		}
+	}
+
 	// The picker can be opened from the card list or the detail panel; restore
 	// the hint set matching where the user came from.
 	restoreHints := func() {
@@ -1873,10 +1885,9 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Defensive: an async board refresh (boardFetchedMsg) can shrink the
-	// selected card's LinkedPRs to 0 while the picker is still open, which
-	// would otherwise divide-by-zero on the modulo below or panic on the
-	// index. Bail out with the same cleanup as the Escape path.
+	// prCount == 0 is a separate case from the clamp above: no valid index
+	// exists at all, so bail out with the same cleanup as the Escape path
+	// instead of clamping to a nonexistent element.
 	if prCount == 0 {
 		b.mode = normalMode
 		b.pendingPRAction = nil

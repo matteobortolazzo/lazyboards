@@ -341,32 +341,37 @@ func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, co
 	return loadFromFakeProvider(t, b, p), fe
 }
 
-// newBoardWithPRsAndExecutor creates a Board with one column containing three cards:
-// - Card 1: no LinkedPRs
-// - Card 2: 1 LinkedPR
-// - Card 3: 2 LinkedPRs
-// It also returns a FakeExecutor for asserting OpenURL/RunShell calls.
-// newBoardWithPRs delegates to this function when the executor is not needed.
+// prFixtureColumns returns the shared three-card PR fixture used by
+// newBoardWithPRsAndExecutor and newPRActionTestBoard:
+// - Card 1: "No PRs", no LinkedPRs
+// - Card 2: "One PR", 1 LinkedPR (#10, branch feature/one-pr)
+// - Card 3: "Two PRs", 2 LinkedPRs (#20 feature/first-pr, #21 feature/second-pr)
+func prFixtureColumns() []provider.Column {
+	return []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{
+			{Number: 1, Title: "No PRs", Labels: []provider.Label{{Name: "bug"}}},
+			{Number: 2, Title: "One PR", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
+				{Number: 10, Title: "feat: one PR", URL: "https://github.com/owner/repo/pull/10", Branch: "feature/one-pr"},
+			}},
+			{Number: 3, Title: "Two PRs", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
+				{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20", Branch: "feature/first-pr"},
+				{Number: 21, Title: "feat: second PR", URL: "https://github.com/owner/repo/pull/21", Branch: "feature/second-pr"},
+			}},
+		}},
+	}
+}
+
+// newBoardWithPRsAndExecutor creates a Board with the shared prFixtureColumns
+// three-card PR fixture. It also returns a FakeExecutor for asserting
+// OpenURL/RunShell calls. newBoardWithPRs delegates to this function when the
+// executor is not needed.
 func newBoardWithPRsAndExecutor(t *testing.T) (Board, *action.FakeExecutor) {
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
 
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Column A", Cards: []provider.Card{
-				{Number: 1, Title: "No PRs", Labels: []provider.Label{{Name: "bug"}}},
-				{Number: 2, Title: "One PR", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
-					{Number: 10, Title: "feat: one PR", URL: "https://github.com/owner/repo/pull/10", Branch: "feature/one-pr"},
-				}},
-				{Number: 3, Title: "Two PRs", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
-					{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20", Branch: "feature/first-pr"},
-					{Number: 21, Title: "feat: second PR", URL: "https://github.com/owner/repo/pull/21", Branch: "feature/second-pr"},
-				}},
-			}},
-		},
-	}}
+	msg := boardFetchedMsg{board: provider.Board{Columns: prFixtureColumns()}}
 	m, _ := b.Update(msg)
 	board := m.(Board)
 	board.Width = 120
@@ -424,32 +429,7 @@ func newBoardWithPRs(t *testing.T) Board {
 // asserting OpenURL/RunShell calls (#340).
 func newPRActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, *action.FakeExecutor) {
 	t.Helper()
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
-
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Column A", Cards: []provider.Card{
-				{Number: 1, Title: "No PRs", Labels: []provider.Label{{Name: "bug"}}},
-				{Number: 2, Title: "One PR", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
-					{Number: 10, Title: "feat: one PR", URL: "https://github.com/owner/repo/pull/10", Branch: "feature/one-pr"},
-				}},
-				{Number: 3, Title: "Two PRs", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
-					{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20", Branch: "feature/first-pr"},
-					{Number: 21, Title: "feat: second PR", URL: "https://github.com/owner/repo/pull/21", Branch: "feature/second-pr"},
-				}},
-			}},
-		},
-	}}
-	m, _ := b.Update(msg)
-	board, ok := m.(Board)
-	if !ok {
-		t.Fatalf("Update returned %T, want Board", m)
-	}
-	board.Width = 120
-	board.Height = 40
-	return board, fe
+	return newActionTestBoardWithColumns(t, actions, prFixtureColumns())
 }
 
 // newBoardWithCustomWorkingLabel creates a Board with one column containing

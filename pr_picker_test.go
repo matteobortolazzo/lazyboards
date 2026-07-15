@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 func TestNormalMode_P_NoPRs_ShowsMessage(t *testing.T) {
@@ -175,6 +176,78 @@ func TestPRPicker_LinkedPRsShrinkToZeroWhileOpen_ReturnsToNormal(t *testing.T) {
 	}
 	if b.pendingPRAction != nil {
 		t.Errorf("pendingPRAction = %+v, want nil", b.pendingPRAction)
+	}
+}
+
+func TestPRPicker_LinkedPRsShrinkWhileOpen_ClampsIndexAndActsOnCorrectPR(t *testing.T) {
+	b, fe := newBoardWithPRsAndExecutor(t)
+
+	// Navigate to card 3 ("Two PRs": #20, #21) and enter the picker.
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("p"))
+	if b.mode != prPickerMode {
+		t.Fatalf("test setup: expected prPickerMode, got %d", b.mode)
+	}
+
+	// Move to the second PR (index 1, PR #21).
+	b = sendKey(t, b, arrowMsg(tea.KeyRight))
+	if b.prPickerIndex != 1 {
+		t.Fatalf("test setup: expected prPickerIndex 1, got %d", b.prPickerIndex)
+	}
+
+	// Simulate an in-flight background refresh completing while the picker
+	// is still open: mark the board as mid-refresh (handleBoardFetched's
+	// refreshing branch preserves mode/cursor instead of forcing
+	// normalMode) and deliver a boardFetchedMsg where the same card's
+	// LinkedPRs shrank from 2 to 1 (only PR #20 remains). b.prPickerIndex
+	// (still 1) now points past the end of the new slice.
+	b.refreshing = true
+	shrunkPR := provider.LinkedPR{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20", Branch: "feature/first-pr"}
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: "No PRs", Labels: []provider.Label{{Name: "bug"}}},
+				{Number: 2, Title: "One PR", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{
+					{Number: 10, Title: "feat: one PR", URL: "https://github.com/owner/repo/pull/10", Branch: "feature/one-pr"},
+				}},
+				{Number: 3, Title: "Two PRs", Labels: []provider.Label{{Name: "feature"}}, LinkedPRs: []provider.LinkedPR{shrunkPR}},
+			}},
+		},
+	}}
+
+	m, cmd := b.Update(msg)
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != prPickerMode {
+		t.Fatalf("test setup: expected mode to remain prPickerMode after in-flight refresh, got %d", b.mode)
+	}
+	card := b.selectedCard()
+	if len(card.LinkedPRs) != 1 {
+		t.Fatalf("test setup: expected shrunk card to have 1 LinkedPR, got %d", len(card.LinkedPRs))
+	}
+
+	// Press Enter without re-navigating: prPickerIndex is still 1, past the
+	// new length of 1. This must not panic, and must act on the clamped
+	// (last-valid) PR rather than an out-of-range index.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Enter panicked after LinkedPRs shrank while the picker was open: %v", r)
+		}
+	}()
+	m, cmd = b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
+	}
+	if fe.OpenURLCalls[0] != shrunkPR.URL {
+		t.Errorf("OpenURL called with %q, want %q (the clamped, remaining PR)", fe.OpenURLCalls[0], shrunkPR.URL)
 	}
 }
 
