@@ -181,6 +181,27 @@ func newActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, 
 	return loadFromFakeProvider(t, b, p), fe
 }
 
+// newBoardWithEmptyColumn creates a loaded Board with a single column titled
+// "Empty" and no cards, wired with the given actions and a FakeExecutor.
+// It returns the board and the FakeExecutor for assertion.
+func newBoardWithEmptyColumn(t *testing.T, actions map[string]config.Action) (Board, *action.FakeExecutor) {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Empty", Cards: nil},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board, fe
+}
+
 // newBoardWithBody creates a Board with one column containing two cards.
 // The first card has body1 as its body text; the second card has body2.
 func newBoardWithBody(t *testing.T, body1, body2 string) Board {

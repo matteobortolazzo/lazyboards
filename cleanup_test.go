@@ -15,9 +15,11 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
-// newCleanupTestBoard creates a Board with cleanup configured on col 0 ("New"),
-// a FakeExecutor, and a FakeProvider. Initial load populates prevCards.
-func newCleanupTestBoard(t *testing.T, cleanup string) (Board, *action.FakeExecutor, *provider.FakeProvider) {
+// newCleanupTestBoardWith creates a Board with cleanup configured on col 0
+// ("New"), a FakeExecutor, and a FakeProvider, wired with the given
+// agentwatch.Watcher (nil if the test doesn't need one). Initial load
+// populates prevCards.
+func newCleanupTestBoardWith(t *testing.T, cleanup string, watcher agentwatch.Watcher) (Board, *action.FakeExecutor, *provider.FakeProvider) {
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -27,7 +29,7 @@ func newCleanupTestBoard(t *testing.T, cleanup string) (Board, *action.FakeExecu
 		{Name: "Implementing"},
 		{Name: "Implemented"},
 	}
-	b := NewBoard(p, nil, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false, false, watcher, nil)
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
@@ -40,29 +42,19 @@ func newCleanupTestBoard(t *testing.T, cleanup string) (Board, *action.FakeExecu
 	return b, fe, p
 }
 
+// newCleanupTestBoard creates a Board with cleanup configured on col 0 ("New"),
+// a FakeExecutor, and a FakeProvider. Initial load populates prevCards.
+func newCleanupTestBoard(t *testing.T, cleanup string) (Board, *action.FakeExecutor, *provider.FakeProvider) {
+	t.Helper()
+	return newCleanupTestBoardWith(t, cleanup, nil)
+}
+
 // newCleanupTestBoardWithWatcher mirrors newCleanupTestBoard but wires a
 // non-nil agentwatch.Watcher (an empty FakeWatcher) so b.agentWatcher != nil,
 // while leaving b.agentSnapshot nil (no snapshot delivered yet).
 func newCleanupTestBoardWithWatcher(t *testing.T, cleanup string) (Board, *action.FakeExecutor, *provider.FakeProvider) {
 	t.Helper()
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	columnConfigs := []config.ColumnConfig{
-		{Name: "New", Cleanup: &cleanup},
-		{Name: "Refined"},
-		{Name: "Implementing"},
-		{Name: "Implemented"},
-	}
-	b := NewBoard(p, nil, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false, false, &agentwatch.FakeWatcher{}, nil)
-	board, err := p.FetchBoard(context.TODO())
-	if err != nil {
-		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
-	}
-	m, cmd := b.Update(boardFetchedMsg{board: board})
-	b = m.(Board)
-	execCmds(cmd)
-	b.Width = 120
-	b.Height = 40
+	b, fe, p := newCleanupTestBoardWith(t, cleanup, &agentwatch.FakeWatcher{})
 	b.agentSnapshot = nil
 	return b, fe, p
 }

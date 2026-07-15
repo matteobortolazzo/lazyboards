@@ -96,20 +96,7 @@ func TestAction_IgnoredWhenNoCards(t *testing.T) {
 	actions := map[string]config.Action{
 		"X": {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 	}
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
-
-	// Load a board with an empty column.
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Empty", Cards: nil},
-		},
-	}}
-	m, _ := b.Update(msg)
-	b = m.(Board)
-	b.Width = 120
-	b.Height = 40
+	b, fe := newBoardWithEmptyColumn(t, actions)
 
 	// Press the action key with no cards in the column.
 	b = sendKey(t, b, keyMsg("X"))
@@ -492,23 +479,11 @@ func TestTicketOpen_NormalMode_EmptyURL_ShowsMessage(t *testing.T) {
 }
 
 func TestTicketOpen_NormalMode_NoCards_DoesNothing(t *testing.T) {
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
-
-	// Load a board with an empty column.
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Empty", Cards: nil},
-		},
-	}}
-	m, _ := b.Update(msg)
-	b = m.(Board)
-	b.Width = 120
-	b.Height = 40
+	b, fe := newBoardWithEmptyColumn(t, nil)
 
 	// Press "o" with no cards in the column.
 	b = sendKey(t, b, keyMsg("o"))
+	_ = b
 
 	if len(fe.OpenURLCalls) != 0 {
 		t.Errorf("expected no OpenURL calls when no cards, got %d", len(fe.OpenURLCalls))
@@ -579,20 +554,7 @@ func TestTicketOpen_ShowsOpenedMessage(t *testing.T) {
 // --- Ticket Open hint visibility tests ---
 
 func TestTicketOpen_OpenHintHiddenOnEmptyColumn(t *testing.T) {
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
-
-	// Load a board with an empty column.
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Empty", Cards: nil},
-		},
-	}}
-	m, _ := b.Update(msg)
-	b = m.(Board)
-	b.Width = 120
-	b.Height = 40
+	b, _ := newBoardWithEmptyColumn(t, nil)
 
 	// The "Open" hint for the "o" key should NOT appear when there are no cards.
 	statusBarView := b.statusBar.View(200, 0, 0)
@@ -628,23 +590,11 @@ func TestAction_BoardScope_URLFiresWithEmptyColumn(t *testing.T) {
 	actions := map[string]config.Action{
 		"B": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
 	}
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
-
-	// Load a board with an empty column.
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Empty", Cards: nil},
-		},
-	}}
-	m, _ := b.Update(msg)
-	b = m.(Board)
-	b.Width = 120
-	b.Height = 40
+	b, fe := newBoardWithEmptyColumn(t, actions)
 
 	// Press the board-scope action key.
 	b = sendKey(t, b, keyMsg("B"))
+	_ = b
 
 	if len(fe.OpenURLCalls) == 0 {
 		t.Fatal("expected OpenURL to be called for board-scope action on empty column, but no calls recorded")
@@ -697,24 +647,12 @@ func TestAction_BoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
 	actions := map[string]config.Action{
 		"S": {Name: "Deploy", Type: "shell", Scope: "board", Command: "deploy --repo {repo_owner}/{repo_name}"},
 	}
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
-
-	// Load a board with an empty column.
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Empty", Cards: nil},
-		},
-	}}
-	m, _ := b.Update(msg)
-	b = m.(Board)
-	b.Width = 120
-	b.Height = 40
+	b, fe := newBoardWithEmptyColumn(t, actions)
 
 	// Press the board-scope shell action key.
 	m2, cmd := b.Update(keyMsg("S"))
 	b = m2.(Board)
+	_ = b
 
 	// Execute the returned cmd(s) to trigger RunShell.
 	execCmds(cmd)
@@ -734,23 +672,11 @@ func TestAction_CardScope_StillIgnoredWhenNoCards(t *testing.T) {
 	actions := map[string]config.Action{
 		"X": {Name: "Open card", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
 	}
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
-
-	// Load a board with an empty column.
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Empty", Cards: nil},
-		},
-	}}
-	m, _ := b.Update(msg)
-	b = m.(Board)
-	b.Width = 120
-	b.Height = 40
+	b, fe := newBoardWithEmptyColumn(t, actions)
 
 	// Press the card-scope action key with no cards.
 	b = sendKey(t, b, keyMsg("X"))
+	_ = b
 
 	if len(fe.OpenURLCalls) != 0 {
 		t.Errorf("expected no OpenURL calls for card-scope action on empty column, got %d", len(fe.OpenURLCalls))
@@ -763,20 +689,7 @@ func TestAction_BoardScopeHint_VisibleOnEmptyColumn(t *testing.T) {
 	actions := map[string]config.Action{
 		"B": {Name: "Open board", Type: "url", Scope: "board", URL: "https://github.com/{repo_owner}/{repo_name}/issues"},
 	}
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
-
-	// Load a board with an empty column.
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Empty", Cards: nil},
-		},
-	}}
-	m, _ := b.Update(msg)
-	b = m.(Board)
-	b.Width = 120
-	b.Height = 40
+	b, _ := newBoardWithEmptyColumn(t, actions)
 
 	view := b.View()
 	if !strings.Contains(view, "Open board") {
@@ -788,20 +701,7 @@ func TestAction_CardScopeHint_HiddenOnEmptyColumn(t *testing.T) {
 	actions := map[string]config.Action{
 		"X": {Name: "Card action", Type: "url", Scope: "card", URL: "https://example.com/{number}"},
 	}
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
-
-	// Load a board with an empty column.
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Empty", Cards: nil},
-		},
-	}}
-	m, _ := b.Update(msg)
-	b = m.(Board)
-	b.Width = 120
-	b.Height = 40
+	b, _ := newBoardWithEmptyColumn(t, actions)
 
 	view := b.View()
 	if strings.Contains(view, "Card action") {
