@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Fake agentwatch broadcast socket for the README GIF recording.
+"""Fake cenci broadcast socket for the README GIF recording.
 
 Serves scripted StateSnapshot NDJSON lines (the daemon's public wire format,
-see internal/agentwatch/snapshot.go) on
-$XDG_RUNTIME_DIR/agentwatch/agentwatch.sock, so the demo board shows live
+see internal/cenciwatch/snapshot.go) on
+$XDG_RUNTIME_DIR/cenci/cenci.sock, so the demo board shows live
 agent badges, status-bar counts, and the dispatch segment without running
 real agents. Started by demo.tape's hidden setup inside a throwaway
 XDG_RUNTIME_DIR; it dies with the recording shell.
@@ -17,9 +17,9 @@ import socket
 import threading
 import time
 
-sock_dir = os.path.join(os.environ["XDG_RUNTIME_DIR"], "agentwatch")
+sock_dir = os.path.join(os.environ["XDG_RUNTIME_DIR"], "cenci")
 os.makedirs(sock_dir, mode=0o700, exist_ok=True)
-sock_path = os.path.join(sock_dir, "agentwatch.sock")
+sock_path = os.path.join(sock_dir, "cenci.sock")
 if os.path.exists(sock_path):
     os.unlink(sock_path)
 

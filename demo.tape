@@ -1,6 +1,6 @@
 # demo.tape — VHS recipe for the README GIF
 # Requires: vhs, ttyd, ffmpeg (pacman -S vhs ttyd ffmpeg) and python3
-# (for the fake agentwatch socket that drives the agent badges).
+# (for the fake cenci socket that drives the agent badges).
 # Regenerate with: vhs demo.tape   (from the repo root)
 
 Output docs/demo.gif
@@ -15,10 +15,10 @@ Set Framerate 30
 
 # ---- Silent setup ----
 Hide
-# Fake agentwatch daemon in a throwaway runtime dir: scripted snapshots give
+# Fake cenci daemon in a throwaway runtime dir: scripted snapshots give
 # the demo deterministic agent badges (▶/✓/!) and the ⟳ dispatch segment.
 Type "export XDG_RUNTIME_DIR=$(mktemp -d)" Enter
-Type "python3 docs/demo-agentwatch-fake.py &" Enter
+Type "python3 docs/demo-cenci-fake.py &" Enter
 Type "cd ~/Repos/lazyboards-demo" Enter
 # Pin the demo columns to the labels seeded by docs/demo-repo-seed.sh, so the
 # recording is deterministic regardless of any personal global config.
