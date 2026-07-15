@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 )
 
 // Package-level glamour renderer cache.
@@ -1565,12 +1566,13 @@ func (b Board) viewDispatchModal() string {
 
 // renderLoopLine renders the "Loop: ..." status line describing the
 // daemon-owned background dispatch loop, decoded verbatim from the "loop"
-// object in `cenci dispatch status --json` (ticket #313). lazyboards is
-// a pure reader of this state -- starting/stopping the loop is a
-// user-configured custom shell action, not a code path here. Precedence:
-// old-binary guard > nil loop (defensive) > last_error > enabled/off >
-// daemon-not-running > never-run > normal summary.
-func renderLoopLine(loop *dispatchLoopInfo, loopErr string) string {
+// object in `cenci dispatch status --json` (ticket #313) into the shared
+// cenciwatch.DispatchState wire type (#402). lazyboards is a pure reader of
+// this state -- starting/stopping the loop is a user-configured custom shell
+// action, not a code path here. Precedence: old-binary guard > nil loop
+// (defensive) > last_error > enabled/off > daemon-not-running > never-run >
+// normal summary.
+func renderLoopLine(loop *cenciwatch.DispatchState, loopErr string) string {
 	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 
 	if loop == nil {

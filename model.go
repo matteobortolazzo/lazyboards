@@ -678,27 +678,16 @@ type dispatchState struct {
 
 	// loop is the daemon-owned background dispatch loop state, decoded
 	// verbatim from the "loop" object in `cenci dispatch status --json`
-	// (ticket #313). lazyboards is a pure reader of this state -- starting
-	// and stopping the loop is a user-configured custom shell action, not a
+	// (ticket #313). Upstream, that object is the same producer type as the
+	// socket snapshot's "dispatch" object (cenci's watch.DispatchState), so
+	// both wire boundaries decode into the one cenciwatch.DispatchState type
+	// (#402). lazyboards is a pure reader of this state -- starting and
+	// stopping the loop is a user-configured custom shell action, not a
 	// code path here. loop is nil only when the top-level "loop" key was
 	// entirely absent from the decoded JSON (a cenci binary that
 	// predates this feature); in that case loopErr holds a guard message.
-	loop    *dispatchLoopInfo
+	loop    *cenciwatch.DispatchState
 	loopErr string
-}
-
-// dispatchLoopInfo mirrors the "loop" object decoded from
-// `cenci dispatch status --json`. See queryDispatchStatusCmd, which
-// unmarshals directly into this type.
-type dispatchLoopInfo struct {
-	Enabled        bool   `json:"enabled"`
-	DaemonRunning  bool   `json:"daemon_running"`
-	Interval       string `json:"interval"`
-	PassRunning    bool   `json:"pass_running"`
-	LastRunAt      string `json:"last_run_at"`
-	LastDispatched int    `json:"last_dispatched"`
-	LastSkipped    int    `json:"last_skipped"`
-	LastError      string `json:"last_error"`
 }
 
 // dispatchModeHints are the status bar hints shown in dispatch mode.
@@ -709,12 +698,14 @@ var dispatchModeHints = []Hint{
 }
 
 // dispatchStatusMsg is sent when queryDispatchStatusCmd finishes querying
-// cenci for the current repo's dispatch enrollment status.
+// cenci for the current repo's dispatch enrollment status. loop carries the
+// CLI's "loop" object, decoded into the shared cenciwatch.DispatchState
+// wire type (see dispatchState.loop).
 type dispatchStatusMsg struct {
 	repo     string
 	dir      string
 	enrolled bool
-	loop     *dispatchLoopInfo
+	loop     *cenciwatch.DispatchState
 	err      string
 }
 
