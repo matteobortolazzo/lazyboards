@@ -148,6 +148,13 @@ func (b Board) handleConfigModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A pending custom-action key sequence consumes every key until it
+	// resolves or cancels -- checked before the detail-focused sub-state so
+	// sequences behave identically in both focuses.
+	if b.pendingSeq != "" {
+		return b.handlePendingSeqKey(msg)
+	}
+
 	if b.detailFocused {
 		return b.handleDetailFocusedKey(msg)
 	}

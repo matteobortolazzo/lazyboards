@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -13,61 +14,182 @@ import (
 )
 
 // handleCustomActionKey resolves msg against the user's custom action system:
-// Alt+letter enters comment mode (if the action's template uses {comment}) or
-// dispatches immediately, and a plain uppercase letter dispatches directly.
-// Shared by normal mode and detail-focused mode so custom actions behave
-// identically in both -- b.detailFocused (already accurate at call time,
-// since detail-focused mode is a sub-state routed to before this is ever
-// reached) is threaded onto the pending comment so returning from comment
-// mode restores the focus it was triggered from, mirroring the
-// helpFromDetailFocused pattern. Scope routing (board/card/pr) is delegated
-// to dispatchResolvedAction so every dispatch path shares one gating rule.
-// Returns b unchanged if msg is not a recognized custom action key.
+// a plain uppercase letter dispatches its action directly, Alt+letter enters
+// comment mode first (if the action's template uses {comment}), and a letter
+// that only starts longer key sequences (e.g. "P" with "Pf"/"Pb" configured)
+// enters the pending-sequence state instead of dispatching (see
+// handlePendingSeqKey). Shared by normal mode and detail-focused mode so
+// custom actions behave identically in both -- b.detailFocused (already
+// accurate at call time, since detail-focused mode is a sub-state routed to
+// before this is ever reached) is threaded onto the pending comment so
+// returning from comment mode restores the focus it was triggered from,
+// mirroring the helpFromDetailFocused pattern. Scope routing (board/card/pr)
+// is delegated to dispatchResolvedAction so every dispatch path shares one
+// gating rule. Returns b unchanged if msg is not a recognized custom action
+// key or sequence prefix.
 func (b Board) handleCustomActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Alt+Shift+key: check for comment mode trigger (uppercase A-Z only).
-	if msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
-		baseKey := string(msg.Runes)
-		if act, ok := b.resolveAction(baseKey); ok {
-			template := act.URL + act.Command
-			if strings.Contains(template, "{comment}") {
-				// Resolve the pending card (if card-scope or pr-scope) before
-				// touching any state, so a "no card visible" refusal leaves b
-				// untouched.
-				var pendingCard Card
-				if act.Scope != "board" {
-					if len(b.visibleCards()) == 0 {
-						return b, nil
-					}
-					pendingCard = b.selectedCard()
-				}
-				ci := textinput.New()
-				ci.Placeholder = "Comment..."
-				ci.CharLimit = 2000
-				b.comment = commentState{
-					input:             ci,
-					pendingAction:     act,
-					pendingCard:       pendingCard,
-					boardScope:        act.Scope == "board",
-					prScope:           act.Scope == "pr",
-					fromDetailFocused: b.detailFocused,
-				}
-				b.detailFocused = false
-				b.mode = commentMode
-				b.statusBar.SetActionHints(commentModeHints)
-				return b, b.comment.input.Focus()
-			}
-			// Alt on action without {comment} -- execute normally.
-			return b.dispatchResolvedAction(act)
-		}
+	// Custom actions and their sequences always start with uppercase A-Z.
+	if len(msg.Runes) != 1 || msg.Runes[0] < 'A' || msg.Runes[0] > 'Z' {
 		return b, nil
 	}
-	// Check if it's a custom action key (uppercase A-Z only).
-	if len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
-		if act, ok := b.resolveAction(msg.String()); ok {
-			return b.dispatchResolvedAction(act)
-		}
+	key := string(msg.Runes)
+	if act, ok := b.resolveAction(key); ok {
+		return b.dispatchActionWithAlt(act, msg.Alt)
+	}
+	// Not a complete action: if it opens at least one longer (non-gated) key
+	// sequence, wait for the continuation keys, which-key style.
+	if cands := b.seqCandidates(key); len(cands) > 0 {
+		b.pendingSeq = key
+		b.pendingSeqAlt = msg.Alt
+		b.statusBar.SetActionHints(seqHints(cands))
 	}
 	return b, nil
+}
+
+// handlePendingSeqKey consumes the next key of a pending custom-action key
+// sequence. It runs before every other normal-mode/detail-focused key
+// handler (see handleNormalModeKey), so built-in keys like j/k can serve as
+// sequence continuations without also navigating. Esc cancels the sequence
+// (and only the sequence -- detail focus is kept); a key completing an
+// action dispatches it (Alt held on any key of the sequence counts for the
+// comment-mode trigger); a key that still prefixes longer sequences extends
+// the pending state; anything else cancels with a warning.
+func (b Board) handlePendingSeqKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 || !config.IsSequenceKey(msg.Runes[0]) {
+		b.clearPendingSeq()
+		b.restoreSeqHints()
+		return b, nil
+	}
+	seq := b.pendingSeq + string(msg.Runes)
+	alt := b.pendingSeqAlt || msg.Alt
+	b.clearPendingSeq()
+	if act, ok := b.resolveAction(seq); ok {
+		b.restoreSeqHints()
+		return b.dispatchActionWithAlt(act, alt)
+	}
+	if cands := b.seqCandidates(seq); len(cands) > 0 {
+		b.pendingSeq = seq
+		b.pendingSeqAlt = alt
+		b.statusBar.SetActionHints(seqHints(cands))
+		return b, nil
+	}
+	b.restoreSeqHints()
+	cmd := b.statusBar.SetTimedMessage("No action bound to "+seq, StatusWarning, statusMessageDuration)
+	return b, cmd
+}
+
+// clearPendingSeq resets the pending key-sequence state.
+func (b *Board) clearPendingSeq() {
+	b.pendingSeq = ""
+	b.pendingSeqAlt = false
+}
+
+// restoreSeqHints restores the hint bar for the focus state the sequence was
+// started from (card list vs detail panel).
+func (b *Board) restoreSeqHints() {
+	if b.detailFocused {
+		b.statusBar.SetActionHints(detailFocusHints)
+		return
+	}
+	b.statusBar.SetActionHints(b.normalHints)
+}
+
+// seqCandidate pairs an action with its full key sequence for the pending-
+// sequence hint bar.
+type seqCandidate struct {
+	key string
+	act config.Action
+}
+
+// seqCandidates returns the effective custom actions (active column overlaid
+// on global, exactly like resolveAction's lookup order) whose key strictly
+// extends seq, sorted by key. Scope gating mirrors dispatchResolvedAction and
+// rebuildNormalHints: board-scope is always eligible, card-scope needs a
+// visible card, pr-scope needs the selected card to have a linked PR -- so a
+// prefix never enters (or keeps) the pending state when none of its sequences
+// could actually dispatch.
+func (b *Board) seqCandidates(seq string) []seqCandidate {
+	effective := make(map[string]config.Action, len(b.actions))
+	for key, act := range b.actions {
+		effective[key] = act
+	}
+	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
+		colTitle := b.Columns[b.ActiveTab].Title
+		for _, cc := range b.columnConfigs {
+			if strings.EqualFold(cc.Name, colTitle) {
+				for key, act := range cc.Actions {
+					effective[key] = act
+				}
+				break
+			}
+		}
+	}
+	hasCards := len(b.visibleCards()) > 0
+	var cands []seqCandidate
+	for key, act := range effective {
+		if len(key) <= len(seq) || !strings.HasPrefix(key, seq) {
+			continue
+		}
+		switch config.DefaultScope(act.Scope) {
+		case "board":
+		case "pr":
+			if b.prScopeGated(act) {
+				continue
+			}
+		default:
+			if !hasCards {
+				continue
+			}
+		}
+		cands = append(cands, seqCandidate{key: key, act: act})
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].key < cands[j].key })
+	return cands
+}
+
+// seqHints builds the which-key style hint bar for a pending sequence: one
+// hint per candidate (full key sequence + action name), then esc to cancel.
+func seqHints(cands []seqCandidate) []Hint {
+	hints := make([]Hint, 0, len(cands)+1)
+	for _, c := range cands {
+		hints = append(hints, Hint{Key: c.key, Desc: c.act.Name})
+	}
+	return append(hints, Hint{Key: "esc", Desc: "cancel"})
+}
+
+// dispatchActionWithAlt dispatches act, entering comment mode first when Alt
+// was held and the action's template uses {comment} (the Alt+Shift+key
+// comment flow, extended to key sequences where Alt may be held on any key).
+func (b Board) dispatchActionWithAlt(act config.Action, alt bool) (tea.Model, tea.Cmd) {
+	if alt && strings.Contains(act.URL+act.Command, "{comment}") {
+		// Resolve the pending card (if card-scope or pr-scope) before
+		// touching any state, so a "no card visible" refusal leaves b
+		// untouched.
+		var pendingCard Card
+		if act.Scope != "board" {
+			if len(b.visibleCards()) == 0 {
+				return b, nil
+			}
+			pendingCard = b.selectedCard()
+		}
+		ci := textinput.New()
+		ci.Placeholder = "Comment..."
+		ci.CharLimit = 2000
+		b.comment = commentState{
+			input:             ci,
+			pendingAction:     act,
+			pendingCard:       pendingCard,
+			boardScope:        act.Scope == "board",
+			prScope:           act.Scope == "pr",
+			fromDetailFocused: b.detailFocused,
+		}
+		b.detailFocused = false
+		b.mode = commentMode
+		b.statusBar.SetActionHints(commentModeHints)
+		return b, b.comment.input.Focus()
+	}
+	// No Alt, or Alt on an action without {comment} -- execute normally.
+	return b.dispatchResolvedAction(act)
 }
 
 // dispatchResolvedAction runs act against the currently selected card (or the

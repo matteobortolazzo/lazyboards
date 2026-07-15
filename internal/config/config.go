@@ -233,6 +233,10 @@ func Load(globalPath, localPath string) (Config, error) {
 		return Config{}, err
 	}
 
+	if err := validatePrefixConflicts(&cfg); err != nil {
+		return Config{}, err
+	}
+
 	// Any column still without an explicit cleanup (including defaulted
 	// columns) falls back to the resolved top-level default.
 	applyDefaultCleanup(cfg.Columns, cfg.CleanupValue())
@@ -392,10 +396,19 @@ var prSpecificVarPattern = regexp.MustCompile(`\{(pr_branch|pr_number|pr_url|pr_
 // validateActions checks that all action definitions are well-formed.
 func validateActions(actions map[string]Action) error {
 	for key, action := range actions {
-		// Key must be a single uppercase letter A-Z.
+		// Key is a sequence of one or more keys pressed one after another
+		// (neovim-style prefix bindings). The first key must be an uppercase
+		// letter A-Z (the reserved custom-action namespace); continuation
+		// keys may be any letter or digit, since a pending sequence consumes
+		// every key until it resolves.
 		runes := []rune(key)
-		if len(runes) != 1 || runes[0] < 'A' || runes[0] > 'Z' {
-			return fmt.Errorf("action key %q must be an uppercase letter (A-Z)", key)
+		if len(runes) == 0 || runes[0] < 'A' || runes[0] > 'Z' {
+			return fmt.Errorf("action key %q must start with an uppercase letter (A-Z)", key)
+		}
+		for _, r := range runes[1:] {
+			if !IsSequenceKey(r) {
+				return fmt.Errorf("action key %q: sequence keys after the first must be letters or digits", key)
+			}
 		}
 		// Name is required.
 		if strings.TrimSpace(action.Name) == "" {
@@ -440,6 +453,61 @@ func validateActions(actions map[string]Action) error {
 		}
 	}
 	return nil
+}
+
+// IsSequenceKey reports whether r is a valid continuation key of an action
+// key sequence: any letter or digit.
+func IsSequenceKey(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+}
+
+// validatePrefixConflicts rejects any action key that is a strict prefix of
+// another action key in a key set that can be active at the same time: the
+// prefix key could then never dispatch (pressing it must wait for a
+// continuation key). Resolution consults the active column's actions plus
+// the global actions, so the check runs on the global map alone and on each
+// column's keys merged with the global keys. An identical key appearing in
+// both maps is an ordinary column override, not a conflict.
+func validatePrefixConflicts(cfg *Config) error {
+	globalKeys := make([]string, 0, len(cfg.Actions))
+	for key := range cfg.Actions {
+		globalKeys = append(globalKeys, key)
+	}
+	if a, b, ok := findPrefixPair(globalKeys); ok {
+		return fmt.Errorf("action key %q is a prefix of action key %q: a prefix key can never dispatch", a, b)
+	}
+
+	for _, col := range cfg.Columns {
+		merged := make(map[string]bool, len(globalKeys)+len(col.Actions))
+		for _, key := range globalKeys {
+			merged[key] = true
+		}
+		for key := range col.Actions {
+			merged[key] = true
+		}
+		keys := make([]string, 0, len(merged))
+		for key := range merged {
+			keys = append(keys, key)
+		}
+		if a, b, ok := findPrefixPair(keys); ok {
+			return fmt.Errorf("column %q: action key %q is a prefix of action key %q: a prefix key can never dispatch", col.Name, a, b)
+		}
+	}
+	return nil
+}
+
+// findPrefixPair returns the first pair of distinct keys where one is a
+// strict prefix of the other (shorter key first). Action maps are tiny, so
+// the pairwise scan is fine.
+func findPrefixPair(keys []string) (prefix, key string, found bool) {
+	for _, a := range keys {
+		for _, b := range keys {
+			if a != b && strings.HasPrefix(b, a) {
+				return a, b, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 // validateScopeConflicts checks that no action key is assigned a "card" scope

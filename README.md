@@ -15,7 +15,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Assign and unassign collaborators to cards
 - Search cards by title and filter by label or assignee
 - PR linking with picker modal
-- Custom actions: open URLs or run shell commands bound to Shift+key, with column cleanup on departure
+- Custom actions: open URLs or run shell commands bound to Shift+key or multi-key sequences (neovim-style prefix keys), with column cleanup on departure
 - Mouse support: scroll, click tabs, click cards
 - Auto-detection of provider and repo from git remote
 - In-app configuration UI (first-launch flow or press `c`)
@@ -207,6 +207,33 @@ actions:
 ```
 
 Press the key to execute the action on the selected card. Custom actions and `Alt+Shift+key` comment actions work identically whether the card list or the [detail panel](#detail-panel) is focused.
+
+### Key Sequences (Prefix Keys)
+
+When single keys run out — a monorepo where you want to run several projects from a PR, say — bind multi-key sequences, neovim-style. A key is a sequence when it's longer than one character: the first key must still be uppercase `A-Z` (the namespace reserved for you), continuation keys can be any letter or digit:
+
+```yaml
+actions:
+  Rf:
+    name: "Run frontend"
+    type: shell
+    scope: pr
+    command: 'tmux new-window -d -n fe-{pr_number} "cd {pr_worktree}/frontend && npm run dev"'
+  Rb:
+    name: "Run backend"
+    type: shell
+    scope: pr
+    command: 'tmux new-window -d -n be-{pr_number} "cd {pr_worktree}/backend && dotnet run"'
+  Rw:
+    name: "Run worker"
+    type: shell
+    scope: pr
+    command: 'tmux new-window -d -n wk-{pr_number} "cd {pr_worktree}/worker && go run ."'
+```
+
+Press `R` and the status bar switches to a which-key style list of everything the prefix can complete to (`Rf: Run frontend | Rb: Run backend | ...`); press the next key to run it. While a sequence is pending it owns the keyboard — built-in keys like `j`/`k` act as continuation keys, not navigation. `Esc` cancels, as does any key that doesn't match a bound sequence. Holding `Alt` on any key of the sequence gives the same [comment-first flow](#comment-mode) as `Alt+Shift+key` on a single-key action.
+
+Sequences can be any length (`R`, `Rf`, `RFa1`, ...) and follow all the usual action rules: scopes, template variables, per-column overrides, and gating (a prefix whose only completions are `pr`-scope won't even open on a card with no linked PRs). One constraint is validated at startup: a key can't be a strict prefix of another key that can be active at the same time — a standalone `P` action plus a `Pf` sequence is a config error, because `P` could then never fire.
 
 ### Template Variables
 
@@ -414,6 +441,7 @@ Press `?` at any time to open the in-app help popup.
 | `Tab` / `Shift+Tab` | Switch columns |
 | `1-9` | Jump to column |
 | `A-Z` | Custom action (uppercase is fully user-owned) |
+| `A-Z` `…` | Custom action [key sequence](#key-sequences-prefix-keys) (`Esc` cancels a pending sequence) |
 | `Alt+Shift+key` | Comment action |
 
 ### Detail Panel
@@ -430,6 +458,7 @@ Press `?` at any time to open the in-app help popup.
 | `q` | Quit |
 | `?` | Help |
 | `A-Z` | Custom action |
+| `A-Z` `…` | Custom action [key sequence](#key-sequences-prefix-keys) |
 | `Alt+Shift+key` | Comment action |
 
 ### Create Mode

@@ -361,6 +361,11 @@ func (b Board) scheduleCenciWatchRetry() tea.Cmd {
 }
 
 func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
+	// A refresh can change columns/cards, invalidating a pending key
+	// sequence's candidates and its hint bar (which the rebuilt hints below
+	// would clobber anyway) -- cancel it.
+	b.clearPendingSeq()
+
 	cols := make([]Column, len(msg.board.Columns))
 	for i, pc := range msg.board.Columns {
 		cards := make([]Card, len(pc.Cards))
@@ -803,6 +808,8 @@ func (b Board) handleEditorFinished(msg editorFinishedMsg) (tea.Model, tea.Cmd) 
 // handleCardClosed's full guard precedence in full (#174/#234 lessons). The
 // prevCards entry is unconditionally deleted regardless of guard outcome.
 func (b Board) handleCardDeleted(msg cardDeletedMsg) (tea.Model, tea.Cmd) {
+	b.clearPendingSeq()
+
 	cardNum := msg.card.Number
 	labelNames := make([]string, len(msg.card.Labels))
 	for j, l := range msg.card.Labels {
@@ -845,6 +852,8 @@ func (b Board) handleCardDeleted(msg cardDeletedMsg) (tea.Model, tea.Cmd) {
 // deleted regardless of guard outcome (locked decision #347 Q2: a guard-blocked
 // close always deletes, it never defers).
 func (b Board) handleCardClosed(msg cardClosedMsg) (tea.Model, tea.Cmd) {
+	b.clearPendingSeq()
+
 	cardNum := msg.card.Number
 	labelNames := make([]string, len(msg.card.Labels))
 	for j, l := range msg.card.Labels {
@@ -1129,6 +1138,12 @@ func (b *Board) scrollDetailDown() {
 // arrow-key navigation does NOT use this helper; see the F3 commit message
 // for why (calling it there would clobber the search-mode hint bar).
 func (b *Board) onCursorMoved() {
+	// Keyboard keys are consumed by a pending key sequence, so only mouse
+	// events can move the cursor mid-sequence -- the selected card (and with
+	// it the pr-scope gating of the sequence's candidates) changed, and the
+	// hint reset below replaces the pending hint bar, so cancel the sequence
+	// to keep handler state and view in sync.
+	b.clearPendingSeq()
 	b.detailScrollOffset = 0
 	b.clampScrollOffset()
 	b.rebuildNormalHints()

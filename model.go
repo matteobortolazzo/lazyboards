@@ -696,6 +696,14 @@ type Board struct {
 	detailScrollOffset int
 	prPickerIndex      int
 	pendingPRAction    *pendingPRAction
+	// pendingSeq holds the keys typed so far of an unfinished custom-action
+	// key sequence (e.g. "P" while waiting for the "f" of "Pf"). While
+	// non-empty, normal-mode/detail-focused key handling routes every key to
+	// handlePendingSeqKey. pendingSeqAlt records whether Alt was held on any
+	// key of the sequence, so Alt+prefix triggers comment mode exactly like
+	// Alt on a single-key action.
+	pendingSeq         string
+	pendingSeqAlt      bool
 	refreshing         bool
 	refreshInterval    time.Duration
 	actionRefreshDelay time.Duration

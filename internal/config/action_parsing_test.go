@@ -153,22 +153,159 @@ actions:
 	}
 }
 
-func TestLoad_ActionKeyMultipleChars_ReturnsError(t *testing.T) {
+// --- Key sequences (prefix keybindings) ---
+
+func TestLoad_ActionKeySequence_Valid(t *testing.T) {
+	// Multi-character keys are key sequences (neovim-style prefix bindings):
+	// the first key must stay in the reserved uppercase A-Z namespace, the
+	// continuation keys may be any letter or digit.
+	sequenceKeys := []string{"Pf", "Pb", "OPEN", "Da1"}
+
+	for _, key := range sequenceKeys {
+		t.Run("key_"+key, func(t *testing.T) {
+			yamlContent := `provider: github
+actions:
+  ` + key + `:
+    name: Sequence action
+    type: url
+    url: "https://example.com"
+`
+
+			result := mustLoadConfig(t, yamlContent, "")
+			if _, ok := result.Actions[key]; !ok {
+				t.Fatalf("Actions missing sequence key %q", key)
+			}
+		})
+	}
+}
+
+func TestLoad_ActionKeySequence_LowercaseFirstKey_ReturnsError(t *testing.T) {
 	yamlContent := `provider: github
 actions:
-  OPEN:
-    name: Open
+  pf:
+    name: Bad sequence
     type: url
     url: "https://example.com"
 `
 
 	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
-		t.Fatal("Load() returned nil error, want error for multi-character action key")
+		t.Fatal("Load() returned nil error, want error for sequence key with lowercase first key")
 	}
-	errLower := strings.ToLower(err.Error())
-	if !strings.Contains(errLower, "uppercase") {
+	if !strings.Contains(strings.ToLower(err.Error()), "uppercase") {
 		t.Errorf("error = %q, want it to contain 'uppercase'", err.Error())
+	}
+}
+
+func TestLoad_ActionKeySequence_InvalidContinuationKey_ReturnsError(t *testing.T) {
+	invalidKeys := []string{"P!", "P f", "P-x"}
+
+	for _, key := range invalidKeys {
+		t.Run("key_"+key, func(t *testing.T) {
+			yamlContent := `provider: github
+actions:
+  "` + key + `":
+    name: Bad sequence
+    type: url
+    url: "https://example.com"
+`
+
+			_, err := loadConfigFromStrings(t, yamlContent, "")
+			if err == nil {
+				t.Fatalf("Load() returned nil error, want error for sequence key %q", key)
+			}
+			errLower := strings.ToLower(err.Error())
+			if !strings.Contains(errLower, "letter") && !strings.Contains(errLower, "digit") {
+				t.Errorf("error = %q, want it to mention allowed continuation keys (letters/digits)", err.Error())
+			}
+		})
+	}
+}
+
+func TestLoad_ActionKeyPrefixConflict_Global_ReturnsError(t *testing.T) {
+	// "P" can never dispatch if "Pf" also exists (pressing P must wait for a
+	// continuation), so a key that is a strict prefix of another is rejected.
+	yamlContent := `provider: github
+actions:
+  P:
+    name: Single action
+    type: url
+    url: "https://example.com"
+  Pf:
+    name: Sequence action
+    type: url
+    url: "https://example.com/frontend"
+`
+
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for key P being a prefix of key Pf")
+	}
+	if !strings.Contains(err.Error(), "P") || !strings.Contains(err.Error(), "Pf") {
+		t.Errorf("error = %q, want it to reference both conflicting keys P and Pf", err.Error())
+	}
+}
+
+func TestLoad_ActionKeyPrefixConflict_GlobalVsColumn_ReturnsError(t *testing.T) {
+	// A column's single-key action would shadow (or be shadowed by) a global
+	// sequence sharing the prefix while that column is active, so the
+	// conflict is rejected across the merged global+column key set too.
+	yamlContent := `provider: github
+actions:
+  Pf:
+    name: Global sequence
+    type: url
+    url: "https://example.com/frontend"
+columns:
+  - name: Implementing
+    actions:
+      P:
+        name: Column single action
+        type: url
+        url: "https://example.com"
+`
+
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for column key P conflicting with global key Pf")
+	}
+	if !strings.Contains(err.Error(), "P") || !strings.Contains(err.Error(), "Pf") {
+		t.Errorf("error = %q, want it to reference both conflicting keys P and Pf", err.Error())
+	}
+}
+
+func TestLoad_ActionKeySequences_NoConflict_NoError(t *testing.T) {
+	// Sibling sequences sharing a prefix ("Pf"/"Pb"), an unrelated single
+	// key, and a column overriding the SAME sequence key are all fine.
+	yamlContent := `provider: github
+actions:
+  Pf:
+    name: PR frontend
+    type: url
+    url: "https://example.com/frontend"
+  Pb:
+    name: PR backend
+    type: url
+    url: "https://example.com/backend"
+  X:
+    name: Other
+    type: shell
+    command: "echo x"
+columns:
+  - name: Implementing
+    actions:
+      Pf:
+        name: PR frontend override
+        type: url
+        url: "https://example.com/frontend-implementing"
+`
+
+	result := mustLoadConfig(t, yamlContent, "")
+	if len(result.Actions) != 3 {
+		t.Fatalf("Actions count = %d, want 3", len(result.Actions))
+	}
+	if result.Columns[0].Actions["Pf"].Name != "PR frontend override" {
+		t.Errorf("Columns[0].Actions[Pf].Name = %q, want %q", result.Columns[0].Actions["Pf"].Name, "PR frontend override")
 	}
 }
 
