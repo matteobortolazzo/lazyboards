@@ -21,6 +21,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - In-app configuration UI (first-launch flow or press `c`)
 - Board refresh (manual and periodic background refresh)
 - Agent dispatch panel: enroll repos and trigger fleet-wide dispatch (`d`)
+- Agents modal: every cenci-watch window — matched to a card or not — with `Enter` jumping to its tmux window (`w`)
 - Help popup with full keybinding reference (`?`)
 - Error screen with retry support
 - Responsive terminal resizing
@@ -430,6 +431,7 @@ Press `?` at any time to open the in-app help popup.
 | `x` | Close card (with confirmation) |
 | `t` | Delete card permanently (with two-step confirmation) |
 | `v` | Open PRs (all open PRs in the repo) |
+| `w` | Agents (all cenci-watch windows; `Enter` jumps to the tmux window) |
 | `/` | Search |
 | `a` | Assign collaborator |
 | `g` | Git menu |

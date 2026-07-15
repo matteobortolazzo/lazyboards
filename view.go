@@ -137,6 +137,10 @@ func (b Board) View() string {
 		return b.viewPRListModal()
 	}
 
+	if b.mode == agentListMode {
+		return b.viewAgentListModal()
+	}
+
 	if b.mode == dispatchMode {
 		return b.viewDispatchModal()
 	}
@@ -910,6 +914,7 @@ var helpSections = []helpSection{
 		{"x", "Close card"},
 		{"t", "Delete card"},
 		{"v", "Open PRs"},
+		{"w", "Agents"},
 		{"/", "Search"},
 		{"a", "Assign"},
 		{"g", "Git menu"},
@@ -958,6 +963,12 @@ var helpSections = []helpSection{
 		{"j/k", "Navigate"},
 		{"enter", "Open PR"},
 		{"A-Z", "Custom action (scope: pr)"},
+		{"esc", "Cancel"},
+	}},
+	{"Agents", [][2]string{
+		{"w", "Agents (all cenci windows)"},
+		{"j/k", "Navigate"},
+		{"enter", "Go to tmux window"},
 		{"esc", "Cancel"},
 	}},
 	{"Comment", [][2]string{
@@ -1349,6 +1360,109 @@ func (b Board) viewPRListModal() string {
 	lines = append(lines, "")
 	prListHints := NewStatusBar(b.prListActionHints())
 	lines = append(lines, prListHints.View(modalWidth, 0, 0))
+
+	modalContent := strings.Join(lines, "\n")
+	return b.renderModal(modalContent, modalWidth)
+}
+
+// viewAgentListModal renders the agents list modal. State precedence mirrors
+// every state the cenciwatch wiring distinguishes: watcher disabled -> daemon
+// not connected yet -> connected with no windows -> window list, plus a stale
+// note when the same consecutive-error threshold that clears the status-bar
+// dispatch segment has been reached (the list then shows the last known
+// snapshot). The empty/unavailable branches deliberately render no enter
+// hint, matching handleAgentListModeKey's empty-list guard
+// (docs/view-state-consistency.md).
+func (b Board) viewAgentListModal() string {
+	modalWidth := 60
+
+	var lines []string
+	lines = append(lines, "Agents")
+	lines = append(lines, "")
+
+	entries := b.agentListEntries()
+	disconnected := b.agentSnapshot != nil && b.cenciWatchConsecutiveErrors >= cenciWatchClearThreshold
+	if len(entries) == 0 {
+		switch {
+		case b.cenciWatcher == nil:
+			lines = append(lines, "cenci-watch is not enabled")
+		case b.agentSnapshot == nil:
+			lines = append(lines, "Waiting for cenci-watch daemon...")
+		default:
+			lines = append(lines, "No agent windows")
+		}
+	} else {
+		noteLines := 0
+		if disconnected {
+			noteLines = 2
+		}
+		maxRowLines := b.Height - 8 - noteLines
+		if maxRowLines < 1 {
+			maxRowLines = 1
+		}
+		start, end := 0, len(entries)
+		showUp, showDown := false, false
+		if len(entries) > maxRowLines {
+			entryLines := maxRowLines - 2
+			if entryLines < 1 {
+				entryLines = 1
+			}
+			start = b.agentList.cursor - entryLines/2
+			if start < 0 {
+				start = 0
+			}
+			end = start + entryLines
+			if end > len(entries) {
+				end = len(entries)
+				start = end - entryLines
+			}
+			showUp = start > 0
+			showDown = end < len(entries)
+			// At very small terminal heights there is only room for the
+			// selected row and one directional indicator.
+			if maxRowLines < 3 && showUp && showDown {
+				showDown = false
+			}
+		}
+		if showUp {
+			lines = append(lines, helpStyle.Render("▲"))
+		}
+		for i := start; i < end; i++ {
+			entry := entries[i]
+			symbol := agentStatusSymbol(entry.window.Status)
+			if symbol == "" {
+				// The modal lists every window, so idle/unknown (badge-less
+				// elsewhere) still gets a neutral marker to keep rows aligned.
+				symbol = "·"
+			}
+			display := fmt.Sprintf("  %s %s", symbol, truncateOutput(entry.window.WindowName, 24))
+			if entry.window.Agent != "" {
+				display += "  " + truncateOutput(entry.window.Agent, agentBadgeKindWidth)
+			}
+			if entry.cardNumber != 0 {
+				display += fmt.Sprintf("  —  %s #%d", entry.columnTitle, entry.cardNumber)
+			}
+			if i == b.agentList.cursor {
+				display = selectedCardStyle.Render(display)
+			}
+			lines = append(lines, display)
+		}
+		if showDown {
+			lines = append(lines, helpStyle.Render("▼"))
+		}
+	}
+	if disconnected {
+		lines = append(lines, "")
+		lines = append(lines, truncateOutput("cenci-watch disconnected — showing last known agents", modalWidth-4))
+	}
+
+	lines = append(lines, "")
+	hints := agentListModeHints
+	if len(entries) == 0 {
+		hints = agentListEmptyHints
+	}
+	agentListHints := NewStatusBar(hints)
+	lines = append(lines, agentListHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)

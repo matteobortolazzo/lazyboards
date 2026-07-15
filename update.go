@@ -32,6 +32,16 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// (tolerated) strike, not a continuation of a prior run of errors.
 		b.cenciWatchConsecutiveErrors = 0
 		b.statusBar.SetDispatchStatus(formatDispatchSegment(msg.snapshot.Dispatch))
+		// Live snapshots can shrink the agents list while its modal is open;
+		// clamp at the mutation site (docs/list-cursor-invariants.md).
+		if b.mode == agentListMode {
+			if n := len(b.agentListEntries()); b.agentList.cursor >= n {
+				b.agentList.cursor = n - 1
+				if b.agentList.cursor < 0 {
+					b.agentList.cursor = 0
+				}
+			}
+		}
 		if b.cenciWatcher == nil {
 			return b, nil
 		}
@@ -311,6 +321,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleGitPanelKey(msg)
 		case prListMode:
 			return b.handlePRListModeKey(msg)
+		case agentListMode:
+			return b.handleAgentListModeKey(msg)
 		case dispatchMode:
 			return b.handleDispatchModeKey(msg)
 		default:

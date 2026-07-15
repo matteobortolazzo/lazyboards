@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"hash/fnv"
 	"io"
 	"sort"
@@ -213,6 +214,7 @@ const (
 	gitPanelMode
 	dispatchMode
 	prListMode
+	agentListMode
 )
 
 const (
@@ -618,6 +620,39 @@ func (b Board) prListActionHints() []Hint {
 	return hints
 }
 
+// agentListEntry is one row in the agents list modal: a cenci-watch window
+// together with the board card it joins to. cardNumber is 0 when the window
+// name doesn't join to any visible card (same join rule as
+// agentStatusForNumber).
+type agentListEntry struct {
+	window      cenciwatch.WindowState
+	cardNumber  int
+	columnTitle string
+}
+
+// agentListState groups fields related to the agents list modal. Rows are not
+// stored: they are derived live from the streamed snapshot by
+// agentListEntries(), so the cursor is the only state and must be re-clamped
+// wherever the snapshot is replaced while the modal is open.
+type agentListState struct {
+	cursor int
+}
+
+// agentListModeHints are the status bar hints shown in agents list mode when
+// there are rows to act on.
+var agentListModeHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+	{Key: "j/k", Desc: "Navigate"},
+	{Key: "enter", Desc: "Go to window"},
+}
+
+// agentListEmptyHints are the hints for the modal's empty/unavailable states:
+// enter and j/k are no-ops there, so hinting them would advertise keys that
+// silently do nothing.
+var agentListEmptyHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+}
+
 // dispatchState groups fields related to the agent dispatch modal.
 type dispatchState struct {
 	loading    bool
@@ -781,6 +816,7 @@ type Board struct {
 	gitReader                   gitdetect.Reader
 	gitPanel                    gitPanelState
 	prList                      prListState
+	agentList                   agentListState
 	dispatch                    dispatchState
 }
 
@@ -955,6 +991,21 @@ func (b *Board) enterPRList() {
 	b.prList = prListState{entries: entries, cursor: 0, loading: true, generation: generation}
 	b.mode = prListMode
 	b.statusBar.SetActionHints(b.prListActionHints())
+}
+
+// enterAgentList opens the agents list modal. Rows are derived live from the
+// stored cenci-watch snapshot (agentListEntries), so unlike enterPRList there
+// is no fetch to start and no generation to track. It always opens, even with
+// no watcher or snapshot, so the modal can render its unavailable/empty
+// states.
+func (b *Board) enterAgentList() {
+	b.agentList = agentListState{cursor: 0}
+	b.mode = agentListMode
+	hints := agentListModeHints
+	if len(b.agentListEntries()) == 0 {
+		hints = agentListEmptyHints
+	}
+	b.statusBar.SetActionHints(hints)
 }
 
 // createModalWidth returns the modal width for the create-card dialog (60% of terminal width, min 20).
@@ -1456,6 +1507,70 @@ func (b Board) agentStatusForNumber(number int) *cenciwatch.WindowState {
 		}
 	}
 	return match
+}
+
+// agentListEntries derives the agents list modal rows from the stored
+// snapshot: every tracked window in snapshot order — matched to a card or not
+// — annotated with the board card its name joins to. The join is the inverse
+// of agentStatusForNumber's rule (window name "<number>" or "<number>-..."),
+// so the modal and the card badges never disagree about which card a window
+// belongs to.
+func (b Board) agentListEntries() []agentListEntry {
+	if b.agentSnapshot == nil {
+		return nil
+	}
+	entries := make([]agentListEntry, 0, len(b.agentSnapshot.Windows))
+	for _, w := range b.agentSnapshot.Windows {
+		entry := agentListEntry{window: w}
+		if num, ok := ticketNumberFromWindowName(w.WindowName); ok {
+			if ci, ii, found := b.findCard(num); found {
+				entry.cardNumber = b.Columns[ci].Cards[ii].Number
+				entry.columnTitle = b.Columns[ci].Title
+			}
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// ticketNumberFromWindowName parses the ticket number a window name joins to:
+// the whole name ("42") or the segment before the first "-" ("42-implement").
+// Reports false for non-numeric names, mirroring agentStatusForNumber's
+// boundary rule so "420-x" never joins ticket #42. The round-trip check
+// rejects non-canonical spellings Atoi would accept ("007", "+7"): they fail
+// agentStatusForNumber's exact string match, so accepting them here would
+// make the modal claim a card the badge join disagrees with.
+func ticketNumberFromWindowName(name string) (int, bool) {
+	num := name
+	if i := strings.IndexByte(name, '-'); i >= 0 {
+		num = name[:i]
+	}
+	n, err := strconv.Atoi(num)
+	if err != nil || n <= 0 || strconv.Itoa(n) != num {
+		return 0, false
+	}
+	return n, true
+}
+
+// switchToAgentWindow points tmux at the given agent window: select-window
+// makes it the session's current window (this works even when that session is
+// not attached), then switch-client moves the running client to the session.
+// Both targets are shell-escaped — session and window identifiers originate
+// outside the app (tmux state via the cenci-watch daemon) and are untrusted
+// (docs/shell-and-url-safety.md). On failure tmux's stderr is returned as the
+// error when present, since it names the actual problem (e.g. "no current
+// client" when running outside tmux).
+func (b Board) switchToAgentWindow(w cenciwatch.WindowState) error {
+	target := action.ShellEscape(w.Session + ":" + w.WindowIndex)
+	session := action.ShellEscape(w.Session)
+	stderr, err := b.executor.RunShell("tmux select-window -t " + target + " && tmux switch-client -t " + session)
+	if err != nil {
+		if msg := strings.TrimSpace(stderr); msg != "" {
+			return errors.New(msg)
+		}
+		return err
+	}
+	return nil
 }
 
 // agentBadgeFor returns the fixed-width badge text for the card's live agent
