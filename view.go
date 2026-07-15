@@ -909,7 +909,7 @@ var helpSections = []helpSection{
 		{"p", "Open PR"},
 		{"x", "Close card"},
 		{"t", "Delete card"},
-		{"v", "PR list"},
+		{"v", "Open PRs"},
 		{"/", "Search"},
 		{"a", "Assign"},
 		{"g", "Git menu"},
@@ -954,9 +954,10 @@ var helpSections = []helpSection{
 		{"esc", "Cancel"},
 	}},
 	{"Pull Requests", [][2]string{
-		{"v", "Open PR list"},
+		{"v", "Open PRs (repo-wide)"},
 		{"j/k", "Navigate"},
 		{"enter", "Open PR"},
+		{"A-Z", "Custom action (scope: pr)"},
 		{"esc", "Cancel"},
 	}},
 	{"Comment", [][2]string{
@@ -1259,33 +1260,94 @@ func (b Board) viewGitPanelModal() string {
 	return b.renderModal(modalContent, modalWidth)
 }
 
-// viewPRListModal renders the global PR list: every linked PR across the board
-// in one navigable list. Each row shows the PR number, its (truncated) title,
-// and the owning column + card so rows stay disambiguated. Renders an explicit
-// empty state when no card on the board has a linked PR.
+// viewPRListModal renders the global PR list: every open PR in the
+// repository in one navigable list. Each row shows the PR number and its
+// (truncated) title; rows linked to a board card also carry the owning
+// column + card so they stay disambiguated, while unlinked PRs (cardNumber
+// 0) render without a card reference. State precedence mirrors prListState's
+// (loading -> err -> loaded): while the repo-wide fetch is in flight the
+// card-linked fallback entries render with a loading note; on fetch error
+// the fallback is kept with an explicit degraded-view note; each empty-list
+// state gets its own message.
 func (b Board) viewPRListModal() string {
 	modalWidth := 60
 
 	var lines []string
-	lines = append(lines, "Pull Requests")
+	lines = append(lines, "Open Pull Requests")
 	lines = append(lines, "")
 
 	if len(b.prList.entries) == 0 {
-		lines = append(lines, "No linked PRs")
+		switch {
+		case b.prList.loading:
+			lines = append(lines, "Loading open PRs...")
+		case b.prList.err != "":
+			lines = append(lines, "No linked PRs")
+		default:
+			lines = append(lines, "No open PRs")
+		}
 	} else {
-		for i, entry := range b.prList.entries {
+		noteLines := 0
+		if b.prList.loading || b.prList.err != "" {
+			noteLines = 2
+		}
+		maxRowLines := b.Height - 8 - noteLines
+		if maxRowLines < 1 {
+			maxRowLines = 1
+		}
+		start, end := 0, len(b.prList.entries)
+		showUp, showDown := false, false
+		if len(b.prList.entries) > maxRowLines {
+			entryLines := maxRowLines - 2
+			if entryLines < 1 {
+				entryLines = 1
+			}
+			start = b.prList.cursor - entryLines/2
+			if start < 0 {
+				start = 0
+			}
+			end = start + entryLines
+			if end > len(b.prList.entries) {
+				end = len(b.prList.entries)
+				start = end - entryLines
+			}
+			showUp = start > 0
+			showDown = end < len(b.prList.entries)
+			// At very small terminal heights there is only room for the
+			// selected row and one directional indicator.
+			if maxRowLines < 3 && showUp && showDown {
+				showDown = false
+			}
+		}
+		if showUp {
+			lines = append(lines, helpStyle.Render("▲"))
+		}
+		for i := start; i < end; i++ {
+			entry := b.prList.entries[i]
 			title := truncateOutput(entry.pr.Title, 32)
-			ref := fmt.Sprintf("%s #%d", entry.columnTitle, entry.cardNumber)
-			display := fmt.Sprintf("  #%d  %s  —  %s", entry.pr.Number, title, ref)
+			display := fmt.Sprintf("  #%d  %s", entry.pr.Number, title)
+			if entry.cardNumber != 0 {
+				display += fmt.Sprintf("  —  %s #%d", entry.columnTitle, entry.cardNumber)
+			}
 			if i == b.prList.cursor {
 				display = selectedCardStyle.Render(display)
 			}
 			lines = append(lines, display)
 		}
+		if showDown {
+			lines = append(lines, helpStyle.Render("▼"))
+		}
+		if b.prList.loading {
+			lines = append(lines, "")
+			lines = append(lines, "Loading all open PRs...")
+		}
+	}
+	if b.prList.err != "" {
+		lines = append(lines, "")
+		lines = append(lines, truncateOutput("Couldn't load open PRs — showing linked PRs only", modalWidth-4))
 	}
 
 	lines = append(lines, "")
-	prListHints := NewStatusBar(prListModeHints)
+	prListHints := NewStatusBar(b.prListActionHints())
 	lines = append(lines, prListHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")

@@ -21,6 +21,10 @@ type graphQLBoardClient interface {
 	// issue's closedByPullRequestsReferences connection.
 	fetchIssueClosingPRPage(ctx context.Context, owner, repo string, issueNumber int, cursor string) (closingPRPage, error)
 
+	// fetchOpenPRPage fetches one page of the repository's open pull
+	// requests (repo-wide, independent of any issue).
+	fetchOpenPRPage(ctx context.Context, owner, repo, afterCursor string) (openPRPage, error)
+
 	// deleteIssue permanently deletes the given issue via GraphQL's
 	// deleteIssue mutation (REST has no delete-issue endpoint). Number-based
 	// like the other seam methods; implementations resolve the issue's
@@ -165,6 +169,46 @@ type issueClosingPRQuery struct {
 	} `graphql:"repository(owner: $owner, name: $name)"`
 }
 
+// openPRPage is one page of the repository's open pull requests, decoupled
+// from any githubv4-specific types. Mirrors issuePage's pagination shape but
+// for the repo-wide pullRequests connection rather than the issues connection.
+type openPRPage struct {
+	prs         []LinkedPR
+	hasNextPage bool
+	endCursor   string
+}
+
+// openPRsQuery is the githubv4 struct-tag-based query DSL representation of:
+//
+//	query($owner: String!, $name: String!, $prCursor: String) {
+//	  repository(owner: $owner, name: $name) {
+//	    pullRequests(states: [OPEN], orderBy: {field: CREATED_AT, direction: DESC}, first: 100, after: $prCursor) {
+//	      nodes { number title url headRefName }
+//	      pageInfo { hasNextPage endCursor }
+//	    }
+//	  }
+//	}
+type openPRsQuery struct {
+	Repository struct {
+		PullRequests struct {
+			Nodes    []pullRequestQueryNode
+			PageInfo pageInfoFragment
+		} `graphql:"pullRequests(states: [OPEN], orderBy: {field: CREATED_AT, direction: DESC}, first: 100, after: $prCursor)"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+// mapOpenPRsQuery converts a githubv4 openPRsQuery response into a plain
+// openPRPage. It reuses mapLinkedPRs so rows carry the same shape and
+// within-page dedup semantics as the closing-PR connections.
+func mapOpenPRsQuery(q openPRsQuery) openPRPage {
+	items := q.Repository.PullRequests
+	return openPRPage{
+		prs:         mapLinkedPRs(items.Nodes),
+		hasNextPage: bool(items.PageInfo.HasNextPage),
+		endCursor:   string(items.PageInfo.EndCursor),
+	}
+}
+
 // mapIssueClosingPRQuery converts a githubv4 issueClosingPRQuery response into
 // a plain closingPRPage, decoupled from any githubv4-specific types. It
 // reuses mapLinkedPRs for the same dedup semantics as the outer query.
@@ -229,6 +273,25 @@ func (a *GitHubV4Adapter) fetchIssueClosingPRPage(ctx context.Context, owner, re
 	}
 
 	return mapIssueClosingPRQuery(q), nil
+}
+
+func (a *GitHubV4Adapter) fetchOpenPRPage(ctx context.Context, owner, repo, afterCursor string) (openPRPage, error) {
+	variables := map[string]interface{}{
+		"owner":    githubv4.String(owner),
+		"name":     githubv4.String(repo),
+		"prCursor": (*githubv4.String)(nil),
+	}
+	if afterCursor != "" {
+		cursor := githubv4.String(afterCursor)
+		variables["prCursor"] = &cursor
+	}
+
+	var q openPRsQuery
+	if err := a.client.Query(ctx, &q, variables); err != nil {
+		return openPRPage{}, err
+	}
+
+	return mapOpenPRsQuery(q), nil
 }
 
 // issueLookupQuery resolves an issue's GraphQL global node ID by number.
