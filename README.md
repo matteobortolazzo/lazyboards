@@ -397,6 +397,7 @@ Press `?` at any time to open the in-app help popup.
 | `r` | Refresh board |
 | `p` | Open PR |
 | `x` | Close card (with confirmation) |
+| `t` | Delete card permanently (with two-step confirmation) |
 | `v` | PR list (all linked PRs on the board) |
 | `/` | Search |
 | `a` | Assign collaborator |
@@ -469,6 +470,22 @@ Opened with `v` from normal mode. Lists every linked PR across the whole board
 |-----|--------|
 | `Esc` | Cancel |
 | `Enter` | Submit |
+
+### Delete
+
+Opened with `t` from normal mode. Permanently deletes the selected card via
+the provider (not a column move) after a two-step confirmation. Cards with
+any linked PR cannot be deleted — the status bar shows an error and the card
+list stays unchanged. Step 1 accepts an optional comment (blank is fine);
+step 2 requires retyping the card's number exactly before the delete fires.
+A mismatched retype shows an inline error and stays on the confirm step;
+`Esc` at either step cancels the whole flow, discarding any comment typed.
+
+| Key | Action |
+|-----|--------|
+| `Enter` (comment step) | Continue to confirm step |
+| `Enter` (confirm step) | Confirm delete (must match the card number) |
+| `Esc` | Cancel |
 
 ### Filter
 

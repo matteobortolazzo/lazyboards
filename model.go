@@ -163,6 +163,20 @@ var commentModeHints = []Hint{
 	{Key: "enter", Desc: "Submit"},
 }
 
+// deleteCommentHints are the status bar hints shown at the delete flow's
+// optional-comment step.
+var deleteCommentHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+	{Key: "enter", Desc: "Continue"},
+}
+
+// deleteConfirmHints are the status bar hints shown at the delete flow's
+// retype-to-confirm step.
+var deleteConfirmHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+	{Key: "enter", Desc: "Confirm"},
+}
+
 // filterModeHints are the status bar hints shown in filter mode.
 var filterModeHints = []Hint{
 	{Key: "esc", Desc: "Cancel"},
@@ -192,6 +206,7 @@ const (
 	labelConfirmMode
 	closeConfirmMode
 	commentMode
+	deleteMode
 	filterMode
 	assignMode
 	gitPanelMode
@@ -430,6 +445,46 @@ type cardCloseErrorMsg struct {
 	err error
 }
 
+// deleteStep represents which step of the two-step delete-confirm flow is active.
+type deleteStep int
+
+const (
+	deleteStepComment deleteStep = iota
+	deleteStepConfirm
+)
+
+// deleteState groups fields related to the delete-confirm modal's two steps:
+// an optional-comment step and a retype-to-confirm step.
+type deleteState struct {
+	card         Card
+	step         deleteStep
+	commentInput textinput.Model
+	confirmInput textinput.Model
+	mismatchMsg  string
+}
+
+// deleteCommentPostedMsg is sent when addCommentForDeleteCmd successfully
+// posts the delete flow's optional comment.
+type deleteCommentPostedMsg struct {
+	card Card
+}
+
+// deleteCommentErrorMsg is sent when addCommentForDeleteCmd fails to post the
+// delete flow's optional comment. The delete must not proceed.
+type deleteCommentErrorMsg struct {
+	err error
+}
+
+// cardDeletedMsg is sent when deleteCardCmd successfully deletes a card.
+type cardDeletedMsg struct {
+	card Card
+}
+
+// cardDeleteErrorMsg is sent when deleteCardCmd fails to delete a card.
+type cardDeleteErrorMsg struct {
+	err error
+}
+
 // commentState groups fields related to the comment input modal.
 type commentState struct {
 	input             textinput.Model
@@ -659,6 +714,7 @@ type Board struct {
 	mouseEnabled                bool
 	labelConfirm                labelConfirmState
 	closeConfirm                closeConfirmState
+	delete                      deleteState
 	filterItems                 []filterItem
 	filterCursor                int
 	activeFilterType            filterType

@@ -424,7 +424,7 @@ func TestHelpMode_ViewShowsCustomActions(t *testing.T) {
 		"X": {Name: "Deploy App", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
-	b.Height = 120
+	b.Height = 150 // Tall enough that full help content (incl. the Delete section) renders without scrolling.
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()
