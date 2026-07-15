@@ -11,6 +11,7 @@ GitHub Issues for tracking. GitHub for code and PRs.
 - When adding a new mode or keybinding, update `helpSections` in `view.go` and the README Keybindings section.
 - Keybinding case convention: **lowercase** single keys are built-in normal-mode commands (`n e c o r p a g d f l j k q`, etc.). **Uppercase `A-Z`** is reserved — in normal mode it is claimed by the user's custom-action system (`resolveAction` in `model.go`, including multi-key sequences that start uppercase and may continue with any letter/digit), and inside sub-panels/modals it denotes scoped sub-commands (e.g. Git Menu `P` = Push, `S` = Stash pop). Never assign a new top-level built-in feature to an uppercase key; pick a free lowercase key instead.
 - When a new feature consumes a state struct that already has an established rendering or handling precedence elsewhere in the codebase (in an earlier feature or related component), the new consumer must implement the FULL precedence, not just the happy path and obvious errors. Write tests that verify every state the existing precedence distinguishes — a missing intermediate state (e.g., "daemon not running" vs. "healthy running") will silently render incorrectly and undermine the feature's purpose.
+- cenci integration placement rule: stateful reads of live cenci/cenci-watch state that the app continuously displays (agent status badges, the dispatch modal's Loop line, the status-bar dispatch segment) are built-in code paths; one-shot imperative triggers that mutate cenci state (dispatch loop on/off, enroll) are user-configured custom actions — never build them in as code paths.
 
 ## File Structure
 
@@ -48,6 +49,8 @@ Tests are split by domain to mirror production code:
 | `cleanup_test.go` | Column cleanup on card departure |
 | `statusbar_test.go` | StatusBar component tests |
 | `dispatch_mode_test.go` | Dispatch mode (agent dispatch modal) scaffolding |
+| `dispatch_loop_test.go` | Dispatch modal Loop line rendering (CLI wire samples, live-vs-CLI view integration) |
+| `dispatch_loop_source_test.go` | `dispatchLoopSource` live-vs-CLI precedence matrix |
 | `delete_mode_test.go` | Delete mode (two-step confirm flow, PR gating, cleanup guards) |
 | `assign_mode_test.go` | Assign mode (assignee picker modal, collaborator list) |
 | `cenciwatch_test.go` | Agent status matching (window→card), badge rendering, agent counts, wire-format decoding |
