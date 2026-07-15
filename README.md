@@ -85,39 +85,39 @@ The board auto-refreshes in the background (default: every 5 minutes). Press `r`
 
 ### Dispatch Panel
 
-Press `d` to open the agent dispatch panel for the repo you're currently in. It shows whether the repo is enrolled with the agentwatch daemon and lets you toggle enrollment with `Enter`.
+Press `d` to open the agent dispatch panel for the repo you're currently in. It shows whether the repo is enrolled with the cenci-watch daemon and lets you toggle enrollment with `Enter`.
 
 Once a repo is enrolled, `o` triggers a dispatch run — but this is **fleet-wide**: it dispatches across *all* enrolled repos, not just the one currently open. The panel shows a summary of the last run (dispatched/skipped counts) after it completes.
 
-The panel also shows a read-only "Loop" line reporting the daemon-owned background dispatch loop's state (off, on with its interval, daemon not running, no runs yet, or the last run's dispatched/skipped counts and any error) — lazyboards never starts or stops this loop itself. To start or stop the loop, configure a custom shell action that calls `agentwatch dispatch loop on`/`off` directly, for example in `~/.config/lazyboards/config.yml` (global) or `.lazyboards.yml` (per-project):
+The panel also shows a read-only "Loop" line reporting the daemon-owned background dispatch loop's state (off, on with its interval, daemon not running, no runs yet, or the last run's dispatched/skipped counts and any error) — lazyboards never starts or stops this loop itself. To start or stop the loop, configure a custom shell action that calls `cenci dispatch loop on`/`off` directly, for example in `~/.config/lazyboards/config.yml` (global) or `.lazyboards.yml` (per-project):
 
 ```yaml
 actions:
-  S: { name: Start dispatch loop, type: shell, command: "agentwatch dispatch loop on", scope: board }
-  X: { name: Stop dispatch loop, type: shell, command: "agentwatch dispatch loop off", scope: board }
+  S: { name: Start dispatch loop, type: shell, command: "cenci dispatch loop on", scope: board }
+  X: { name: Stop dispatch loop, type: shell, command: "cenci dispatch loop off", scope: board }
 ```
 
 See the [Dispatch keybindings](#dispatch) for the full key reference.
 
-### Example: agentwatch + agent-stack
+### Example: cenci + cenci-watch
 
-This walks through wiring lazyboards to a real [agentwatch](https://github.com/matteobortolazzo/agent-stack/tree/main/agentwatch) daemon from [agent-stack](https://github.com/matteobortolazzo/agent-stack), so cards move through `New` → `Refined` → `Planned` → `In Review` with agents doing the work.
+This walks through wiring lazyboards to a real [cenci-watch](https://github.com/matteobortolazzo/cenci/tree/main/watch) daemon from [cenci](https://github.com/matteobortolazzo/cenci), so cards move through `New` → `Refined` → `Planned` → `In Review` with agents doing the work.
 
-1. **Install and run the daemon.** Use the [agent-stack installer](https://github.com/matteobortolazzo/agent-stack#readme) (`curl -fsSL https://raw.githubusercontent.com/matteobortolazzo/agent-stack/main/install.sh | bash`), then start the daemon once:
+1. **Install and run the daemon.** Use the [cenci installer](https://github.com/matteobortolazzo/cenci#readme) (`curl -fsSL https://raw.githubusercontent.com/matteobortolazzo/cenci/main/install.sh | bash`), then start the daemon once:
 
    ```
-   agentwatch daemon &
+   cenci daemon &
    ```
 
    The daemon owns the broadcast socket that lazyboards' agent-status badges and dispatch panel both read from.
 
-2. **Enroll the repo.** From inside the repo, either run `agentwatch dispatch enroll` yourself, or open lazyboards and press `d` then `Enter` — enrollment is idempotent either way, and only affects the currently open repo.
+2. **Enroll the repo.** From inside the repo, either run `cenci dispatch enroll` yourself, or open lazyboards and press `d` then `Enter` — enrollment is idempotent either way, and only affects the currently open repo.
 
-3. **Wire per-column actions to `agentwatch run`** in `~/.config/lazyboards/config.yml` (global) or `.lazyboards.yml` (per-project):
+3. **Wire per-column actions to `cenci run`** in `~/.config/lazyboards/config.yml` (global) or `.lazyboards.yml` (per-project):
 
    ```yaml
-   agentwatch: true
-   session_max_length: 40 # matches agentwatch's window-name cap
+   cenci: true
+   session_max_length: 40 # matches cenci's window-name cap
    cleanup: "tmux kill-window -t ={window} 2>/dev/null || true"
 
    actions:
@@ -126,22 +126,22 @@ This walks through wiring lazyboards to a real [agentwatch](https://github.com/m
    columns:
      - name: New
        actions:
-         R: { name: Refine, type: shell, command: "agentwatch run refine {number} --model sonnet -- {comment}" }
+         R: { name: Refine, type: shell, command: "cenci run refine {number} --model sonnet -- {comment}" }
      - name: Refined
        actions:
-         D: { name: Design, type: shell, command: "agentwatch run design {number} --model sonnet -- {comment}" }
-         I: { name: Implement, type: shell, command: "agentwatch run implement {number} --model sonnet -- {comment}" }
+         D: { name: Design, type: shell, command: "cenci run design {number} --model sonnet -- {comment}" }
+         I: { name: Implement, type: shell, command: "cenci run implement {number} --model sonnet -- {comment}" }
      - name: Planned
        actions:
-         I: { name: Implement, type: shell, command: "agentwatch run implement {number} --model sonnet -- {comment}" }
+         I: { name: Implement, type: shell, command: "cenci run implement {number} --model sonnet -- {comment}" }
      - name: In Review
        actions:
          W: { name: Open worktree, type: shell, scope: pr, command: 'tmux new-window -d -n pr-{pr_number} "cd {pr_worktree}"' }
    ```
 
-   Pressing `R` on a `New` card runs `agentwatch run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, the `G` custom action above jumps straight to it (via `{window}`, the live agentwatch window name), and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup). When the agent's PR lands the card in `In Review`, `W` opens its worktree in a fresh tmux window so you can review and run it locally — append the project's run command (`ng serve`, `dotnet run`, …) in a per-project `.lazyboards.yml` (see [Action Scope](#action-scope)).
+   Pressing `R` on a `New` card runs `cenci run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, the `G` custom action above jumps straight to it (via `{window}`, the live cenci window name), and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup). When the agent's PR lands the card in `In Review`, `W` opens its worktree in a fresh tmux window so you can review and run it locally — append the project's run command (`ng serve`, `dotnet run`, …) in a per-project `.lazyboards.yml` (see [Action Scope](#action-scope)).
 
-4. **Let agentwatch pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `agentwatch dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or start the recurring loop with the custom `agentwatch dispatch loop on` action described above. Tune concurrency, quiet hours, and per-agent budgets in agentwatch's own `dispatch` config block (`$XDG_CONFIG_HOME/agentwatch/config.json`) — see the [agentwatch README](https://github.com/matteobortolazzo/agent-stack/tree/main/agentwatch#configuration-1) for the full reference.
+4. **Let cenci pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `cenci dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or start the recurring loop with the custom `cenci dispatch loop on` action described above. Tune concurrency, quiet hours, and per-agent budgets in cenci's own `dispatch` config block (`$XDG_CONFIG_HOME/cenci/config.json`) — see the [cenci README](https://github.com/matteobortolazzo/cenci/tree/main/watch#configuration-1) for the full reference.
 
 ## Configuration
 
@@ -169,7 +169,7 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `session_max_length` | int | `40` | Max characters for the `{session}` template variable |
 | `working_label` | string | `"Working"` | Label that shows a working indicator on cards |
 | `mouse` | bool | `true` | Enable mouse support |
-| `agentwatch` | bool | `true` | Enable live agent status badges + status-bar counts (requires the agentwatch daemon; silently off when absent) |
+| `cenci` | bool | `true` | Enable live agent status badges + status-bar counts (requires the cenci-watch daemon; silently off when absent) |
 | `cleanup` | string | — | Default cleanup command applied to every column that doesn't set its own (see [Column Cleanup](#column-cleanup)) |
 | `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, actions, cleanup) |
 | `actions` | map | — | Global custom actions (see [Custom Actions](#custom-actions)) |
@@ -214,7 +214,7 @@ Press the key to execute the action on the selected card. Custom actions and `Al
 | `{title}` | card, pr | Slugified title (lowercase, hyphens) |
 | `{tags}` | card, pr | Comma-separated labels |
 | `{session}` | card, pr | `{number}-{title}`, capped at `session_max_length` |
-| `{window}` | card, pr | Live agentwatch window name for the card (joined by ticket-number prefix), falling back to `{session}` when no agent window is live |
+| `{window}` | card, pr | Live cenci window name for the card (joined by ticket-number prefix), falling back to `{session}` when no agent window is live |
 | `{comment}` | all | User-entered comment (see [Comment Mode](#comment-mode)) |
 | `{repo_owner}` | all | Repository owner |
 | `{repo_name}` | all | Repository name |
@@ -283,7 +283,7 @@ The segment refreshes on board start, after every board refresh, after any succe
 
 ### Dispatch Status Segment
 
-When the agentwatch daemon reports the background dispatch loop enabled, the status bar shows a `⟳ dispatch` segment, right-aligned to the left of the git segment (see [Git Status Segment](#git-status-segment) for priority rules — the dispatch segment is dropped first on narrow terminals). It's sourced live from the same watcher subscription that drives agent-status badges, so it appears and disappears immediately as the loop is toggled or the daemon becomes unreachable — no restart needed. If the last dispatch pass failed, the segment renders in red instead of its normal color. A single transient watcher reconnect blip is tolerated and does not clear the segment; it only clears after a second consecutive watcher error with no successful reconnect in between.
+When the cenci-watch daemon reports the background dispatch loop enabled, the status bar shows a `⟳ dispatch` segment, right-aligned to the left of the git segment (see [Git Status Segment](#git-status-segment) for priority rules — the dispatch segment is dropped first on narrow terminals). It's sourced live from the same watcher subscription that drives agent-status badges, so it appears and disappears immediately as the loop is toggled or the daemon becomes unreachable — no restart needed. If the last dispatch pass failed, the segment renders in red instead of its normal color. A single transient watcher reconnect blip is tolerated and does not clear the segment; it only clears after a second consecutive watcher error with no successful reconnect in between.
 
 Set `LAZYBOARDS_DEBUG_LOG=<path>` to append watcher connection errors (including tolerated blips) to a file at `<path>`, one timestamped line per error — useful for diagnosing daemon connectivity issues. Unset (the default), this is a complete no-op: no file is created and there's no overhead.
 
@@ -315,15 +315,15 @@ columns:
 
 The `cleanup` command uses the same template variables as actions. It runs when a card moves to another column or disappears.
 
-If you're running agentwatch, prefer `agentwatch close {number}` over a raw `tmux kill-window`:
+If you're running cenci, prefer `cenci close {number}` over a raw `tmux kill-window`:
 
 ```yaml
-cleanup: 'agentwatch close {number}'
+cleanup: 'cenci close {number}'
 ```
 
-`agentwatch close` asks the daemon for the window's exact `session:index` target instead of guessing a name, so it reaps the right window regardless of which tmux session it's running in. It also refuses to kill a window whose agent is still `running` or waiting for input (unless passed `--force`), exits non-zero without touching tmux if the daemon is unreachable, and exits `0` when no window matches (safe to run even if the agent already finished). No `|| true` needed.
+`cenci close` asks the daemon for the window's exact `session:index` target instead of guessing a name, so it reaps the right window regardless of which tmux session it's running in. It also refuses to kill a window whose agent is still `running` or waiting for input (unless passed `--force`), exits non-zero without touching tmux if the daemon is unreachable, and exits `0` when no window matches (safe to run even if the agent already finished). No `|| true` needed.
 
-`tmux kill-window -t {window}` still works, but has a sharp edge: a bare window name is resolved by tmux **only within lazyboards' own tmux session**. If the agent's window lives in a different session, the kill silently no-ops; if you run one lazyboards instance per session, each instance only ever reaps windows in its own session. Prefer `{window}` over `{session}` for this target — agentwatch names dispatched windows `{number}-{skill}` (e.g. `230-refine`), not the reconstructed `{session}` name — but be aware of the cross-session limitation either way.
+`tmux kill-window -t {window}` still works, but has a sharp edge: a bare window name is resolved by tmux **only within lazyboards' own tmux session**. If the agent's window lives in a different session, the kill silently no-ops; if you run one lazyboards instance per session, each instance only ever reaps windows in its own session. Prefer `{window}` over `{session}` for this target — cenci names dispatched windows `{number}-{skill}` (e.g. `230-refine`), not the reconstructed `{session}` name — but be aware of the cross-session limitation either way.
 
 Set a top-level `cleanup` to apply the same command to every column that doesn't define its own:
 
@@ -367,9 +367,9 @@ actions:
 
 The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 40). Punctuation and non-ASCII characters in the title are dropped (not hyphenated).
 
-Agent-status matching (the live ▶/✓/… badges) does **not** rely on this name. Cards join agentwatch windows by **ticket-number prefix**: a card matches a window whose name is exactly the card number or starts with `<number>-` (agentwatch names dispatched windows `<number>-<skill>`, e.g. `230-refine`). The `-` boundary keeps card #23 from matching `230-…`, and the scheme is backward-compatible with agentwatch's older `<number>-<title-slug>` names.
+Agent-status matching (the live ▶/✓/… badges) does **not** rely on this name. Cards join cenci windows by **ticket-number prefix**: a card matches a window whose name is exactly the card number or starts with `<number>-` (cenci names dispatched windows `<number>-<skill>`, e.g. `230-refine`). The `-` boundary keeps card #23 from matching `230-…`, and the scheme is backward-compatible with cenci's older `<number>-<title-slug>` names.
 
-Use `{window}` (not `{session}`) when an action or `cleanup` command needs to target that live agentwatch window by name — for example `tmux kill-window -t {window}` to reap it. `{session}` still generates the reconstructed name above and is the right choice for actions that create a window before agentwatch has dispatched one.
+Use `{window}` (not `{session}`) when an action or `cleanup` command needs to target that live cenci window by name — for example `tmux kill-window -t {window}` to reap it. `{session}` still generates the reconstructed name above and is the right choice for actions that create a window before cenci has dispatched one.
 
 ### Action Refresh Delay
 
