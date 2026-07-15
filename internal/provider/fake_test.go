@@ -551,3 +551,55 @@ func TestFakeProvider_GetAuthenticatedUser(t *testing.T) {
 		t.Error("GetAuthenticatedUser returned empty login, want hardcoded user")
 	}
 }
+
+// --- ListOpenPRs Tests ---
+
+// TestFakeProvider_ListOpenPRs_IncludesLinkedAndUnlinkedPRs asserts the fake
+// repo's open-PR list covers both kinds of rows the PR overview must render:
+// every PR linked to a board card, plus at least one PR no card links to.
+func TestFakeProvider_ListOpenPRs_IncludesLinkedAndUnlinkedPRs(t *testing.T) {
+	fp := NewFakeProvider()
+
+	prs, err := fp.ListOpenPRs(context.Background())
+	if err != nil {
+		t.Fatalf("ListOpenPRs returned error: %v", err)
+	}
+
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	linked := make(map[int]bool)
+	for _, col := range board.Columns {
+		for _, card := range col.Cards {
+			for _, pr := range card.LinkedPRs {
+				linked[pr.Number] = true
+			}
+		}
+	}
+	if len(linked) == 0 {
+		t.Fatal("fake board has no linked PRs; fixture cannot exercise the linked/unlinked split")
+	}
+
+	open := make(map[int]bool)
+	for _, pr := range prs {
+		if pr.Number == 0 || pr.Title == "" || pr.URL == "" {
+			t.Errorf("ListOpenPRs returned incomplete PR: %+v", pr)
+		}
+		open[pr.Number] = true
+	}
+	for number := range linked {
+		if !open[number] {
+			t.Errorf("ListOpenPRs missing card-linked PR #%d", number)
+		}
+	}
+	unlinkedCount := 0
+	for number := range open {
+		if !linked[number] {
+			unlinkedCount++
+		}
+	}
+	if unlinkedCount == 0 {
+		t.Error("ListOpenPRs returned only card-linked PRs; want at least one unlinked PR to exercise the overview's unlinked rows")
+	}
+}

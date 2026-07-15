@@ -566,16 +566,47 @@ type prListEntry struct {
 }
 
 // prListState groups fields related to the global PR list modal.
+//
+// Rendering/handling precedence: loading -> err -> loaded. While loading,
+// entries holds the card-linked fallback aggregated from the board; when the
+// repo-wide fetch succeeds, entries is replaced with every open PR in the
+// repository; on error, the fallback entries are kept and err records the
+// sanitized failure.
 type prListState struct {
 	entries []prListEntry
 	cursor  int
+	loading bool
+	err     string
 }
 
-// prListModeHints are the status bar hints shown in PR list mode.
+// openPRsMsg is sent when fetchOpenPRsCmd finishes listing the repository's
+// open pull requests for the PR list modal.
+type openPRsMsg struct {
+	prs []provider.LinkedPR
+	err error
+}
+
+// prListModeHints are the base status bar hints shown in PR list mode; see
+// prListActionHints for the full set including custom-action hints.
 var prListModeHints = []Hint{
 	{Key: "esc", Desc: "Cancel"},
 	{Key: "j/k", Desc: "Navigate"},
 	{Key: "enter", Desc: "Open"},
+}
+
+// prListActionHints returns the PR list mode hints: the base navigation
+// hints plus one named hint per global scope: pr custom action, mirroring
+// how normal mode surfaces action names. Only scope: pr actions appear
+// because only they can fire inside the modal (handlePRListActionKey) —
+// hinting other scopes would advertise keys that silently no-op.
+func (b Board) prListActionHints() []Hint {
+	hints := append([]Hint{}, prListModeHints...)
+	for key, act := range b.actions {
+		if config.DefaultScope(act.Scope) == "pr" {
+			hints = append(hints, Hint{Key: key, Desc: act.Name})
+		}
+	}
+	return hints
 }
 
 // dispatchState groups fields related to the agent dispatch modal.
@@ -881,12 +912,14 @@ func (b *Board) enterGitPanel() {
 	b.statusBar.SetActionHints(gitPanelModeHints)
 }
 
-// enterPRList opens the global PR list modal, aggregating every linked PR
-// across all columns and cards into a single navigable list. The aggregation
-// is board-wide and deliberately ignores any active search/filter — the
-// modal's purpose is to survey every open PR "across the whole board". Order
-// is column, then card, then PR within the card. It always opens, even with
-// no linked PRs, so the modal can render its empty state.
+// enterPRList opens the global PR list modal, which surveys every open PR in
+// the repository. The card-linked PRs aggregated here (across all columns and
+// cards, deliberately ignoring any active search/filter) render immediately
+// as a fallback while the caller's repo-wide fetch (fetchOpenPRsCmd) is in
+// flight; handleOpenPRsFetched then replaces them with the full repo-wide
+// list. Fallback order is column, then card, then PR within the card. It
+// always opens, even with no linked PRs, so the modal can render its
+// loading/empty states.
 func (b *Board) enterPRList() {
 	var entries []prListEntry
 	for _, col := range b.Columns {
@@ -901,9 +934,9 @@ func (b *Board) enterPRList() {
 		}
 	}
 
-	b.prList = prListState{entries: entries, cursor: 0}
+	b.prList = prListState{entries: entries, cursor: 0, loading: true}
 	b.mode = prListMode
-	b.statusBar.SetActionHints(prListModeHints)
+	b.statusBar.SetActionHints(b.prListActionHints())
 }
 
 // createModalWidth returns the modal width for the create-card dialog (60% of terminal width, min 20).

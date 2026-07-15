@@ -77,6 +77,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case boardFetchedMsg:
 		return b.handleBoardFetched(msg)
 
+	case openPRsMsg:
+		return b.handleOpenPRsFetched(msg)
+
 	case boardFetchErrorMsg:
 		if b.refreshing {
 			b.refreshing = false
@@ -737,6 +740,58 @@ func (b *Board) columnCleanup(colIdx int) string {
 		}
 	}
 	return ""
+}
+
+// handleOpenPRsFetched applies the repo-wide open-PR fetch result to the PR
+// list modal, following the prListState precedence (loading -> err ->
+// loaded). A result that lands after the user closed the modal is dropped:
+// enterPRList rebuilds the whole state on the next open, so a stale result
+// has nothing valid to update. On success, entries are replaced with the
+// repo-wide list in provider order, each PR annotated with the first board
+// card that links it (cardNumber 0 marks an unlinked PR); on error, the
+// card-linked fallback entries built by enterPRList are kept.
+func (b Board) handleOpenPRsFetched(msg openPRsMsg) (tea.Model, tea.Cmd) {
+	if b.mode != prListMode {
+		return b, nil
+	}
+	b.prList.loading = false
+	if msg.err != nil {
+		b.prList.err = provider.SanitizeError(msg.err)
+		return b, nil
+	}
+
+	type cardRef struct {
+		cardNumber  int
+		columnTitle string
+	}
+	refs := make(map[int]cardRef)
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			for _, pr := range card.LinkedPRs {
+				if _, ok := refs[pr.Number]; !ok {
+					refs[pr.Number] = cardRef{cardNumber: card.Number, columnTitle: col.Title}
+				}
+			}
+		}
+	}
+
+	entries := make([]prListEntry, 0, len(msg.prs))
+	for _, pr := range mapLinkedPRs(msg.prs) {
+		ref := refs[pr.Number]
+		entries = append(entries, prListEntry{
+			pr:          pr,
+			cardNumber:  ref.cardNumber,
+			columnTitle: ref.columnTitle,
+		})
+	}
+	b.prList.entries = entries
+	if b.prList.cursor >= len(entries) {
+		b.prList.cursor = len(entries) - 1
+		if b.prList.cursor < 0 {
+			b.prList.cursor = 0
+		}
+	}
+	return b, nil
 }
 
 func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {

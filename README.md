@@ -275,7 +275,7 @@ Inside the menu, press an action's key to run it immediately (like lazygit), or 
 
 At the left of the status bar, an always-visible prefix summarizes the whole board: agent-status counts (`▶N` running, `!N` awaiting input) followed by the board-wide linked-PR total (` N`, using the same PR glyph shown on cards). Each token is omitted when its count is zero, and the prefix disappears entirely when all are zero. Because the prefix is reserved before anything else, it stays visible through timed status messages and is never truncated to make room for hints or the right-aligned git/dispatch segments.
 
-The PR total counts open PRs that GitHub recognizes as closing linked cards. Mere issue mentions and closed PRs are excluded. Press `v` to open the [global PR list](#pull-requests) for the details behind the count.
+The PR total counts open PRs that GitHub recognizes as closing linked cards. Mere issue mentions and closed PRs are excluded. Press `v` to open the [repo-wide open-PR list](#pull-requests) — note it lists *all* open PRs, so it can show more rows than this linked-only count.
 
 ### Git Status Segment
 
@@ -402,7 +402,7 @@ Press `?` at any time to open the in-app help popup.
 | `p` | Open PR |
 | `x` | Close card (with confirmation) |
 | `t` | Delete card permanently (with two-step confirmation) |
-| `v` | PR list (all linked PRs on the board) |
+| `v` | Open PRs (all open PRs in the repo) |
 | `/` | Search |
 | `a` | Assign collaborator |
 | `g` | Git menu |
@@ -459,13 +459,26 @@ Press `?` at any time to open the in-app help popup.
 
 ### Pull Requests
 
-Opened with `v` from normal mode. Lists every linked PR across the whole board
-(all columns and cards) in one place, regardless of any active search/filter.
+Opened with `v` from normal mode. Lists every **open PR in the repository**,
+not just those linked to a board card. While the repo-wide fetch is in
+flight, the card-linked PRs (aggregated across all columns and cards,
+regardless of any active search/filter) render immediately as a fallback; if
+the fetch fails, that fallback is kept with an explicit note. PRs linked to
+a card show the owning column and card next to the title; unlinked PRs are
+listed plainly.
+
+Uppercase keys run your global `scope: pr` [custom actions](#custom-actions)
+against the selected PR, with the same template variables as a normal-mode
+dispatch. On a PR with no linked card, the card-derived variables
+(`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) expand to empty
+strings. Per-column action overrides and the `Alt` comment variant are not
+available inside the modal.
 
 | Key | Action |
 |-----|--------|
 | `j` / `k` | Navigate |
 | `Enter` | Open selected PR |
+| `A-Z` | Custom action (`scope: pr`) on selected PR |
 | `Esc` | Cancel |
 
 ### Comment Mode

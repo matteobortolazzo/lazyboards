@@ -27,6 +27,7 @@ type FakeProvider struct {
 	FetchCollaboratorsCalls   int
 	GetAuthenticatedUserCalls int
 	ListLabelsCalls           int
+	ListOpenPRsCalls          int
 }
 
 // NewFakeProvider returns a FakeProvider pre-populated with hardcoded Kanban data.
@@ -85,6 +86,20 @@ func (f *FakeProvider) FetchBoard(_ context.Context) (Board, error) {
 		cols[i] = Column{Title: col.Title, Cards: cards}
 	}
 	return Board{Columns: cols}, nil
+}
+
+// ListOpenPRs returns the fake repository's open pull requests: every PR
+// linked to a card above, plus one (#40) no card links to, so the open-PR
+// overview can be exercised against both linked and unlinked rows. Ordered
+// newest-first to mirror the real provider's CREATED_AT DESC ordering.
+func (f *FakeProvider) ListOpenPRs(_ context.Context) ([]LinkedPR, error) {
+	f.ListOpenPRsCalls++
+	return []LinkedPR{
+		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40"},
+		{Number: 31, Title: "docs: improve README", URL: "https://github.com/owner/repo/pull/31"},
+		{Number: 30, Title: "docs: add README", URL: "https://github.com/owner/repo/pull/30"},
+		{Number: 20, Title: "feat: add data model", URL: "https://github.com/owner/repo/pull/20"},
+	}, nil
 }
 
 // CreateCard adds a new card to the first column with an auto-incremented number.

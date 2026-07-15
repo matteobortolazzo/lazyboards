@@ -129,6 +129,19 @@ func fetchBoardCmd(p provider.BoardProvider, includeMetadata bool) tea.Cmd {
 	}
 }
 
+// fetchOpenPRsCmd returns a tea.Cmd that lists the repository's open pull
+// requests via the provider, delivering openPRsMsg for the PR list modal's
+// repo-wide view.
+func fetchOpenPRsCmd(p provider.BoardProvider) tea.Cmd {
+	return func() tea.Msg {
+		prs, err := p.ListOpenPRs(context.Background())
+		if err != nil {
+			return openPRsMsg{err: err}
+		}
+		return openPRsMsg{prs: prs}
+	}
+}
+
 // fetchGitStatusCmd returns a tea.Cmd that reads live git status from dir via
 // reader, delivering gitStatusMsg with either the parsed Status or the read
 // error. Exported behavior (not name) is reusable by future git-panel work

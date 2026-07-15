@@ -240,7 +240,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, b.delete.commentInput.Focus()
 	case "v":
 		b.enterPRList()
-		return b, nil
+		return b, fetchOpenPRsCmd(b.provider)
 	case "/":
 		b.mode = searchMode
 		cmd := b.searchInput.Focus()
@@ -689,6 +689,13 @@ func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "k", "up":
 		b.prList.cursor = moveCursor(b.prList.cursor, len(b.prList.entries), false)
 		return b, nil
+	}
+
+	// Plain uppercase A-Z: global scope: pr custom actions against the
+	// selected row (see handlePRListActionKey). Alt combinations are excluded:
+	// the comment-action flow is normal-mode-only.
+	if !msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
+		return b.handlePRListActionKey(msg.String())
 	}
 	return b, nil
 }

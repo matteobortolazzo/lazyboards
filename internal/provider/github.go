@@ -171,6 +171,36 @@ func (g *GitHubProvider) fetchClosingPRFollowups(ctx context.Context, issue issu
 	return linkedPRs, nil
 }
 
+// ListOpenPRs pages through the repository's open pull requests via
+// gql.fetchOpenPRPage, preserving the connection's order (newest first).
+// Cross-page dedup by PR number mirrors fetchClosingPRFollowups so a PR
+// repeated across a page boundary is only returned once. Any page error
+// fails the whole listing -- a silently partial repo-wide list would defeat
+// the overview's purpose.
+func (g *GitHubProvider) ListOpenPRs(ctx context.Context) ([]LinkedPR, error) {
+	var prs []LinkedPR
+	seen := make(map[int]bool)
+	cursor := ""
+	for {
+		page, err := g.gql.fetchOpenPRPage(ctx, g.owner, g.repo, cursor)
+		if err != nil {
+			return nil, err
+		}
+		for _, pr := range page.prs {
+			if seen[pr.Number] {
+				continue
+			}
+			seen[pr.Number] = true
+			prs = append(prs, pr)
+		}
+		if !page.hasNextPage {
+			break
+		}
+		cursor = page.endCursor
+	}
+	return prs, nil
+}
+
 // normalizeLabelColor strips the optional "#" prefix from a label color
 // value and validates 6-character hex format, returning an empty string if
 // the result is not valid hex. Shared by the REST (extractLabels) and

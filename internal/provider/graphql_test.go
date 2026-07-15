@@ -29,6 +29,13 @@ type fakeGraphQLClient struct {
 
 	calledClosingPRCursors []closingPRCursorCall
 
+	// openPRPages scripts fetchOpenPRPage results, keyed by the afterCursor
+	// that would request them, mirroring the pages/calledCursors pattern for
+	// the repo-wide open pull-request connection.
+	openPRPages map[string]openPRPage
+
+	calledOpenPRCursors []string
+
 	// deleteIssueErr scripts the error DeleteIssue returns, letting tests
 	// exercise GitHubProvider.DeleteCard's success / not-found / generic-error
 	// mapping without a real GraphQL round-trip.
@@ -59,6 +66,17 @@ func (f *fakeGraphQLClient) fetchIssueClosingPRPage(_ context.Context, _, _ stri
 		return closingPRPage{}, f.err
 	}
 	return f.closingPRPages[issueNumber][afterCursor], nil
+}
+
+// fetchOpenPRPage returns the scripted openPRPage for the given afterCursor,
+// recording each call in calledOpenPRCursors so tests can assert multi-page
+// sequences.
+func (f *fakeGraphQLClient) fetchOpenPRPage(_ context.Context, _, _, afterCursor string) (openPRPage, error) {
+	f.calledOpenPRCursors = append(f.calledOpenPRCursors, afterCursor)
+	if f.err != nil {
+		return openPRPage{}, f.err
+	}
+	return f.openPRPages[afterCursor], nil
 }
 
 // deleteIssue returns the scripted deleteIssueErr, letting tests script

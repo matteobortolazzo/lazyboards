@@ -46,6 +46,11 @@ type Board struct {
 // BoardProvider is the interface for fetching and mutating board data.
 type BoardProvider interface {
 	FetchBoard(ctx context.Context) (Board, error)
+	// ListOpenPRs returns every open pull request in the repository,
+	// regardless of whether any card links to it. Rows reuse the LinkedPR
+	// shape (number/title/URL/branch); "linked" in the type name refers to
+	// its original card-scoped use, not a constraint on this list.
+	ListOpenPRs(ctx context.Context) ([]LinkedPR, error)
 	CreateCard(ctx context.Context, title string, label string) (Card, error)
 	UpdateCard(ctx context.Context, number int, title string, body string, labels []string) (Card, error)
 	CreateLabel(ctx context.Context, name string) error

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -8,25 +9,36 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 // The shared newBoardWithPRsAndExecutor fixture has one column with three
 // cards: card 1 (0 PRs), card 2 (1 PR #10), card 3 (2 PRs #20, #21) — three
-// linked PRs across the board in card-then-PR order.
+// linked PRs across the board in card-then-PR order. Opening the modal shows
+// these card-linked PRs immediately as a fallback while the repo-wide
+// open-PR fetch is in flight; openPRsMsg then replaces them with the full
+// repo-wide list.
 
 func TestNormalMode_V_OpensPRListModal(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 
-	b = sendKey(t, b, keyMsg("v"))
+	m, cmd := b.Update(keyMsg("v"))
+	b = m.(Board)
 
 	if b.mode != prListMode {
 		t.Fatalf("mode = %d, want prListMode (%d)", b.mode, prListMode)
 	}
-	if len(b.prList.entries) != 3 {
-		t.Fatalf("entries = %d, want 3 (aggregated across all cards)", len(b.prList.entries))
+	if !b.prList.loading {
+		t.Error("prList.loading = false, want true (repo-wide fetch in flight)")
 	}
-	// Aggregation order is column, then card, then PR within card.
+	if cmd == nil {
+		t.Fatal("Update(v) returned nil cmd, want the repo-wide open-PR fetch command")
+	}
+	if len(b.prList.entries) != 3 {
+		t.Fatalf("entries = %d, want 3 (card-linked fallback aggregated across all cards)", len(b.prList.entries))
+	}
+	// Fallback aggregation order is column, then card, then PR within card.
 	wantNumbers := []int{10, 20, 21}
 	for i, want := range wantNumbers {
 		if got := b.prList.entries[i].pr.Number; got != want {
@@ -43,6 +55,117 @@ func TestNormalMode_V_OpensPRListModal(t *testing.T) {
 	}
 	if b.prList.entries[0].columnTitle != "Column A" {
 		t.Errorf("entries[0].columnTitle = %q, want %q", b.prList.entries[0].columnTitle, "Column A")
+	}
+}
+
+// TestNormalMode_V_FetchesRepoWideOpenPRs exercises the full wiring: the cmd
+// returned by pressing v queries the provider's open-PR list, and feeding its
+// message back through Update replaces the fallback entries with the
+// repo-wide list (FakeProvider returns PRs #40, #31, #30, #20 newest-first).
+func TestNormalMode_V_FetchesRepoWideOpenPRs(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+
+	m, cmd := b.Update(keyMsg("v"))
+	b = m.(Board)
+	if cmd == nil {
+		t.Fatal("Update(v) returned nil cmd, want the repo-wide open-PR fetch command")
+	}
+
+	msg, ok := cmd().(openPRsMsg)
+	if !ok {
+		t.Fatalf("cmd() returned %T, want openPRsMsg", msg)
+	}
+	m, _ = b.Update(msg)
+	b = m.(Board)
+
+	if b.prList.loading {
+		t.Error("prList.loading = true after openPRsMsg, want false")
+	}
+	wantNumbers := []int{40, 31, 30, 20}
+	if len(b.prList.entries) != len(wantNumbers) {
+		t.Fatalf("entries = %d, want %d (repo-wide open PRs)", len(b.prList.entries), len(wantNumbers))
+	}
+	for i, want := range wantNumbers {
+		if got := b.prList.entries[i].pr.Number; got != want {
+			t.Errorf("entries[%d].pr.Number = %d, want %d (provider order preserved)", i, got, want)
+		}
+	}
+	// PR #20 is linked to card 3 on the loaded board; unlinked PRs carry no
+	// card reference (cardNumber 0).
+	last := b.prList.entries[len(b.prList.entries)-1]
+	if last.cardNumber != 3 || last.columnTitle != "Column A" {
+		t.Errorf("linked entry #20 ref = %q #%d, want %q #3", last.columnTitle, last.cardNumber, "Column A")
+	}
+	if b.prList.entries[0].cardNumber != 0 {
+		t.Errorf("unlinked entry #40 cardNumber = %d, want 0 (no card link)", b.prList.entries[0].cardNumber)
+	}
+}
+
+// TestPRList_OpenPRsFetched_ClampsCursor asserts the cursor is re-clamped
+// when the repo-wide list replaces a longer fallback list (list-cursor
+// invariant: clamp at the mutation site).
+func TestPRList_OpenPRsFetched_ClampsCursor(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	if b.prList.cursor != 2 {
+		t.Fatalf("cursor = %d, want 2 before fetch lands", b.prList.cursor)
+	}
+
+	b = sendKey(t, b, openPRsMsg{prs: []provider.LinkedPR{
+		{Number: 40, Title: "chore: only PR", URL: "https://github.com/owner/repo/pull/40"},
+	}})
+
+	if len(b.prList.entries) != 1 {
+		t.Fatalf("entries = %d, want 1", len(b.prList.entries))
+	}
+	if b.prList.cursor != 0 {
+		t.Errorf("cursor = %d, want 0 (clamped to new list length)", b.prList.cursor)
+	}
+}
+
+// TestPRList_OpenPRsError_KeepsFallbackEntries asserts a failed repo-wide
+// fetch degrades to the card-linked fallback instead of blanking the modal,
+// and surfaces the failure in the rendered view.
+func TestPRList_OpenPRsError_KeepsFallbackEntries(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+
+	b = sendKey(t, b, openPRsMsg{err: errors.New("boom")})
+
+	if b.prList.loading {
+		t.Error("prList.loading = true after error, want false")
+	}
+	if b.prList.err == "" {
+		t.Error("prList.err = \"\", want the fetch error recorded")
+	}
+	if len(b.prList.entries) != 3 {
+		t.Fatalf("entries = %d, want 3 (card-linked fallback kept on error)", len(b.prList.entries))
+	}
+	view := b.viewPRListModal()
+	if !strings.Contains(view, "linked PRs only") {
+		t.Errorf("error view = %q, want it to explain the fallback to linked PRs only", view)
+	}
+}
+
+// TestPRList_OpenPRsMsg_IgnoredAfterModalClosed asserts a fetch result that
+// lands after the user closed the modal is dropped rather than mutating
+// stale modal state.
+func TestPRList_OpenPRsMsg_IgnoredAfterModalClosed(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	b = sendKey(t, b, openPRsMsg{prs: []provider.LinkedPR{
+		{Number: 40, Title: "chore: late arrival", URL: "https://github.com/owner/repo/pull/40"},
+	}})
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if len(b.prList.entries) != 3 {
+		t.Errorf("entries = %d, want 3 (stale result must not replace closed modal's state)", len(b.prList.entries))
 	}
 }
 
@@ -98,6 +221,27 @@ func TestPRList_Enter_OpensSelectedPR(t *testing.T) {
 	}
 }
 
+// TestPRList_Enter_OpensUnlinkedPR asserts an unlinked repo-wide PR row is
+// just as actionable as a linked one.
+func TestPRList_Enter_OpensUnlinkedPR(t *testing.T) {
+	b, fe := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, openPRsMsg{prs: []provider.LinkedPR{
+		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40"},
+	}})
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
+	}
+	if fe.OpenURLCalls[0] != "https://github.com/owner/repo/pull/40" {
+		t.Errorf("OpenURL = %q, want the unlinked PR #40 URL", fe.OpenURLCalls[0])
+	}
+}
+
 func TestPRList_Esc_ReturnsToNormal(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 	b = sendKey(t, b, keyMsg("v"))
@@ -110,7 +254,12 @@ func TestPRList_Esc_ReturnsToNormal(t *testing.T) {
 	}
 }
 
-func TestPRList_EmptyState_OpensAndEnterCloses(t *testing.T) {
+// TestPRList_EmptyStates_LoadingThenNoOpenPRs walks the modal's empty-list
+// precedence on a board with no linked PRs: while the fetch is in flight it
+// says it's loading (not a misleading "no PRs"), and a successful empty
+// result renders the repo-wide empty state. Enter on an empty list just
+// closes without attempting to open a URL.
+func TestPRList_EmptyStates_LoadingThenNoOpenPRs(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{
 		{Number: 1, Title: "No PRs here"},
@@ -123,10 +272,13 @@ func TestPRList_EmptyState_OpensAndEnterCloses(t *testing.T) {
 	if len(b.prList.entries) != 0 {
 		t.Fatalf("entries = %d, want 0", len(b.prList.entries))
 	}
+	if !strings.Contains(b.viewPRListModal(), "Loading") {
+		t.Errorf("loading modal view = %q, want it to say it is loading", b.viewPRListModal())
+	}
 
-	// The modal communicates the empty state rather than showing a blank box.
-	if !strings.Contains(b.viewPRListModal(), "No linked PRs") {
-		t.Errorf("empty modal view = %q, want it to contain %q", b.viewPRListModal(), "No linked PRs")
+	b = sendKey(t, b, openPRsMsg{})
+	if !strings.Contains(b.viewPRListModal(), "No open PRs") {
+		t.Errorf("empty modal view = %q, want it to contain %q", b.viewPRListModal(), "No open PRs")
 	}
 
 	// Enter on an empty list just closes; it must not attempt to open a URL.
@@ -158,6 +310,37 @@ func TestPRList_View_ListsAllPRsWithCardRefs(t *testing.T) {
 	}
 }
 
+// TestPRList_View_UnlinkedPRsCarryNoCardRef asserts the loaded repo-wide view
+// renders linked rows with their card reference and unlinked rows without one.
+func TestPRList_View_UnlinkedPRsCarryNoCardRef(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, openPRsMsg{prs: []provider.LinkedPR{
+		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40"},
+		{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20"},
+	}})
+
+	view := b.viewPRListModal()
+	var linkedLine, unlinkedLine string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "#40") {
+			unlinkedLine = line
+		}
+		if strings.Contains(line, "#20") {
+			linkedLine = line
+		}
+	}
+	if unlinkedLine == "" || linkedLine == "" {
+		t.Fatalf("view missing PR rows; got:\n%s", view)
+	}
+	if !strings.Contains(linkedLine, "Column A") || !strings.Contains(linkedLine, "#3") {
+		t.Errorf("linked row = %q, want it to carry the owning column and card", linkedLine)
+	}
+	if strings.Contains(unlinkedLine, "Column A") {
+		t.Errorf("unlinked row = %q, want no card reference", unlinkedLine)
+	}
+}
+
 func TestPRList_View_TitleFitsModalWidth(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 	b = sendKey(t, b, keyMsg("v"))
@@ -166,5 +349,124 @@ func TestPRList_View_TitleFitsModalWidth(t *testing.T) {
 		if w := lipgloss.Width(line); w > b.Width {
 			t.Errorf("modal line wider than terminal (%d > %d): %q", w, b.Width, line)
 		}
+	}
+}
+
+// --- Custom actions inside the PR list modal ---
+
+// prListActionFixture builds a board from prFixtureColumns wired with the
+// given global custom actions, opens the PR list, and returns board+executor.
+func prListActionFixture(t *testing.T, actions map[string]config.Action) (Board, *action.FakeExecutor) {
+	t.Helper()
+	b, fe := newActionTestBoardWithColumns(t, actions, prFixtureColumns())
+	b = sendKey(t, b, keyMsg("v"))
+	return b, fe
+}
+
+// TestPRList_CustomAction_RunsAgainstSelectedLinkedPR asserts that an
+// uppercase key inside the PR list dispatches the global scope: pr action
+// against the selected row, expanding both PR and owning-card variables —
+// the same variables a normal-mode scope: pr dispatch gets.
+func TestPRList_CustomAction_RunsAgainstSelectedLinkedPR(t *testing.T) {
+	b, fe := prListActionFixture(t, map[string]config.Action{
+		"W": {Name: "Review", Type: "url", URL: "https://example.com/{number}/{pr_number}", Scope: "pr"},
+	})
+
+	// Fallback entry 0 is PR #10, linked to card 2.
+	m, cmd := b.Update(keyMsg("W"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != prListMode {
+		t.Errorf("mode after action = %d, want prListMode (%d) (modal stays open)", b.mode, prListMode)
+	}
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
+	}
+	if fe.OpenURLCalls[0] != "https://example.com/2/10" {
+		t.Errorf("OpenURL = %q, want card #2 and PR #10 expanded", fe.OpenURLCalls[0])
+	}
+}
+
+// TestPRList_CustomAction_UnlinkedPR_ExpandsEmptyCardVars asserts a scope: pr
+// action still runs on a repo-wide PR with no linked card, with card-derived
+// variables expanding to empty strings rather than misleading zero values.
+func TestPRList_CustomAction_UnlinkedPR_ExpandsEmptyCardVars(t *testing.T) {
+	b, fe := prListActionFixture(t, map[string]config.Action{
+		"W": {Name: "Review", Type: "url", URL: "https://example.com/{number}/{pr_number}", Scope: "pr"},
+	})
+	b = sendKey(t, b, openPRsMsg{prs: []provider.LinkedPR{
+		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40"},
+	}})
+
+	m, cmd := b.Update(keyMsg("W"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
+	}
+	if fe.OpenURLCalls[0] != "https://example.com//40" {
+		t.Errorf("OpenURL = %q, want empty card number and PR #40 expanded", fe.OpenURLCalls[0])
+	}
+}
+
+// TestPRList_CustomAction_NonPRScopeIgnored asserts card- and board-scope
+// actions do not fire from the PR list — a PR row is not a card/board target.
+func TestPRList_CustomAction_NonPRScopeIgnored(t *testing.T) {
+	b, fe := prListActionFixture(t, map[string]config.Action{
+		"C": {Name: "Card thing", Type: "url", URL: "https://example.com/{number}", Scope: "card"},
+		"B": {Name: "Board thing", Type: "url", URL: "https://example.com/board", Scope: "board"},
+	})
+
+	for _, key := range []string{"C", "B"} {
+		m, cmd := b.Update(keyMsg(key))
+		b = m.(Board)
+		execCmds(cmd)
+	}
+
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("OpenURL called %d times from non-pr-scope actions, want 0: %v", len(fe.OpenURLCalls), fe.OpenURLCalls)
+	}
+	if b.mode != prListMode {
+		t.Errorf("mode = %d, want prListMode (%d)", b.mode, prListMode)
+	}
+}
+
+// TestPRList_CustomAction_EmptyListNoOp asserts an action key on an empty
+// list is a safe no-op.
+func TestPRList_CustomAction_EmptyListNoOp(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{{Number: 1, Title: "No PRs here"}}, fe)
+	b.actions = map[string]config.Action{
+		"W": {Name: "Review", Type: "url", URL: "https://example.com/{pr_number}", Scope: "pr"},
+	}
+	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, openPRsMsg{})
+
+	m, cmd := b.Update(keyMsg("W"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("OpenURL called %d times on empty list, want 0", len(fe.OpenURLCalls))
+	}
+}
+
+// TestPRList_Hints_IncludePRScopedActions asserts the modal surfaces the
+// user's scope: pr actions by name, so the dispatch capability is
+// discoverable (view-state consistency with the key handler).
+func TestPRList_Hints_IncludePRScopedActions(t *testing.T) {
+	b, _ := prListActionFixture(t, map[string]config.Action{
+		"W": {Name: "Review", Type: "url", URL: "https://example.com/{pr_number}", Scope: "pr"},
+		"C": {Name: "Card thing", Type: "url", URL: "https://example.com/{number}", Scope: "card"},
+	})
+
+	view := b.viewPRListModal()
+	if !strings.Contains(view, "Review") {
+		t.Errorf("modal view = %q, want it to hint the scope: pr action %q", view, "Review")
+	}
+	if strings.Contains(view, "Card thing") {
+		t.Errorf("modal view hints non-pr-scope action %q; card-scope actions cannot fire here", "Card thing")
 	}
 }

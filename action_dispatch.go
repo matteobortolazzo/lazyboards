@@ -134,6 +134,14 @@ func (b Board) runPRAction(act config.Action, card Card, pr LinkedPR, comment st
 	}
 	window := b.resolveWindowName(card.Number, card.Title)
 	baseVars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, comment, window)
+	return b.runPRActionWithVars(act, pr, baseVars)
+}
+
+// runPRActionWithVars layers the PR-specific template variables (including
+// on-demand {pr_worktree} resolution) on top of baseVars and dispatches act.
+// Shared by runPRAction (card-derived base vars) and the PR list modal's
+// card-less dispatch path.
+func (b Board) runPRActionWithVars(act config.Action, pr LinkedPR, baseVars map[string]string) (tea.Model, tea.Cmd) {
 	prWorktree := ""
 	if strings.Contains(act.URL+act.Command, "{pr_worktree}") {
 		var err error
@@ -145,6 +153,39 @@ func (b Board) runPRAction(act config.Action, card Card, pr LinkedPR, comment st
 	}
 	vars := action.BuildPRTemplateVars(baseVars, pr.Number, pr.Title, pr.URL, pr.Branch, prWorktree)
 	return b.dispatchExpandedAction(act, vars)
+}
+
+// handlePRListActionKey dispatches an uppercase custom-action key pressed
+// inside the PR list modal against the selected PR row. Eligibility is
+// deliberately narrower than normal mode's resolveAction: only GLOBAL
+// scope: pr actions apply — the modal is a repo-wide view with no active
+// column, so per-column overrides and card/board scopes have no sensible
+// target here. Rows linked to a board card dispatch with the same full
+// card+PR template variables as a normal-mode scope: pr action; unlinked
+// rows expand the card-derived variables ({number}, {title}, {tags},
+// {session}, {window}) to empty strings since there is no card to derive
+// them from. The modal stays open so several PRs can be acted on in a row.
+func (b Board) handlePRListActionKey(key string) (tea.Model, tea.Cmd) {
+	act, ok := b.actions[key]
+	if !ok || config.DefaultScope(act.Scope) != "pr" {
+		return b, nil
+	}
+	if len(b.prList.entries) == 0 || b.prList.cursor >= len(b.prList.entries) {
+		return b, nil
+	}
+	entry := b.prList.entries[b.prList.cursor]
+
+	if entry.cardNumber != 0 {
+		if ci, i, ok := b.findCard(entry.cardNumber); ok {
+			return b.runPRAction(act, b.Columns[ci].Cards[i], entry.pr, "")
+		}
+	}
+
+	baseVars := action.BuildTemplateVars(0, "", nil, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", "")
+	for _, cardVar := range []string{"number", "title", "tags", "session", "window"} {
+		baseVars[cardVar] = ""
+	}
+	return b.runPRActionWithVars(act, entry.pr, baseVars)
 }
 
 // resolvePRWorktree returns the registered worktree for branch. Git's
