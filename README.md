@@ -98,6 +98,8 @@ actions:
   X: { name: Stop dispatch loop, type: shell, command: "cenci dispatch loop off", scope: board }
 ```
 
+This split is deliberate and holds across the app: anything that continuously *displays* live cenci state (agent badges, this Loop line, the status-bar dispatch segment) is built in, while anything that *changes* cenci state (loop on/off, enroll) is yours to bind as a [custom action](#custom-actions). When the cenci-watch daemon connection is up (`cenci: true`), the Loop line updates live from the daemon's pushed state; on disconnect it falls back to the result of the last `cenci dispatch status` query made when the panel opened.
+
 See the [Dispatch keybindings](#dispatch) for the full key reference.
 
 ### Example: cenci + cenci-watch
@@ -193,7 +195,7 @@ Save and close to apply changes. Leave the title blank to cancel. If you add lab
 
 ## Custom Actions
 
-Bind uppercase keys (A-Z) to URL or shell actions in your config. The uppercase namespace is fully yours — no built-in ever claims an uppercase key in normal mode (the built-in git shortcuts live inside the [Git Menu](#git-menu)):
+Bind uppercase keys (A-Z) to URL or shell actions in your config. The uppercase namespace is fully yours — no built-in ever claims an uppercase key in normal mode (the built-in git shortcuts live inside the [Git Menu](#git-menu)). Custom actions are also the designated home for commands that change cenci state, like `cenci dispatch loop on`/`off` (see the [Dispatch Panel](#dispatch-panel)):
 
 ```yaml
 actions:

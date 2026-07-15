@@ -1373,8 +1373,10 @@ func (b Board) viewPRListModal() string {
 // not connected yet -> connected with no windows -> window list, plus a stale
 // note when the same consecutive-error threshold that clears the status-bar
 // dispatch segment has been reached (the list then shows the last known
-// snapshot). The empty/unavailable branches deliberately render no enter
-// hint, matching handleAgentListModeKey's empty-list guard
+// snapshot). dispatchLoopSource applies the same threshold as its
+// live-vs-CLI trust gate for the dispatch modal's Loop line. The
+// empty/unavailable branches deliberately render no enter hint, matching
+// handleAgentListModeKey's empty-list guard
 // (docs/view-state-consistency.md).
 func (b Board) viewAgentListModal() string {
 	modalWidth := 60
@@ -1544,7 +1546,7 @@ func (b Board) viewDispatchModal() string {
 		}
 
 		lines = append(lines, "")
-		lines = append(lines, renderLoopLine(b.dispatch.loop, b.dispatch.loopErr))
+		lines = append(lines, renderLoopLine(b.dispatchLoopSource()))
 
 		enterDesc := "Enroll"
 		if b.dispatch.enrolled {
@@ -1564,14 +1566,35 @@ func (b Board) viewDispatchModal() string {
 	return b.renderModal(modalContent, modalWidth)
 }
 
+// dispatchLoopSource selects which decoded DispatchState the dispatch
+// modal's Loop line renders (#403). The dispatch loop is fleet-wide, so the
+// live state pushed over the daemon socket (agentSnapshot.Dispatch) is
+// authoritative whenever it is present AND currently trusted -- trusted
+// meaning the watcher's consecutive-error count is below the same
+// cenciWatchClearThreshold gate that clears the status-bar segment and
+// marks viewAgentListModal's list disconnected. Once that threshold is
+// reached, the live value may be arbitrarily stale, so the line falls back
+// to the independently-fetched `cenci dispatch status --json` result rather
+// than rendering a silently-stale live value; a later successful snapshot
+// resets the counter (update.go) and flips the source back to live.
+func (b Board) dispatchLoopSource() (*cenciwatch.DispatchState, string) {
+	if b.agentSnapshot != nil &&
+		b.agentSnapshot.Dispatch != nil &&
+		b.cenciWatchConsecutiveErrors < cenciWatchClearThreshold {
+		return b.agentSnapshot.Dispatch, ""
+	}
+	return b.dispatch.loop, b.dispatch.loopErr
+}
+
 // renderLoopLine renders the "Loop: ..." status line describing the
-// daemon-owned background dispatch loop, decoded verbatim from the "loop"
-// object in `cenci dispatch status --json` (ticket #313) into the shared
-// cenciwatch.DispatchState wire type (#402). lazyboards is a pure reader of
-// this state -- starting/stopping the loop is a user-configured custom shell
-// action, not a code path here. Precedence: old-binary guard > nil loop
-// (defensive) > last_error > enabled/off > daemon-not-running > never-run >
-// normal summary.
+// daemon-owned background dispatch loop, sourced by dispatchLoopSource from
+// either the live socket snapshot or the "loop" object in
+// `cenci dispatch status --json` (ticket #313) -- both decode into the
+// shared cenciwatch.DispatchState wire type (#402). lazyboards is a pure
+// reader of this state -- starting/stopping the loop is a user-configured
+// custom shell action, not a code path here. Precedence: old-binary guard >
+// nil loop (defensive) > last_error > enabled/off > daemon-not-running >
+// never-run > normal summary.
 func renderLoopLine(loop *cenciwatch.DispatchState, loopErr string) string {
 	errStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 
