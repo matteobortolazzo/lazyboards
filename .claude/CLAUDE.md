@@ -48,12 +48,42 @@ Tests are split by domain to mirror production code:
 | `statusbar_test.go` | StatusBar component tests |
 | `dispatch_mode_test.go` | Dispatch mode (agent dispatch modal) scaffolding |
 | `delete_mode_test.go` | Delete mode (two-step confirm flow, PR gating, cleanup guards) |
+| `assign_mode_test.go` | Assign mode (assignee picker modal, collaborator list) |
+| `cenciwatch_test.go` | Agent status matching (window→card), badge rendering, agent counts, wire-format decoding |
+| `close_mode_test.go` | Close mode (close-confirm flow, target card resolution) |
+| `comment_mode_test.go` | Comment mode (alt-key trigger, immediate vs. deferred action execution) |
+| `filter_mode_test.go` | Filter picker modal (collecting/deduplicating label & assignee filter items) |
+| `filter_test.go` | Active filter application (label/assignee matching, case sensitivity) |
+| `git_actions_test.go` | Git default actions vs. custom action resolution/hints |
+| `git_panel_test.go` | Git menu panel (open/close, default-action gating) |
+| `gitstatus_wiring_test.go` | Git status fetch command + background poll scheduling |
+| `help_test.go` | Help modal (open/close from normal & detail-focused states) |
+| `label_confirm_test.go` | Frontmatter compose/parse round-trip for labels |
+| `map_slice_test.go` | `mapSlice` generic helper |
+| `mouse_test.go` | Mouse wheel scroll/cursor movement |
+| `pr_count_test.go` | PR count aggregation and status bar indicator |
+| `pr_list_test.go` | Global PR list modal navigation and selection |
+| `pr_picker_test.go` | Single/multi-PR picker (open in browser, status messages) |
+| `search_mode_test.go` | Search mode (enter/exit, query clearing) |
+| `version_test.go` | App version injection/fallback, `--version` flag handling |
 
-Internal packages: `internal/action`, `internal/cenciwatch`, `internal/config`, `internal/git`, `internal/provider`.
+Internal packages: `internal/action`, `internal/auth`, `internal/cenciwatch`, `internal/config`, `internal/debuglog`, `internal/git`, `internal/provider`.
 
 ## Rule Files
 See `.claude/rules/` for conventions:
-- `lessons-learned.md` — real mistakes from this codebase (authoritative, overrides assumptions)
+- `lessons-learned.md` — pointer to topic-specific lessons (see below); authoritative, overrides assumptions
 - `testing.md` — TDD and test quality rules
 - `security.md` — security guidelines
 - `git-workflow.md` — branching, commits, worktrees, PRs
+
+## Topic Docs
+See `docs/` for lessons and conventions scoped to a specific subsystem — read the one relevant to the code you're touching before starting:
+- `agent-environment.md` — Claude Code sandbox operation (Go build cache, worktrees, git commits, Bash cwd)
+- `terminal-rendering.md` — lipgloss/glamour width calculations and markdown rendering
+- `bubbletea-async-patterns.md` — `tea.Cmd` propagation and async testing patterns
+- `shell-and-url-safety.md` — escaping untrusted template variables in shell commands and URLs
+- `frontmatter-parsing.md` — edit-mode frontmatter delimiter format
+- `list-cursor-invariants.md` — cursor/index consistency across filtered views and column resolution
+- `view-state-consistency.md` — keeping event-handler guards and view renderers in sync
+- `git-integration.md` — `internal/git` background-poll and subprocess-result conventions
+- `cenciwatch-integration.md` — `internal/cenciwatch` reconnect/backoff and wire-format status matching
