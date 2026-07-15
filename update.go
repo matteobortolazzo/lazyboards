@@ -693,6 +693,20 @@ func (b *Board) hasWorkingLabel(labels []string) bool {
 	return false
 }
 
+// findCard searches all columns, in column then card order, for a card whose
+// Number matches. Returns the column and card index of the first match found
+// and ok=true, or ok=false if no card has that number.
+func (b *Board) findCard(number int) (colIdx, cardIdx int, ok bool) {
+	for ci := range b.Columns {
+		for i := range b.Columns[ci].Cards {
+			if b.Columns[ci].Cards[i].Number == number {
+				return ci, i, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
 // columnCleanup returns the cleanup command for the column at colIdx, matched by title.
 func (b *Board) columnCleanup(colIdx int) string {
 	if colIdx >= len(b.Columns) {
@@ -816,26 +830,20 @@ func (b Board) handleCardClosed(msg cardClosedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var cleanupCmd tea.Cmd
-	for ci := range b.Columns {
-		for i := range b.Columns[ci].Cards {
-			if b.Columns[ci].Cards[i].Number != cardNum {
-				continue
+	if ci, i, ok := b.findCard(cardNum); ok {
+		cleanup := b.columnCleanup(ci)
+		if cleanup != "" && b.executor != nil && !b.agentSessionBusy(cardNum) && !b.hasWorkingLabel(labelNames) {
+			window := b.resolveWindowName(cardNum, msg.card.Title)
+			vars := action.BuildTemplateVars(cardNum, msg.card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", window)
+			expanded := action.ExpandTemplate(cleanup, action.BuildShellSafeVars(vars))
+			cleanupCmd = runCleanupCmds(b.executor, []string{expanded})
+		}
+		b.Columns[ci].Cards = append(b.Columns[ci].Cards[:i], b.Columns[ci].Cards[i+1:]...)
+		if b.Columns[ci].Cursor >= len(b.Columns[ci].Cards) {
+			b.Columns[ci].Cursor = len(b.Columns[ci].Cards) - 1
+			if b.Columns[ci].Cursor < 0 {
+				b.Columns[ci].Cursor = 0
 			}
-			cleanup := b.columnCleanup(ci)
-			if cleanup != "" && b.executor != nil && !b.agentSessionBusy(cardNum) && !b.hasWorkingLabel(labelNames) {
-				window := b.resolveWindowName(cardNum, msg.card.Title)
-				vars := action.BuildTemplateVars(cardNum, msg.card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", window)
-				expanded := action.ExpandTemplate(cleanup, action.BuildShellSafeVars(vars))
-				cleanupCmd = runCleanupCmds(b.executor, []string{expanded})
-			}
-			b.Columns[ci].Cards = append(b.Columns[ci].Cards[:i], b.Columns[ci].Cards[i+1:]...)
-			if b.Columns[ci].Cursor >= len(b.Columns[ci].Cards) {
-				b.Columns[ci].Cursor = len(b.Columns[ci].Cards) - 1
-				if b.Columns[ci].Cursor < 0 {
-					b.Columns[ci].Cursor = 0
-				}
-			}
-			break
 		}
 	}
 
@@ -863,21 +871,15 @@ func (b Board) handleLabelCreated() (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleCardUpdated(msg cardUpdatedMsg) (tea.Model, tea.Cmd) {
-	for ci := range b.Columns {
-		for i := range b.Columns[ci].Cards {
-			if b.Columns[ci].Cards[i].Number == msg.card.Number {
-				b.Columns[ci].Cards[i] = Card{
-					Number:    msg.card.Number,
-					Title:     msg.card.Title,
-					Body:      msg.card.Body,
-					URL:       msg.card.URL,
-					Labels:    mapLabels(msg.card.Labels),
-					LinkedPRs: b.Columns[ci].Cards[i].LinkedPRs,
-					Assignees: b.Columns[ci].Cards[i].Assignees,
-				}
-				cmd := b.statusBar.SetTimedMessage("Card updated", StatusSuccess, statusMessageDuration)
-				return b, cmd
-			}
+	if ci, i, ok := b.findCard(msg.card.Number); ok {
+		b.Columns[ci].Cards[i] = Card{
+			Number:    msg.card.Number,
+			Title:     msg.card.Title,
+			Body:      msg.card.Body,
+			URL:       msg.card.URL,
+			Labels:    mapLabels(msg.card.Labels),
+			LinkedPRs: b.Columns[ci].Cards[i].LinkedPRs,
+			Assignees: b.Columns[ci].Cards[i].Assignees,
 		}
 	}
 	cmd := b.statusBar.SetTimedMessage("Card updated", StatusSuccess, statusMessageDuration)
@@ -1116,19 +1118,13 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if col.Cursor < maxIdx {
 			col.Cursor++
 		}
-		b.detailScrollOffset = 0
-		b.clampScrollOffset()
-		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
+		b.onCursorMoved()
 	case "k", "up":
 		col := &b.Columns[b.ActiveTab]
 		if col.Cursor > 0 {
 			col.Cursor--
 		}
-		b.detailScrollOffset = 0
-		b.clampScrollOffset()
-		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
+		b.onCursorMoved()
 	case "a":
 		if len(b.Columns) == 0 || b.ActiveTab >= len(b.Columns) {
 			return b, nil
@@ -1420,15 +1416,27 @@ func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "j", "down":
-		if b.assign.cursor < len(b.assign.items)-1 {
-			b.assign.cursor++
-		}
+		b.assign.cursor = moveCursor(b.assign.cursor, len(b.assign.items), true)
 	case "k", "up":
-		if b.assign.cursor > 0 {
-			b.assign.cursor--
-		}
+		b.assign.cursor = moveCursor(b.assign.cursor, len(b.assign.items), false)
 	}
 	return b, nil
+}
+
+// moveCursor returns cursor moved one step within [0, length-1]: down moves
+// forward (clamped at length-1), up moves backward (clamped at 0). Never
+// wraps around.
+func moveCursor(cursor, length int, down bool) int {
+	if down {
+		if cursor < length-1 {
+			cursor++
+		}
+		return cursor
+	}
+	if cursor > 0 {
+		cursor--
+	}
+	return cursor
 }
 
 func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1448,14 +1456,10 @@ func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "j", "down":
-		if b.gitPanel.cursor < len(b.gitPanel.items)-1 {
-			b.gitPanel.cursor++
-		}
+		b.gitPanel.cursor = moveCursor(b.gitPanel.cursor, len(b.gitPanel.items), true)
 		return b, nil
 	case "k", "up":
-		if b.gitPanel.cursor > 0 {
-			b.gitPanel.cursor--
-		}
+		b.gitPanel.cursor = moveCursor(b.gitPanel.cursor, len(b.gitPanel.items), false)
 		return b, nil
 	}
 
@@ -1519,14 +1523,8 @@ func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (b Board) handleAssigneesUpdated(msg assigneesUpdatedMsg) (tea.Model, tea.Cmd) {
 	updated := mapProviderCard(msg.card)
-	for ci := range b.Columns {
-		for i := range b.Columns[ci].Cards {
-			if b.Columns[ci].Cards[i].Number == updated.Number {
-				b.Columns[ci].Cards[i].Assignees = updated.Assignees
-				cmd := b.statusBar.SetTimedMessage("Assignees updated", StatusSuccess, statusMessageDuration)
-				return b, cmd
-			}
-		}
+	if ci, i, ok := b.findCard(updated.Number); ok {
+		b.Columns[ci].Cards[i].Assignees = updated.Assignees
 	}
 	cmd := b.statusBar.SetTimedMessage("Assignees updated", StatusSuccess, statusMessageDuration)
 	return b, cmd
@@ -1789,13 +1787,24 @@ func (b *Board) scrollDetailDown() {
 	}
 }
 
-func (b *Board) switchColumn(idx int) {
-	b.ActiveTab = idx
-	b.Columns[b.ActiveTab].ScrollOffset = 0
+// onCursorMoved resets the detail scroll position, clamps the card list
+// scroll offset to the new cursor position, and rebuilds/reapplies the
+// normal-mode action hints (the hint set can depend on the selected card,
+// e.g. scope:pr custom actions only show when the card has linked PRs).
+// Only appropriate for callers displaying normal-mode hints -- search mode's
+// arrow-key navigation does NOT use this helper; see the F3 commit message
+// for why (calling it there would clobber the search-mode hint bar).
+func (b *Board) onCursorMoved() {
 	b.detailScrollOffset = 0
 	b.clampScrollOffset()
 	b.rebuildNormalHints()
 	b.statusBar.SetActionHints(b.normalHints)
+}
+
+func (b *Board) switchColumn(idx int) {
+	b.ActiveTab = idx
+	b.Columns[b.ActiveTab].ScrollOffset = 0
+	b.onCursorMoved()
 }
 
 func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1952,14 +1961,10 @@ func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "j", "down":
-		if b.prList.cursor < len(b.prList.entries)-1 {
-			b.prList.cursor++
-		}
+		b.prList.cursor = moveCursor(b.prList.cursor, len(b.prList.entries), true)
 		return b, nil
 	case "k", "up":
-		if b.prList.cursor > 0 {
-			b.prList.cursor--
-		}
+		b.prList.cursor = moveCursor(b.prList.cursor, len(b.prList.entries), false)
 		return b, nil
 	}
 	return b, nil
@@ -2059,10 +2064,7 @@ func (b Board) handleMouseScroll(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				col.Cursor--
 			}
 		}
-		b.detailScrollOffset = 0
-		b.clampScrollOffset()
-		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
+		b.onCursorMoved()
 	} else {
 		// Right panel: scroll detail body.
 		if msg.Button == tea.MouseButtonWheelDown {
@@ -2162,10 +2164,7 @@ func (b Board) handleCardClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		lines := cardLineCount(cards[i], leftContentWidth, columnNames, b.workingLabel, b.agentBadgeFor(cards[i]))
 		if msg.Y >= currentY && msg.Y < currentY+lines {
 			col.Cursor = i
-			b.detailScrollOffset = 0
-			b.clampScrollOffset()
-			b.rebuildNormalHints()
-			b.statusBar.SetActionHints(b.normalHints)
+			b.onCursorMoved()
 			return b, nil
 		}
 		currentY += lines
