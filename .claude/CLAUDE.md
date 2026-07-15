@@ -44,6 +44,7 @@ Tests are split by domain to mirror production code:
 | `config_mode_test.go` | Config mode, first launch flow |
 | `detail_panel_test.go` | Detail panel focus, scrolling, glamour rendering |
 | `actions_test.go` | Action triggers (URL, shell), column actions |
+| `agent_list_test.go` | Agents list modal (all cenci windows, tmux window navigation, state precedence) |
 | `cleanup_test.go` | Column cleanup on card departure |
 | `statusbar_test.go` | StatusBar component tests |
 | `dispatch_mode_test.go` | Dispatch mode (agent dispatch modal) scaffolding |

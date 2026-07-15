@@ -248,6 +248,9 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		b.enterPRList()
 		return b, fetchOpenPRsCmd(b.provider, b.prList.generation)
+	case "w":
+		b.enterAgentList()
+		return b, nil
 	case "/":
 		b.mode = searchMode
 		cmd := b.searchInput.Focus()
@@ -703,6 +706,41 @@ func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// the comment-action flow is normal-mode-only.
 	if !msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
 		return b.handlePRListActionKey(msg.String())
+	}
+	return b, nil
+}
+
+// handleAgentListModeKey handles keys in the agents list modal. Enter closes
+// the modal and switches the tmux client to the selected agent's window; the
+// empty-list guard mirrors viewAgentListModal's empty/unavailable states
+// (docs/view-state-consistency.md).
+func (b Board) handleAgentListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	entries := b.agentListEntries()
+	switch msg.Type {
+	case tea.KeyEscape:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyEnter:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		if len(entries) == 0 || b.agentList.cursor >= len(entries) {
+			return b, nil
+		}
+		w := entries[b.agentList.cursor].window
+		if err := b.switchToAgentWindow(w); err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+			return b, cmd
+		}
+		cmd := b.statusBar.SetTimedMessage("Switched to "+w.WindowName, StatusSuccess, statusMessageDuration)
+		return b, cmd
+	}
+
+	switch msg.String() {
+	case "j", "down":
+		b.agentList.cursor = moveCursor(b.agentList.cursor, len(entries), true)
+	case "k", "up":
+		b.agentList.cursor = moveCursor(b.agentList.cursor, len(entries), false)
 	}
 	return b, nil
 }
