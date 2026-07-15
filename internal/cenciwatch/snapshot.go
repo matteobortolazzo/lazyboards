@@ -1,11 +1,11 @@
-package agentwatch
+package cenciwatch
 
-// StateSnapshot is the top-level message the agentwatch daemon broadcasts
+// StateSnapshot is the top-level message the cenci-watch daemon broadcasts
 // over its unix socket, one NDJSON line per snapshot. The shape mirrors the
-// daemon's public, stdlib-only wire contract (agent-stack's
-// agentwatch/pkg/watch package): fields are additive-only and unknown fields
+// daemon's public, stdlib-only wire contract (cenci's
+// watch/pkg/watch package): fields are additive-only and unknown fields
 // are ignored on decode, so this local copy keeps decoding correctly across
-// daemon upgrades without importing the agent-stack module.
+// daemon upgrades without importing the cenci module.
 type StateSnapshot struct {
 	// Timestamp is the RFC 3339 time at which the daemon built this snapshot.
 	Timestamp string `json:"timestamp"`
@@ -19,14 +19,14 @@ type StateSnapshot struct {
 }
 
 // DispatchState describes the fleet-wide dispatch loop's live state, as
-// broadcast by the agentwatch daemon. Field names and JSON tags are pinned
-// to the authoritative producer source (agent-stack's
-// agentwatch/pkg/watch/snapshot.go), not guessed or copied from a doc
+// broadcast by the cenci-watch daemon. Field names and JSON tags are pinned
+// to the authoritative producer source (cenci's
+// watch/pkg/watch/snapshot.go), not guessed or copied from a doc
 // comment (see #316/#317 lesson).
 type DispatchState struct {
 	// Enabled reports whether the dispatch loop is turned on.
 	Enabled bool `json:"enabled"`
-	// DaemonRunning reports whether the agentwatch daemon process is running.
+	// DaemonRunning reports whether the cenci-watch daemon process is running.
 	DaemonRunning bool `json:"daemon_running"`
 	// Interval is the configured dispatch interval, e.g. "5m".
 	Interval string `json:"interval,omitempty"`
@@ -60,7 +60,7 @@ type WindowState struct {
 	// Agent identifies the coding agent detected in the window, if known.
 	Agent string `json:"agent,omitempty"`
 	// ManuallyNamed reports whether the window name was set by the user
-	// rather than derived by agentwatch.
+	// rather than derived by cenci-watch.
 	ManuallyNamed bool `json:"manually_named"`
 }
 

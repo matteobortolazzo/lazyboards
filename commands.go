@@ -12,7 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
-	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
@@ -22,7 +22,7 @@ import (
 // subscribeAgentWatchCmd returns a tea.Cmd that reads the next snapshot from
 // the agentwatch watcher, delivering agentSnapshotMsg on success or
 // agentWatchErrorMsg on failure.
-func subscribeAgentWatchCmd(w agentwatch.Watcher) tea.Cmd {
+func subscribeAgentWatchCmd(w cenciwatch.Watcher) tea.Cmd {
 	return func() tea.Msg {
 		snap, err := w.ReadNext()
 		if err != nil {

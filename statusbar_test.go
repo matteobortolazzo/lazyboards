@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 )
 
@@ -916,7 +916,7 @@ func TestStatusBar_ViewDispatchSegment_TimedMessageOverridesDispatchSegment(t *t
 // --- formatDispatchSegment (#315) ---
 
 func TestFormatDispatchSegment_EnabledShowsGlyph(t *testing.T) {
-	state := &agentwatch.DispatchState{Enabled: true, DaemonRunning: true}
+	state := &cenciwatch.DispatchState{Enabled: true, DaemonRunning: true}
 	got := formatDispatchSegment(state)
 
 	if got == "" {
@@ -935,7 +935,7 @@ func TestFormatDispatchSegment_NilDispatchStateReturnsEmpty(t *testing.T) {
 }
 
 func TestFormatDispatchSegment_DisabledReturnsEmpty(t *testing.T) {
-	state := &agentwatch.DispatchState{Enabled: false, DaemonRunning: true}
+	state := &cenciwatch.DispatchState{Enabled: false, DaemonRunning: true}
 	got := formatDispatchSegment(state)
 	if got != "" {
 		t.Errorf("formatDispatchSegment(Enabled=false) = %q, want empty (segment hidden when the loop is disabled)", got)
@@ -947,8 +947,8 @@ func TestFormatDispatchSegment_DisabledReturnsEmpty(t *testing.T) {
 // ANSI styling (the shared statusErrorStyle, forced to ANSI256 so tests don't
 // depend on TTY detection).
 func TestFormatDispatchSegment_LastErrorRendersDistinctly(t *testing.T) {
-	ok := &agentwatch.DispatchState{Enabled: true, DaemonRunning: true}
-	failing := &agentwatch.DispatchState{Enabled: true, DaemonRunning: true, LastError: "exit status 1"}
+	ok := &cenciwatch.DispatchState{Enabled: true, DaemonRunning: true}
+	failing := &cenciwatch.DispatchState{Enabled: true, DaemonRunning: true, LastError: "exit status 1"}
 
 	okSegment := formatDispatchSegment(ok)
 	failingSegment := formatDispatchSegment(failing)
@@ -971,8 +971,8 @@ func TestFormatDispatchSegment_LastErrorRendersDistinctly(t *testing.T) {
 // both the hidden case and the healthy Enabled && DaemonRunning "on" state,
 // reusing statusErrorStyle rather than a third style.
 func TestFormatDispatchSegment_DaemonNotRunningRendersDistinctly(t *testing.T) {
-	healthy := &agentwatch.DispatchState{Enabled: true, DaemonRunning: true}
-	daemonDown := &agentwatch.DispatchState{Enabled: true, DaemonRunning: false}
+	healthy := &cenciwatch.DispatchState{Enabled: true, DaemonRunning: true}
+	daemonDown := &cenciwatch.DispatchState{Enabled: true, DaemonRunning: false}
 
 	healthySegment := formatDispatchSegment(healthy)
 	daemonDownSegment := formatDispatchSegment(daemonDown)

@@ -12,8 +12,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v68/github"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
-	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/auth"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
@@ -207,9 +207,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	var watcher agentwatch.Watcher
+	var watcher cenciwatch.Watcher
 	if cfg.AgentWatchValue() {
-		watcher = agentwatch.NewSocketWatcher()
+		watcher = cenciwatch.NewSocketWatcher()
 	}
 
 	// Ship built-in git actions, and a live git status reader, only inside a

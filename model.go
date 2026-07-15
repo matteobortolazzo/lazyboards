@@ -13,7 +13,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
-	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -317,7 +317,7 @@ type autoRefreshMsg struct{}
 
 // agentSnapshotMsg is sent when the agentwatch watcher delivers a new state snapshot.
 type agentSnapshotMsg struct {
-	snapshot *agentwatch.StateSnapshot
+	snapshot *cenciwatch.StateSnapshot
 }
 
 // agentWatchErrorMsg is sent when reading from the agentwatch watcher fails.
@@ -664,48 +664,48 @@ type createState struct {
 
 // Board is the top-level model implementing tea.Model.
 type Board struct {
-	Columns                     []Column
-	ActiveTab                   int
-	Width                       int
-	Height                      int
-	mode                        boardMode
-	validationErr               string
-	provider                    provider.BoardProvider
-	spinner                     spinner.Model
-	loadErr                     string
-	statusBar                   StatusBar
-	loaded                      bool
-	actions                     map[string]config.Action
-	defaultActions              map[string]config.Action
-	columnConfigs               []config.ColumnConfig
-	executor                    action.Executor
-	repoOwner                   string
-	repoName                    string
-	providerName                string
-	sessionMaxLen               int
-	normalHints                 []Hint
-	comment                     commentState
-	assign                      assignState
-	config                      configState
-	create                      createState
-	detailFocused               bool
-	detailScrollOffset          int
-	prPickerIndex               int
-	pendingPRAction             *pendingPRAction
-	refreshing                  bool
-	refreshInterval             time.Duration
-	actionRefreshDelay          time.Duration
-	lastMetadataFetch           time.Time
-	metadataTTL                 time.Duration
-	pendingAutoRefresh          bool
-	prevCards                   map[int]prevCardInfo
+	Columns            []Column
+	ActiveTab          int
+	Width              int
+	Height             int
+	mode               boardMode
+	validationErr      string
+	provider           provider.BoardProvider
+	spinner            spinner.Model
+	loadErr            string
+	statusBar          StatusBar
+	loaded             bool
+	actions            map[string]config.Action
+	defaultActions     map[string]config.Action
+	columnConfigs      []config.ColumnConfig
+	executor           action.Executor
+	repoOwner          string
+	repoName           string
+	providerName       string
+	sessionMaxLen      int
+	normalHints        []Hint
+	comment            commentState
+	assign             assignState
+	config             configState
+	create             createState
+	detailFocused      bool
+	detailScrollOffset int
+	prPickerIndex      int
+	pendingPRAction    *pendingPRAction
+	refreshing         bool
+	refreshInterval    time.Duration
+	actionRefreshDelay time.Duration
+	lastMetadataFetch  time.Time
+	metadataTTL        time.Duration
+	pendingAutoRefresh bool
+	prevCards          map[int]prevCardInfo
 	// cleanupBreakerWarning holds a status-bar warning set by
 	// detectDepartures when the cleanup circuit breaker trips. It's a
 	// transient hand-off: handleBoardFetched applies it as the timed status
 	// message right after "Board refreshed"/"Filter has no matches" (which
 	// would otherwise clobber it, since SetTimedMessage mutates the status
 	// bar synchronously), then clears it. Empty means no trip occurred.
-	cleanupBreakerWarning string
+	cleanupBreakerWarning       string
 	searchQuery                 string
 	searchInput                 textinput.Model
 	helpScrollOffset            int
@@ -722,8 +722,8 @@ type Board struct {
 	collaborators               []Assignee
 	authenticatedUser           string
 	repoLabels                  []string
-	agentWatcher                agentwatch.Watcher
-	agentSnapshot               *agentwatch.StateSnapshot
+	agentWatcher                cenciwatch.Watcher
+	agentSnapshot               *cenciwatch.StateSnapshot
 	agentBackoff                time.Duration
 	agentWatchConsecutiveErrors int
 	gitReader                   gitdetect.Reader
@@ -734,7 +734,7 @@ type Board struct {
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher agentwatch.Watcher, gitReader gitdetect.Reader) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher cenciwatch.Watcher, gitReader gitdetect.Reader) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 0
@@ -1368,7 +1368,7 @@ func (b *Board) collectKnownLabels() map[string]bool {
 
 // agentStatusFor returns the agentwatch window state joined to card by ticket
 // number, or nil if no snapshot is stored yet or no window matches.
-func (b Board) agentStatusFor(card Card) *agentwatch.WindowState {
+func (b Board) agentStatusFor(card Card) *cenciwatch.WindowState {
 	return b.agentStatusForNumber(card.Number)
 }
 
@@ -1381,13 +1381,13 @@ func (b Board) agentStatusFor(card Card) *agentwatch.WindowState {
 // "<number>-<title-slug>" names. When several windows share the number, an
 // active one (running / need_input) wins over any other status, else the first
 // match in snapshot order.
-func (b Board) agentStatusForNumber(number int) *agentwatch.WindowState {
+func (b Board) agentStatusForNumber(number int) *cenciwatch.WindowState {
 	if b.agentSnapshot == nil {
 		return nil
 	}
 	num := strconv.Itoa(number)
 	prefix := num + "-"
-	var match *agentwatch.WindowState
+	var match *cenciwatch.WindowState
 	for i := range b.agentSnapshot.Windows {
 		w := &b.agentSnapshot.Windows[i]
 		if w.WindowName != num && !strings.HasPrefix(w.WindowName, prefix) {

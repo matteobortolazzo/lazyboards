@@ -10,13 +10,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
-	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 // NOTE (ticket #257, RED phase): NewBoard is expected to gain a new trailing
-// `watcher agentwatch.Watcher` parameter in the GREEN phase. These helpers are
+// `watcher cenciwatch.Watcher` parameter in the GREEN phase. These helpers are
 // written against that intended signature; they intentionally do not compile
 // until NewBoard (model.go) and its two call sites (main.go) are updated.
 // See the ticket report for the full list of existing call sites that will
@@ -24,7 +24,7 @@ import (
 
 // newAgentWatchTestBoard creates a Board (loadingMode) wired to the given
 // watcher for agentwatch subscription/backoff tests.
-func newAgentWatchTestBoard(t *testing.T, watcher agentwatch.Watcher) Board {
+func newAgentWatchTestBoard(t *testing.T, watcher cenciwatch.Watcher) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
 	return NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, watcher, nil)
@@ -87,8 +87,8 @@ func TestBoard_AgentStatusFor_SkillWindowMatchesByNumber(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, "Refine the thing", config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
 			{WindowName: "230-refine", Status: "running", Agent: "claude"},
 		},
 	}
@@ -114,8 +114,8 @@ func TestBoard_AgentStatusFor_LegacyTitleSlugWindowStillMatches(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 
 	legacyName := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
 			{WindowName: legacyName, Status: "running", Agent: "claude"},
 		},
 	}
@@ -131,8 +131,8 @@ func TestBoard_AgentStatusFor_BareNumberWindowMatches(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, "Whatever", config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
 			{WindowName: "42", Status: "need-input"},
 		},
 	}
@@ -148,8 +148,8 @@ func TestBoard_AgentStatusFor_NumberPrefixBoundary(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, "Boundary", config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
 			{WindowName: "230-refine", Status: "running"},
 		},
 	}
@@ -166,8 +166,8 @@ func TestBoard_AgentStatusFor_PrefersActiveWindow(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, "Multi", config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
 			{WindowName: "55-implement", Status: "done"},
 			{WindowName: "55-refine", Status: "running", Agent: "claude"},
 		},
@@ -188,8 +188,8 @@ func TestBoard_AgentStatusFor_NoMatchingWindowReturnsNil(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
 			{WindowName: "999-some-other-session", Status: "running"},
 		},
 	}
@@ -215,7 +215,7 @@ func TestBoard_AgentStatusFor_NilSnapshotReturnsNil(t *testing.T) {
 // --- Update: agentWatchErrorMsg backoff growth (#257) ---
 
 func TestBoard_Update_AgentWatchError_GrowsBackoffExponentiallyAndCaps(t *testing.T) {
-	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b := newAgentWatchTestBoard(t, &cenciwatch.FakeWatcher{})
 	initialStatusMessage := b.statusBar.message
 
 	expectedBackoffs := []time.Duration{
@@ -254,7 +254,7 @@ func TestBoard_Update_AgentWatchError_GrowsBackoffExponentiallyAndCaps(t *testin
 // --- Update: agentSnapshotMsg stores state, resets backoff, re-subscribes (#257) ---
 
 func TestBoard_Update_AgentSnapshotMsg_StoresSnapshotAndResetsBackoff(t *testing.T) {
-	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b := newAgentWatchTestBoard(t, &cenciwatch.FakeWatcher{})
 
 	// Grow backoff past the initial value first, so we can observe the reset.
 	m, _ := b.Update(agentWatchErrorMsg{err: errors.New("boom")})
@@ -265,7 +265,7 @@ func TestBoard_Update_AgentSnapshotMsg_StoresSnapshotAndResetsBackoff(t *testing
 		t.Fatal("test setup: agentBackoff should have grown past initial before the snapshot arrives")
 	}
 
-	snap := &agentwatch.StateSnapshot{Timestamp: "2026-07-11T00:00:00Z"}
+	snap := &cenciwatch.StateSnapshot{Timestamp: "2026-07-11T00:00:00Z"}
 	m, cmd := b.Update(agentSnapshotMsg{snapshot: snap})
 	updated, ok := m.(Board)
 	if !ok {
@@ -291,8 +291,8 @@ func TestBoard_Update_AgentSnapshotMsg_StoresSnapshotAndResetsBackoff(t *testing
 // --- Update: agentWatchRetryMsg re-subscribes (#257) ---
 
 func TestBoard_Update_AgentWatchRetryMsg_ReSubscribes(t *testing.T) {
-	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{
-		Results: []agentwatch.FakeWatcherResult{{Snap: &agentwatch.StateSnapshot{}}},
+	b := newAgentWatchTestBoard(t, &cenciwatch.FakeWatcher{
+		Results: []cenciwatch.FakeWatcherResult{{Snap: &cenciwatch.StateSnapshot{}}},
 	})
 
 	m, cmd := b.Update(agentWatchRetryMsg{})
@@ -323,14 +323,14 @@ func TestBoard_Init_NilWatcher_NoAgentWatchSubscription(t *testing.T) {
 // --- Init gating: a configured watcher subscribes and delivers a snapshot (#257) ---
 
 func TestBoard_Init_WithWatcher_SubscriptionDeliversSnapshot(t *testing.T) {
-	snap := &agentwatch.StateSnapshot{
+	snap := &cenciwatch.StateSnapshot{
 		Timestamp: "2026-07-11T00:00:00Z",
-		Windows: []agentwatch.WindowState{
+		Windows: []cenciwatch.WindowState{
 			{WindowName: "7-fix-flaky-test", Status: "running"},
 		},
 	}
-	fw := &agentwatch.FakeWatcher{
-		Results: []agentwatch.FakeWatcherResult{{Snap: snap}},
+	fw := &cenciwatch.FakeWatcher{
+		Results: []cenciwatch.FakeWatcherResult{{Snap: snap}},
 	}
 	b := newAgentWatchTestBoard(t, fw)
 
@@ -386,7 +386,7 @@ func TestBoard_AgentCounts_BoardScoped(t *testing.T) {
 	name := func(n int, title string) string {
 		return action.BuildSessionName(n, title, config.DefaultSessionMaxLength)
 	}
-	b.agentSnapshot = &agentwatch.StateSnapshot{Windows: []agentwatch.WindowState{
+	b.agentSnapshot = &cenciwatch.StateSnapshot{Windows: []cenciwatch.WindowState{
 		{WindowName: name(1, "First running"), Status: "running"},
 		{WindowName: name(2, "Needs input"), Status: "need-input"},
 		{WindowName: name(3, "Idle card"), Status: "idle"}, // excluded: idle
@@ -474,7 +474,7 @@ func TestBoard_AgentBadge_NeedInputFromDaemonWireFormat(t *testing.T) {
 	// A single NDJSON line as emitted by the daemon's broadcast socket.
 	const wireLine = `{"timestamp":"2026-07-13T22:09:50Z","windows":[{"session":"lazyboards","window_index":"2","window_name":"42-implement","task_name":"Waiting for input","status":"need-input","agent":"claude","manually_named":false}],"summary":{"total":1,"need_input":1}}`
 
-	var snap agentwatch.StateSnapshot
+	var snap cenciwatch.StateSnapshot
 	if err := json.Unmarshal([]byte(wireLine), &snap); err != nil {
 		t.Fatalf("failed to decode daemon wire line: %v", err)
 	}
@@ -523,8 +523,8 @@ func TestBoard_AgentBadgeFor_AppendedToDisplayText(t *testing.T) {
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	card := b.Columns[0].Cards[0]
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
 	}
 
 	badge := b.agentBadgeFor(card)
@@ -546,10 +546,10 @@ func TestBoard_AgentBadgeFor_NoBadgeCases(t *testing.T) {
 
 	tests := []struct {
 		name string
-		snap *agentwatch.StateSnapshot
+		snap *cenciwatch.StateSnapshot
 	}{
-		{"idle status", &agentwatch.StateSnapshot{Windows: []agentwatch.WindowState{{WindowName: name, Status: "idle", Agent: "claude"}}}},
-		{"non-matching window", &agentwatch.StateSnapshot{Windows: []agentwatch.WindowState{{WindowName: "999-other", Status: "running"}}}},
+		{"idle status", &cenciwatch.StateSnapshot{Windows: []cenciwatch.WindowState{{WindowName: name, Status: "idle", Agent: "claude"}}}},
+		{"non-matching window", &cenciwatch.StateSnapshot{Windows: []cenciwatch.WindowState{{WindowName: "999-other", Status: "running"}}}},
 		{"nil snapshot", nil},
 	}
 	for _, tt := range tests {
@@ -571,8 +571,8 @@ func TestViewCardList_RunningBadgeRendered(t *testing.T) {
 	const cardTitle = "Fix flaky test"
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
@@ -592,8 +592,8 @@ func TestViewCardList_NeedInputRendersSingleMarkInRed(t *testing.T) {
 	const cardTitle = "Fix flaky test"
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{{WindowName: name, Status: "need-input", Agent: "claude"}},
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{{WindowName: name, Status: "need-input", Agent: "claude"}},
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
@@ -612,8 +612,8 @@ func TestViewCardList_IdleRendersNoSymbol(t *testing.T) {
 	const cardTitle = "Fix flaky test"
 	b := newAgentWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{{WindowName: name, Status: "idle", Agent: "claude"}},
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{{WindowName: name, Status: "idle", Agent: "claude"}},
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
@@ -642,8 +642,8 @@ func TestViewCardList_WorkingLabelAndBadgeCoexist(t *testing.T) {
 	b = m.(Board)
 
 	name := action.BuildSessionName(cardNumber, cardTitle, config.DefaultSessionMaxLength)
-	b.agentSnapshot = &agentwatch.StateSnapshot{
-		Windows: []agentwatch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
 	}
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
@@ -676,9 +676,9 @@ func TestAgentStatusFailed_ConstantMatchesLiteral(t *testing.T) {
 // (TestUpdate_GitStatusMsg_Success_SetsGitStatusSegment in
 // gitstatus_wiring_test.go).
 func TestUpdate_AgentSnapshotMsg_DispatchEnabled_SetsDispatchStatusSegment(t *testing.T) {
-	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
-	snap := &agentwatch.StateSnapshot{
-		Dispatch: &agentwatch.DispatchState{Enabled: true, DaemonRunning: true},
+	b := newAgentWatchTestBoard(t, &cenciwatch.FakeWatcher{})
+	snap := &cenciwatch.StateSnapshot{
+		Dispatch: &cenciwatch.DispatchState{Enabled: true, DaemonRunning: true},
 	}
 
 	m, _ := b.Update(agentSnapshotMsg{snapshot: snap})
@@ -696,11 +696,11 @@ func TestUpdate_AgentSnapshotMsg_DispatchEnabled_SetsDispatchStatusSegment(t *te
 // verifies the segment is hidden (cleared) once a snapshot reports the loop
 // disabled, even if a previous snapshot had it set.
 func TestUpdate_AgentSnapshotMsg_DispatchDisabled_ClearsDispatchStatusSegment(t *testing.T) {
-	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b := newAgentWatchTestBoard(t, &cenciwatch.FakeWatcher{})
 	b.statusBar.SetDispatchStatus("⟳ dispatch")
 
-	snap := &agentwatch.StateSnapshot{
-		Dispatch: &agentwatch.DispatchState{Enabled: false},
+	snap := &cenciwatch.StateSnapshot{
+		Dispatch: &cenciwatch.DispatchState{Enabled: false},
 	}
 	m, _ := b.Update(agentSnapshotMsg{snapshot: snap})
 	updated, ok := m.(Board)
@@ -717,10 +717,10 @@ func TestUpdate_AgentSnapshotMsg_DispatchDisabled_ClearsDispatchStatusSegment(t 
 // the pre-#219 daemon guard: a snapshot with no dispatch data at all also
 // hides the segment.
 func TestUpdate_AgentSnapshotMsg_NilDispatch_ClearsDispatchStatusSegment(t *testing.T) {
-	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b := newAgentWatchTestBoard(t, &cenciwatch.FakeWatcher{})
 	b.statusBar.SetDispatchStatus("⟳ dispatch")
 
-	snap := &agentwatch.StateSnapshot{}
+	snap := &cenciwatch.StateSnapshot{}
 	m, _ := b.Update(agentSnapshotMsg{snapshot: snap})
 	updated, ok := m.(Board)
 	if !ok {
@@ -737,7 +737,7 @@ func TestUpdate_AgentSnapshotMsg_NilDispatch_ClearsDispatchStatusSegment(t *test
 // error is tolerated (the reconnect backoff ladder self-heals within ~1s),
 // so the dispatch segment must remain exactly as it was, not clear.
 func TestUpdate_AgentWatchErrorMsg_SingleError_DoesNotClearDispatchStatusSegment(t *testing.T) {
-	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b := newAgentWatchTestBoard(t, &cenciwatch.FakeWatcher{})
 	b.statusBar.SetDispatchStatus("⟳ dispatch")
 
 	m, _ := b.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
@@ -756,7 +756,7 @@ func TestUpdate_AgentWatchErrorMsg_SingleError_DoesNotClearDispatchStatusSegment
 // error arrives, with no intervening successful agentSnapshotMsg, does the
 // dispatch segment clear live (#333's two-strike grace period).
 func TestUpdate_AgentWatchErrorMsg_SecondConsecutiveError_ClearsDispatchStatusSegment(t *testing.T) {
-	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b := newAgentWatchTestBoard(t, &cenciwatch.FakeWatcher{})
 	b.statusBar.SetDispatchStatus("⟳ dispatch")
 
 	m, _ := b.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
@@ -784,13 +784,13 @@ func TestUpdate_AgentWatchErrorMsg_SecondConsecutiveError_ClearsDispatchStatusSe
 // counter, mirroring the existing agentBackoff reset: error, snapshot, error
 // must still be treated as a single (first) error, not a second strike.
 func TestUpdate_AgentSnapshotMsg_ResetsConsecutiveErrorCounter(t *testing.T) {
-	b := newAgentWatchTestBoard(t, &agentwatch.FakeWatcher{})
+	b := newAgentWatchTestBoard(t, &cenciwatch.FakeWatcher{})
 
 	m, _ := b.Update(agentWatchErrorMsg{err: errors.New("connection refused")})
 	b = m.(Board)
 
-	snap := &agentwatch.StateSnapshot{
-		Dispatch: &agentwatch.DispatchState{Enabled: true, DaemonRunning: true},
+	snap := &cenciwatch.StateSnapshot{
+		Dispatch: &cenciwatch.DispatchState{Enabled: true, DaemonRunning: true},
 	}
 	m, _ = b.Update(agentSnapshotMsg{snapshot: snap})
 	b = m.(Board)
@@ -820,11 +820,11 @@ func TestUpdate_AgentSnapshotMsg_ResetsConsecutiveErrorCounter(t *testing.T) {
 // segment stays visible; only a SECOND consecutive error clears it live,
 // with no restart.
 func TestBoard_DispatchStatusSegment_AppearsThenClearsLiveViaWatcher(t *testing.T) {
-	snap := &agentwatch.StateSnapshot{
-		Dispatch: &agentwatch.DispatchState{Enabled: true, DaemonRunning: true},
+	snap := &cenciwatch.StateSnapshot{
+		Dispatch: &cenciwatch.DispatchState{Enabled: true, DaemonRunning: true},
 	}
-	fw := &agentwatch.FakeWatcher{
-		Results: []agentwatch.FakeWatcherResult{{Snap: snap}},
+	fw := &cenciwatch.FakeWatcher{
+		Results: []cenciwatch.FakeWatcherResult{{Snap: snap}},
 	}
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, fw, nil)
