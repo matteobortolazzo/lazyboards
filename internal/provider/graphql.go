@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"strings"
 
 	"github.com/shurcooL/githubv4"
 )
@@ -305,11 +304,7 @@ func mapIssuesQuery(q issuesQuery) issuePage {
 func mapIssueQueryNode(n issueQueryNode) issueNode {
 	labels := make([]Label, 0, len(n.Labels.Nodes))
 	for _, l := range n.Labels.Nodes {
-		color := strings.TrimPrefix(string(l.Color), "#")
-		if !hexColorRE.MatchString(color) {
-			color = ""
-		}
-		labels = append(labels, Label{Name: string(l.Name), Color: color})
+		labels = append(labels, Label{Name: string(l.Name), Color: normalizeLabelColor(string(l.Color))})
 	}
 
 	assignees := make([]Assignee, 0, len(n.Assignees.Nodes))

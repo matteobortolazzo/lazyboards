@@ -110,6 +110,20 @@ func (f *FakeProvider) CreateCard(_ context.Context, title string, label string)
 	return card, nil
 }
 
+// findCard searches f.columns for a card with the given number, returning
+// its column and card indices. ok is false if no card with that number
+// exists in any column.
+func (f *FakeProvider) findCard(number int) (colIdx, cardIdx int, ok bool) {
+	for ci := range f.columns {
+		for i := range f.columns[ci].Cards {
+			if f.columns[ci].Cards[i].Number == number {
+				return ci, i, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
 // UpdateCard updates an existing card's title, body, and labels in memory.
 // Title must be non-empty after trimming whitespace.
 func (f *FakeProvider) UpdateCard(_ context.Context, number int, title string, body string, labels []string) (Card, error) {
@@ -118,21 +132,18 @@ func (f *FakeProvider) UpdateCard(_ context.Context, number int, title string, b
 		return Card{}, errors.New("title is required")
 	}
 
-	for ci := range f.columns {
-		for i := range f.columns[ci].Cards {
-			if f.columns[ci].Cards[i].Number == number {
-				f.columns[ci].Cards[i].Title = title
-				f.columns[ci].Cards[i].Body = body
-				cardLabels := make([]Label, len(labels))
-				for j, name := range labels {
-					cardLabels[j] = Label{Name: name}
-				}
-				f.columns[ci].Cards[i].Labels = cardLabels
-				return f.columns[ci].Cards[i], nil
-			}
-		}
+	ci, i, ok := f.findCard(number)
+	if !ok {
+		return Card{}, fmt.Errorf("card #%d not found", number)
 	}
-	return Card{}, fmt.Errorf("card #%d not found", number)
+	f.columns[ci].Cards[i].Title = title
+	f.columns[ci].Cards[i].Body = body
+	cardLabels := make([]Label, len(labels))
+	for j, name := range labels {
+		cardLabels[j] = Label{Name: name}
+	}
+	f.columns[ci].Cards[i].Labels = cardLabels
+	return f.columns[ci].Cards[i], nil
 }
 
 // CreateLabel is a no-op for the fake provider.
@@ -156,19 +167,16 @@ func (f *FakeProvider) FetchCollaborators(_ context.Context) ([]Assignee, error)
 
 // SetAssignees updates the assignees of a card in the fake provider.
 func (f *FakeProvider) SetAssignees(_ context.Context, number int, logins []string) (Card, error) {
-	for ci := range f.columns {
-		for i := range f.columns[ci].Cards {
-			if f.columns[ci].Cards[i].Number == number {
-				assignees := make([]Assignee, len(logins))
-				for j, login := range logins {
-					assignees[j] = Assignee{Login: login}
-				}
-				f.columns[ci].Cards[i].Assignees = assignees
-				return f.columns[ci].Cards[i], nil
-			}
-		}
+	ci, i, ok := f.findCard(number)
+	if !ok {
+		return Card{}, fmt.Errorf("card #%d not found", number)
 	}
-	return Card{}, fmt.Errorf("card #%d not found", number)
+	assignees := make([]Assignee, len(logins))
+	for j, login := range logins {
+		assignees[j] = Assignee{Login: login}
+	}
+	f.columns[ci].Cards[i].Assignees = assignees
+	return f.columns[ci].Cards[i], nil
 }
 
 // CloseCard finds a card by number and returns it. It does not remove or
@@ -176,27 +184,20 @@ func (f *FakeProvider) SetAssignees(_ context.Context, number int, logins []stri
 // subsequent FetchBoard() on the same fake instance still returns the
 // "closed" card.
 func (f *FakeProvider) CloseCard(_ context.Context, number int) (Card, error) {
-	for ci := range f.columns {
-		for i := range f.columns[ci].Cards {
-			if f.columns[ci].Cards[i].Number == number {
-				return f.columns[ci].Cards[i], nil
-			}
-		}
+	ci, i, ok := f.findCard(number)
+	if !ok {
+		return Card{}, fmt.Errorf("card #%d not found", number)
 	}
-	return Card{}, fmt.Errorf("card #%d not found", number)
+	return f.columns[ci].Cards[i], nil
 }
 
 // AddComment records a comment against a card in the fake provider.
 func (f *FakeProvider) AddComment(_ context.Context, number int, body string) error {
-	for ci := range f.columns {
-		for i := range f.columns[ci].Cards {
-			if f.columns[ci].Cards[i].Number == number {
-				f.Comments[number] = append(f.Comments[number], body)
-				return nil
-			}
-		}
+	if _, _, ok := f.findCard(number); !ok {
+		return fmt.Errorf("card #%d not found", number)
 	}
-	return fmt.Errorf("card #%d not found", number)
+	f.Comments[number] = append(f.Comments[number], body)
+	return nil
 }
 
 // GetAuthenticatedUser returns a hardcoded username for the fake provider.
@@ -209,13 +210,10 @@ func (f *FakeProvider) GetAuthenticatedUser(_ context.Context) (string, error) {
 // CloseCard, which only finds/returns without mutating. A subsequent
 // FetchBoard() on the same fake instance no longer returns the deleted card.
 func (f *FakeProvider) DeleteCard(_ context.Context, number int) error {
-	for ci := range f.columns {
-		for i := range f.columns[ci].Cards {
-			if f.columns[ci].Cards[i].Number == number {
-				f.columns[ci].Cards = append(f.columns[ci].Cards[:i], f.columns[ci].Cards[i+1:]...)
-				return nil
-			}
-		}
+	ci, i, ok := f.findCard(number)
+	if !ok {
+		return fmt.Errorf("card #%d not found", number)
 	}
-	return fmt.Errorf("card #%d not found", number)
+	f.columns[ci].Cards = append(f.columns[ci].Cards[:i], f.columns[ci].Cards[i+1:]...)
+	return nil
 }
