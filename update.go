@@ -361,6 +361,11 @@ func (b Board) scheduleCenciWatchRetry() tea.Cmd {
 }
 
 func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
+	// A refresh can change columns/cards, invalidating a pending key
+	// sequence's candidates and its hint bar (which the rebuilt hints below
+	// would clobber anyway) -- cancel it.
+	b.clearPendingSeq()
+
 	cols := make([]Column, len(msg.board.Columns))
 	for i, pc := range msg.board.Columns {
 		cards := make([]Card, len(pc.Cards))
@@ -1129,6 +1134,12 @@ func (b *Board) scrollDetailDown() {
 // arrow-key navigation does NOT use this helper; see the F3 commit message
 // for why (calling it there would clobber the search-mode hint bar).
 func (b *Board) onCursorMoved() {
+	// Keyboard keys are consumed by a pending key sequence, so only mouse
+	// events can move the cursor mid-sequence -- the selected card (and with
+	// it the pr-scope gating of the sequence's candidates) changed, and the
+	// hint reset below replaces the pending hint bar, so cancel the sequence
+	// to keep handler state and view in sync.
+	b.clearPendingSeq()
 	b.detailScrollOffset = 0
 	b.clampScrollOffset()
 	b.rebuildNormalHints()

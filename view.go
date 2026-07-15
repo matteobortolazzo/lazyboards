@@ -920,6 +920,7 @@ var helpSections = []helpSection{
 		{"tab/s-tab", "Switch columns"},
 		{"1-9", "Jump to column"},
 		{"A-Z", "Custom action"},
+		{"A-Z..", "Custom action key sequence"},
 		{"alt+shift+key", "Comment action"},
 	}},
 	{"Detail Panel", [][2]string{
@@ -933,6 +934,7 @@ var helpSections = []helpSection{
 		{"q", "Quit"},
 		{"?", "Help"},
 		{"A-Z", "Custom action"},
+		{"A-Z..", "Custom action key sequence"},
 		{"alt+shift+key", "Comment action"},
 	}},
 	{"Create Card", [][2]string{
