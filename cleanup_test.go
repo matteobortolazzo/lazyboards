@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/matteobortolazzo/lazyboards/internal/action"
-	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -17,9 +17,9 @@ import (
 
 // newCleanupTestBoardWith creates a Board with cleanup configured on col 0
 // ("New"), a FakeExecutor, and a FakeProvider, wired with the given
-// agentwatch.Watcher (nil if the test doesn't need one). Initial load
+// cenciwatch.Watcher (nil if the test doesn't need one). Initial load
 // populates prevCards.
-func newCleanupTestBoardWith(t *testing.T, cleanup string, watcher agentwatch.Watcher) (Board, *action.FakeExecutor, *provider.FakeProvider) {
+func newCleanupTestBoardWith(t *testing.T, cleanup string, watcher cenciwatch.Watcher) (Board, *action.FakeExecutor, *provider.FakeProvider) {
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -50,11 +50,11 @@ func newCleanupTestBoard(t *testing.T, cleanup string) (Board, *action.FakeExecu
 }
 
 // newCleanupTestBoardWithWatcher mirrors newCleanupTestBoard but wires a
-// non-nil agentwatch.Watcher (an empty FakeWatcher) so b.agentWatcher != nil,
+// non-nil cenciwatch.Watcher (an empty FakeWatcher) so b.agentWatcher != nil,
 // while leaving b.agentSnapshot nil (no snapshot delivered yet).
 func newCleanupTestBoardWithWatcher(t *testing.T, cleanup string) (Board, *action.FakeExecutor, *provider.FakeProvider) {
 	t.Helper()
-	b, fe, p := newCleanupTestBoardWith(t, cleanup, &agentwatch.FakeWatcher{})
+	b, fe, p := newCleanupTestBoardWith(t, cleanup, &cenciwatch.FakeWatcher{})
 	b.agentSnapshot = nil
 	return b, fe, p
 }
@@ -124,12 +124,12 @@ func withCardLabel(board provider.Board, cardNum int, label string) provider.Boa
 
 // cleanupSnapshot builds an agentwatch snapshot with a single window for card
 // #1 ("Setup CI") in the given status. An empty status means no windows.
-func cleanupSnapshot(status string) *agentwatch.StateSnapshot {
+func cleanupSnapshot(status string) *cenciwatch.StateSnapshot {
 	if status == "" {
-		return &agentwatch.StateSnapshot{}
+		return &cenciwatch.StateSnapshot{}
 	}
 	session := action.BuildSessionName(1, "Setup CI", 32)
-	return &agentwatch.StateSnapshot{Windows: []agentwatch.WindowState{
+	return &cenciwatch.StateSnapshot{Windows: []cenciwatch.WindowState{
 		{WindowName: session, Status: status, Agent: "claude"},
 	}}
 }
@@ -424,8 +424,8 @@ func TestCleanup_DeferredWhileWorkingLabelSet(t *testing.T) {
 // window using an explicit window name (distinct from BuildSessionName's
 // reconstructed name), so tests can distinguish live-window resolution from
 // the {session} fallback.
-func cleanupSnapshotWithWindow(windowName, status string) *agentwatch.StateSnapshot {
-	return &agentwatch.StateSnapshot{Windows: []agentwatch.WindowState{
+func cleanupSnapshotWithWindow(windowName, status string) *cenciwatch.StateSnapshot {
+	return &cenciwatch.StateSnapshot{Windows: []cenciwatch.WindowState{
 		{WindowName: windowName, Status: status, Agent: "claude"},
 	}}
 }
@@ -578,12 +578,12 @@ func circuitBreakerBoard(cardCount int, movedNumbers []int) provider.Board {
 // circuitBreakerSnapshot builds an agentwatch snapshot with a running window
 // for each of busyNumbers, so the liveness guard defers those cards
 // indefinitely regardless of how many fetches occur.
-func circuitBreakerSnapshot(busyNumbers []int) *agentwatch.StateSnapshot {
-	windows := make([]agentwatch.WindowState, len(busyNumbers))
+func circuitBreakerSnapshot(busyNumbers []int) *cenciwatch.StateSnapshot {
+	windows := make([]cenciwatch.WindowState, len(busyNumbers))
 	for i, n := range busyNumbers {
-		windows[i] = agentwatch.WindowState{WindowName: fmt.Sprintf("%d-work", n), Status: "running", Agent: "claude"}
+		windows[i] = cenciwatch.WindowState{WindowName: fmt.Sprintf("%d-work", n), Status: "running", Agent: "claude"}
 	}
-	return &agentwatch.StateSnapshot{Windows: windows}
+	return &cenciwatch.StateSnapshot{Windows: windows}
 }
 
 func TestCleanupCircuitBreaker_TripsOnMassDeparture(t *testing.T) {

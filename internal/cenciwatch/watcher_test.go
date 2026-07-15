@@ -1,4 +1,4 @@
-package agentwatch
+package cenciwatch
 
 import (
 	"encoding/json"
@@ -53,7 +53,7 @@ func acceptAndWriteOnce(t *testing.T, ln net.Listener, snap StateSnapshot) <-cha
 // --- defaultSocketPath ---
 
 // A valid, non-loosely-permissioned XDG_RUNTIME_DIR is used as the base for
-// the nested agentwatch/agentwatch.sock path the daemon listens on.
+// the nested cenci/cenci.sock path the daemon listens on.
 func TestDefaultSocketPath_UsesNestedPathUnderValidXDGRuntimeDir(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0700); err != nil {
@@ -62,7 +62,7 @@ func TestDefaultSocketPath_UsesNestedPathUnderValidXDGRuntimeDir(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", dir)
 
 	got := defaultSocketPath()
-	want := filepath.Join(dir, "agentwatch", "agentwatch.sock")
+	want := filepath.Join(dir, "cenci", "cenci.sock")
 	if got != want {
 		t.Errorf("defaultSocketPath() = %q, want %q", got, want)
 	}
@@ -79,7 +79,7 @@ func TestDefaultSocketPath_FallsBackWhenXDGRuntimeDirIsLooselyPermissioned(t *te
 	t.Setenv("XDG_RUNTIME_DIR", dir)
 
 	got := defaultSocketPath()
-	want := filepath.Join(os.TempDir(), fmt.Sprintf("agentwatch-%d", os.Getuid()), "agentwatch", "agentwatch.sock")
+	want := filepath.Join(os.TempDir(), fmt.Sprintf("cenci-%d", os.Getuid()), "cenci", "cenci.sock")
 	if got != want {
 		t.Errorf("defaultSocketPath() = %q, want %q", got, want)
 	}
@@ -90,7 +90,7 @@ func TestDefaultSocketPath_FallsBackWhenXDGRuntimeDirUnset(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "")
 
 	got := defaultSocketPath()
-	want := filepath.Join(os.TempDir(), fmt.Sprintf("agentwatch-%d", os.Getuid()), "agentwatch", "agentwatch.sock")
+	want := filepath.Join(os.TempDir(), fmt.Sprintf("cenci-%d", os.Getuid()), "cenci", "cenci.sock")
 	if got != want {
 		t.Errorf("defaultSocketPath() = %q, want %q", got, want)
 	}
@@ -148,7 +148,7 @@ func TestFakeWatcher_Close_SetsClosedAndReturnsNil(t *testing.T) {
 
 func TestSocketWatcher_ReadNext_DecodesSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	socketPath := filepath.Join(dir, "agentwatch.sock")
+	socketPath := filepath.Join(dir, "cenci.sock")
 
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -190,7 +190,7 @@ func TestSocketWatcher_ReadNext_DecodesSnapshot(t *testing.T) {
 // on a subsequent call once a fresh listener is accepting at the same path.
 func TestSocketWatcher_ReadNext_ReconnectsAfterServerClose(t *testing.T) {
 	dir := t.TempDir()
-	socketPath := filepath.Join(dir, "agentwatch.sock")
+	socketPath := filepath.Join(dir, "cenci.sock")
 
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {

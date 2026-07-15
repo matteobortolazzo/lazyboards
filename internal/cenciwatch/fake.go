@@ -1,4 +1,4 @@
-package agentwatch
+package cenciwatch
 
 // Compile-time check: *FakeWatcher implements Watcher.
 var _ Watcher = (*FakeWatcher)(nil)

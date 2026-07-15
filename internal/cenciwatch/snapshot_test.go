@@ -1,4 +1,4 @@
-package agentwatch
+package cenciwatch
 
 import (
 	"encoding/json"
@@ -6,8 +6,8 @@ import (
 )
 
 // TestStateSnapshot_DecodesDispatchFromDaemonWireFormat decodes a real
-// daemon-format NDJSON line carrying a "dispatch" object (per agent-stack's
-// authoritative producer, agentwatch/pkg/watch/snapshot.go) and asserts every
+// daemon-format NDJSON line carrying a "dispatch" object (per cenci's
+// authoritative producer, watch/pkg/watch/snapshot.go) and asserts every
 // field decodes via its exact wire tag. Per the #316/#317 lesson (cross-service
 // tokens must be pinned to the producer's real wire sample, not a doc comment
 // or a hand-built struct literal), this test starts from a raw NDJSON string

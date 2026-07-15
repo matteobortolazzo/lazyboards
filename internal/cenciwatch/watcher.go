@@ -1,13 +1,14 @@
-// Package agentwatch wires lazyboards to the agentwatch daemon's unix socket,
-// providing tmux window/agent status snapshots for the board's session join.
+// Package cenciwatch wires lazyboards to the cenci-watch daemon's unix
+// socket, providing tmux window/agent status snapshots for the board's
+// session join.
 //
-// This package has no Go module dependency on agent-stack/agentwatch: it
+// This package has no Go module dependency on cenci/watch: it
 // dials the daemon's unix socket directly and decodes its NDJSON
 // StateSnapshot stream using only the standard library, the same way any
 // other JSON-speaking integration in lazyboards works. The daemon is an
 // optional external process — if it isn't running, dialing simply fails and
 // the board falls back to showing no agent status badges.
-package agentwatch
+package cenciwatch
 
 import (
 	"bufio"
@@ -22,7 +23,7 @@ import (
 // malformed or oversized stream cannot exhaust memory.
 const snapshotMaxBytes = 65536
 
-// Watcher reads successive state snapshots from the agentwatch daemon.
+// Watcher reads successive state snapshots from the cenci-watch daemon.
 type Watcher interface {
 	// ReadNext blocks until the next snapshot is available (or an error occurs).
 	ReadNext() (*StateSnapshot, error)
@@ -31,7 +32,7 @@ type Watcher interface {
 }
 
 // socketWatcher is a Watcher backed by a unix socket connection to the
-// agentwatch daemon. It lazily dials on the first ReadNext call, and
+// cenci-watch daemon. It lazily dials on the first ReadNext call, and
 // transparently re-dials on the next call after a read error.
 type socketWatcher struct {
 	socketPath string
@@ -47,13 +48,13 @@ func newSocketWatcher(path string) *socketWatcher {
 	return &socketWatcher{socketPath: path}
 }
 
-// NewSocketWatcher creates a Watcher connected to the default agentwatch socket path.
+// NewSocketWatcher creates a Watcher connected to the default cenci socket path.
 func NewSocketWatcher() Watcher {
 	return newSocketWatcher(defaultSocketPath())
 }
 
-// defaultSocketPath resolves the agentwatch daemon's broadcast socket path:
-// <runtime-dir>/agentwatch/agentwatch.sock. This replicates the daemon's own
+// defaultSocketPath resolves the cenci-watch daemon's broadcast socket path:
+// <runtime-dir>/cenci/cenci.sock. This replicates the daemon's own
 // secureSocketDir() resolution so the client and daemon agree on the socket
 // location without needing to import the daemon's package.
 func defaultSocketPath() string {
@@ -65,12 +66,12 @@ func defaultSocketPath() string {
 		}
 	}
 	if dir == "" {
-		dir = filepath.Join(os.TempDir(), fmt.Sprintf("agentwatch-%d", os.Getuid()))
+		dir = filepath.Join(os.TempDir(), fmt.Sprintf("cenci-%d", os.Getuid()))
 	}
-	return filepath.Join(dir, "agentwatch", "agentwatch.sock")
+	return filepath.Join(dir, "cenci", "cenci.sock")
 }
 
-// ReadNext dials the agentwatch socket if not already connected, then reads
+// ReadNext dials the cenci socket if not already connected, then reads
 // and decodes the next NDJSON snapshot line. On error, the connection is
 // closed so the next call re-dials from scratch.
 func (w *socketWatcher) ReadNext() (*StateSnapshot, error) {

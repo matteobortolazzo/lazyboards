@@ -49,7 +49,7 @@ Tests are split by domain to mirror production code:
 | `dispatch_mode_test.go` | Dispatch mode (agent dispatch modal) scaffolding |
 | `delete_mode_test.go` | Delete mode (two-step confirm flow, PR gating, cleanup guards) |
 
-Internal packages: `internal/action`, `internal/config`, `internal/git`, `internal/provider`.
+Internal packages: `internal/action`, `internal/cenciwatch`, `internal/config`, `internal/git`, `internal/provider`.
 
 ## Rule Files
 See `.claude/rules/` for conventions:

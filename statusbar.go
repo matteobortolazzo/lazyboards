@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/matteobortolazzo/lazyboards/internal/agentwatch"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 )
 
@@ -107,7 +107,7 @@ func formatGitSegment(status gitdetect.Status) string {
 // the segment also renders via statusErrorStyle so it isn't mistaken for a
 // healthy running loop. Only Enabled && DaemonRunning with no error renders
 // via the normal "on" dispatchSegmentStyle.
-func formatDispatchSegment(state *agentwatch.DispatchState) string {
+func formatDispatchSegment(state *cenciwatch.DispatchState) string {
 	if state == nil || !state.Enabled {
 		return ""
 	}
