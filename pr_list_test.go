@@ -234,6 +234,9 @@ func TestPRList_Enter_OpensUnlinkedPR(t *testing.T) {
 	b = m.(Board)
 	execCmds(cmd)
 
+	if b.mode != normalMode {
+		t.Errorf("mode after enter = %d, want normalMode (%d)", b.mode, normalMode)
+	}
 	if len(fe.OpenURLCalls) != 1 {
 		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
 	}
@@ -403,6 +406,9 @@ func TestPRList_CustomAction_UnlinkedPR_ExpandsEmptyCardVars(t *testing.T) {
 	b = m.(Board)
 	execCmds(cmd)
 
+	if b.mode != prListMode {
+		t.Errorf("mode after action = %d, want prListMode (%d) (modal stays open)", b.mode, prListMode)
+	}
 	if len(fe.OpenURLCalls) != 1 {
 		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
 	}
@@ -448,6 +454,9 @@ func TestPRList_CustomAction_EmptyListNoOp(t *testing.T) {
 	b = m.(Board)
 	execCmds(cmd)
 
+	if b.mode != prListMode {
+		t.Errorf("mode = %d, want prListMode (%d) (no-op must not leave the modal)", b.mode, prListMode)
+	}
 	if len(fe.OpenURLCalls) != 0 {
 		t.Errorf("OpenURL called %d times on empty list, want 0", len(fe.OpenURLCalls))
 	}
