@@ -632,11 +632,23 @@ type agentListEntry struct {
 
 // agentListState groups fields related to the agents list modal. Rows are not
 // stored: they are derived live from the streamed snapshot by
-// agentListEntries(), so the cursor is the only state and must be re-clamped
-// wherever the snapshot is replaced while the modal is open.
+// agentListEntries(), so the cursor must be re-clamped wherever the snapshot
+// is replaced while the modal is open. cardNumber, when non-zero, scopes the
+// modal to that card's windows (the multi-window case of the s jump); 0 is
+// the global w modal.
 type agentListState struct {
-	cursor int
+	cursor     int
+	cardNumber int
 }
+
+// Agents-modal state messages, shared by viewAgentListModal and
+// handleAgentJumpKey's zero-window branch so the modal and the s jump report
+// the same cenciwatch state the same way.
+const (
+	agentListMsgNotEnabled = "cenci-watch is not enabled"
+	agentListMsgWaiting    = "Waiting for cenci-watch daemon..."
+	agentListMsgNoWindows  = "No agent windows"
+)
 
 // agentListModeHints are the status bar hints shown in agents list mode when
 // there are rows to act on.
@@ -993,13 +1005,23 @@ func (b *Board) enterPRList() {
 	b.statusBar.SetActionHints(b.prListActionHints())
 }
 
-// enterAgentList opens the agents list modal. Rows are derived live from the
-// stored cenci-watch snapshot (agentListEntries), so unlike enterPRList there
-// is no fetch to start and no generation to track. It always opens, even with
-// no watcher or snapshot, so the modal can render its unavailable/empty
-// states.
+// enterAgentList opens the global agents list modal. Rows are derived live
+// from the stored cenci-watch snapshot (agentListEntries), so unlike
+// enterPRList there is no fetch to start and no generation to track. It
+// always opens, even with no watcher or snapshot, so the modal can render its
+// unavailable/empty states.
 func (b *Board) enterAgentList() {
-	b.agentList = agentListState{cursor: 0}
+	b.enterAgentListScoped(0)
+}
+
+// enterAgentListForCard opens the agents list modal scoped to the given
+// card's windows — the multi-window case of the s jump.
+func (b *Board) enterAgentListForCard(number int) {
+	b.enterAgentListScoped(number)
+}
+
+func (b *Board) enterAgentListScoped(cardNumber int) {
+	b.agentList = agentListState{cursor: 0, cardNumber: cardNumber}
 	b.mode = agentListMode
 	hints := agentListModeHints
 	if len(b.agentListEntries()) == 0 {
@@ -1521,8 +1543,12 @@ func (b Board) agentListEntries() []agentListEntry {
 	}
 	entries := make([]agentListEntry, 0, len(b.agentSnapshot.Windows))
 	for _, w := range b.agentSnapshot.Windows {
+		num, joined := ticketNumberFromWindowName(w.WindowName)
+		if b.agentList.cardNumber != 0 && (!joined || num != b.agentList.cardNumber) {
+			continue
+		}
 		entry := agentListEntry{window: w}
-		if num, ok := ticketNumberFromWindowName(w.WindowName); ok {
+		if joined {
 			if ci, ii, found := b.findCard(num); found {
 				entry.cardNumber = b.Columns[ci].Cards[ii].Number
 				entry.columnTitle = b.Columns[ci].Title
@@ -1531,6 +1557,23 @@ func (b Board) agentListEntries() []agentListEntry {
 		entries = append(entries, entry)
 	}
 	return entries
+}
+
+// cardAgentWindows returns every snapshot window whose name joins to the
+// given ticket number, in snapshot order — the same join rule as
+// agentStatusForNumber, which returns only the single "best" window for the
+// card badge.
+func (b Board) cardAgentWindows(number int) []cenciwatch.WindowState {
+	if b.agentSnapshot == nil {
+		return nil
+	}
+	var windows []cenciwatch.WindowState
+	for _, w := range b.agentSnapshot.Windows {
+		if n, ok := ticketNumberFromWindowName(w.WindowName); ok && n == number {
+			windows = append(windows, w)
+		}
+	}
+	return windows
 }
 
 // ticketNumberFromWindowName parses the ticket number a window name joins to:

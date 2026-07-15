@@ -915,6 +915,7 @@ var helpSections = []helpSection{
 		{"t", "Delete card"},
 		{"v", "Open PRs"},
 		{"w", "Agents"},
+		{"s", "Card agents"},
 		{"/", "Search"},
 		{"a", "Assign"},
 		{"g", "Git menu"},
@@ -967,6 +968,7 @@ var helpSections = []helpSection{
 	}},
 	{"Agents", [][2]string{
 		{"w", "Agents (all cenci windows)"},
+		{"s", "Card agents (from Normal Mode)"},
 		{"j/k", "Navigate"},
 		{"enter", "Go to tmux window"},
 		{"esc", "Cancel"},
@@ -1377,7 +1379,11 @@ func (b Board) viewAgentListModal() string {
 	modalWidth := 60
 
 	var lines []string
-	lines = append(lines, "Agents")
+	title := "Agents"
+	if b.agentList.cardNumber != 0 {
+		title = fmt.Sprintf("Agents — #%d", b.agentList.cardNumber)
+	}
+	lines = append(lines, title)
 	lines = append(lines, "")
 
 	entries := b.agentListEntries()
@@ -1385,11 +1391,11 @@ func (b Board) viewAgentListModal() string {
 	if len(entries) == 0 {
 		switch {
 		case b.cenciWatcher == nil:
-			lines = append(lines, "cenci-watch is not enabled")
+			lines = append(lines, agentListMsgNotEnabled)
 		case b.agentSnapshot == nil:
-			lines = append(lines, "Waiting for cenci-watch daemon...")
+			lines = append(lines, agentListMsgWaiting)
 		default:
-			lines = append(lines, "No agent windows")
+			lines = append(lines, agentListMsgNoWindows)
 		}
 	} else {
 		noteLines := 0
