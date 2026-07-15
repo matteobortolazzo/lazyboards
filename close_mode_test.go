@@ -55,17 +55,7 @@ func TestCloseMode_XKey_NoColumns_DoesNothing(t *testing.T) {
 }
 
 func TestCloseMode_XKey_NoVisibleCards_DoesNothing(t *testing.T) {
-	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
-	msg := boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{
-			{Title: "Empty", Cards: nil},
-		},
-	}}
-	m, _ := b.Update(msg)
-	b = m.(Board)
-	b.Width = 120
-	b.Height = 40
+	b, _ := newBoardWithEmptyColumn(t, nil)
 
 	m, cmd := b.Update(keyMsg("x"))
 	b = m.(Board)
