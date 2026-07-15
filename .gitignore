@@ -37,17 +37,19 @@ go.work.sum
 .env
 .env.*
 
-# Claude Code sandbox artifacts
-.bash_profile
-.bashrc
-.gitconfig
-.gitmodules
-.profile
-.ripgreprc
-.zprofile
-.zshrc
-HEAD
-config
-hooks
-objects
-refs
+# Claude Code sandbox artifacts (root-anchored: these must only match
+# loose files the sandbox drops at the repo root, not real source paths
+# like internal/config/ or a top-level hooks/ directory)
+/.bash_profile
+/.bashrc
+/.gitconfig
+/.gitmodules
+/.profile
+/.ripgreprc
+/.zprofile
+/.zshrc
+/HEAD
+/config
+/hooks
+/objects
+/refs
