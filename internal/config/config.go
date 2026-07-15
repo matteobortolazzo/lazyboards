@@ -38,8 +38,8 @@ func (cc ColumnConfig) CleanupValue() string {
 	return *cc.Cleanup
 }
 
-// DefaultSessionMaxLength must stay in sync with agentwatch's windowNameMaxLen
-// (agent-stack/agentwatch internal/run/slug.go).
+// DefaultSessionMaxLength must stay in sync with cenci's windowNameMaxLen
+// (cenci/watch internal/run/slug.go).
 const DefaultSessionMaxLength = 40
 const DefaultRefreshInterval = 5
 const DefaultActionRefreshDelay = 5
@@ -57,7 +57,7 @@ type Config struct {
 	ActionRefreshDelay *int              `yaml:"action_refresh_delay,omitempty"`
 	WorkingLabel       *string           `yaml:"working_label,omitempty"`
 	Mouse              *bool             `yaml:"mouse,omitempty"`
-	AgentWatch         *bool             `yaml:"agentwatch,omitempty"`
+	Cenci              *bool             `yaml:"cenci,omitempty"`
 	Cleanup            *string           `yaml:"cleanup,omitempty"`
 }
 
@@ -78,13 +78,13 @@ func (c Config) MouseValue() bool {
 	return *c.Mouse
 }
 
-// AgentWatchValue returns true if agentwatch integration is enabled.
+// CenciValue returns true if cenci integration is enabled.
 // Defaults to true (enabled) when the field is not set.
-func (c Config) AgentWatchValue() bool {
-	if c.AgentWatch == nil {
+func (c Config) CenciValue() bool {
+	if c.Cenci == nil {
 		return true
 	}
-	return *c.AgentWatch
+	return *c.Cenci
 }
 
 // CleanupValue returns the configured top-level default cleanup command, or ""

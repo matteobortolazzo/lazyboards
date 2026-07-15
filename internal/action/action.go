@@ -74,9 +74,9 @@ func ExpandTemplate(template string, vars map[string]string) string {
 //
 // It backs the {session} template variable (see BuildSessionName), which
 // user-defined shell actions may reference. Agent-status matching no longer
-// depends on this: cards join agentwatch windows by ticket-number prefix (see
+// depends on this: cards join cenci windows by ticket-number prefix (see
 // agentStatusForNumber in model.go), not by reproducing the window name, so
-// this slug no longer has to match agentwatch byte-for-byte.
+// this slug no longer has to match cenci byte-for-byte.
 func sessionSlug(s string) string {
 	s = strings.ToLower(s)
 	var b strings.Builder
@@ -100,7 +100,7 @@ func sessionSlug(s string) string {
 //
 // It backs the {session} template variable, which user-defined shell actions
 // may reference (e.g. a cleanup hook). It is no longer the agent-status join
-// key: cards match agentwatch windows by ticket-number prefix (see
+// key: cards match cenci windows by ticket-number prefix (see
 // agentStatusForNumber in model.go), which is independent of this name.
 func BuildSessionName(number int, title string, maxLen int) string {
 	prefix := fmt.Sprintf("%d", number)
@@ -130,7 +130,7 @@ func BuildBoardTemplateVars(repoOwner, repoName, providerName, comment string) m
 // BuildTemplateVars creates the variable map for template expansion.
 //
 // window is a pure passthrough: it must already be resolved by the caller to
-// either a live agentwatch window name or a {session} fallback (see
+// either a live cenci window name or a {session} fallback (see
 // resolveWindowName in update.go). BuildTemplateVars does not derive it.
 func BuildTemplateVars(cardNumber int, cardTitle string, cardLabels []string, repoOwner, repoName, providerName string, sessionMaxLen int, comment, window string) map[string]string {
 	return map[string]string{

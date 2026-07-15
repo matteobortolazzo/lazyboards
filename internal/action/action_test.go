@@ -239,25 +239,25 @@ func TestBuildSessionName_CustomMaxLen(t *testing.T) {
 	}
 }
 
-// agentwatch's own window-name truncation (agentwatch/internal/run/slug.go:
+// cenci's own window-name truncation (cenci/watch internal/run/slug.go:
 // capName) does a hard cut at maxLen runes and trims only trailing hyphens —
 // it never backs off to the last complete segment. lazyboards must produce
 // byte-for-byte the same join key the daemon broadcasts as WindowName, or the
 // exact-equality lookup in agentStatusFor silently never matches and no
 // badge is shown. This reproduces a real title (#270) whose 40-char cutoff
 // does not land on a hyphen boundary.
-func TestBuildSessionName_MatchesAgentwatchHardCutTruncation(t *testing.T) {
+func TestBuildSessionName_MatchesCenciHardCutTruncation(t *testing.T) {
 	title := "Lazygit-style git integration: live git status display (1/2)"
 	got := BuildSessionName(270, title, 40)
 	want := "270-lazygit-style-git-integration-live-g"
 	if got != want {
-		t.Errorf("BuildSessionName() = %q, want %q (must match agentwatch's capName truncation)", got, want)
+		t.Errorf("BuildSessionName() = %q, want %q (must match cenci's capName truncation)", got, want)
 	}
 }
 
 // The following BuildSessionName tests are regression tests against
-// agentwatch v1.12.0's own window-name algorithm (internal/run/slug.go:
-// slugify + capName). agentwatch's slugify keeps only ASCII a-z0-9, maps
+// cenci v1.12.0's own window-name algorithm (internal/run/slug.go:
+// slugify + capName). cenci's slugify keeps only ASCII a-z0-9, maps
 // space/underscore/hyphen to a single dash, and DROPS all other runes
 // (punctuation, non-ASCII) without inserting a hyphen. capName hard-cuts at
 // 40 runes and trims only trailing dashes. lazyboards' BuildSessionName must
@@ -266,13 +266,13 @@ func TestBuildSessionName_MatchesAgentwatchHardCutTruncation(t *testing.T) {
 
 // Reproduces the original bug report: punctuation like "(", "/", ")" must be
 // dropped entirely, not hyphenated. The old (wrong) behavior would turn
-// "(2/4)" into "2-4" via hyphen-insertion; agentwatch's real algorithm drops
+// "(2/4)" into "2-4" via hyphen-insertion; cenci's real algorithm drops
 // each punctuation rune with nothing in its place, yielding "24".
 func TestBuildSessionName_PunctuationDroppedNotHyphenated(t *testing.T) {
 	got := BuildSessionName(1, "(2/4)", 40)
 	want := "1-24"
 	if got != want {
-		t.Errorf("BuildSessionName() = %q, want %q (agentwatch drops punctuation, does not hyphenate it)", got, want)
+		t.Errorf("BuildSessionName() = %q, want %q (cenci drops punctuation, does not hyphenate it)", got, want)
 	}
 }
 
@@ -310,7 +310,7 @@ func TestBuildSessionName_HardCutAtNew40RuneCap(t *testing.T) {
 	got := BuildSessionName(9, title, 40)
 	want := "9-update-parsercore-to-handle-punctuatio"
 	if got != want {
-		t.Errorf("BuildSessionName() = %q, want %q (must hard-cut at the 40-rune cap, matching agentwatch's capName)", got, want)
+		t.Errorf("BuildSessionName() = %q, want %q (must hard-cut at the 40-rune cap, matching cenci's capName)", got, want)
 	}
 	if len([]rune(got)) != 40 {
 		t.Errorf("BuildSessionName() result has %d runes, want exactly 40", len([]rune(got)))
@@ -415,7 +415,7 @@ func TestBuildTemplateVars_IncludesCommentVariable(t *testing.T) {
 
 // --- BuildTemplateVars window parameter (#309) ---
 
-// {window} must expand to whatever live agentwatch window name the caller
+// {window} must expand to whatever live cenci window name the caller
 // resolved (e.g. "1-refine"), not something BuildTemplateVars derives itself.
 // BuildTemplateVars is a pure passthrough here: resolution (live window vs.
 // {session} fallback) is the caller's responsibility (see resolveWindowName
