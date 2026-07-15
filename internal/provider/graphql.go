@@ -8,8 +8,8 @@ import (
 )
 
 // graphQLBoardClient is a narrow, typed-result seam over the GitHub GraphQL
-// API used to fetch issues (and their linked PRs) in a single paginated
-// query, instead of one REST timeline call per issue.
+// API used to fetch issues (and the open PRs that GitHub recognizes as
+// closing them) in a single paginated query.
 //
 // It intentionally does NOT expose githubv4's raw Query(ctx, q interface{},
 // vars) reflection-based API: a fake implementing that signature would need
@@ -18,10 +18,9 @@ import (
 type graphQLBoardClient interface {
 	fetchIssuePage(ctx context.Context, owner, repo, afterCursor string) (issuePage, error)
 
-	// fetchIssueTimelinePage fetches a bounded follow-up page of a single
-	// issue's timelineItems connection, used when issueNode.hasMoreTimelineItems
-	// is true (i.e. an issue has more than 100 cross-referenced timeline items).
-	fetchIssueTimelinePage(ctx context.Context, owner, repo string, issueNumber int, cursor string) (timelinePage, error)
+	// fetchIssueClosingPRPage fetches a bounded follow-up page of a single
+	// issue's closedByPullRequestsReferences connection.
+	fetchIssueClosingPRPage(ctx context.Context, owner, repo string, issueNumber int, cursor string) (closingPRPage, error)
 
 	// deleteIssue permanently deletes the given issue via GraphQL's
 	// deleteIssue mutation (REST has no delete-issue endpoint). Number-based
@@ -30,17 +29,12 @@ type graphQLBoardClient interface {
 	deleteIssue(ctx context.Context, owner, repo string, number int) error
 }
 
-// maxTimelineFollowupPages bounds the number of per-issue timeline follow-up
-// queries fetchIssueTimelinePage can be called for a single issue (100
-// initial + 500 follow-up = 600 cross-refs/issue max). At the cap, callers
+// maxClosingPRFollowupPages bounds the number of per-issue closing-PR follow-up
+// queries fetchIssueClosingPRPage can be called for a single issue (100
+// initial + 500 follow-up = 600 closing PRs/issue max). At the cap, callers
 // keep whatever LinkedPRs were collected so far and continue rather than
 // erroring the whole board fetch.
-//
-// Unused in this PR by design: FetchBoard's nested-pagination follow-up loop
-// that consumes this constant lands in a stacked follow-up PR (#323 Part B).
-//
-//nolint:unused
-const maxTimelineFollowupPages = 5
+const maxClosingPRFollowupPages = 5
 
 // issuePage is one page of issues returned by a GraphQL query, decoupled
 // from any githubv4-specific types.
@@ -51,9 +45,8 @@ type issuePage struct {
 }
 
 // issueNode is a single issue and its linked PRs, as mapped from a GraphQL
-// response. hasMoreTimelineItems/timelineEndCursor support a future bounded
-// per-issue follow-up query for issues with more than 100 cross-referenced
-// timeline items (a rare case a single page can't fully capture).
+// response. hasMoreClosingPRs/closingPREndCursor support a bounded per-issue
+// follow-up query for issues with more than 100 closing PRs.
 type issueNode struct {
 	number    int
 	title     string
@@ -63,8 +56,8 @@ type issueNode struct {
 	assignees []Assignee
 	linkedPRs []LinkedPR
 
-	hasMoreTimelineItems bool
-	timelineEndCursor    string
+	hasMoreClosingPRs  bool
+	closingPREndCursor string
 }
 
 // issuesQuery is the githubv4 struct-tag-based query DSL representation of:
@@ -79,14 +72,8 @@ type issueNode struct {
 //	        url
 //	        labels(first: 50) { nodes { name color } }
 //	        assignees(first: 20) { nodes { login } }
-//	        timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
-//	          nodes {
-//	            ... on CrossReferencedEvent {
-//	              source {
-//	                ... on PullRequest { number title url headRefName }
-//	              }
-//	            }
-//	          }
+//	        closedByPullRequestsReferences(first: 100) {
+//	          nodes { number title url headRefName }
 //	          pageInfo { hasNextPage endCursor }
 //	        }
 //	      }
@@ -120,10 +107,10 @@ type issueQueryNode struct {
 	Assignees struct {
 		Nodes []assigneeQueryNode
 	} `graphql:"assignees(first: 20)"`
-	TimelineItems struct {
-		Nodes    []timelineItemQueryNode
+	ClosedByPullRequestsReferences struct {
+		Nodes    []pullRequestQueryNode
 		PageInfo pageInfoFragment
-	} `graphql:"timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT])"`
+	} `graphql:"closedByPullRequestsReferences(first: 100)"`
 }
 
 type labelQueryNode struct {
@@ -135,72 +122,56 @@ type assigneeQueryNode struct {
 	Login githubv4.String
 }
 
-// timelineItemQueryNode represents one CROSS_REFERENCED_EVENT timeline item.
-// CrossReferencedEvent.source is a GraphQL union (Issue or PullRequest); only
-// the "... on PullRequest" inline fragment is requested here, so a
-// cross-reference sourced from a plain Issue leaves PullRequest zero-valued.
-type timelineItemQueryNode struct {
-	CrossReferencedEvent struct {
-		Source struct {
-			PullRequest struct {
-				Number      githubv4.Int
-				Title       githubv4.String
-				URL         githubv4.String
-				HeadRefName githubv4.String
-			} `graphql:"... on PullRequest"`
-		}
-	} `graphql:"... on CrossReferencedEvent"`
+// pullRequestQueryNode represents a PR from GitHub's
+// closedByPullRequestsReferences connection.
+type pullRequestQueryNode struct {
+	Number      githubv4.Int
+	Title       githubv4.String
+	URL         githubv4.String
+	HeadRefName githubv4.String
 }
 
-// timelinePage is one follow-up page of an issue's timelineItems
+// closingPRPage is one follow-up page of an issue's closing PRs
 // connection, decoupled from any githubv4-specific types. It mirrors
-// issuePage's pagination shape but for the nested per-issue timeline
+// issuePage's pagination shape but for the nested per-issue closing PR
 // connection rather than the outer issues connection.
-type timelinePage struct {
+type closingPRPage struct {
 	linkedPRs   []LinkedPR
 	hasNextPage bool
 	endCursor   string
 }
 
-// issueTimelineQuery is the githubv4 struct-tag-based query DSL
+// issueClosingPRQuery is the githubv4 struct-tag-based query DSL
 // representation of a bounded follow-up query for a single issue's
-// timelineItems connection, used when issueNode.hasMoreTimelineItems is true
-// (i.e. an issue has more than 100 cross-referenced timeline items):
+// closedByPullRequestsReferences connection:
 //
-//	query($owner: String!, $name: String!, $issueNumber: Int!, $timelineCursor: String) {
+//	query($owner: String!, $name: String!, $issueNumber: Int!, $closingPRCursor: String) {
 //	  repository(owner: $owner, name: $name) {
 //	    issue(number: $issueNumber) {
-//	      timelineItems(itemTypes: [CROSS_REFERENCED_EVENT], first: 100, after: $timelineCursor) {
-//	        nodes {
-//	          ... on CrossReferencedEvent {
-//	            source {
-//	              ... on PullRequest { number title url headRefName }
-//	            }
-//	          }
-//	        }
+//	      closedByPullRequestsReferences(first: 100, after: $closingPRCursor) {
+//	        nodes { number title url headRefName }
 //	        pageInfo { hasNextPage endCursor }
 //	      }
 //	    }
 //	  }
 //	}
-type issueTimelineQuery struct {
+type issueClosingPRQuery struct {
 	Repository struct {
 		Issue struct {
-			TimelineItems struct {
-				Nodes    []timelineItemQueryNode
+			ClosedByPullRequestsReferences struct {
+				Nodes    []pullRequestQueryNode
 				PageInfo pageInfoFragment
-			} `graphql:"timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT], after: $timelineCursor)"`
+			} `graphql:"closedByPullRequestsReferences(first: 100, after: $closingPRCursor)"`
 		} `graphql:"issue(number: $issueNumber)"`
 	} `graphql:"repository(owner: $owner, name: $name)"`
 }
 
-// mapIssueTimelineQuery converts a githubv4 issueTimelineQuery response into
-// a plain timelinePage, decoupled from any githubv4-specific types. It
-// reuses mapLinkedPRs for the same skip/dedup semantics as the outer
-// issuesQuery timeline mapping (mapIssueQueryNode).
-func mapIssueTimelineQuery(q issueTimelineQuery) timelinePage {
-	items := q.Repository.Issue.TimelineItems
-	return timelinePage{
+// mapIssueClosingPRQuery converts a githubv4 issueClosingPRQuery response into
+// a plain closingPRPage, decoupled from any githubv4-specific types. It
+// reuses mapLinkedPRs for the same dedup semantics as the outer query.
+func mapIssueClosingPRQuery(q issueClosingPRQuery) closingPRPage {
+	items := q.Repository.Issue.ClosedByPullRequestsReferences
+	return closingPRPage{
 		linkedPRs:   mapLinkedPRs(items.Nodes),
 		hasNextPage: bool(items.PageInfo.HasNextPage),
 		endCursor:   string(items.PageInfo.EndCursor),
@@ -241,24 +212,24 @@ func (a *GitHubV4Adapter) fetchIssuePage(ctx context.Context, owner, repo, after
 	return mapIssuesQuery(q), nil
 }
 
-func (a *GitHubV4Adapter) fetchIssueTimelinePage(ctx context.Context, owner, repo string, issueNumber int, cursor string) (timelinePage, error) {
+func (a *GitHubV4Adapter) fetchIssueClosingPRPage(ctx context.Context, owner, repo string, issueNumber int, cursor string) (closingPRPage, error) {
 	variables := map[string]interface{}{
-		"owner":          githubv4.String(owner),
-		"name":           githubv4.String(repo),
-		"issueNumber":    githubv4.Int(issueNumber),
-		"timelineCursor": (*githubv4.String)(nil),
+		"owner":           githubv4.String(owner),
+		"name":            githubv4.String(repo),
+		"issueNumber":     githubv4.Int(issueNumber),
+		"closingPRCursor": (*githubv4.String)(nil),
 	}
 	if cursor != "" {
 		c := githubv4.String(cursor)
-		variables["timelineCursor"] = &c
+		variables["closingPRCursor"] = &c
 	}
 
-	var q issueTimelineQuery
+	var q issueClosingPRQuery
 	if err := a.client.Query(ctx, &q, variables); err != nil {
-		return timelinePage{}, err
+		return closingPRPage{}, err
 	}
 
-	return mapIssueTimelineQuery(q), nil
+	return mapIssueClosingPRQuery(q), nil
 }
 
 // issueLookupQuery resolves an issue's GraphQL global node ID by number.
@@ -347,27 +318,24 @@ func mapIssueQueryNode(n issueQueryNode) issueNode {
 	}
 
 	return issueNode{
-		number:               int(n.Number),
-		title:                string(n.Title),
-		body:                 string(n.Body),
-		url:                  string(n.URL),
-		labels:               labels,
-		assignees:            assignees,
-		linkedPRs:            mapLinkedPRs(n.TimelineItems.Nodes),
-		hasMoreTimelineItems: bool(n.TimelineItems.PageInfo.HasNextPage),
-		timelineEndCursor:    string(n.TimelineItems.PageInfo.EndCursor),
+		number:             int(n.Number),
+		title:              string(n.Title),
+		body:               string(n.Body),
+		url:                string(n.URL),
+		labels:             labels,
+		assignees:          assignees,
+		linkedPRs:          mapLinkedPRs(n.ClosedByPullRequestsReferences.Nodes),
+		hasMoreClosingPRs:  bool(n.ClosedByPullRequestsReferences.PageInfo.HasNextPage),
+		closingPREndCursor: string(n.ClosedByPullRequestsReferences.PageInfo.EndCursor),
 	}
 }
 
-// mapLinkedPRs extracts linked PRs from an issue's cross-referenced timeline
-// items, skipping cross-references whose source is a plain Issue (the
-// "... on PullRequest" union fragment didn't match, so PullRequest.Number is
-// zero-valued) and deduping by PR number within the issue's timeline.
-func mapLinkedPRs(items []timelineItemQueryNode) []LinkedPR {
+// mapLinkedPRs maps GitHub-recognized closing PRs and dedupes them by number.
+func mapLinkedPRs(items []pullRequestQueryNode) []LinkedPR {
 	seen := make(map[int]bool)
 	var linkedPRs []LinkedPR
 	for _, item := range items {
-		pr := item.CrossReferencedEvent.Source.PullRequest
+		pr := item
 		if pr.Number == 0 {
 			continue
 		}

@@ -665,19 +665,19 @@ func TestGitHubFetchBoard_NilIssueBody_ResultsInEmptyCardBody(t *testing.T) {
 	}
 }
 
-// --- Linked PRs (GraphQL cross-referenced timeline items) ---
+// --- Linked PRs (GitHub closing-PR relationship) ---
 //
 // NOTE: TestGitHubFetchBoard_RequestsIssuesSortedByCreatedAsc and
-// TestGitHubFetchBoard_TimelineAPIError_ReturnsError (the REST-era tests)
+// TestGitHubFetchBoard_ClosingPRAPIError_ReturnsError (the REST-era tests)
 // were removed during the GraphQL migration. Sort order (CREATED_AT ASC) is
 // now baked into issuesQuery's static GraphQL query string (graphql.go), not
 // a runtime option fakeGraphQLClient can observe, so there's nothing left to
 // assert through this boundary. And GraphQL fetches an issue and its first
-// page of linked PRs in a single gql.fetchIssuePage call, so a "timeline API
+// page of linked PRs in a single gql.fetchIssuePage call, so a "closing PR API
 // error" is no longer distinguishable from the general
 // TestGitHubFetchBoard_APIError_ReturnsError case above.
 
-func TestGitHubFetchBoard_LinkedPRsPopulatedFromTimeline(t *testing.T) {
+func TestGitHubFetchBoard_LinkedPRsPopulatedFromClosingPRs(t *testing.T) {
 	columns := []string{"Todo"}
 	issue := buildIssueNode(10, "Bug report", "Todo")
 
@@ -715,7 +715,7 @@ func TestGitHubFetchBoard_LinkedPRsPopulatedFromTimeline(t *testing.T) {
 	}
 }
 
-func TestGitHubFetchBoard_NoLinkedPRs_EmptyTimeline(t *testing.T) {
+func TestGitHubFetchBoard_NoLinkedPRs_EmptyClosingPRConnection(t *testing.T) {
 	columns := []string{"Todo"}
 	issue := buildIssueNode(20, "Solo issue", "Todo") // no linkedPRs set
 
@@ -734,35 +734,6 @@ func TestGitHubFetchBoard_NoLinkedPRs_EmptyTimeline(t *testing.T) {
 	card := board.Columns[0].Cards[0]
 	if len(card.LinkedPRs) != 0 {
 		t.Errorf("card.LinkedPRs has %d entries, want 0", len(card.LinkedPRs))
-	}
-}
-
-// TestGitHubFetchBoard_CrossReferencedNonPR_Ignored confirms FetchBoard
-// forwards issueNode.linkedPRs unchanged: the actual skip of cross-references
-// sourced from a plain Issue (not a PullRequest) happens upstream in
-// mapLinkedPRs, already pinned by
-// TestMapLinkedPRs_SkipsCrossReferenceSourcedFromPlainIssue (graphql_test.go).
-func TestGitHubFetchBoard_CrossReferencedNonPR_Ignored(t *testing.T) {
-	columns := []string{"Todo"}
-	// mapLinkedPRs would have already excluded a non-PR cross-reference by
-	// the time issueNode reaches FetchBoard, so linkedPRs is empty here.
-	issue := buildIssueNode(30, "Referenced issue", "Todo")
-
-	gql := singlePageGQL(issue)
-	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
-
-	board, err := provider.FetchBoard(context.Background())
-	if err != nil {
-		t.Fatalf("FetchBoard returned error: %v", err)
-	}
-
-	if len(board.Columns[0].Cards) != 1 {
-		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
-	}
-
-	card := board.Columns[0].Cards[0]
-	if len(card.LinkedPRs) != 0 {
-		t.Errorf("card.LinkedPRs has %d entries, want 0 (non-PR cross-reference should be ignored)", len(card.LinkedPRs))
 	}
 }
 
@@ -896,10 +867,10 @@ func TestGitHubFetchBoard_MultipleIssues_AllLinkedPRsPopulated(t *testing.T) {
 	}
 }
 
-// NOTE: TestGitHubFetchBoard_TimelineErrorPropagated (the REST-era
+// NOTE: TestGitHubFetchBoard_ClosingPRErrorPropagated (the REST-era
 // concurrent-fetch error test, backed by perIssueErrorMockClient) was
 // removed during the GraphQL migration: it is superseded by
-// TestFetchBoard_GraphQL_TimelineFollowupError_FailsFetchBoard below, which
+// TestFetchBoard_GraphQL_ClosingPRFollowupError_FailsFetchBoard below, which
 // pins the same "a linked-PR fetch failure fails the whole board fetch"
 // behavior for the GraphQL follow-up path.
 
@@ -1849,7 +1820,7 @@ func TestGitHubGetAuthenticatedUser_APIError(t *testing.T) {
 //
 // These tests exercise FetchBoard against a gql graphQLBoardClient fake.
 // FetchBoard itself no longer reads the REST GitHubClient at all -- it pages
-// exclusively through gql.fetchIssuePage/fetchIssueTimelinePage -- but
+// exclusively through gql.fetchIssuePage/fetchIssueClosingPRPage -- but
 // NewGitHubProvider still requires a non-nil GitHubClient for its other
 // REST-backed methods (CreateCard, UpdateCard, etc.), so these tests pass
 // emptyRESTClient() as an unused placeholder.
@@ -1880,11 +1851,7 @@ func TestFetchBoard_GraphQL_SingleCallFetchesIssuesAndLinkedPRs(t *testing.T) {
 			number: 3,
 			title:  "Has linked PRs",
 			labels: []Label{{Name: "New"}},
-			// Represents mapLinkedPRs' already-deduped, PR-only output: a
-			// duplicate cross-reference to PR 50 and a cross-reference sourced
-			// from a plain issue would both have been collapsed/excluded
-			// upstream (proven separately by TestMapLinkedPRs_* in
-			// graphql_test.go), leaving just these two unique PRs here.
+			// Represents mapLinkedPRs' already-deduped closing-PR output.
 			linkedPRs: []LinkedPR{
 				{Number: 50, Title: "Fix A", URL: "https://github.com/owner/repo/pull/50"},
 				{Number: 51, Title: "Fix B", URL: "https://github.com/owner/repo/pull/51"},
@@ -1929,8 +1896,7 @@ func TestFetchBoard_GraphQL_SingleCallFetchesIssuesAndLinkedPRs(t *testing.T) {
 		t.Fatalf("New column cards = %+v, want issue #3 present (matches \"New\" label)", newCol.Cards)
 	}
 
-	// Issue #3's linked PRs must be forwarded intact: deduped by number, with
-	// any non-PR cross-reference sources already excluded upstream.
+	// Issue #3's closing PRs must be forwarded intact and deduped by number.
 	if len(card3.LinkedPRs) != 2 {
 		t.Fatalf("issue #3 LinkedPRs = %+v, want 2 entries (deduped, non-PR sources excluded)", card3.LinkedPRs)
 	}
@@ -1981,27 +1947,27 @@ func TestFetchBoard_GraphQL_Paginates(t *testing.T) {
 	}
 }
 
-func TestFetchBoard_GraphQL_NestedTimelinePagination(t *testing.T) {
+func TestFetchBoard_GraphQL_NestedClosingPRPagination(t *testing.T) {
 	columns := []string{"Backlog"}
 	const issueNumber = 55
 
 	initialIssue := issueNode{
 		number: issueNumber,
-		title:  "Issue with >100 cross-references",
-		// First page's own linked PRs, as mapIssueQueryNode's timelineItems
+		title:  "Issue with >100 closing PRs",
+		// First page's own linked PRs, as mapIssueQueryNode's closing-PR connection
 		// mapping would have produced them.
-		linkedPRs:            []LinkedPR{{Number: 900, Title: "First-page PR", URL: "https://github.com/owner/repo/pull/900"}},
-		hasMoreTimelineItems: true,
-		timelineEndCursor:    "timeline-cursor-1",
+		linkedPRs:          []LinkedPR{{Number: 900, Title: "First-page PR", URL: "https://github.com/owner/repo/pull/900"}},
+		hasMoreClosingPRs:  true,
+		closingPREndCursor: "closing-pr-cursor-1",
 	}
 
 	gql := &fakeGraphQLClient{
 		pages: map[string]issuePage{
 			"": {issues: []issueNode{initialIssue}, hasNextPage: false},
 		},
-		timelinePages: map[int]map[string]timelinePage{
+		closingPRPages: map[int]map[string]closingPRPage{
 			issueNumber: {
-				"timeline-cursor-1": {
+				"closing-pr-cursor-1": {
 					linkedPRs:   []LinkedPR{{Number: 901, Title: "Follow-up PR", URL: "https://github.com/owner/repo/pull/901"}},
 					hasNextPage: false,
 				},
@@ -2031,47 +1997,47 @@ func TestFetchBoard_GraphQL_NestedTimelinePagination(t *testing.T) {
 	}
 }
 
-func TestFetchBoard_GraphQL_NestedTimelinePagination_CapsFollowupQueries(t *testing.T) {
+func TestFetchBoard_GraphQL_NestedClosingPRPagination_CapsFollowupQueries(t *testing.T) {
 	columns := []string{"Backlog"}
 	const issueNumber = 77
 
 	initialIssue := issueNode{
-		number:               issueNumber,
-		title:                "Pathologically cross-referenced issue",
-		hasMoreTimelineItems: true,
-		timelineEndCursor:    "cursor-0",
+		number:             issueNumber,
+		title:              "Issue with a pathological number of closing PRs",
+		hasMoreClosingPRs:  true,
+		closingPREndCursor: "cursor-0",
 	}
 
-	// Script maxTimelineFollowupPages worth of follow-up pages, each pointing
+	// Script maxClosingPRFollowupPages worth of follow-up pages, each pointing
 	// to the next, PLUS one extra page beyond the cap. If FetchBoard properly
-	// bounds the follow-up loop at maxTimelineFollowupPages, the extra page's
+	// bounds the follow-up loop at maxClosingPRFollowupPages, the extra page's
 	// PR must never be requested/collected -- a correctness property that
 	// can only be pinned by observing which scripted pages were consumed.
-	timelinePagesForIssue := map[string]timelinePage{}
-	for i := 0; i < maxTimelineFollowupPages; i++ {
+	closingPRPagesForIssue := map[string]closingPRPage{}
+	for i := 0; i < maxClosingPRFollowupPages; i++ {
 		cursor := fmt.Sprintf("cursor-%d", i)
 		nextCursor := fmt.Sprintf("cursor-%d", i+1)
-		timelinePagesForIssue[cursor] = timelinePage{
+		closingPRPagesForIssue[cursor] = closingPRPage{
 			linkedPRs:   []LinkedPR{{Number: 1000 + i, Title: fmt.Sprintf("Follow-up PR %d", i), URL: "https://github.com/owner/repo/pull/x"}},
 			hasNextPage: true,
 			endCursor:   nextCursor,
 		}
 	}
 	// The one-past-the-cap page: must never be reached by a correctly-capped loop.
-	pastCapCursor := fmt.Sprintf("cursor-%d", maxTimelineFollowupPages)
-	pastCapPRNumber := 1000 + maxTimelineFollowupPages
-	timelinePagesForIssue[pastCapCursor] = timelinePage{
+	pastCapCursor := fmt.Sprintf("cursor-%d", maxClosingPRFollowupPages)
+	pastCapPRNumber := 1000 + maxClosingPRFollowupPages
+	closingPRPagesForIssue[pastCapCursor] = closingPRPage{
 		linkedPRs:   []LinkedPR{{Number: pastCapPRNumber, Title: "Past-cap PR", URL: "https://github.com/owner/repo/pull/x"}},
 		hasNextPage: true,
-		endCursor:   fmt.Sprintf("cursor-%d", maxTimelineFollowupPages+1),
+		endCursor:   fmt.Sprintf("cursor-%d", maxClosingPRFollowupPages+1),
 	}
 
 	gql := &fakeGraphQLClient{
 		pages: map[string]issuePage{
 			"": {issues: []issueNode{initialIssue}, hasNextPage: false},
 		},
-		timelinePages: map[int]map[string]timelinePage{
-			issueNumber: timelinePagesForIssue,
+		closingPRPages: map[int]map[string]closingPRPage{
+			issueNumber: closingPRPagesForIssue,
 		},
 	}
 	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
@@ -2089,66 +2055,66 @@ func TestFetchBoard_GraphQL_NestedTimelinePagination_CapsFollowupQueries(t *test
 	for _, pr := range card.LinkedPRs {
 		seenPRs[pr.Number] = true
 	}
-	for i := 0; i < maxTimelineFollowupPages; i++ {
+	for i := 0; i < maxClosingPRFollowupPages; i++ {
 		if !seenPRs[1000+i] {
 			t.Fatalf("card.LinkedPRs = %+v, want PR #%d collected (within the follow-up cap)", card.LinkedPRs, 1000+i)
 		}
 	}
 	if seenPRs[pastCapPRNumber] {
-		t.Fatalf("card.LinkedPRs = %+v, want past-cap PR #%d NOT collected (follow-up loop must stop at maxTimelineFollowupPages)", card.LinkedPRs, pastCapPRNumber)
+		t.Fatalf("card.LinkedPRs = %+v, want past-cap PR #%d NOT collected (follow-up loop must stop at maxClosingPRFollowupPages)", card.LinkedPRs, pastCapPRNumber)
 	}
 
 	// The cap itself is the behavior under test: the follow-up loop must
-	// issue no more than maxTimelineFollowupPages calls for this issue. This
+	// issue no more than maxClosingPRFollowupPages calls for this issue. This
 	// call-count assertion is a direct guard of the ticket's cap contract,
 	// not an incidental implementation detail (see lessons-learned.md's
 	// carve-out for count assertions that guard observable cap behavior).
-	if len(gql.calledTimelineCursors) > maxTimelineFollowupPages {
-		t.Fatalf("fetchIssueTimelinePage was called %d times, want at most maxTimelineFollowupPages (%d)", len(gql.calledTimelineCursors), maxTimelineFollowupPages)
+	if len(gql.calledClosingPRCursors) > maxClosingPRFollowupPages {
+		t.Fatalf("fetchIssueClosingPRPage was called %d times, want at most maxClosingPRFollowupPages (%d)", len(gql.calledClosingPRCursors), maxClosingPRFollowupPages)
 	}
 }
 
-// timelineErrorFakeClient wraps a fakeGraphQLClient to return a distinct,
-// scripted error only from fetchIssueTimelinePage, leaving fetchIssuePage's
+// closingPRErrorFakeClient wraps a fakeGraphQLClient to return a distinct,
+// scripted error only from fetchIssueClosingPRPage, leaving fetchIssuePage's
 // success path untouched. fakeGraphQLClient's single shared err field can't
 // express "outer page succeeds, follow-up fails" (setting it fails both
 // calls), so this wrapper isolates the follow-up-only failure needed to
 // distinguish FetchBoard's fail-whole-board branch from the cap-exceeded
-// graceful-degradation branch (TestFetchBoard_GraphQL_NestedTimelinePagination_CapsFollowupQueries).
-type timelineErrorFakeClient struct {
+// graceful-degradation branch (TestFetchBoard_GraphQL_NestedClosingPRPagination_CapsFollowupQueries).
+type closingPRErrorFakeClient struct {
 	*fakeGraphQLClient
-	timelineErr error
+	closingPRErr error
 }
 
-func (f *timelineErrorFakeClient) fetchIssueTimelinePage(_ context.Context, _, _ string, _ int, _ string) (timelinePage, error) {
-	return timelinePage{}, f.timelineErr
+func (f *closingPRErrorFakeClient) fetchIssueClosingPRPage(_ context.Context, _, _ string, _ int, _ string) (closingPRPage, error) {
+	return closingPRPage{}, f.closingPRErr
 }
 
-func TestFetchBoard_GraphQL_TimelineFollowupError_FailsFetchBoard(t *testing.T) {
+func TestFetchBoard_GraphQL_ClosingPRFollowupError_FailsFetchBoard(t *testing.T) {
 	columns := []string{"Backlog"}
 	const issueNumber = 88
 	followupErr := errors.New("graphql: follow-up query failed")
 
 	initialIssue := issueNode{
-		number:               issueNumber,
-		title:                "Issue whose follow-up query fails",
-		hasMoreTimelineItems: true,
-		timelineEndCursor:    "timeline-cursor-1",
+		number:             issueNumber,
+		title:              "Issue whose follow-up query fails",
+		hasMoreClosingPRs:  true,
+		closingPREndCursor: "closing-pr-cursor-1",
 	}
 
-	gql := &timelineErrorFakeClient{
+	gql := &closingPRErrorFakeClient{
 		fakeGraphQLClient: &fakeGraphQLClient{
 			pages: map[string]issuePage{
 				"": {issues: []issueNode{initialIssue}, hasNextPage: false},
 			},
 		},
-		timelineErr: followupErr,
+		closingPRErr: followupErr,
 	}
 	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
 
 	board, err := provider.FetchBoard(context.Background())
 	if err == nil {
-		t.Fatal("expected FetchBoard to return an error when a follow-up timeline query fails, got nil")
+		t.Fatal("expected FetchBoard to return an error when a follow-up closing PR query fails, got nil")
 	}
 	if !errors.Is(err, followupErr) {
 		t.Errorf("FetchBoard error = %v, want it to wrap %v", err, followupErr)

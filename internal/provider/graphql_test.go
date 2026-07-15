@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/shurcooL/githubv4"
@@ -20,13 +21,13 @@ type fakeGraphQLClient struct {
 
 	calledCursors []string
 
-	// timelinePages scripts fetchIssueTimelinePage results, keyed by issue
+	// closingPRPages scripts fetchIssueClosingPRPage results, keyed by issue
 	// number and then by the afterCursor that would request them, mirroring
 	// the pages/calledCursors pattern above but for the nested per-issue
-	// timeline follow-up query.
-	timelinePages map[int]map[string]timelinePage
+	// closing PR follow-up query.
+	closingPRPages map[int]map[string]closingPRPage
 
-	calledTimelineCursors []timelineCursorCall
+	calledClosingPRCursors []closingPRCursorCall
 
 	// deleteIssueErr scripts the error DeleteIssue returns, letting tests
 	// exercise GitHubProvider.DeleteCard's success / not-found / generic-error
@@ -34,9 +35,9 @@ type fakeGraphQLClient struct {
 	deleteIssueErr error
 }
 
-// timelineCursorCall records one fetchIssueTimelinePage call so tests can
+// closingPRCursorCall records one fetchIssueClosingPRPage call so tests can
 // assert call order for multi-page follow-up sequences.
-type timelineCursorCall struct {
+type closingPRCursorCall struct {
 	issueNumber int
 	cursor      string
 }
@@ -49,15 +50,15 @@ func (f *fakeGraphQLClient) fetchIssuePage(_ context.Context, _, _, afterCursor 
 	return f.pages[afterCursor], nil
 }
 
-// fetchIssueTimelinePage returns the scripted timelinePage for the given
-// issue number and afterCursor, recording each call in calledTimelineCursors
+// fetchIssueClosingPRPage returns the scripted closingPRPage for the given
+// issue number and afterCursor, recording each call in calledClosingPRCursors
 // so tests can assert call order for multi-page follow-up sequences.
-func (f *fakeGraphQLClient) fetchIssueTimelinePage(_ context.Context, _, _ string, issueNumber int, afterCursor string) (timelinePage, error) {
-	f.calledTimelineCursors = append(f.calledTimelineCursors, timelineCursorCall{issueNumber: issueNumber, cursor: afterCursor})
+func (f *fakeGraphQLClient) fetchIssueClosingPRPage(_ context.Context, _, _ string, issueNumber int, afterCursor string) (closingPRPage, error) {
+	f.calledClosingPRCursors = append(f.calledClosingPRCursors, closingPRCursorCall{issueNumber: issueNumber, cursor: afterCursor})
 	if f.err != nil {
-		return timelinePage{}, f.err
+		return closingPRPage{}, f.err
 	}
-	return f.timelinePages[issueNumber][afterCursor], nil
+	return f.closingPRPages[issueNumber][afterCursor], nil
 }
 
 // deleteIssue returns the scripted deleteIssueErr, letting tests script
@@ -136,45 +137,43 @@ func TestFakeGraphQLClient_ReturnsScriptedError(t *testing.T) {
 	}
 }
 
-// TestFakeGraphQLClient_FetchIssueTimelinePage_ReturnsScriptedError mirrors
-// TestFakeGraphQLClient_ReturnsScriptedError for fetchIssueTimelinePage's own
-// err branch, so the timeline follow-up query's error path is exercised
+// TestFakeGraphQLClient_FetchIssueClosingPRPage_ReturnsScriptedError mirrors
+// TestFakeGraphQLClient_ReturnsScriptedError for fetchIssueClosingPRPage's own
+// err branch, so the closing PR follow-up query's error path is exercised
 // directly rather than only indirectly via the sibling fetchIssuePage test.
-func TestFakeGraphQLClient_FetchIssueTimelinePage_ReturnsScriptedError(t *testing.T) {
+func TestFakeGraphQLClient_FetchIssueClosingPRPage_ReturnsScriptedError(t *testing.T) {
 	wantErr := errors.New("graphql: rate limited")
 	fake := &fakeGraphQLClient{err: wantErr}
 
-	_, err := fake.fetchIssueTimelinePage(context.Background(), "owner", "repo", 55, "")
+	_, err := fake.fetchIssueClosingPRPage(context.Background(), "owner", "repo", 55, "")
 	if !errors.Is(err, wantErr) {
-		t.Fatalf("fetchIssueTimelinePage() error = %v, want %v", err, wantErr)
+		t.Fatalf("fetchIssueClosingPRPage() error = %v, want %v", err, wantErr)
 	}
 }
 
-// buildTimelineItem constructs a timelineItemQueryNode whose
-// "... on CrossReferencedEvent { source { ... on PullRequest {...} } }"
-// inline fragment matched, as it would when the cross-reference's source is
-// an actual pull request.
-func buildTimelineItem(number int, title, url string) timelineItemQueryNode {
-	var item timelineItemQueryNode
-	item.CrossReferencedEvent.Source.PullRequest.Number = githubv4.Int(number)
-	item.CrossReferencedEvent.Source.PullRequest.Title = githubv4.String(title)
-	item.CrossReferencedEvent.Source.PullRequest.URL = githubv4.String(url)
+// buildClosingPRItem constructs a node returned by GitHub's
+// closedByPullRequestsReferences connection.
+func buildClosingPRItem(number int, title, url string) pullRequestQueryNode {
+	var item pullRequestQueryNode
+	item.Number = githubv4.Int(number)
+	item.Title = githubv4.String(title)
+	item.URL = githubv4.String(url)
 	return item
 }
 
 // TestMapLinkedPRs_PopulatesBranchFromHeadRefName asserts that mapLinkedPRs
 // carries the PullRequest's headRefName GraphQL field through to the plain
 // LinkedPR.Branch field. The node is built directly (rather than via
-// buildTimelineItem, which has no Branch parameter) since HeadRefName is new.
+// buildClosingPRItem, which has no Branch parameter) since HeadRefName is new.
 func TestMapLinkedPRs_PopulatesBranchFromHeadRefName(t *testing.T) {
 	wantBranch := "feature/widget-support"
-	var item timelineItemQueryNode
-	item.CrossReferencedEvent.Source.PullRequest.Number = githubv4.Int(99)
-	item.CrossReferencedEvent.Source.PullRequest.Title = githubv4.String("feat: add widget support")
-	item.CrossReferencedEvent.Source.PullRequest.URL = githubv4.String("https://github.com/o/r/pull/99")
-	item.CrossReferencedEvent.Source.PullRequest.HeadRefName = githubv4.String(wantBranch)
+	var item pullRequestQueryNode
+	item.Number = githubv4.Int(99)
+	item.Title = githubv4.String("feat: add widget support")
+	item.URL = githubv4.String("https://github.com/o/r/pull/99")
+	item.HeadRefName = githubv4.String(wantBranch)
 
-	got := mapLinkedPRs([]timelineItemQueryNode{item})
+	got := mapLinkedPRs([]pullRequestQueryNode{item})
 
 	if len(got) != 1 {
 		t.Fatalf("mapLinkedPRs() returned %d PRs, want 1", len(got))
@@ -184,28 +183,20 @@ func TestMapLinkedPRs_PopulatesBranchFromHeadRefName(t *testing.T) {
 	}
 }
 
-func TestMapLinkedPRs_SkipsCrossReferenceSourcedFromPlainIssue(t *testing.T) {
-	items := []timelineItemQueryNode{
-		buildTimelineItem(42, "fix: real linked PR", "https://github.com/o/r/pull/42"),
-		// Source was a plain Issue: the "... on PullRequest" fragment never
-		// matched, so PullRequest is left zero-valued.
-		{},
+func TestIssueQuery_UsesGitHubClosingPRConnection(t *testing.T) {
+	field, ok := reflect.TypeOf(issueQueryNode{}).FieldByName("ClosedByPullRequestsReferences")
+	if !ok {
+		t.Fatal("issueQueryNode is missing ClosedByPullRequestsReferences")
 	}
-
-	got := mapLinkedPRs(items)
-
-	if len(got) != 1 {
-		t.Fatalf("mapLinkedPRs() returned %d PRs, want 1 (the issue-sourced cross-reference must be skipped): %+v", len(got), got)
-	}
-	if got[0].Number != 42 {
-		t.Fatalf("mapLinkedPRs()[0].Number = %d, want 42", got[0].Number)
+	if got, want := field.Tag.Get("graphql"), "closedByPullRequestsReferences(first: 100)"; got != want {
+		t.Fatalf("closing PR GraphQL field = %q, want %q", got, want)
 	}
 }
 
 func TestMapLinkedPRs_DedupesByPRNumberWithinIssue(t *testing.T) {
-	items := []timelineItemQueryNode{
-		buildTimelineItem(7, "feat: shared PR", "https://github.com/o/r/pull/7"),
-		buildTimelineItem(7, "feat: shared PR", "https://github.com/o/r/pull/7"),
+	items := []pullRequestQueryNode{
+		buildClosingPRItem(7, "feat: shared PR", "https://github.com/o/r/pull/7"),
+		buildClosingPRItem(7, "feat: shared PR", "https://github.com/o/r/pull/7"),
 	}
 
 	got := mapLinkedPRs(items)
@@ -289,105 +280,101 @@ func TestMapIssueQueryNode_LabelColor_ShortHex_FallsBackToEmpty(t *testing.T) {
 	}
 }
 
-func TestMapIssueQueryNode_CapturesTimelineContinuationCursor(t *testing.T) {
+func TestMapIssueQueryNode_CapturesClosingPRContinuationCursor(t *testing.T) {
 	var n issueQueryNode
-	n.TimelineItems.PageInfo.HasNextPage = githubv4.Boolean(true)
-	n.TimelineItems.PageInfo.EndCursor = githubv4.String("timeline-cursor-1")
+	n.ClosedByPullRequestsReferences.PageInfo.HasNextPage = githubv4.Boolean(true)
+	n.ClosedByPullRequestsReferences.PageInfo.EndCursor = githubv4.String("closing-pr-cursor-1")
 
 	got := mapIssueQueryNode(n)
 
-	if !got.hasMoreTimelineItems {
-		t.Fatalf("mapIssueQueryNode().hasMoreTimelineItems = false, want true when timeline pageInfo.hasNextPage is true")
+	if !got.hasMoreClosingPRs {
+		t.Fatalf("mapIssueQueryNode().hasMoreClosingPRs = false, want true when closing PR pageInfo.hasNextPage is true")
 	}
-	if got.timelineEndCursor != "timeline-cursor-1" {
-		t.Fatalf("mapIssueQueryNode().timelineEndCursor = %q, want %q", got.timelineEndCursor, "timeline-cursor-1")
+	if got.closingPREndCursor != "closing-pr-cursor-1" {
+		t.Fatalf("mapIssueQueryNode().closingPREndCursor = %q, want %q", got.closingPREndCursor, "closing-pr-cursor-1")
 	}
 }
 
-// TestMapIssueTimelineQuery_MapsLinkedPRsAndPageInfo pins mapIssueTimelineQuery's
-// expected behavior: it must reuse mapLinkedPRs' skip/dedup semantics (proven
-// separately by TestMapLinkedPRs_SkipsCrossReferenceSourcedFromPlainIssue and
-// TestMapLinkedPRs_DedupesByPRNumberWithinIssue) for the nested timelineItems
-// nodes, plus carry through the connection's own pageInfo.
-func TestMapIssueTimelineQuery_MapsLinkedPRsAndPageInfo(t *testing.T) {
-	var q issueTimelineQuery
-	q.Repository.Issue.TimelineItems.Nodes = []timelineItemQueryNode{
-		buildTimelineItem(42, "fix: real linked PR", "https://github.com/o/r/pull/42"),
-		buildTimelineItem(42, "fix: real linked PR", "https://github.com/o/r/pull/42"),
-		{}, // cross-reference sourced from a plain Issue; must be skipped
+// TestMapIssueClosingPRQuery_MapsLinkedPRsAndPageInfo pins the nested closing
+// PR connection's mapping, deduplication, and pagination behavior.
+func TestMapIssueClosingPRQuery_MapsLinkedPRsAndPageInfo(t *testing.T) {
+	var q issueClosingPRQuery
+	q.Repository.Issue.ClosedByPullRequestsReferences.Nodes = []pullRequestQueryNode{
+		buildClosingPRItem(42, "fix: real linked PR", "https://github.com/o/r/pull/42"),
+		buildClosingPRItem(42, "fix: real linked PR", "https://github.com/o/r/pull/42"),
 	}
-	q.Repository.Issue.TimelineItems.PageInfo.HasNextPage = githubv4.Boolean(true)
-	q.Repository.Issue.TimelineItems.PageInfo.EndCursor = githubv4.String("timeline-cursor-2")
+	q.Repository.Issue.ClosedByPullRequestsReferences.PageInfo.HasNextPage = githubv4.Boolean(true)
+	q.Repository.Issue.ClosedByPullRequestsReferences.PageInfo.EndCursor = githubv4.String("closing-pr-cursor-2")
 
-	got := mapIssueTimelineQuery(q)
+	got := mapIssueClosingPRQuery(q)
 
 	if len(got.linkedPRs) != 1 {
-		t.Fatalf("mapIssueTimelineQuery().linkedPRs has %d entries, want 1 (duplicate PR must be deduped, issue-sourced cross-reference must be skipped): %+v", len(got.linkedPRs), got.linkedPRs)
+		t.Fatalf("mapIssueClosingPRQuery().linkedPRs has %d entries, want 1 (duplicate PR must be deduped): %+v", len(got.linkedPRs), got.linkedPRs)
 	}
 	if got.linkedPRs[0].Number != 42 || got.linkedPRs[0].Title != "fix: real linked PR" || got.linkedPRs[0].URL != "https://github.com/o/r/pull/42" {
-		t.Fatalf("mapIssueTimelineQuery().linkedPRs[0] = %+v, want {Number:42 Title:%q URL:%q}", got.linkedPRs[0], "fix: real linked PR", "https://github.com/o/r/pull/42")
+		t.Fatalf("mapIssueClosingPRQuery().linkedPRs[0] = %+v, want {Number:42 Title:%q URL:%q}", got.linkedPRs[0], "fix: real linked PR", "https://github.com/o/r/pull/42")
 	}
-	if !got.hasNextPage || got.endCursor != "timeline-cursor-2" {
-		t.Fatalf("mapIssueTimelineQuery() pagination = hasNextPage=%v endCursor=%q, want hasNextPage=true endCursor=%q", got.hasNextPage, got.endCursor, "timeline-cursor-2")
+	if !got.hasNextPage || got.endCursor != "closing-pr-cursor-2" {
+		t.Fatalf("mapIssueClosingPRQuery() pagination = hasNextPage=%v endCursor=%q, want hasNextPage=true endCursor=%q", got.hasNextPage, got.endCursor, "closing-pr-cursor-2")
 	}
 }
 
-// TestFakeGraphQLClient_FetchIssueTimelinePage_ReturnsScriptedPageForIssueAndCursor
-// pins fakeGraphQLClient's timeline-scripting scaffolding, keyed by
+// TestFakeGraphQLClient_FetchIssueClosingPRPage_ReturnsScriptedPageForIssueAndCursor
+// pins fakeGraphQLClient's closing PR-scripting scaffolding, keyed by
 // (issueNumber, cursor), so a follow-up green-phase FetchBoard loop test can
-// script multi-page per-issue timeline sequences.
-func TestFakeGraphQLClient_FetchIssueTimelinePage_ReturnsScriptedPageForIssueAndCursor(t *testing.T) {
-	firstPage := timelinePage{
-		linkedPRs:   []LinkedPR{{Number: 101, Title: "first timeline page PR", URL: "https://github.com/o/r/pull/101"}},
+// script multi-page per-issue closing PR sequences.
+func TestFakeGraphQLClient_FetchIssueClosingPRPage_ReturnsScriptedPageForIssueAndCursor(t *testing.T) {
+	firstPage := closingPRPage{
+		linkedPRs:   []LinkedPR{{Number: 101, Title: "first closing PR page PR", URL: "https://github.com/o/r/pull/101"}},
 		hasNextPage: true,
-		endCursor:   "timeline-cursor-A",
+		endCursor:   "closing-pr-cursor-A",
 	}
-	secondPage := timelinePage{
-		linkedPRs:   []LinkedPR{{Number: 102, Title: "second timeline page PR", URL: "https://github.com/o/r/pull/102"}},
+	secondPage := closingPRPage{
+		linkedPRs:   []LinkedPR{{Number: 102, Title: "second closing PR page PR", URL: "https://github.com/o/r/pull/102"}},
 		hasNextPage: false,
 	}
 	const issueNumber = 55
 	fake := &fakeGraphQLClient{
-		timelinePages: map[int]map[string]timelinePage{
+		closingPRPages: map[int]map[string]closingPRPage{
 			issueNumber: {
-				"":                  firstPage,
-				"timeline-cursor-A": secondPage,
+				"":                    firstPage,
+				"closing-pr-cursor-A": secondPage,
 			},
 		},
 	}
 
-	got, err := fake.fetchIssueTimelinePage(context.Background(), "owner", "repo", issueNumber, "")
+	got, err := fake.fetchIssueClosingPRPage(context.Background(), "owner", "repo", issueNumber, "")
 	if err != nil {
-		t.Fatalf("fetchIssueTimelinePage(first page): unexpected error: %v", err)
+		t.Fatalf("fetchIssueClosingPRPage(first page): unexpected error: %v", err)
 	}
 	if len(got.linkedPRs) != 1 || got.linkedPRs[0].Number != firstPage.linkedPRs[0].Number {
-		t.Fatalf("fetchIssueTimelinePage(first page) = %+v, want linked PR number %d", got, firstPage.linkedPRs[0].Number)
+		t.Fatalf("fetchIssueClosingPRPage(first page) = %+v, want linked PR number %d", got, firstPage.linkedPRs[0].Number)
 	}
-	if !got.hasNextPage || got.endCursor != "timeline-cursor-A" {
-		t.Fatalf("fetchIssueTimelinePage(first page) pagination = %+v, want hasNextPage=true endCursor=timeline-cursor-A", got)
+	if !got.hasNextPage || got.endCursor != "closing-pr-cursor-A" {
+		t.Fatalf("fetchIssueClosingPRPage(first page) pagination = %+v, want hasNextPage=true endCursor=closing-pr-cursor-A", got)
 	}
 
-	got, err = fake.fetchIssueTimelinePage(context.Background(), "owner", "repo", issueNumber, got.endCursor)
+	got, err = fake.fetchIssueClosingPRPage(context.Background(), "owner", "repo", issueNumber, got.endCursor)
 	if err != nil {
-		t.Fatalf("fetchIssueTimelinePage(second page): unexpected error: %v", err)
+		t.Fatalf("fetchIssueClosingPRPage(second page): unexpected error: %v", err)
 	}
 	if len(got.linkedPRs) != 1 || got.linkedPRs[0].Number != secondPage.linkedPRs[0].Number {
-		t.Fatalf("fetchIssueTimelinePage(second page) = %+v, want linked PR number %d", got, secondPage.linkedPRs[0].Number)
+		t.Fatalf("fetchIssueClosingPRPage(second page) = %+v, want linked PR number %d", got, secondPage.linkedPRs[0].Number)
 	}
 	if got.hasNextPage {
-		t.Fatalf("fetchIssueTimelinePage(second page).hasNextPage = true, want false (last page)")
+		t.Fatalf("fetchIssueClosingPRPage(second page).hasNextPage = true, want false (last page)")
 	}
 
-	wantCalls := []timelineCursorCall{
+	wantCalls := []closingPRCursorCall{
 		{issueNumber: issueNumber, cursor: ""},
-		{issueNumber: issueNumber, cursor: "timeline-cursor-A"},
+		{issueNumber: issueNumber, cursor: "closing-pr-cursor-A"},
 	}
-	if len(fake.calledTimelineCursors) != len(wantCalls) {
-		t.Fatalf("calledTimelineCursors = %+v, want %+v", fake.calledTimelineCursors, wantCalls)
+	if len(fake.calledClosingPRCursors) != len(wantCalls) {
+		t.Fatalf("calledClosingPRCursors = %+v, want %+v", fake.calledClosingPRCursors, wantCalls)
 	}
 	for i, want := range wantCalls {
-		if fake.calledTimelineCursors[i] != want {
-			t.Fatalf("calledTimelineCursors = %+v, want %+v", fake.calledTimelineCursors, wantCalls)
+		if fake.calledClosingPRCursors[i] != want {
+			t.Fatalf("calledClosingPRCursors = %+v, want %+v", fake.calledClosingPRCursors, wantCalls)
 		}
 	}
 }
