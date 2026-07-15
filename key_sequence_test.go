@@ -288,6 +288,43 @@ func TestKeySequence_BoardRefreshCancelsPending(t *testing.T) {
 	}
 }
 
+func TestKeySequence_AsyncCardRemovalCancelsPending(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  func(Card) tea.Msg
+	}{
+		{
+			name: "deleted",
+			msg:  func(card Card) tea.Msg { return cardDeletedMsg{card: card} },
+		},
+		{
+			name: "closed",
+			msg:  func(card Card) tea.Msg { return cardClosedMsg{card: card} },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b, fe := newActionTestBoard(t, seqActions())
+			removedCard := b.selectedCard()
+
+			b = sendKey(t, b, keyMsg("P"))
+			b = sendKey(t, b, tt.msg(removedCard))
+
+			if b.pendingSeq != "" {
+				t.Errorf("pendingSeq = %q after card was %s, want empty", b.pendingSeq, tt.name)
+			}
+
+			// The next key must not complete the stale sequence against the card
+			// that moved under the cursor after the asynchronous removal.
+			b = sendKey(t, b, keyMsg("f"))
+			if len(fe.OpenURLCalls) != 0 {
+				t.Errorf("expected no OpenURL calls after async card removal, got %d", len(fe.OpenURLCalls))
+			}
+		})
+	}
+}
+
 func TestKeySequence_ThreeKeySequenceDispatches(t *testing.T) {
 	actions := map[string]config.Action{
 		"Pfa": {Name: "Deep sequence", Type: "url", URL: "https://example.com/deep/{number}"},

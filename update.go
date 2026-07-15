@@ -808,6 +808,8 @@ func (b Board) handleEditorFinished(msg editorFinishedMsg) (tea.Model, tea.Cmd) 
 // handleCardClosed's full guard precedence in full (#174/#234 lessons). The
 // prevCards entry is unconditionally deleted regardless of guard outcome.
 func (b Board) handleCardDeleted(msg cardDeletedMsg) (tea.Model, tea.Cmd) {
+	b.clearPendingSeq()
+
 	cardNum := msg.card.Number
 	labelNames := make([]string, len(msg.card.Labels))
 	for j, l := range msg.card.Labels {
@@ -850,6 +852,8 @@ func (b Board) handleCardDeleted(msg cardDeletedMsg) (tea.Model, tea.Cmd) {
 // deleted regardless of guard outcome (locked decision #347 Q2: a guard-blocked
 // close always deletes, it never defers).
 func (b Board) handleCardClosed(msg cardClosedMsg) (tea.Model, tea.Cmd) {
+	b.clearPendingSeq()
+
 	cardNum := msg.card.Number
 	labelNames := make([]string, len(msg.card.Labels))
 	for j, l := range msg.card.Labels {
