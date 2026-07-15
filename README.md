@@ -158,6 +158,8 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 
 **Note:** `provider`, `repo`, and `project` are project-specific and cannot be set in global config — they come from `.lazyboards.yml` or git remote auto-detection.
 
+**Note on `columns`:** scalar fields and the `actions` map merge across the two files, but the `columns` list does not — defining `columns` locally replaces the global list entirely (column order is the board layout, so it always comes from one file). To override a single column's actions or cleanup, re-list every column name locally; bare `- name:` entries still inherit that column's global actions and cleanup, so nothing else needs restating (see [Column-Specific Actions](#column-specific-actions)).
+
 ### Config Reference
 
 | Field | Type | Default | Description |
@@ -301,6 +303,8 @@ columns:
         command: 'tmux new-window -d -n {session} "claude --comment {comment}"'
   - name: Refined
 ```
+
+Within one column, local and global actions merge by key: local keys win, global-only keys are kept, and a bare `- name:` entry (no `actions`) inherits the matching global column's actions in full (columns match by name, case-insensitively). An explicit empty `actions: {}` disables all actions for that column. But remember the list itself doesn't merge — a local `columns:` replaces the global list, so re-list every column you want to keep (see [Global Config](#global-config)).
 
 ### Column Cleanup
 
