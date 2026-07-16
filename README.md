@@ -21,7 +21,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - In-app configuration UI (first-launch flow or press `c`)
 - Board refresh (manual and periodic background refresh)
 - Agent dispatch panel: enroll repos and trigger fleet-wide dispatch (`d`)
-- Agents modal: every cenci-watch window — matched to a card or not — with `Enter` jumping to its tmux window (`w`)
+- Agents modal: every cenci-watch window in this instance's own tmux session — matched to a card or not — labeled by `session:index`, with `Enter` jumping to its tmux window (`w`)
 - Help popup with full keybinding reference (`?`)
 - Error screen with retry support
 - Responsive terminal resizing
@@ -305,7 +305,7 @@ Inside the menu, press an action's key to run it immediately (like lazygit), or 
 
 At the left of the status bar, an always-visible prefix summarizes the whole repository: agent-status counts (`▶N` running, `!N` awaiting input) followed by the repo-wide open-PR total (` N`, using the same PR glyph shown on cards). Each token is omitted when its count is zero, and the prefix disappears entirely when all are zero. Because the prefix is reserved before anything else, it stays visible through timed status messages and is never truncated to make room for hints or the right-aligned git/dispatch segments.
 
-The agent counts cover every window the cenci-watch daemon tracks — the same set the `w` agents modal lists — whether or not a window's name joins to a card on the board. The PR total counts every open PR in the repository — the same set the `v` [open-PR list](#pull-requests) shows — not just PRs linked to cards. Until the first repo-wide listing succeeds (or if it isn't available), the PR token falls back to the card-linked sum; afterwards a failed refresh keeps the last known total rather than dropping the token.
+The agent counts cover every window the cenci-watch daemon tracks — across all tmux sessions, whether or not a window's name joins to a card on the board. (The `w` agents modal, by contrast, is scoped to this instance's own tmux session, so its row count may be smaller than the status-bar total.) The PR total counts every open PR in the repository — the same set the `v` [open-PR list](#pull-requests) shows — not just PRs linked to cards. Until the first repo-wide listing succeeds (or if it isn't available), the PR token falls back to the card-linked sum; afterwards a failed refresh keeps the last known total rather than dropping the token.
 
 ### Git Status Segment
 
@@ -433,8 +433,8 @@ Press `?` at any time to open the in-app help popup.
 | `x` | Close card (with confirmation) |
 | `t` | Delete card permanently (with two-step confirmation) |
 | `v` | Open PRs (all open PRs in the repo) |
-| `w` | Agents (all cenci-watch windows; `Enter` jumps to the tmux window) |
-| `s` | Card agents (jump to the selected card's agent window; picker when several) |
+| `w` | Agents (cenci-watch windows in this instance's tmux session, labeled `session:index`; `Enter` jumps to the tmux window) |
+| `s` | Card agents (jump to the selected card's agent window in this session; picker when several) |
 | `/` | Search |
 | `a` | Assign collaborator |
 | `g` | Git menu |

@@ -328,6 +328,21 @@ func resolveCenciPathSuffix(executor action.Executor) string {
 	return " (using " + path + ")"
 }
 
+// resolveTmuxSession returns the tmux session name this process runs in, used
+// to scope the agents list to the instance's own session (#410). It returns ""
+// when not running inside tmux (no $TMUX) or when the query fails, which the
+// scoping treats as "no session to scope to" (show every tracked window).
+func resolveTmuxSession(executor action.Executor) string {
+	if os.Getenv("TMUX") == "" {
+		return ""
+	}
+	stdout, _, err := executor.RunShellOutput("tmux display-message -p '#S'")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(stdout)
+}
+
 // queryDispatchStatusCmd returns a tea.Cmd that queries cenci for the
 // current working directory's repo/dir/enrollment status.
 //
