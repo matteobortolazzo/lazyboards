@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -555,6 +556,90 @@ func TestHelpMode_ViewShowsAltKeyInNormalMode(t *testing.T) {
 	}
 }
 
+// --- Help Mode: cenci-dependent features labeled ---
+//
+// Agents (w/s keys, "Agents" modal section) and Dispatch (d key, "Dispatch"
+// modal section) both require cenci integration to be configured. They are
+// labeled with a static "(cenci)" annotation in the help popup so users know
+// these features won't do anything useful without cenci set up. See #417.
+
+func TestHelpContent_NormalModeRowsLabeledCenci(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	normalStart := strings.Index(content, "Normal Mode\n")
+	detailStart := strings.Index(content, "\nDetail Panel\n")
+	if normalStart == -1 || detailStart == -1 {
+		t.Fatal("buildHelpContent() should contain Normal Mode and Detail Panel sections")
+	}
+	normalSection := content[normalStart:detailStart]
+
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{"AgentsRow_w", "w"},
+		{"CardAgentsRow_s", "s"},
+		{"DispatchRow_d", "d"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			re := regexp.MustCompile(`(?m)^  ` + tt.key + `\s+.*$`)
+			line := re.FindString(normalSection)
+			if line == "" {
+				t.Fatalf("Normal Mode section should contain a row for key %q", tt.key)
+			}
+			if !strings.Contains(line, "(cenci)") {
+				t.Errorf("Normal Mode row for key %q should be labeled with '(cenci)', got line %q", tt.key, line)
+			}
+		})
+	}
+}
+
+// findSectionHeader returns the first unindented line in content that
+// contains want. Section header lines start at column 0; keybinding row
+// lines always start with two spaces (see buildHelpContent's "  %-12s %s\n"
+// format), so this distinguishes a section title (e.g. "Agents") from a row
+// whose description merely mentions the same word (e.g. Normal Mode's "w"
+// row, or the Status Bar section's "Agents running" line).
+func findSectionHeader(content, want string) string {
+	for _, line := range strings.Split(content, "\n") {
+		if line == "" || line[0] == ' ' || line[0] == '\t' {
+			continue
+		}
+		if strings.Contains(line, want) {
+			return line
+		}
+	}
+	return ""
+}
+
+func TestHelpContent_AgentsSectionHeaderLabeledCenci(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	header := findSectionHeader(content, "Agents")
+	if header == "" {
+		t.Fatal("buildHelpContent() should contain an 'Agents' section header")
+	}
+	if !strings.Contains(header, "(cenci)") {
+		t.Errorf("Agents section header should be labeled with '(cenci)', got %q", header)
+	}
+}
+
+func TestHelpContent_DispatchSectionHeaderLabeledCenci(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	header := findSectionHeader(content, "Dispatch")
+	if header == "" {
+		t.Fatal("buildHelpContent() should contain a 'Dispatch' section header")
+	}
+	if !strings.Contains(header, "(cenci)") {
+		t.Errorf("Dispatch section header should be labeled with '(cenci)', got %q", header)
+	}
+}
+
 func TestHelpMode_StatusBarShowsHints(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
@@ -701,7 +786,7 @@ func TestHelpContent_DispatchOpenTriggerMatchesDeleteConvention(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	content := b.buildHelpContent()
 
-	idx := strings.Index(content, "\nDispatch\n")
+	idx := strings.Index(content, "\nDispatch (cenci)\n")
 	if idx == -1 {
 		t.Fatal("buildHelpContent() should contain 'Dispatch' section header")
 	}

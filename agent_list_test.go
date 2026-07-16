@@ -678,7 +678,7 @@ func TestHelp_ListsAgentListKeybindings(t *testing.T) {
 
 	content := b.buildHelpContent()
 
-	agentsIdx := strings.Index(content, "\nAgents\n")
+	agentsIdx := strings.Index(content, "\nAgents (cenci)\n")
 	if agentsIdx == -1 {
 		t.Fatal("buildHelpContent() should contain an 'Agents' section header")
 	}
