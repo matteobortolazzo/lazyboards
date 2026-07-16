@@ -423,6 +423,13 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	if msg.metadataRequested {
 		b.lastMetadataFetch = time.Now()
 	}
+	// Adopt the repo-wide open-PR total only from a successful listing
+	// (openPRsFetched=true covers the legitimate empty list); on a failed or
+	// absent fetch the previous count is kept, so the indicator degrades to
+	// stale rather than wrong — the same non-fatal treatment as metadata.
+	if msg.openPRsFetched {
+		b.openPRCount = len(msg.openPRs)
+	}
 
 	b.pendingAutoRefresh = false
 
@@ -777,6 +784,14 @@ func (b *Board) columnCleanup(colIdx int) string {
 // (cardNumber 0 marks an unlinked PR); on error, the card-linked fallback
 // entries built by enterPRList are kept.
 func (b Board) handleOpenPRsFetched(msg openPRsMsg) (tea.Model, tea.Cmd) {
+	// A successful current-generation listing is fresh repo-wide data whether
+	// or not the modal is still open, so the status-bar PR indicator adopts
+	// its total before the modal-state guard below. Stale generations (an
+	// older request superseded by a newer one) are still dropped: they could
+	// arrive out of order and roll the count backwards.
+	if msg.err == nil && msg.generation == b.prList.generation {
+		b.openPRCount = len(msg.prs)
+	}
 	if b.mode != prListMode || msg.generation != b.prList.generation {
 		return b, nil
 	}

@@ -83,10 +83,10 @@ func (b Board) View() string {
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
-	// Help bar. Board-scoped agent counts and the linked-PR total render as an
-	// always-visible prefix.
+	// Help bar. All-window agent counts and the repo-wide open-PR total render
+	// as an always-visible prefix.
 	running, needInput := b.agentCounts()
-	helpBar := b.statusBar.View(innerWidth, running, needInput, b.prCounts())
+	helpBar := b.statusBar.View(innerWidth, running, needInput, b.prIndicatorCount())
 	if b.refreshing {
 		helpBar = b.spinner.View() + " Refreshing..."
 	}
@@ -1026,7 +1026,7 @@ var helpSections = []helpSection{
 	{"Status Bar", [][2]string{
 		{"▶N", "Agents running"},
 		{"!N", "Agents awaiting input"},
-		{linkedPRGlyph + "N", "Linked PRs across the board"},
+		{linkedPRGlyph + "N", "Open PRs in the repository"},
 	}},
 }
 

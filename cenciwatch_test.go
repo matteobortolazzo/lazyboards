@@ -370,11 +370,12 @@ func newAgentCountsBoard(t *testing.T, cards []provider.Card) Board {
 	return board
 }
 
-// TestBoard_AgentCounts_BoardScoped verifies agentCounts tallies only running /
-// need_input windows that join to a card on the board: idle statuses and
-// windows with no matching card are excluded, and the tally is a count (not a
-// boolean) so multiple running cards accumulate.
-func TestBoard_AgentCounts_BoardScoped(t *testing.T) {
+// TestBoard_AgentCounts_CountsAllWindows verifies agentCounts tallies every
+// running / need_input window in the snapshot — matched to a board card or not
+// — matching the agents list modal's all-windows scope. Idle (and other
+// non-active) statuses are excluded, and the tally is a count (not a boolean)
+// so multiple active windows accumulate.
+func TestBoard_AgentCounts_CountsAllWindows(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "First running"},
 		{Number: 2, Title: "Needs input"},
@@ -391,17 +392,17 @@ func TestBoard_AgentCounts_BoardScoped(t *testing.T) {
 		{WindowName: name(2, "Needs input"), Status: "need-input"},
 		{WindowName: name(3, "Idle card"), Status: "idle"}, // excluded: idle
 		{WindowName: name(4, "Second running"), Status: "running"},
-		{WindowName: "999-no-such-card", Status: "running"},    // excluded: unmatched
-		{WindowName: "888-no-such-card", Status: "need-input"}, // excluded: unmatched
+		{WindowName: "999-no-such-card", Status: "running"},    // counted: no card joins it
+		{WindowName: "888-no-such-card", Status: "need-input"}, // counted: no card joins it
 	}}
 
 	running, needInput := b.agentCounts()
 
-	if running != 2 {
-		t.Errorf("agentCounts() running = %d, want 2 (two matched running cards)", running)
+	if running != 3 {
+		t.Errorf("agentCounts() running = %d, want 3 (two matched + one unmatched running window)", running)
 	}
-	if needInput != 1 {
-		t.Errorf("agentCounts() needInput = %d, want 1 (one matched need_input card)", needInput)
+	if needInput != 2 {
+		t.Errorf("agentCounts() needInput = %d, want 2 (one matched + one unmatched need_input window)", needInput)
 	}
 }
 

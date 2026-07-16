@@ -303,9 +303,9 @@ Inside the menu, press an action's key to run it immediately (like lazygit), or 
 
 ### Status Bar Prefix (agent + PR counts)
 
-At the left of the status bar, an always-visible prefix summarizes the whole board: agent-status counts (`▶N` running, `!N` awaiting input) followed by the board-wide linked-PR total (` N`, using the same PR glyph shown on cards). Each token is omitted when its count is zero, and the prefix disappears entirely when all are zero. Because the prefix is reserved before anything else, it stays visible through timed status messages and is never truncated to make room for hints or the right-aligned git/dispatch segments.
+At the left of the status bar, an always-visible prefix summarizes the whole repository: agent-status counts (`▶N` running, `!N` awaiting input) followed by the repo-wide open-PR total (` N`, using the same PR glyph shown on cards). Each token is omitted when its count is zero, and the prefix disappears entirely when all are zero. Because the prefix is reserved before anything else, it stays visible through timed status messages and is never truncated to make room for hints or the right-aligned git/dispatch segments.
 
-The PR total counts open PRs that GitHub recognizes as closing linked cards. Mere issue mentions and closed PRs are excluded. Press `v` to open the [repo-wide open-PR list](#pull-requests) — note it lists *all* open PRs, so it can show more rows than this linked-only count.
+The agent counts cover every window the cenci-watch daemon tracks — the same set the `w` agents modal lists — whether or not a window's name joins to a card on the board. The PR total counts every open PR in the repository — the same set the `v` [open-PR list](#pull-requests) shows — not just PRs linked to cards. Until the first repo-wide listing succeeds (or if it isn't available), the PR token falls back to the card-linked sum; afterwards a failed refresh keeps the last known total rather than dropping the token.
 
 ### Git Status Segment
 

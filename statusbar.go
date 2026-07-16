@@ -196,7 +196,7 @@ func renderHints(hints []Hint, width int) string {
 }
 
 // View renders the status bar, truncating hints that exceed the given width.
-// The agent-status counts (running, needInput) and the board-wide linked-PR
+// The agent-status counts (running, needInput) and the repo-wide open-PR
 // count render as an always-visible prefix ahead of both hints and timed
 // messages; each token is omitted when its count is zero, and when all are zero
 // the prefix and its separator are omitted entirely. Timed messages are still
@@ -223,7 +223,7 @@ func (s StatusBar) View(width int, counts ...int) string {
 	}
 
 	prefix := agentPrefix(running, needInput)
-	// The board-wide linked-PR count trails the agent tokens in the same
+	// The repo-wide open-PR count trails the agent tokens in the same
 	// always-visible prefix: omitted when zero, and (because the prefix is
 	// reserved out of the width before hints/tail segments) never truncated.
 	if prCount > 0 {
