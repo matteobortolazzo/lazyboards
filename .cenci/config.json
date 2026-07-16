@@ -1,0 +1,30 @@
+{
+  "branchPattern": "feature/<id>-<description>",
+  "stack": {
+    "backend": "go-bubbletea",
+    "frontend": null,
+    "testing": ["go-test"]
+  },
+  "claudeMdLocation": ".claude/CLAUDE.md",
+  "mcpServers": {
+    "context7": true
+  },
+  "lspServers": {
+    "gopls": true
+  },
+  "autoCompactDisabled": true,
+  "pinSubagents200K": false,
+  "cicd": {
+    "enabled": true,
+    "platform": "github-actions"
+  },
+  "sandbox": {
+    "enabled": true,
+    "baseVersion": "1.3.0"
+  },
+  "lazyboards": {
+    "enabled": true,
+    "serveCommand": "go run .",
+    "boardKey": "W"
+  }
+}
