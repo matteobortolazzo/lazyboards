@@ -1000,3 +1000,242 @@ func TestCreateMode_TextareaMaxHeightScrollKeepsCursorVisible(t *testing.T) {
 			"View():\n%s", textareaView)
 	}
 }
+
+// --- Focus New Card On Create (#418) ---
+
+// TestCardCreated_SwitchesActiveTabToTargetColumn covers AC1: when the user
+// was viewing a column other than the target column (Columns[0]) at creation
+// time, ActiveTab switches to it so the new card is visible.
+func TestCardCreated_SwitchesActiveTabToTargetColumn(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	// Move to a column other than the target (Columns[0]).
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	if b.ActiveTab == 0 {
+		t.Fatal("precondition: ActiveTab should not be 0 after Tab")
+	}
+
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "New task"}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.ActiveTab != 0 {
+		t.Errorf("ActiveTab = %d after card created, want 0 (the column the card was created into)", updated.ActiveTab)
+	}
+}
+
+// TestCardCreated_CursorFocusesNewCard covers AC2: the new card becomes the
+// selected/highlighted card, whether or not the user was already viewing
+// the target column.
+func TestCardCreated_CursorFocusesNewCard(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	createdNumber := 99
+
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: createdNumber, Title: "New task"}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	selected := updated.selectedCard()
+	if selected.Number != createdNumber {
+		t.Errorf("selectedCard().Number = %d, want %d (the newly created card)", selected.Number, createdNumber)
+	}
+
+	col := updated.Columns[updated.ActiveTab]
+	if col.Cursor != len(col.Cards)-1 {
+		t.Errorf("Cursor = %d, want %d (index of the newly appended card)", col.Cursor, len(col.Cards)-1)
+	}
+}
+
+// TestCardCreated_CursorFocusesNewCard_WhenAlreadyViewingTargetColumn covers
+// the "user wasn't already viewing it" branch of AC1 explicitly: when the
+// user is already on Columns[0], ActiveTab must remain 0 (no-op switch) and
+// the cursor must still move to the new card.
+func TestCardCreated_CursorFocusesNewCard_WhenAlreadyViewingTargetColumn(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	if b.ActiveTab != 0 {
+		t.Fatalf("precondition: ActiveTab = %d, want 0", b.ActiveTab)
+	}
+	createdNumber := 99
+
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: createdNumber, Title: "New task"}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.ActiveTab != 0 {
+		t.Errorf("ActiveTab = %d, want 0 (already viewing the target column)", updated.ActiveTab)
+	}
+	if updated.selectedCard().Number != createdNumber {
+		t.Errorf("selectedCard().Number = %d, want %d", updated.selectedCard().Number, createdNumber)
+	}
+}
+
+// TestCardCreated_ClearsActiveSearchQuery covers AC3: an active search query
+// is cleared on creation so the new card can't be hidden behind a stale query.
+func TestCardCreated_ClearsActiveSearchQuery(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.searchQuery = "setup" // matches an existing card, not the new one
+	createdNumber := 99
+
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: createdNumber, Title: "Brand new task"}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.searchQuery != "" {
+		t.Errorf("searchQuery = %q after card created, want empty string (search must be cleared)", updated.searchQuery)
+	}
+	if updated.selectedCard().Number != createdNumber {
+		t.Errorf("selectedCard().Number = %d, want %d (new card visible/selected once search is cleared)", updated.selectedCard().Number, createdNumber)
+	}
+}
+
+// TestCardCreated_ClearsActiveLabelFilter covers AC3 for the label-filter case:
+// an active global filter that would exclude the new card is cleared on
+// creation, guaranteeing the new card is visible and selectable.
+func TestCardCreated_ClearsActiveLabelFilter(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "infra" // an existing label the new (unlabeled) card won't have
+	createdNumber := 99
+
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: createdNumber, Title: "Unlabeled task"}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.activeFilterType != filterTypeNone {
+		t.Errorf("activeFilterType = %v after card created, want filterTypeNone (filter must be cleared)", updated.activeFilterType)
+	}
+	if updated.activeFilterValue != "" {
+		t.Errorf("activeFilterValue = %q after card created, want empty string", updated.activeFilterValue)
+	}
+	if updated.selectedCard().Number != createdNumber {
+		t.Errorf("selectedCard().Number = %d, want %d (new card visible/selected once filter is cleared)", updated.selectedCard().Number, createdNumber)
+	}
+}
+
+// TestCardCreated_ScrollOffsetMakesNewCardVisible covers AC4: the scroll
+// offset is updated (via the existing onCursorMoved/clampScrollOffset path)
+// so the newly focused card, which sits below the fold in a long list, is
+// actually visible on screen.
+func TestCardCreated_ScrollOffsetMakesNewCardVisible(t *testing.T) {
+	cardCount := 30
+	height := 15 // panelHeight = 15 - 6 = 9, far fewer lines than 30 cards
+	b := newBoardWithGeneratedCards(t, cardCount, "Card %d", 120, height)
+
+	if b.Columns[0].ScrollOffset != 0 {
+		t.Fatalf("precondition: ScrollOffset = %d, want 0 before card creation", b.Columns[0].ScrollOffset)
+	}
+
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: cardCount + 1, Title: "Bottom-of-list task"}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	col := updated.Columns[0]
+	if col.ScrollOffset <= 0 {
+		t.Errorf("ScrollOffset = %d after creating a card appended past the visible area, want > 0", col.ScrollOffset)
+	}
+	if col.Cursor < col.ScrollOffset || col.Cursor >= len(col.Cards) {
+		t.Errorf("Cursor = %d, ScrollOffset = %d, len(Cards) = %d: cursor must stay within bounds and at/after the scroll offset", col.Cursor, col.ScrollOffset, len(col.Cards))
+	}
+}
+
+// TestCardCreated_DoesNotAutoFocusDetailPanel covers AC5 (not-focused case):
+// detailFocused must remain false -- creation is cursor/list-highlight focus
+// only, it never auto-opens the detail panel.
+func TestCardCreated_DoesNotAutoFocusDetailPanel(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	if b.detailFocused {
+		t.Fatal("precondition: detailFocused should be false")
+	}
+
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "New task"}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.detailFocused {
+		t.Error("detailFocused = true after card created, want false (detail panel must not auto-open)")
+	}
+}
+
+// TestCardCreated_PreservesDetailFocusedWhenTrue covers AC5 (left-as-is case):
+// if detailFocused was already true before creation, it must stay true --
+// creation must not toggle it in either direction. Today's key handling has
+// no path that reaches create mode with detailFocused already true, so this
+// guards a currently-unreachable combination defensively rather than a live
+// user flow.
+func TestCardCreated_PreservesDetailFocusedWhenTrue(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.detailFocused = true
+
+	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "New task"}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if !updated.detailFocused {
+		t.Error("detailFocused = false after card created, want true (must be left as-is, not toggled by creation)")
+	}
+}
+
+// TestCardCreated_AssigneeChainUnaffectedByFocusChange covers AC6: the
+// pending-assignee async chain (setAssigneesCmd/handleAssigneesUpdated) must
+// still fire correctly, and the cursor focus set at creation must not be
+// disturbed once the assignee update completes.
+func TestCardCreated_AssigneeChainUnaffectedByFocusChange(t *testing.T) {
+	b := newCreateTestBoardWithCollaborators(t)
+	b = enterCreateAndFocusAssignee(t, b)
+	b = sendKey(t, b, arrowMsg(tea.KeyRight)) // select "alice"
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))   // back to title
+	b = sendKey(t, b, keyMsg("Assigned task"))
+
+	m, submitCmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	if submitCmd == nil {
+		t.Fatal("precondition: submit cmd should be non-nil (spinner + createCardCmd)")
+	}
+
+	createdNumber := 99
+	createdCard := provider.Card{Number: createdNumber, Title: "Assigned task"}
+	m, cmd := b.Update(cardCreatedMsg{card: createdCard})
+	b, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if cmd == nil {
+		t.Fatal("cmd should be non-nil when pending assignee exists (setAssigneesCmd chain must still fire)")
+	}
+	if b.selectedCard().Number != createdNumber {
+		t.Fatalf("selectedCard().Number = %d, want %d (focus must be applied even when the assignee chain fires)", b.selectedCard().Number, createdNumber)
+	}
+
+	// Simulate the assignee chain completing.
+	assigneeUpdatedCard := createdCard
+	assigneeUpdatedCard.Assignees = []provider.Assignee{{Login: "alice"}}
+	m2, _ := b.Update(assigneesUpdatedMsg{card: assigneeUpdatedCard})
+	final, ok := m2.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m2)
+	}
+
+	if final.selectedCard().Number != createdNumber {
+		t.Errorf("selectedCard().Number = %d after assignee update completed, want %d (focus must remain on the new card)", final.selectedCard().Number, createdNumber)
+	}
+	if len(final.selectedCard().Assignees) == 0 || final.selectedCard().Assignees[0].Login != "alice" {
+		t.Errorf("selectedCard().Assignees = %v, want [alice] (assignee update must still apply to the new card)", final.selectedCard().Assignees)
+	}
+}
