@@ -916,7 +916,7 @@ var helpSections = []helpSection{
 		{"t", "Delete card"},
 		{"v", "Open PRs"},
 		{"w", "Agents"},
-		{"s", "Card agents"},
+		{"s", "Go to agent"},
 		{"/", "Search"},
 		{"a", "Assign"},
 		{"g", "Git menu"},
@@ -947,6 +947,7 @@ var helpSections = []helpSection{
 	{"Create Card", [][2]string{
 		{"esc", "Cancel"},
 		{"tab", "Next field"},
+		{"←/→", "Cycle assignee"},
 		{"enter", "Submit"},
 	}},
 	{"Configuration", [][2]string{
@@ -969,7 +970,7 @@ var helpSections = []helpSection{
 	}},
 	{"Agents", [][2]string{
 		{"w", "Agents (all cenci windows)"},
-		{"s", "Card agents (from Normal Mode)"},
+		{"s", "Go to agent (from Normal Mode)"},
 		{"j/k", "Navigate"},
 		{"enter", "Go to tmux window"},
 		{"esc", "Cancel"},
@@ -983,6 +984,11 @@ var helpSections = []helpSection{
 		{"enter", "Continue / Confirm"},
 		{"esc", "Cancel"},
 	}},
+	{"Close Confirm", [][2]string{
+		{"x", "Open (from Normal Mode)"},
+		{"y", "Confirm close"},
+		{"n/esc", "Cancel"},
+	}},
 	{"Filter", [][2]string{
 		{"f", "Filter (toggle)"},
 		{"j/k", "Navigate"},
@@ -992,6 +998,7 @@ var helpSections = []helpSection{
 	{"Search", [][2]string{
 		{"↑/↓", "Navigate results"},
 		{"ctrl+n/p", "Navigate results"},
+		{"tab/s-tab", "Switch columns (clears search)"},
 		{"enter", "Apply search"},
 		{"esc", "Clear search"},
 	}},
@@ -1001,6 +1008,7 @@ var helpSections = []helpSection{
 		{"esc", "Cancel"},
 	}},
 	{"Git Menu", [][2]string{
+		{"g", "Open (from Normal Mode)"},
 		{"P", "Push"},
 		{"p", "Pull (rebase)"},
 		{"f", "Fetch"},
@@ -1012,10 +1020,15 @@ var helpSections = []helpSection{
 		{"esc", "Cancel"},
 	}},
 	{"Dispatch", [][2]string{
-		{"d", "Open"},
+		{"d", "Open (from Normal Mode)"},
 		{"enter", "Enroll/Unenroll"},
 		{"o", "Dispatch once"},
 		{"esc", "Close"},
+	}},
+	{"Label Confirm", [][2]string{
+		{"y", "Create label, continue"},
+		{"n", "Cancel edit"},
+		{"esc", "Cancel edit"},
 	}},
 	{"Error", [][2]string{
 		{"r", "Retry"},

@@ -433,7 +433,7 @@ Press `?` at any time to open the in-app help popup.
 | `t` | Delete card permanently (with two-step confirmation) |
 | `v` | Open PRs (all open PRs in the repo) |
 | `w` | Agents (cenci-watch windows in this instance's tmux session, labeled `session:index`; `Enter` jumps to the tmux window) |
-| `s` | Card agents (jump to the selected card's agent window in this session; picker when several) |
+| `s` | Go to agent (jumps straight to the selected card's agent window in this session when there's exactly one; opens a picker when there are several) |
 | `/` | Search |
 | `a` | Assign collaborator |
 | `g` | Git menu |
@@ -471,6 +471,7 @@ Press `?` at any time to open the in-app help popup.
 |-----|--------|
 | `Esc` | Cancel |
 | `Tab` | Next field |
+| `←` / `→` | Cycle assignee |
 | `Enter` | Submit |
 
 ### Config Mode
@@ -514,6 +515,23 @@ available inside the modal.
 | `A-Z` | Custom action (`scope: pr`) on selected PR |
 | `Esc` | Cancel |
 
+### Agents
+
+`w` always opens the modal, listing every cenci-watch window in this
+instance's own tmux session (labeled `session:index`) regardless of whether
+it matches a card. `s` is a smart jump scoped to the selected card: zero
+matching windows shows a status message, exactly one switches the tmux
+client directly (no modal), and several open this same modal scoped to just
+that card's windows.
+
+| Key | Action |
+|-----|--------|
+| `w` | Open (every cenci-watch window in this instance's tmux session) |
+| `s` | Open, scoped to the selected card (from normal mode; only when it has several agent windows) |
+| `j` / `k` | Navigate |
+| `Enter` | Go to tmux window |
+| `Esc` | Cancel |
+
 ### Comment Mode
 
 | Key | Action |
@@ -536,6 +554,29 @@ A mismatched retype shows an inline error and stays on the confirm step;
 | `Enter` (comment step) | Continue to confirm step |
 | `Enter` (confirm step) | Confirm delete (must match the card number) |
 | `Esc` | Cancel |
+
+### Close Confirm
+
+Opened with `x` from normal mode. A lighter one-step confirmation than
+Delete — it moves the card to the closed state via the provider rather than
+deleting it outright.
+
+| Key | Action |
+|-----|--------|
+| `y` | Confirm close |
+| `n` / `Esc` | Cancel |
+
+### Label Confirm
+
+Entered automatically after saving an [edited card](#editing-cards) that adds
+labels lazyboards doesn't already know about. Confirms one unknown label at a
+time; once every unknown label is resolved, the edit is applied.
+
+| Key | Action |
+|-----|--------|
+| `y` | Create this label, continue to the next unknown label (or apply the edit if none remain) |
+| `n` | Cancel the whole edit |
+| `Esc` | Cancel the whole edit |
 
 ### Filter
 
@@ -567,8 +608,11 @@ All letters and digits type into the query (queries match titles, labels, and ca
 
 ### Git Menu
 
+Opened with `g` from normal mode.
+
 | Key | Action |
 |-----|--------|
+| `g` | Open (from normal mode) |
 | `P` | Push |
 | `p` | Pull (rebase) |
 | `f` | Fetch |
@@ -581,8 +625,12 @@ All letters and digits type into the query (queries match titles, labels, and ca
 
 ### Dispatch
 
+Opened with `d` from normal mode. See [Dispatch Panel](#dispatch-panel) for
+what enrollment and a dispatch run actually do.
+
 | Key | Action |
 |-----|--------|
+| `d` | Open (from normal mode) |
 | `Enter` | Enroll/Unenroll current repo |
 | `o` | Dispatch once (all enrolled repos) |
 | `Esc` | Close |

@@ -424,7 +424,7 @@ func TestHelpMode_ViewShowsCustomActions(t *testing.T) {
 		"X": {Name: "Deploy App", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
-	b.Height = 150 // Tall enough that full help content (incl. the Delete section) renders without scrolling.
+	b.Height = 170 // Tall enough that full help content (incl. the Delete section) renders without scrolling.
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()
@@ -510,7 +510,7 @@ func TestHelpContent_ColumnActionsAreSortedByKey(t *testing.T) {
 func TestHelpMode_ViewShowsUsageSection(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
-	b.Height = 150 // Tall enough that full help content (incl. Status Bar section) renders without scrolling.
+	b.Height = 170 // Tall enough that full help content (incl. Status Bar section) renders without scrolling.
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()
@@ -568,5 +568,149 @@ func TestHelpMode_StatusBarShowsHints(t *testing.T) {
 	}
 	if !strings.Contains(view, "Scroll") {
 		t.Errorf("View() in helpMode should contain hint desc %q", "Scroll")
+	}
+}
+
+// --- Help Content: Accuracy & Consistency ---
+//
+// handleAgentJumpKey (mode_handlers.go) documents that "s" jumps directly to
+// the single matching agent window (no modal) when there's exactly one, and
+// only opens the Agents modal when there are several. "Card agents" implied
+// a list is always shown, which isn't true in the single-window case.
+
+func TestHelpContent_AgentJumpKeyIsNotMislabeledAsCardAgents(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	if strings.Contains(content, "Card agents") {
+		t.Error("buildHelpContent() should not describe 's' as 'Card agents' — it jumps directly to the single matching window, only opening a list when there are several")
+	}
+}
+
+func TestHelpContent_NormalModeAgentJumpKeyDescribesJump(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	normalStart := strings.Index(content, "Normal Mode\n")
+	detailStart := strings.Index(content, "\nDetail Panel\n")
+	if normalStart == -1 || detailStart == -1 {
+		t.Fatal("buildHelpContent() should contain Normal Mode and Detail Panel sections")
+	}
+	normalSection := content[normalStart:detailStart]
+
+	if !strings.Contains(normalSection, "Go to agent") {
+		t.Error("Normal Mode section should describe 's' as 'Go to agent'")
+	}
+}
+
+func TestHelpContent_ContainsCloseConfirmSection(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	idx := strings.Index(content, "\nClose Confirm\n")
+	if idx == -1 {
+		t.Fatal("buildHelpContent() should contain 'Close Confirm' section header — closeConfirmMode (triggered by 'x') has no documented keys")
+	}
+	sectionContent := content[idx:]
+	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
+		sectionContent = sectionContent[:nextSection+1]
+	}
+
+	for _, want := range []string{"x", "y", "Cancel"} {
+		if !strings.Contains(sectionContent, want) {
+			t.Errorf("Close Confirm section should contain %q, got:\n%s", want, sectionContent)
+		}
+	}
+}
+
+func TestHelpContent_ContainsLabelConfirmSection(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	idx := strings.Index(content, "\nLabel Confirm\n")
+	if idx == -1 {
+		t.Fatal("buildHelpContent() should contain 'Label Confirm' section header — labelConfirmMode (entered after editing a card with unknown labels) has no documented keys")
+	}
+	sectionContent := content[idx:]
+	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
+		sectionContent = sectionContent[:nextSection+1]
+	}
+
+	for _, want := range []string{"y", "n", "Cancel"} {
+		if !strings.Contains(sectionContent, want) {
+			t.Errorf("Label Confirm section should contain %q, got:\n%s", want, sectionContent)
+		}
+	}
+}
+
+func TestHelpContent_SearchSectionDocumentsColumnSwitch(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	idx := strings.Index(content, "\nSearch\n")
+	if idx == -1 {
+		t.Fatal("buildHelpContent() should contain 'Search' section header")
+	}
+	sectionContent := content[idx:]
+	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
+		sectionContent = sectionContent[:nextSection+1]
+	}
+
+	if !strings.Contains(sectionContent, "tab/s-tab") {
+		t.Error("Search section should document tab/shift-tab column switching (handleSearchModeKey handles both)")
+	}
+}
+
+func TestHelpContent_CreateCardDocumentsAssigneeCycle(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	idx := strings.Index(content, "\nCreate Card\n")
+	if idx == -1 {
+		t.Fatal("buildHelpContent() should contain 'Create Card' section header")
+	}
+	sectionContent := content[idx:]
+	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
+		sectionContent = sectionContent[:nextSection+1]
+	}
+
+	if !strings.Contains(sectionContent, "Cycle assignee") {
+		t.Error("Create Card section should document left/right cycling the assignee field (handleCreateModeKey)")
+	}
+}
+
+func TestHelpContent_GitMenuDocumentsOpenTrigger(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	idx := strings.Index(content, "\nGit Menu\n")
+	if idx == -1 {
+		t.Fatal("buildHelpContent() should contain 'Git Menu' section header")
+	}
+	sectionContent := content[idx:]
+	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
+		sectionContent = sectionContent[:nextSection+1]
+	}
+
+	if !strings.Contains(sectionContent, "g") || !strings.Contains(sectionContent, "Open") {
+		t.Errorf("Git Menu section should document 'g' as the open trigger (consistent with Delete/Filter/Dispatch), got:\n%s", sectionContent)
+	}
+}
+
+func TestHelpContent_DispatchOpenTriggerMatchesDeleteConvention(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	idx := strings.Index(content, "\nDispatch\n")
+	if idx == -1 {
+		t.Fatal("buildHelpContent() should contain 'Dispatch' section header")
+	}
+	sectionContent := content[idx:]
+	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
+		sectionContent = sectionContent[:nextSection+1]
+	}
+
+	if !strings.Contains(sectionContent, "(from Normal Mode)") {
+		t.Error("Dispatch section's open trigger should note '(from Normal Mode)', consistent with the Delete section")
 	}
 }
