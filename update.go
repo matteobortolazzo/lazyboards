@@ -838,11 +838,23 @@ func (b Board) handleOpenPRsFetched(msg openPRsMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
-	b.Columns[0].Cards = append(b.Columns[0].Cards, mapProviderCard(msg.card))
+	const targetCol = 0 // create mode has no column picker; new cards always land here
+	b.Columns[targetCol].Cards = append(b.Columns[targetCol].Cards, mapProviderCard(msg.card))
 	b.create.titleInput.SetValue("")
 	b.create.labelInput.SetValue("")
 	b.validationErr = ""
 	b.mode = normalMode
+
+	// Focus the newly created card: switch to its column, drop any active
+	// search/filter that could hide it, then select it explicitly -- this
+	// runs after clearSearch/clearFilter because they reset the column
+	// cursor to 0, which we then override to point at the appended card.
+	b.ActiveTab = targetCol
+	b.clearSearch()
+	b.clearFilter()
+	col := &b.Columns[targetCol]
+	col.Cursor = len(col.Cards) - 1
+	b.onCursorMoved()
 
 	var cmd tea.Cmd
 	if b.create.pendingAssignee != "" {
