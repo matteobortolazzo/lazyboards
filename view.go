@@ -83,10 +83,10 @@ func (b Board) View() string {
 
 	panels := lipgloss.JoinHorizontal(lipgloss.Top, leftPanel, rightPanel)
 
-	// Help bar. All-window agent counts and the repo-wide open-PR total render
-	// as an always-visible prefix.
-	running, needInput := b.agentCounts()
-	helpBar := b.statusBar.View(innerWidth, running, needInput, b.prIndicatorCount())
+	// Help bar. Session-scoped agent counts (all six statuses) and the
+	// repo-wide open-PR total render as an always-visible prefix.
+	running, needInput, done, failed, stopped, idle := b.agentCounts()
+	helpBar := b.statusBar.View(innerWidth, running, needInput, b.prIndicatorCount(), done, failed, stopped, idle)
 	if b.refreshing {
 		helpBar = b.spinner.View() + " Refreshing..."
 	}

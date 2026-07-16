@@ -253,7 +253,9 @@ const (
 )
 
 // Agent window status values reported by the cenci-watch daemon (plain strings).
-// Only the two surfaced as status-bar counts are named here.
+// Not every status is named here — "done", "stopped", and "idle" are used as
+// literals elsewhere (agentStatusSymbol, agentCounts) matching view.go's
+// existing convention.
 const (
 	agentStatusRunning   = "running"
 	agentStatusNeedInput = "need-input"
@@ -1703,22 +1705,28 @@ func (b Board) agentBadgeFor(card Card) string {
 	return agentBadgeText(ws.Status, ws.Agent)
 }
 
-// agentCounts returns how many live agent windows are in the running /
-// need_input states. Every tracked window in the snapshot counts — matched to
-// a board card or not — keeping the status-bar summary consistent with the
-// agents list modal's all-windows scope (a window with no card still ran or
-// still wants input). When no snapshot is stored (cenci off/absent), both
-// counts are naturally zero.
-func (b Board) agentCounts() (running, needInput int) {
-	if b.agentSnapshot == nil {
-		return 0, 0
-	}
-	for _, w := range b.agentSnapshot.Windows {
+// agentCounts returns how many live agent windows are in each of the six
+// states the cenci-watch daemon reports (running, need-input, done, failed,
+// stopped, idle). It iterates sessionScopedWindows() — the same session scope
+// as agentListEntries (#410) — so the status-bar tally always matches exactly
+// what the agents modal lists: a window in a different tmux session than this
+// lazyboards instance is excluded, matched to a board card or not. When no
+// snapshot is stored (cenci off/absent), all six counts are naturally zero.
+func (b Board) agentCounts() (running, needInput, done, failed, stopped, idle int) {
+	for _, w := range b.sessionScopedWindows() {
 		switch w.Status {
 		case agentStatusRunning:
 			running++
 		case agentStatusNeedInput:
 			needInput++
+		case "done":
+			done++
+		case agentStatusFailed:
+			failed++
+		case "stopped":
+			stopped++
+		case "idle":
+			idle++
 		}
 	}
 	return
