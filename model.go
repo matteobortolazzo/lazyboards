@@ -823,11 +823,16 @@ type Board struct {
 	agentSnapshot               *cenciwatch.StateSnapshot
 	agentBackoff                time.Duration
 	cenciWatchConsecutiveErrors int
-	gitReader                   gitdetect.Reader
-	gitPanel                    gitPanelState
-	prList                      prListState
-	agentList                   agentListState
-	dispatch                    dispatchState
+	// tmuxSession is the tmux session name this lazyboards instance runs in,
+	// resolved once at startup (empty when not inside tmux). The agents list is
+	// scoped to it so an instance surfaces only the agents in its own session
+	// (#410); empty means "not in tmux", which disables the scoping.
+	tmuxSession string
+	gitReader   gitdetect.Reader
+	gitPanel    gitPanelState
+	prList      prListState
+	agentList   agentListState
+	dispatch    dispatchState
 	// openPRCount is the repo-wide open-PR total shown by the status-bar PR
 	// indicator, updated by every successful ListOpenPRs result (board fetch
 	// cycles and the v modal's fetch). -1 is the "never fetched" sentinel:
@@ -1543,11 +1548,9 @@ func (b Board) agentStatusForNumber(number int) *cenciwatch.WindowState {
 // so the modal and the card badges never disagree about which card a window
 // belongs to.
 func (b Board) agentListEntries() []agentListEntry {
-	if b.agentSnapshot == nil {
-		return nil
-	}
-	entries := make([]agentListEntry, 0, len(b.agentSnapshot.Windows))
-	for _, w := range b.agentSnapshot.Windows {
+	windows := b.sessionScopedWindows()
+	entries := make([]agentListEntry, 0, len(windows))
+	for _, w := range windows {
 		num, joined := ticketNumberFromWindowName(w.WindowName)
 		if b.agentList.cardNumber != 0 && (!joined || num != b.agentList.cardNumber) {
 			continue
@@ -1564,21 +1567,40 @@ func (b Board) agentListEntries() []agentListEntry {
 	return entries
 }
 
-// cardAgentWindows returns every snapshot window whose name joins to the
+// cardAgentWindows returns every session-scoped window whose name joins to the
 // given ticket number, in snapshot order — the same join rule as
 // agentStatusForNumber, which returns only the single "best" window for the
-// card badge.
+// card badge. Scoping matches agentListEntries so the s jump acts on exactly
+// the windows the agents modal would list.
 func (b Board) cardAgentWindows(number int) []cenciwatch.WindowState {
-	if b.agentSnapshot == nil {
-		return nil
-	}
 	var windows []cenciwatch.WindowState
-	for _, w := range b.agentSnapshot.Windows {
+	for _, w := range b.sessionScopedWindows() {
 		if n, ok := ticketNumberFromWindowName(w.WindowName); ok && n == number {
 			windows = append(windows, w)
 		}
 	}
 	return windows
+}
+
+// sessionScopedWindows returns the snapshot windows this lazyboards instance
+// surfaces in its agents list: only those in the same tmux session as the
+// instance itself (#410). When the instance's own session is unknown — it is
+// not running inside tmux — there is no "same session" to scope to, so every
+// tracked window is returned. Returns nil when no snapshot is stored yet.
+func (b Board) sessionScopedWindows() []cenciwatch.WindowState {
+	if b.agentSnapshot == nil {
+		return nil
+	}
+	if b.tmuxSession == "" {
+		return b.agentSnapshot.Windows
+	}
+	scoped := make([]cenciwatch.WindowState, 0, len(b.agentSnapshot.Windows))
+	for _, w := range b.agentSnapshot.Windows {
+		if w.Session == b.tmuxSession {
+			scoped = append(scoped, w)
+		}
+	}
+	return scoped
 }
 
 // ticketNumberFromWindowName parses the ticket number a window name joins to:
@@ -1619,6 +1641,21 @@ func (b Board) switchToAgentWindow(w cenciwatch.WindowState) error {
 		return err
 	}
 	return nil
+}
+
+// agentWindowRef is the "session:index" reference shown for a window in the
+// agents modal, so agents are identifiable by their tmux location (matching
+// cenci's own status output). Missing pieces degrade gracefully: a paneless
+// window with no tmux session/index yields "".
+func agentWindowRef(w cenciwatch.WindowState) string {
+	switch {
+	case w.Session != "" && w.WindowIndex != "":
+		return w.Session + ":" + w.WindowIndex
+	case w.Session != "":
+		return w.Session
+	default:
+		return w.WindowIndex
+	}
 }
 
 // agentBadgeFor returns the fixed-width badge text for the card's live agent

@@ -118,6 +118,79 @@ func TestAgentList_Entries_NonCanonicalNumberDoesNotJoin(t *testing.T) {
 	}
 }
 
+// --- Session scoping: the agents list is scoped to the lazyboards instance's
+// own tmux session (#410). ---
+
+func TestAgentList_Entries_ScopedToInstanceSession(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	// threeWindows spans "dev" (dev:3, dev:5) and "ops" (ops:1).
+	b := newAgentListBoard(t, fe, threeWindows())
+	b.tmuxSession = "dev"
+
+	entries := b.agentListEntries()
+
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2 (only the dev-session windows)", len(entries))
+	}
+	for i, e := range entries {
+		if e.window.Session != "dev" {
+			t.Errorf("entry %d session = %q, want dev (out-of-session window leaked)", i, e.window.Session)
+		}
+	}
+}
+
+func TestAgentList_Entries_UnknownInstanceSessionShowsAll(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, threeWindows())
+	b.tmuxSession = "" // not running inside tmux: nothing to scope to
+
+	if got := len(b.agentListEntries()); got != 3 {
+		t.Fatalf("entries with unknown instance session = %d, want 3 (all windows)", got)
+	}
+}
+
+func TestAgentList_View_ShowsSessionIndexPrefix(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, threeWindows())
+	b.tmuxSession = "dev"
+	b = sendKey(t, b, keyMsg("w"))
+
+	view := b.View()
+
+	if !strings.Contains(view, "dev:3") {
+		t.Errorf("view missing the session:index prefix %q", "dev:3")
+	}
+	if strings.Contains(view, "scratch") || strings.Contains(view, "ops:1") {
+		t.Errorf("view leaked an out-of-session window (ops:1 scratch)")
+	}
+}
+
+// TestNormalMode_S_OutOfSessionAgent_NotJumped: the s jump is scoped to the
+// instance's session too, so a card whose only agent runs in another tmux
+// session reports no windows rather than jumping across sessions.
+func TestNormalMode_S_OutOfSessionAgent_NotJumped(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	// Card #42's only agent runs in "ops"; this instance is "dev".
+	b := newAgentListBoard(t, fe, []cenciwatch.WindowState{
+		{Session: "ops", WindowIndex: "2", WindowName: "42-implement", Status: agentStatusRunning},
+	})
+	b.tmuxSession = "dev"
+
+	m, cmd := b.Update(keyMsg("s")) // card #42 selected (cursor 0)
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want normalMode (no in-session window to jump to)", b.mode)
+	}
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("RunShell called %d times for an out-of-session agent, want 0", len(fe.RunShellCalls))
+	}
+	if !strings.Contains(b.statusBar.View(200, 0, 0), "No agent windows for #42") {
+		t.Errorf("status = %q, want the no-windows-for-card message", b.statusBar.View(200, 0, 0))
+	}
+}
+
 // --- View ---
 
 func TestAgentList_View_ShowsWindowsWithCardRefs(t *testing.T) {

@@ -1445,6 +1445,9 @@ func (b Board) viewAgentListModal() string {
 				symbol = "·"
 			}
 			display := fmt.Sprintf("  %s %s", symbol, truncateOutput(entry.window.WindowName, 24))
+			if ref := agentWindowRef(entry.window); ref != "" {
+				display = fmt.Sprintf("  %s %s  %s", symbol, truncateOutput(ref, 16), truncateOutput(entry.window.WindowName, 24))
+			}
 			if entry.window.Agent != "" {
 				display += "  " + truncateOutput(entry.window.Agent, agentBadgeKindWidth)
 			}
