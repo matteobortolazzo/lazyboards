@@ -21,7 +21,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - In-app configuration UI (first-launch flow or press `c`)
 - Board refresh (manual and periodic background refresh)
 - Agent dispatch panel: enroll repos and trigger fleet-wide dispatch (`d`)
-- Agents modal: every cenci-watch window in this instance's own tmux session — matched to a card or not — labeled by `session:index`, with `Enter` jumping to its tmux window (`w`)
+- Agents modal: every cenci-watch window in this instance's own tmux session — matched to a card or not — labeled by `session:index`, with `Enter` jumping to its tmux window (`w`), or jump straight to a card's own agent window with `s`
 - Help popup with full keybinding reference (`?`)
 - Error screen with retry support
 - Responsive terminal resizing
@@ -123,9 +123,6 @@ This walks through wiring lazyboards to a real [cenci-watch](https://github.com/
    session_max_length: 40 # matches cenci's window-name cap
    cleanup: "tmux kill-window -t ={window} 2>/dev/null || true"
 
-   actions:
-     G: { name: Jump to agent, type: shell, command: 'tmux switch-client -t "={window}"' }
-
    columns:
      - name: New
        actions:
@@ -142,7 +139,9 @@ This walks through wiring lazyboards to a real [cenci-watch](https://github.com/
          W: { name: Open worktree, type: shell, scope: pr, command: 'tmux new-window -d -n pr-{pr_number} "cd {pr_worktree}"' }
    ```
 
-   Pressing `R` on a `New` card runs `cenci run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, the `G` custom action above jumps straight to it (via `{window}`, the live cenci window name), and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup). When the agent's PR lands the card in `In Review`, `W` opens its worktree in a fresh tmux window so you can review and run it locally — append the project's run command (`ng serve`, `dotnet run`, …) in a per-project `.lazyboards.yml` (see [Action Scope](#action-scope)).
+   Pressing `R` on a `New` card runs `cenci run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup). When the agent's PR lands the card in `In Review`, `W` opens its worktree in a fresh tmux window so you can review and run it locally — append the project's run command (`ng serve`, `dotnet run`, …) in a per-project `.lazyboards.yml` (see [Action Scope](#action-scope)).
+
+   Jumping to a card's agent window is built in — no custom action needed. Press `s` on a card to jump straight to its agent's tmux window (a picker opens if several windows match), or press `w` to open the full Agents modal listing every cenci-watch window.
 
 4. **Let cenci pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `cenci dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or start the recurring loop with the custom `cenci dispatch loop on` action described above. Tune concurrency, quiet hours, and per-agent budgets in cenci's own `dispatch` config block (`$XDG_CONFIG_HOME/cenci/config.json`) — see the [cenci README](https://github.com/matteobortolazzo/cenci/tree/main/watch#configuration-1) for the full reference.
 
