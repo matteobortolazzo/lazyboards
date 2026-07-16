@@ -22,7 +22,7 @@ func newGitStatusTestBoard(t *testing.T, reader gitdetect.Reader) Board {
 // --- fetchGitStatusCmd ---
 
 func TestFetchGitStatusCmd_Success_ReturnsGitStatusMsgWithStatus(t *testing.T) {
-	want := gitdetect.Status{Branch: "main", Staged: 2, Unstaged: 1, Ahead: 3, Behind: 0, HasUpstream: true}
+	want := gitdetect.Status{Branch: "main", Insertions: 2, Deletions: 1, Ahead: 3, Behind: 0, HasUpstream: true}
 	reader := gitdetect.FakeReader{Status: want}
 
 	cmd := fetchGitStatusCmd(reader, ".")
@@ -78,7 +78,7 @@ func TestScheduleGitStatusTick_WithReader_ReturnsNonNilCmd(t *testing.T) {
 
 func TestUpdate_GitStatusMsg_Success_SetsGitStatusSegment(t *testing.T) {
 	b := newGitStatusTestBoard(t, gitdetect.FakeReader{})
-	status := gitdetect.Status{Branch: "main", Staged: 1, Unstaged: 0, HasUpstream: false}
+	status := gitdetect.Status{Branch: "main", Insertions: 1, Deletions: 0, HasUpstream: false}
 
 	m, _ := b.Update(gitStatusMsg{status: status})
 	updated := m.(Board)

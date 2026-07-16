@@ -79,14 +79,15 @@ func (s *StatusBar) SetDispatchStatus(segment string) {
 }
 
 // formatGitSegment formats a git Status into a compact, plain-ASCII segment,
-// e.g. "main +2~1 ↑3↓0", colored: staged (added) in green, unstaged (deleted)
-// in red, ahead (push) and behind (pull) both in the same gentle orange since
-// they're sync state rather than a warning. The ahead/behind portion is
-// omitted entirely when HasUpstream is false.
+// e.g. "main +2~1 ↑3↓0", colored: inserted lines in green, deleted lines in
+// red (staged, unstaged, and untracked changes combined), ahead (push) and
+// behind (pull) both in the same gentle orange since they're sync state
+// rather than a warning. The ahead/behind portion is omitted entirely when
+// HasUpstream is false.
 func formatGitSegment(status gitdetect.Status) string {
 	segment := status.Branch + " " +
-		gitAddedStyle.Render("+"+strconv.Itoa(status.Staged)) +
-		gitDeletedStyle.Render("~"+strconv.Itoa(status.Unstaged))
+		gitAddedStyle.Render("+"+strconv.Itoa(status.Insertions)) +
+		gitDeletedStyle.Render("~"+strconv.Itoa(status.Deletions))
 	if status.HasUpstream {
 		segment += " " +
 			gitAheadStyle.Render("↑"+strconv.Itoa(status.Ahead)) +
