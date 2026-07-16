@@ -149,6 +149,42 @@ func TestAgentList_Entries_UnknownInstanceSessionShowsAll(t *testing.T) {
 	}
 }
 
+// TestAgentCounts_MatchesAgentListEntries_AcrossSessions verifies the
+// status-bar agent tally (agentCounts) and the agents modal (agentListEntries)
+// agree on population scope for a snapshot spanning multiple tmux sessions:
+// summing agentCounts' six per-status tallies must equal the modal's entry
+// count, and out-of-session windows (here carrying done/stopped statuses,
+// distinct from the in-session statuses) must not leak into either (#420).
+func TestAgentCounts_MatchesAgentListEntries_AcrossSessions(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	windows := []cenciwatch.WindowState{
+		{Session: "dev", WindowIndex: "1", WindowName: "42-implement", Status: agentStatusRunning},
+		{Session: "dev", WindowIndex: "2", WindowName: "999-research", Status: "idle"},
+		{Session: "dev", WindowIndex: "3", WindowName: "7-fix", Status: agentStatusNeedInput},
+		{Session: "ops", WindowIndex: "1", WindowName: "scratch", Status: "done"},
+		{Session: "ops", WindowIndex: "2", WindowName: "other", Status: "stopped"},
+	}
+	b := newAgentListBoard(t, fe, windows)
+	b.tmuxSession = "dev"
+
+	entries := b.agentListEntries()
+	running, needInput, done, failed, stopped, idle := b.agentCounts()
+	total := running + needInput + done + failed + stopped + idle
+
+	if len(entries) != 3 {
+		t.Fatalf("agentListEntries() = %d entries, want 3 (dev-session windows only)", len(entries))
+	}
+	if total != len(entries) {
+		t.Errorf("agentCounts total = %d, want %d to match agentListEntries() (same session scope)", total, len(entries))
+	}
+	if running != 1 || idle != 1 || needInput != 1 {
+		t.Errorf("agentCounts() dev-session tallies = (running=%d, idle=%d, needInput=%d), want (1, 1, 1)", running, idle, needInput)
+	}
+	if done != 0 || stopped != 0 || failed != 0 {
+		t.Errorf("agentCounts() done/stopped/failed = (%d, %d, %d), want (0, 0, 0): the ops-session windows must not leak into the dev-scoped tally", done, stopped, failed)
+	}
+}
+
 func TestAgentList_View_ShowsSessionIndexPrefix(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())

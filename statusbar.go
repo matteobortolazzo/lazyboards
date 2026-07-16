@@ -137,16 +137,35 @@ func (l StatusLevel) style() *lipgloss.Style {
 }
 
 // agentPrefix builds the styled agent-status count prefix shown at the head of
-// the status bar (e.g. "▶2 !1"): running via agentRunningStyle, need_input via
-// agentNeedInputStyle. Zero-valued counts are omitted; both zero yields "".
-func agentPrefix(running, needInput int) string {
+// the status bar (e.g. "▶2 !1 ✓1"), rendering all six window statuses the
+// cenci-watch daemon reports, in this order: running, need-input, done,
+// failed, stopped, idle. Each status's symbol/style is reused from view.go's
+// existing badge system (agentStatusSymbol/agentBadgeStyle) so the status bar
+// never disagrees with the card badges or the agents modal; idle has no badge
+// symbol (agentStatusSymbol("idle") == ""), so it reuses the agents modal's
+// literal "·" placeholder, left unstyled to match. A status's count is
+// omitted from the prefix entirely when that count is zero, independently per
+// status; all six zero yields "".
+func agentPrefix(running, needInput, done, failed, stopped, idle int) string {
 	var tokens []string
-	if running > 0 {
-		tokens = append(tokens, agentRunningStyle.Render("▶"+strconv.Itoa(running)))
+	appendToken := func(status string, count int) {
+		if count <= 0 {
+			return
+		}
+		symbol := agentStatusSymbol(status)
+		if symbol == "" {
+			symbol = "·"
+		}
+		// agentBadgeStyle's default case (idle/unknown) is already a plain,
+		// unstyled lipgloss.Style, so no separate unstyled branch is needed.
+		tokens = append(tokens, agentBadgeStyle(status).Render(symbol+strconv.Itoa(count)))
 	}
-	if needInput > 0 {
-		tokens = append(tokens, agentNeedInputStyle.Render("!"+strconv.Itoa(needInput)))
-	}
+	appendToken(agentStatusRunning, running)
+	appendToken(agentStatusNeedInput, needInput)
+	appendToken("done", done)
+	appendToken(agentStatusFailed, failed)
+	appendToken("stopped", stopped)
+	appendToken("idle", idle)
 	return strings.Join(tokens, " ")
 }
 
@@ -197,22 +216,18 @@ func renderHints(hints []Hint, width int) string {
 }
 
 // View renders the status bar, truncating hints that exceed the given width.
-// The agent-status counts (running, needInput) and the repo-wide open-PR
-// count render as an always-visible prefix ahead of both hints and timed
-// messages; each token is omitted when its count is zero, and when all are zero
-// the prefix and its separator are omitted entirely. Timed messages are still
-// shown untruncated. counts is variadic (running, needInput, prCount) for
-// caller convenience; missing values default to 0.
-//
-// When a git status segment is set (via SetGitStatus) and/or a dispatch
-// status segment is set (via SetDispatchStatus), they are right-aligned
-// after the hints, taking priority for space over hints: hints truncate to
-// make room for them. When both are set and there isn't enough width for
-// both, the dispatch segment is dropped first (git wins the contention);
-// when even the git segment alone doesn't fit, it is dropped too (not
-// truncated). Timed messages always override both.
+// The agent-status counts (running, needInput, done, failed, stopped, idle)
+// and the repo-wide open-PR count render as an always-visible prefix ahead of
+// both hints and timed messages; each token is omitted when its count is
+// zero, and when all are zero the prefix and its separator are omitted
+// entirely. Timed messages are still shown untruncated. counts is variadic
+// (running, needInput, prCount, done, failed, stopped, idle) for caller
+// convenience; missing values default to 0. The first three positions
+// (running, needInput, prCount) are load-bearing for existing callers and
+// must not be reordered; done/failed/stopped/idle were appended at the end
+// (#420).
 func (s StatusBar) View(width int, counts ...int) string {
-	var running, needInput, prCount int
+	var running, needInput, prCount, done, failed, stopped, idle int
 	if len(counts) > 0 {
 		running = counts[0]
 	}
@@ -222,8 +237,20 @@ func (s StatusBar) View(width int, counts ...int) string {
 	if len(counts) > 2 {
 		prCount = counts[2]
 	}
+	if len(counts) > 3 {
+		done = counts[3]
+	}
+	if len(counts) > 4 {
+		failed = counts[4]
+	}
+	if len(counts) > 5 {
+		stopped = counts[5]
+	}
+	if len(counts) > 6 {
+		idle = counts[6]
+	}
 
-	prefix := agentPrefix(running, needInput)
+	prefix := agentPrefix(running, needInput, done, failed, stopped, idle)
 	// The repo-wide open-PR count trails the agent tokens in the same
 	// always-visible prefix: omitted when zero, and (because the prefix is
 	// reserved out of the width before hints/tail segments) never truncated.

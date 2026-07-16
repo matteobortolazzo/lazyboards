@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -437,6 +438,200 @@ func TestStatusBar_ViewAgentPrefix_ReducesHintWidth(t *testing.T) {
 	}
 	if !strings.Contains(withPrefix, "...") {
 		t.Errorf("View(%d, 5, 0) = %q, want a truncation indicator", fullWidth, withPrefix)
+	}
+}
+
+// --- StatusBar: Agent-status count prefix, full six-state precedence (#420) ---
+//
+// agentPrefix/View originally only surfaced running/need-input. #420 extends
+// both to the full six window statuses the daemon reports, reusing the same
+// symbol/style set already established for card badges and the agents modal
+// (agentStatusSymbol/agentBadgeStyle in view.go) rather than guessed symbols,
+// and preserving the existing zero-count-omission behavior for every status.
+
+// TestAgentPrefix_AllSixStatesIndividually verifies each of the six states
+// renders its own token using the real symbol view.go's badge system already
+// established (agentStatusSymbol), not a hardcoded guess — except idle, which
+// has no badge symbol (agentStatusSymbol("idle") == "") and instead reuses the
+// agents modal's literal "·" placeholder (view.go's agentListEntries rendering).
+func TestAgentPrefix_AllSixStatesIndividually(t *testing.T) {
+	tests := []struct {
+		name                                            string
+		running, needInput, done, failed, stopped, idle int
+		wantSymbol                                      string
+	}{
+		{"running", 2, 0, 0, 0, 0, 0, agentStatusSymbol(agentStatusRunning)},
+		{"need-input", 0, 3, 0, 0, 0, 0, agentStatusSymbol(agentStatusNeedInput)},
+		{"done", 0, 0, 4, 0, 0, 0, agentStatusSymbol("done")},
+		{"failed", 0, 0, 0, 1, 0, 0, agentStatusSymbol(agentStatusFailed)},
+		{"stopped", 0, 0, 0, 0, 5, 0, agentStatusSymbol("stopped")},
+		{"idle", 0, 0, 0, 0, 0, 6, "·"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := agentPrefix(tt.running, tt.needInput, tt.done, tt.failed, tt.stopped, tt.idle)
+			count := tt.running + tt.needInput + tt.done + tt.failed + tt.stopped + tt.idle
+			wantToken := tt.wantSymbol + strconv.Itoa(count)
+			if !strings.Contains(got, wantToken) {
+				t.Errorf("agentPrefix(...) = %q, want token %q for state %s", got, wantToken, tt.name)
+			}
+		})
+	}
+}
+
+// TestAgentPrefix_AllZeroYieldsEmptyString verifies the "both zero yields
+// empty" precedence documented for the original two-state prefix extends to
+// all six states: with every count at zero, agentPrefix renders nothing (no
+// symbol for any of the six, including idle's "·" placeholder).
+func TestAgentPrefix_AllZeroYieldsEmptyString(t *testing.T) {
+	got := agentPrefix(0, 0, 0, 0, 0, 0)
+	if got != "" {
+		t.Errorf("agentPrefix(0,0,0,0,0,0) = %q, want empty string", got)
+	}
+}
+
+// TestAgentPrefix_EachNewStatusOmittedWhenItsOwnCountIsZero verifies each of
+// the three newly-added states (done, failed, stopped) is individually
+// omitted from the token list when its own count is zero, even while the
+// other five are non-zero — the zero-count-omission rule must apply per
+// status, not just to the prefix as a whole.
+func TestAgentPrefix_EachNewStatusOmittedWhenItsOwnCountIsZero(t *testing.T) {
+	doneSym := agentStatusSymbol("done")
+	failedSym := agentStatusSymbol(agentStatusFailed)
+	stoppedSym := agentStatusSymbol("stopped")
+
+	// done = 0, the rest non-zero.
+	got := agentPrefix(1, 1, 0, 1, 1, 1)
+	if strings.Contains(got, doneSym) {
+		t.Errorf("agentPrefix(done=0) = %q, should not contain done symbol %q", got, doneSym)
+	}
+
+	// failed = 0, the rest non-zero.
+	got = agentPrefix(1, 1, 1, 0, 1, 1)
+	if strings.Contains(got, failedSym) {
+		t.Errorf("agentPrefix(failed=0) = %q, should not contain failed symbol %q", got, failedSym)
+	}
+
+	// stopped = 0, the rest non-zero.
+	got = agentPrefix(1, 1, 1, 1, 0, 1)
+	if strings.Contains(got, stoppedSym) {
+		t.Errorf("agentPrefix(stopped=0) = %q, should not contain stopped symbol %q", got, stoppedSym)
+	}
+
+	// idle = 0, the rest non-zero: no "·" placeholder token. Guarded with a
+	// word boundary via a trailing non-digit check is unnecessary here since
+	// "·" is unique among the six symbols.
+	got = agentPrefix(1, 1, 1, 1, 1, 0)
+	if strings.Contains(got, "·") {
+		t.Errorf("agentPrefix(idle=0) = %q, should not contain the idle placeholder", got)
+	}
+}
+
+func TestStatusBar_ViewAgentPrefix_DoneCountShown(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	// View(width, running, needInput, prCount, done, failed, stopped, idle)
+	view := sb.View(200, 0, 0, 0, 4, 0, 0, 0)
+
+	wantToken := agentStatusSymbol("done") + "4"
+	if !strings.Contains(view, wantToken) {
+		t.Errorf("View() = %q, want done token %q", view, wantToken)
+	}
+}
+
+func TestStatusBar_ViewAgentPrefix_FailedCountShown(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 0, 0, 0, 0, 2, 0, 0)
+
+	wantToken := agentStatusSymbol(agentStatusFailed) + "2"
+	if !strings.Contains(view, wantToken) {
+		t.Errorf("View() = %q, want failed token %q", view, wantToken)
+	}
+}
+
+func TestStatusBar_ViewAgentPrefix_StoppedCountShown(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 0, 0, 0, 0, 0, 5, 0)
+
+	wantToken := agentStatusSymbol("stopped") + "5"
+	if !strings.Contains(view, wantToken) {
+		t.Errorf("View() = %q, want stopped token %q", view, wantToken)
+	}
+}
+
+func TestStatusBar_ViewAgentPrefix_IdleCountShown(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 0, 0, 0, 0, 0, 0, 3)
+
+	if !strings.Contains(view, "·3") {
+		t.Errorf("View() = %q, want idle token %q", view, "·3")
+	}
+}
+
+// TestStatusBar_ViewAgentPrefix_AllSixStatesRenderedInOrder verifies the
+// full six-token prefix renders every state and preserves the ticket-defined
+// left-to-right order: running, need-input, done, failed, stopped, idle.
+func TestStatusBar_ViewAgentPrefix_AllSixStatesRenderedInOrder(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 1, 2, 0, 3, 4, 5, 6)
+
+	tokens := []string{
+		agentStatusSymbol(agentStatusRunning) + "1",
+		agentStatusSymbol(agentStatusNeedInput) + "2",
+		agentStatusSymbol("done") + "3",
+		agentStatusSymbol(agentStatusFailed) + "4",
+		agentStatusSymbol("stopped") + "5",
+		"·6",
+	}
+	lastIdx := -1
+	for _, tok := range tokens {
+		idx := strings.Index(view, tok)
+		if idx < 0 {
+			t.Fatalf("View() = %q, missing token %q", view, tok)
+		}
+		if idx < lastIdx {
+			t.Errorf("View() = %q, token %q rendered out of order", view, tok)
+		}
+		lastIdx = idx
+	}
+}
+
+// TestStatusBar_ViewAgentPrefix_AllStatusesAndPRCountZeroOmitsPrefix extends
+// the original both-zero test to the full seven-value counts set: with every
+// agent status AND the PR count at zero, the prefix and its separator must be
+// omitted entirely.
+func TestStatusBar_ViewAgentPrefix_AllStatusesAndPRCountZeroOmitsPrefix(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 0, 0, 0, 0, 0, 0, 0)
+
+	for _, sym := range []string{
+		agentStatusSymbol(agentStatusRunning),
+		agentStatusSymbol(agentStatusNeedInput),
+		agentStatusSymbol("done"),
+		agentStatusSymbol(agentStatusFailed),
+		agentStatusSymbol("stopped"),
+		"·",
+	} {
+		if strings.Contains(view, sym) {
+			t.Errorf("View(all zero) = %q, should not contain symbol %q", view, sym)
+		}
+	}
+	if strings.Contains(view, "|") {
+		t.Errorf("View(all zero) = %q, want no prefix separator", view)
+	}
+}
+
+func TestStatusBar_ViewPRCount_AfterAllSixAgentTokens(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	view := sb.View(200, 1, 2, 3, 4, 5, 6, 7)
+
+	idleIdx := strings.Index(view, "·7")
+	prIdx := strings.Index(view, linkedPRGlyph)
+	qIdx := strings.Index(view, "Quit")
+	if idleIdx < 0 || prIdx < 0 || qIdx < 0 {
+		t.Fatalf("View() = %q, want idle token, PR count, and hints all present", view)
+	}
+	if idleIdx >= prIdx || prIdx >= qIdx {
+		t.Errorf("View() = %q, want order: idle token < PR count < hints (got idle=%d, pr=%d, hint=%d)", view, idleIdx, prIdx, qIdx)
 	}
 }
 

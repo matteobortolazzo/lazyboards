@@ -371,10 +371,13 @@ func newAgentCountsBoard(t *testing.T, cards []provider.Card) Board {
 }
 
 // TestBoard_AgentCounts_CountsAllWindows verifies agentCounts tallies every
-// running / need_input window in the snapshot — matched to a board card or not
-// — matching the agents list modal's all-windows scope. Idle (and other
-// non-active) statuses are excluded, and the tally is a count (not a boolean)
-// so multiple active windows accumulate.
+// window in the snapshot — matched to a board card or not — matching the
+// agents list modal's all-windows-in-scope behavior. Unlike the pre-#420
+// two-state tally, idle now counts too (#420 extends agentCounts to all six
+// states), and the tally is a count (not a boolean) so multiple active
+// windows accumulate. b.tmuxSession is unset here, so sessionScopedWindows
+// falls back to "every tracked window" (see TestBoard_AgentCounts_ScopedToInstanceSession
+// for the scoped case).
 func TestBoard_AgentCounts_CountsAllWindows(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "First running"},
@@ -390,13 +393,13 @@ func TestBoard_AgentCounts_CountsAllWindows(t *testing.T) {
 	b.agentSnapshot = &cenciwatch.StateSnapshot{Windows: []cenciwatch.WindowState{
 		{WindowName: name(1, "First running"), Status: "running"},
 		{WindowName: name(2, "Needs input"), Status: "need-input"},
-		{WindowName: name(3, "Idle card"), Status: "idle"}, // excluded: idle
+		{WindowName: name(3, "Idle card"), Status: "idle"}, // counted: idle is one of the six states
 		{WindowName: name(4, "Second running"), Status: "running"},
 		{WindowName: "999-no-such-card", Status: "running"},    // counted: no card joins it
 		{WindowName: "888-no-such-card", Status: "need-input"}, // counted: no card joins it
 	}}
 
-	running, needInput := b.agentCounts()
+	running, needInput, done, failed, stopped, idle := b.agentCounts()
 
 	if running != 3 {
 		t.Errorf("agentCounts() running = %d, want 3 (two matched + one unmatched running window)", running)
@@ -404,19 +407,94 @@ func TestBoard_AgentCounts_CountsAllWindows(t *testing.T) {
 	if needInput != 2 {
 		t.Errorf("agentCounts() needInput = %d, want 2 (one matched + one unmatched need_input window)", needInput)
 	}
+	if idle != 1 {
+		t.Errorf("agentCounts() idle = %d, want 1 (the idle card's window)", idle)
+	}
+	if done != 0 || failed != 0 || stopped != 0 {
+		t.Errorf("agentCounts() done/failed/stopped = (%d, %d, %d), want (0, 0, 0): no windows in those states", done, failed, stopped)
+	}
+}
+
+// TestBoard_AgentCounts_CountsAllSixStates verifies agentCounts surfaces every
+// one of the six window statuses the daemon reports (running, need-input,
+// done, failed, stopped, idle) individually, and excludes an unrecognized
+// status from all six tallies (#420 acceptance: "surface all six states").
+func TestBoard_AgentCounts_CountsAllSixStates(t *testing.T) {
+	b := newAgentCountsBoard(t, []provider.Card{{Number: 1, Title: "A card"}})
+	b.agentSnapshot = &cenciwatch.StateSnapshot{Windows: []cenciwatch.WindowState{
+		{WindowName: "100-a", Status: agentStatusRunning},
+		{WindowName: "101-b", Status: agentStatusNeedInput},
+		{WindowName: "102-c", Status: "done"},
+		{WindowName: "103-d", Status: agentStatusFailed},
+		{WindowName: "104-e", Status: "stopped"},
+		{WindowName: "105-f", Status: "idle"},
+		{WindowName: "106-g", Status: "banana"}, // unrecognized status: excluded from every tally
+	}}
+
+	running, needInput, done, failed, stopped, idle := b.agentCounts()
+
+	if running != 1 {
+		t.Errorf("agentCounts() running = %d, want 1", running)
+	}
+	if needInput != 1 {
+		t.Errorf("agentCounts() needInput = %d, want 1", needInput)
+	}
+	if done != 1 {
+		t.Errorf("agentCounts() done = %d, want 1", done)
+	}
+	if failed != 1 {
+		t.Errorf("agentCounts() failed = %d, want 1", failed)
+	}
+	if stopped != 1 {
+		t.Errorf("agentCounts() stopped = %d, want 1", stopped)
+	}
+	if idle != 1 {
+		t.Errorf("agentCounts() idle = %d, want 1", idle)
+	}
+}
+
+// TestBoard_AgentCounts_ScopedToInstanceSession verifies agentCounts iterates
+// sessionScopedWindows() rather than the raw, unfiltered snapshot: windows in
+// a different tmux session than this lazyboards instance must not contribute
+// to any of the six tallies (#420 acceptance: population scope must match
+// agentListEntries).
+func TestBoard_AgentCounts_ScopedToInstanceSession(t *testing.T) {
+	b := newAgentCountsBoard(t, []provider.Card{{Number: 1, Title: "A card"}})
+	b.tmuxSession = "dev"
+	b.agentSnapshot = &cenciwatch.StateSnapshot{Windows: []cenciwatch.WindowState{
+		{Session: "dev", WindowName: "1-a", Status: agentStatusRunning},
+		{Session: "dev", WindowName: "2-b", Status: "done"},
+		{Session: "ops", WindowName: "3-c", Status: agentStatusRunning},   // different session: excluded
+		{Session: "ops", WindowName: "4-d", Status: agentStatusNeedInput}, // different session: excluded
+		{Session: "ops", WindowName: "5-e", Status: "stopped"},            // different session: excluded
+	}}
+
+	running, needInput, done, failed, stopped, idle := b.agentCounts()
+
+	if running != 1 {
+		t.Errorf("agentCounts() running = %d, want 1 (only the dev-session running window)", running)
+	}
+	if done != 1 {
+		t.Errorf("agentCounts() done = %d, want 1 (only the dev-session done window)", done)
+	}
+	if needInput != 0 || failed != 0 || stopped != 0 || idle != 0 {
+		t.Errorf("agentCounts() needInput/failed/stopped/idle = (%d, %d, %d, %d), want all 0: those windows are all in the out-of-session \"ops\" session",
+			needInput, failed, stopped, idle)
+	}
 }
 
 // TestBoard_AgentCounts_NilSnapshotIsZero verifies that with no snapshot stored
-// (cenci off/absent) both counts are zero.
+// (cenci off/absent) all six counts are zero.
 func TestBoard_AgentCounts_NilSnapshotIsZero(t *testing.T) {
 	b := newAgentCountsBoard(t, []provider.Card{{Number: 1, Title: "A card"}})
 	if b.agentSnapshot != nil {
 		t.Fatal("test setup: agentSnapshot should be nil by default")
 	}
 
-	running, needInput := b.agentCounts()
-	if running != 0 || needInput != 0 {
-		t.Errorf("agentCounts() = (%d, %d), want (0, 0) when no snapshot is stored", running, needInput)
+	running, needInput, done, failed, stopped, idle := b.agentCounts()
+	if running != 0 || needInput != 0 || done != 0 || failed != 0 || stopped != 0 || idle != 0 {
+		t.Errorf("agentCounts() = (%d, %d, %d, %d, %d, %d), want all zero when no snapshot is stored",
+			running, needInput, done, failed, stopped, idle)
 	}
 }
 
@@ -488,7 +566,7 @@ func TestBoard_AgentBadge_NeedInputFromDaemonWireFormat(t *testing.T) {
 	if badge := b.agentBadgeFor(card); badge == "" {
 		t.Errorf("agentBadgeFor() = %q, want a non-empty badge for a need-input agent", badge)
 	}
-	if _, needInput := b.agentCounts(); needInput != 1 {
+	if _, needInput, _, _, _, _ := b.agentCounts(); needInput != 1 {
 		t.Errorf("agentCounts() needInput = %d, want 1 for one matched need-input card", needInput)
 	}
 }
