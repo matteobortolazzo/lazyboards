@@ -363,6 +363,45 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = dispatchMode
 		b.statusBar.SetActionHints(dispatchModeHints)
 		return b, queryDispatchStatusCmd(b.executor)
+	case "u":
+		// Capture the selected card's identity (filter-aware) before flipping
+		// the sort order, so the cursor can be restored to the same card by
+		// Number afterward rather than by raw index (#412;
+		// docs/list-cursor-invariants.md).
+		hasSelection := len(b.visibleCards()) > 0
+		selectedNumber := 0
+		if hasSelection {
+			selectedNumber = b.selectedCard().Number
+		}
+
+		b.sortNewestFirst = !b.sortNewestFirst
+		b.sortColumns()
+
+		if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
+			col := &b.Columns[b.ActiveTab]
+			visible := b.visibleCards()
+			found := false
+			if hasSelection {
+				for i, c := range visible {
+					if c.Number == selectedNumber {
+						col.Cursor = i
+						found = true
+						break
+					}
+				}
+			}
+			if !found && col.Cursor >= len(visible) {
+				col.Cursor = len(visible) - 1
+				if col.Cursor < 0 {
+					col.Cursor = 0
+				}
+			}
+		}
+
+		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
 	default:
 		// Check for number key navigation (1-9).
 		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {

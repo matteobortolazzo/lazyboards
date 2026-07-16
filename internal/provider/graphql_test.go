@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/shurcooL/githubv4"
 )
@@ -394,6 +395,39 @@ func TestFakeGraphQLClient_FetchIssueClosingPRPage_ReturnsScriptedPageForIssueAn
 		if fake.calledClosingPRCursors[i] != want {
 			t.Fatalf("calledClosingPRCursors = %+v, want %+v", fake.calledClosingPRCursors, wantCalls)
 		}
+	}
+}
+
+// --- CreatedAt (date-based sorting, #412) ---
+
+// TestIssueQueryNode_HasCreatedAtField pins that issueQueryNode selects the
+// issue's creation date, needed for the board's date-based sort (#412).
+// githubv4's default (no explicit graphql tag) field-name mapping
+// lowercases only the first rune, so a Go field named CreatedAt maps to the
+// GraphQL field "createdAt" without needing an explicit tag (unlike the
+// paginated ClosedByPullRequestsReferences connection above).
+func TestIssueQueryNode_HasCreatedAtField(t *testing.T) {
+	field, ok := reflect.TypeOf(issueQueryNode{}).FieldByName("CreatedAt")
+	if !ok {
+		t.Fatal("issueQueryNode is missing a CreatedAt field (needed for date-based sorting, #412)")
+	}
+	if field.Type != reflect.TypeOf(githubv4.DateTime{}) {
+		t.Fatalf("issueQueryNode.CreatedAt type = %v, want %v", field.Type, reflect.TypeOf(githubv4.DateTime{}))
+	}
+}
+
+// TestMapIssueQueryNode_MapsCreatedAt asserts mapIssueQueryNode carries the
+// GraphQL createdAt field through to issueNode.createdAt as a plain
+// time.Time, decoupled from githubv4.DateTime.
+func TestMapIssueQueryNode_MapsCreatedAt(t *testing.T) {
+	want := time.Date(2024, 3, 15, 10, 30, 0, 0, time.UTC)
+	var n issueQueryNode
+	n.CreatedAt = githubv4.DateTime{Time: want}
+
+	got := mapIssueQueryNode(n)
+
+	if !got.createdAt.Equal(want) {
+		t.Fatalf("mapIssueQueryNode().createdAt = %v, want %v", got.createdAt, want)
 	}
 }
 

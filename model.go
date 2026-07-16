@@ -304,6 +304,7 @@ type Card struct {
 	URL       string
 	LinkedPRs []LinkedPR
 	Assignees []Assignee
+	CreatedAt time.Time
 }
 
 // refreshTickMsg is sent when the periodic refresh timer fires.
@@ -839,6 +840,11 @@ type Board struct {
 	// prIndicatorCount falls back to the card-linked sum until the first
 	// successful listing, mirroring prListState's fallback precedence.
 	openPRCount int
+	// sortNewestFirst controls the board-wide card sort order applied by
+	// sortColumns: true sorts every column newest-created-first (the
+	// default), false oldest-first. Runtime-only, toggled by the 'u' key
+	// (#412); resets to true on every launch, never persisted to config.
+	sortNewestFirst bool
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
@@ -909,6 +915,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		cenciWatcher:       watcher,
 		gitReader:          gitReader,
 		openPRCount:        -1,
+		sortNewestFirst:    true,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
 			providerIndex:   0,
@@ -1169,6 +1176,15 @@ func (b *Board) rebuildNormalHints() {
 	// Default mode hints.
 	hints = append(hints, normalModeHints...)
 
+	// Persistent sort-order hint (#412): reflects b.sortNewestFirst, toggled
+	// by the 'u' key. Shown regardless of whether the active column has
+	// cards, like the other default-mode hints above.
+	sortDesc := "sort: newest"
+	if !b.sortNewestFirst {
+		sortDesc = "sort: oldest"
+	}
+	hints = append(hints, Hint{Key: "u", Desc: sortDesc})
+
 	// Collect action hints with their scopes: start with global, overlay column-specific.
 	type actionEntry struct {
 		hint  Hint
@@ -1258,6 +1274,25 @@ func mapProviderCard(c provider.Card) Card {
 		URL:       c.URL,
 		LinkedPRs: mapLinkedPRs(c.LinkedPRs),
 		Assignees: mapAssignees(c.Assignees),
+		CreatedAt: c.CreatedAt,
+	}
+}
+
+// sortColumns reorders every column's Cards slice by CreatedAt, direction
+// controlled by b.sortNewestFirst (#412). Uses sort.SliceStable so cards with
+// equal (or zero) CreatedAt values keep the provider's original order. This
+// is a pure reorder -- it never touches any column's Cursor; callers that
+// invoke it while a cursor should track a specific card must resolve and
+// restore that cursor themselves (see docs/list-cursor-invariants.md).
+func (b *Board) sortColumns() {
+	for i := range b.Columns {
+		cards := b.Columns[i].Cards
+		sort.SliceStable(cards, func(x, y int) bool {
+			if b.sortNewestFirst {
+				return cards[x].CreatedAt.After(cards[y].CreatedAt)
+			}
+			return cards[x].CreatedAt.Before(cards[y].CreatedAt)
+		})
 	}
 }
 

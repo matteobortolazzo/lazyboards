@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-github/v68/github"
 )
@@ -739,6 +740,32 @@ func TestGitHubFetchBoard_LabelWithoutColor_EmptyColorField(t *testing.T) {
 	}
 	if card.Labels[0].Color != "" {
 		t.Errorf("card.Labels[0].Color = %q, want empty string for label without color", card.Labels[0].Color)
+	}
+}
+
+// --- Card CreatedAt Threading (date-based sorting, #412) ---
+
+func TestGitHubFetchBoard_CardCreatedAtPopulated(t *testing.T) {
+	columns := []string{"Todo"}
+	wantCreatedAt := time.Date(2023, 5, 20, 8, 0, 0, 0, time.UTC)
+	issue := buildIssueNode(1, "Timestamped issue", "Todo")
+	issue.createdAt = wantCreatedAt
+
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if !card.CreatedAt.Equal(wantCreatedAt) {
+		t.Errorf("card.CreatedAt = %v, want %v", card.CreatedAt, wantCreatedAt)
 	}
 }
 

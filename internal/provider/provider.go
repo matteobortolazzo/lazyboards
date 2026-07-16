@@ -1,6 +1,9 @@
 package provider
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // LinkedPR represents a pull request linked to a card.
 type LinkedPR struct {
@@ -30,6 +33,7 @@ type Card struct {
 	URL       string
 	LinkedPRs []LinkedPR
 	Assignees []Assignee
+	CreatedAt time.Time
 }
 
 // Column represents a Kanban column containing cards.

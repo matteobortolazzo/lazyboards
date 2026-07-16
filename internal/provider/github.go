@@ -118,6 +118,7 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 				Labels:    issue.labels,
 				Assignees: issue.assignees,
 				LinkedPRs: linkedPRs,
+				CreatedAt: issue.createdAt,
 			}
 			columns[bestIdx].Cards = append(columns[bestIdx].Cards, card)
 		}

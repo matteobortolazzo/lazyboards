@@ -445,6 +445,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		}
 
 		b.Columns = cols
+		b.sortColumns()
 		b.refreshing = false
 		b.detailScrollOffset = 0
 
@@ -525,6 +526,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	b.Columns = cols
+	b.sortColumns()
 	b.mode = normalMode
 	b.detailScrollOffset = 0
 	b.detailFocused = false

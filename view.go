@@ -921,6 +921,7 @@ var helpSections = []helpSection{
 		{"a", "Assign"},
 		{"g", "Git menu"},
 		{"d", "Dispatch (cenci)"},
+		{"u", "Sort order"},
 		{"f", "Filter (toggle)"},
 		{"l/\u2192", "Detail panel"},
 		{"j/k", "Navigate cards"},
