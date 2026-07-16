@@ -100,7 +100,7 @@ actions:
 
 This split is deliberate and holds across the app: anything that continuously *displays* live cenci state (agent badges, this Loop line, the status-bar dispatch segment) is built in, while anything that *changes* cenci state (loop on/off, enroll) is yours to bind as a [custom action](#custom-actions). When the cenci-watch daemon connection is up (`cenci: true`), the Loop line updates live from the daemon's pushed state; on disconnect it falls back to the result of the last `cenci dispatch status` query made when the panel opened.
 
-See the [Dispatch keybindings](#dispatch) for the full key reference.
+See the [Dispatch keybindings](#dispatch-cenci) for the full key reference.
 
 ### Example: cenci + cenci-watch
 
@@ -432,12 +432,12 @@ Press `?` at any time to open the in-app help popup.
 | `x` | Close card (with confirmation) |
 | `t` | Delete card permanently (with two-step confirmation) |
 | `v` | Open PRs (all open PRs in the repo) |
-| `w` | Agents (cenci-watch windows in this instance's tmux session, labeled `session:index`; `Enter` jumps to the tmux window) |
-| `s` | Go to agent (jumps straight to the selected card's agent window in this session when there's exactly one; opens a picker when there are several) |
+| `w` | (cenci) Agents (cenci-watch windows in this instance's tmux session, labeled `session:index`; `Enter` jumps to the tmux window) |
+| `s` | (cenci) Go to agent (jumps straight to the selected card's agent window in this session when there's exactly one; opens a picker when there are several) |
 | `/` | Search |
 | `a` | Assign collaborator |
 | `g` | Git menu |
-| `d` | Dispatch |
+| `d` | (cenci) Dispatch |
 | `f` | Filter (toggle) |
 | `l` / `→` | Detail panel |
 | `j` / `↓` | Next card |
@@ -623,7 +623,7 @@ Opened with `g` from normal mode.
 | `Enter` | Run selected |
 | `Esc` | Cancel |
 
-### Dispatch
+### Dispatch (cenci)
 
 Opened with `d` from normal mode. See [Dispatch Panel](#dispatch-panel) for
 what enrollment and a dispatch run actually do.

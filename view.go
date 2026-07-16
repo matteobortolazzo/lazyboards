@@ -915,12 +915,12 @@ var helpSections = []helpSection{
 		{"x", "Close card"},
 		{"t", "Delete card"},
 		{"v", "Open PRs"},
-		{"w", "Agents"},
-		{"s", "Go to agent"},
+		{"w", "Agents (cenci)"},
+		{"s", "Go to agent (cenci)"},
 		{"/", "Search"},
 		{"a", "Assign"},
 		{"g", "Git menu"},
-		{"d", "Dispatch"},
+		{"d", "Dispatch (cenci)"},
 		{"f", "Filter (toggle)"},
 		{"l/\u2192", "Detail panel"},
 		{"j/k", "Navigate cards"},
@@ -968,7 +968,7 @@ var helpSections = []helpSection{
 		{"A-Z", "Custom action (scope: pr)"},
 		{"esc", "Cancel"},
 	}},
-	{"Agents", [][2]string{
+	{"Agents (cenci)", [][2]string{
 		{"w", "Agents (all cenci windows)"},
 		{"s", "Go to agent (from Normal Mode)"},
 		{"j/k", "Navigate"},
@@ -1019,7 +1019,7 @@ var helpSections = []helpSection{
 		{"enter", "Run selected"},
 		{"esc", "Cancel"},
 	}},
-	{"Dispatch", [][2]string{
+	{"Dispatch (cenci)", [][2]string{
 		{"d", "Open (from Normal Mode)"},
 		{"enter", "Enroll/Unenroll"},
 		{"o", "Dispatch once"},
