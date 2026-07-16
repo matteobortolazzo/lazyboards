@@ -495,7 +495,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		b.clampScrollOffset()
 		b.rebuildNormalHints()
 		if b.detailFocused {
-			b.statusBar.SetActionHints(detailFocusHints)
+			b.rebuildDetailHints()
 		} else {
 			b.statusBar.SetActionHints(b.normalHints)
 		}
@@ -1028,7 +1028,7 @@ func (b Board) handleCardUpdated(msg cardUpdatedMsg) (tea.Model, tea.Cmd) {
 func (b *Board) restoreModeHints() {
 	if b.comment.fromDetailFocused {
 		b.detailFocused = true
-		b.statusBar.SetActionHints(detailFocusHints)
+		b.rebuildDetailHints()
 		return
 	}
 	b.statusBar.SetActionHints(b.normalHints)
@@ -1286,7 +1286,7 @@ func (b *Board) closeHelp() {
 	b.mode = normalMode
 	if b.helpFromDetailFocused {
 		b.detailFocused = true
-		b.statusBar.SetActionHints(detailFocusHints)
+		b.rebuildDetailHints()
 	} else {
 		b.statusBar.SetActionHints(b.normalHints)
 	}

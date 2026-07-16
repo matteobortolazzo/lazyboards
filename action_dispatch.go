@@ -88,7 +88,7 @@ func (b *Board) clearPendingSeq() {
 // started from (card list vs detail panel).
 func (b *Board) restoreSeqHints() {
 	if b.detailFocused {
-		b.statusBar.SetActionHints(detailFocusHints)
+		b.rebuildDetailHints()
 		return
 	}
 	b.statusBar.SetActionHints(b.normalHints)
