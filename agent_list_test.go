@@ -686,7 +686,7 @@ func TestHelp_ListsAgentListKeybindings(t *testing.T) {
 	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
 		sectionContent = sectionContent[:nextSection+1]
 	}
-	for _, want := range []string{"w", "Go to tmux window", "Navigate", "Cancel", "Card agents"} {
+	for _, want := range []string{"w", "Go to tmux window", "Navigate", "Cancel", "Go to agent"} {
 		if !strings.Contains(sectionContent, want) {
 			t.Errorf("Agents help section missing %q", want)
 		}
