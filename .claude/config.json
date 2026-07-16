@@ -20,6 +20,11 @@
   },
   "sandbox": {
     "enabled": true,
-    "baseVersion": "1.0.2"
+    "baseVersion": "1.2.0"
+  },
+  "lazyboards": {
+    "enabled": true,
+    "serveCommand": "go run .",
+    "boardKey": "W"
   }
 }
