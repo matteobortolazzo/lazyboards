@@ -578,6 +578,111 @@ func TestDeleteMode_CardDeleteErrorMsg_SanitizesGitHubAPIErrorCardUntouched(t *t
 	}
 }
 
+// sensitiveFieldError is a test-local error type standing in for a
+// non-GitHub error whose Error() string is safe to display but which may
+// carry additional sensitive fields (e.g. a token embedded in a URL) that
+// must never be surfaced by SanitizeError's raw-fallback path (#389).
+type sensitiveFieldError struct {
+	safe   string // returned by Error() — safe to display
+	secret string // sensitive detail (e.g. token-in-URL) NOT surfaced by Error()
+}
+
+func (e sensitiveFieldError) Error() string { return e.safe }
+
+// TestDeleteMode_CardDeleteErrorMsg_SanitizesNonGitHubError_NoFieldLeak locks
+// in SanitizeError's raw-fallback path (non-GitHub errors) for the
+// commentPosted=false rendering: the status bar must route the error through
+// provider.SanitizeError and must never leak fields beyond what Error()
+// returns (#389).
+func TestDeleteMode_CardDeleteErrorMsg_SanitizesNonGitHubError_NoFieldLeak(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	card := b.selectedCard()
+
+	raw := sensitiveFieldError{
+		safe:   "delete failed",
+		secret: "https://ghp_SECRETTOKEN@api.github.com/repos/x",
+	}
+
+	m, cmd := b.Update(cardDeleteErrorMsg{err: raw, commentPosted: false})
+	b = m.(Board)
+
+	if strings.Contains(b.statusBar.message, "ghp_SECRETTOKEN") {
+		t.Errorf("status bar message leaked the sensitive field, got: %q", b.statusBar.message)
+	}
+	wantMsg := "Delete error: " + provider.SanitizeError(raw)
+	if b.statusBar.message != wantMsg {
+		t.Errorf("statusBar.message = %q, want %q", b.statusBar.message, wantMsg)
+	}
+	if strings.Contains(b.statusBar.message, "API error") {
+		t.Errorf("expected the non-GitHub fallback branch, not the GitHub API mapping, got: %q", b.statusBar.message)
+	}
+	if b.statusBar.level != StatusError {
+		t.Errorf("statusBar.level = %d, want StatusError", b.statusBar.level)
+	}
+	if b.mode != normalMode {
+		t.Errorf("mode = %d after cardDeleteErrorMsg, want normalMode", b.mode)
+	}
+	found := false
+	for _, c := range b.Columns[0].Cards {
+		if c.Number == card.Number {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected card to remain in Columns after a delete-permission failure")
+	}
+
+	threshold := statusMessageDuration + 500*time.Millisecond
+	if !waitClearedWithin(t, cmd, threshold) {
+		t.Errorf("expected the generic delete-error message to clear within statusMessageDuration (%s); commentPosted=false must not use longStatusMessageDuration (%s)", statusMessageDuration, longStatusMessageDuration)
+	}
+}
+
+// TestDeleteMode_CardDeleteErrorMsg_CommentPosted_SanitizesNonGitHubError_NoFieldLeak
+// is the commentPosted=true sibling of the test above: it locks in the same
+// raw-fallback sanitization guarantee for the partial-success rendering path
+// (#389).
+func TestDeleteMode_CardDeleteErrorMsg_CommentPosted_SanitizesNonGitHubError_NoFieldLeak(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	card := b.selectedCard()
+
+	raw := sensitiveFieldError{
+		safe:   "delete failed",
+		secret: "https://ghp_SECRETTOKEN@api.github.com/repos/x",
+	}
+
+	m, cmd := b.Update(cardDeleteErrorMsg{err: raw, commentPosted: true})
+	b = m.(Board)
+
+	if strings.Contains(b.statusBar.message, "ghp_SECRETTOKEN") {
+		t.Errorf("status bar message leaked the sensitive field, got: %q", b.statusBar.message)
+	}
+	wantMsg := "Comment posted, but delete failed: " + provider.SanitizeError(raw)
+	if b.statusBar.message != wantMsg {
+		t.Errorf("statusBar.message = %q, want %q", b.statusBar.message, wantMsg)
+	}
+	if b.statusBar.level != StatusError {
+		t.Errorf("statusBar.level = %d, want StatusError", b.statusBar.level)
+	}
+	if b.mode != normalMode {
+		t.Errorf("mode = %d after commentPosted cardDeleteErrorMsg, want normalMode", b.mode)
+	}
+	found := false
+	for _, c := range b.Columns[0].Cards {
+		if c.Number == card.Number {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected the card to remain in Columns after a partial-success delete failure")
+	}
+
+	threshold := statusMessageDuration + 500*time.Millisecond
+	if waitClearedWithin(t, cmd, threshold) {
+		t.Errorf("expected the partial-success message to persist past statusMessageDuration (%s); commentPosted=true must use longStatusMessageDuration (%s), not the short default", statusMessageDuration, longStatusMessageDuration)
+	}
+}
+
 // TestDeleteMode_CardDeleteErrorMsg_CommentPosted_SanitizesAndShowsPartialSuccessMessage
 // is the commentPosted=true sibling of the sanitization test above: when the
 // comment successfully posted before DeleteCard failed, the status bar must
