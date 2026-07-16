@@ -682,8 +682,8 @@ func TestStatusBar_ViewGitSegment_TimedMessageOverridesGitSegment(t *testing.T) 
 func TestFormatGitSegment_WithUpstream_IncludesBranchCountsAndAheadBehind(t *testing.T) {
 	status := gitdetect.Status{
 		Branch:      "main",
-		Staged:      2,
-		Unstaged:    1,
+		Insertions:  2,
+		Deletions:   1,
 		Ahead:       3,
 		Behind:      0,
 		HasUpstream: true,
@@ -695,7 +695,7 @@ func TestFormatGitSegment_WithUpstream_IncludesBranchCountsAndAheadBehind(t *tes
 		t.Errorf("formatGitSegment(%+v) = %q, want it to contain branch name %q", status, segment, "main")
 	}
 	if !strings.Contains(segment, "2") || !strings.Contains(segment, "1") {
-		t.Errorf("formatGitSegment(%+v) = %q, want it to contain staged count %d and unstaged count %d", status, segment, status.Staged, status.Unstaged)
+		t.Errorf("formatGitSegment(%+v) = %q, want it to contain insertion count %d and deletion count %d", status, segment, status.Insertions, status.Deletions)
 	}
 	if !strings.Contains(segment, "3") || !strings.Contains(segment, "0") {
 		t.Errorf("formatGitSegment(%+v) = %q, want it to contain ahead count %d and behind count %d", status, segment, status.Ahead, status.Behind)
@@ -708,8 +708,8 @@ func TestFormatGitSegment_WithUpstream_IncludesBranchCountsAndAheadBehind(t *tes
 func TestFormatGitSegment_NoUpstream_OmitsAheadBehind(t *testing.T) {
 	status := gitdetect.Status{
 		Branch:      "main",
-		Staged:      0,
-		Unstaged:    0,
+		Insertions:  0,
+		Deletions:   0,
 		HasUpstream: false,
 	}
 
@@ -723,15 +723,15 @@ func TestFormatGitSegment_NoUpstream_OmitsAheadBehind(t *testing.T) {
 	}
 }
 
-// TestFormatGitSegment_LazygitStyleColors verifies staged/unstaged/ahead/behind
-// counts are each individually colored (lazygit-style: additions green,
-// deletions red, ahead/behind both a gentle orange) rather than rendered as
-// one plain-text segment.
+// TestFormatGitSegment_LazygitStyleColors verifies insertion/deletion/
+// ahead/behind counts are each individually colored (lazygit-style:
+// additions green, deletions red, ahead/behind both a gentle orange) rather
+// than rendered as one plain-text segment.
 func TestFormatGitSegment_LazygitStyleColors(t *testing.T) {
 	status := gitdetect.Status{
 		Branch:      "main",
-		Staged:      2,
-		Unstaged:    1,
+		Insertions:  2,
+		Deletions:   1,
 		Ahead:       3,
 		Behind:      4,
 		HasUpstream: true,
@@ -740,10 +740,10 @@ func TestFormatGitSegment_LazygitStyleColors(t *testing.T) {
 	segment := formatGitSegment(status)
 
 	if !strings.Contains(segment, gitAddedStyle.Render("+2")) {
-		t.Errorf("formatGitSegment(%+v) = %q, want staged count colored via gitAddedStyle", status, segment)
+		t.Errorf("formatGitSegment(%+v) = %q, want insertion count colored via gitAddedStyle", status, segment)
 	}
 	if !strings.Contains(segment, gitDeletedStyle.Render("~1")) {
-		t.Errorf("formatGitSegment(%+v) = %q, want unstaged count colored via gitDeletedStyle", status, segment)
+		t.Errorf("formatGitSegment(%+v) = %q, want deletion count colored via gitDeletedStyle", status, segment)
 	}
 	if !strings.Contains(segment, gitAheadStyle.Render("↑3")) {
 		t.Errorf("formatGitSegment(%+v) = %q, want ahead count colored via gitAheadStyle", status, segment)
@@ -758,8 +758,8 @@ func TestFormatGitSegment_NoNerdFontGlyphs(t *testing.T) {
 	// glyphs are the plain Unicode arrows used for ahead/behind.
 	status := gitdetect.Status{
 		Branch:      "main",
-		Staged:      1,
-		Unstaged:    1,
+		Insertions:  1,
+		Deletions:   1,
 		Ahead:       1,
 		Behind:      1,
 		HasUpstream: true,
