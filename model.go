@@ -382,6 +382,13 @@ type boardFetchedMsg struct {
 	// to include collaborators/authenticated-user/labels, so the handler
 	// knows whether to advance lastMetadataFetch.
 	metadataRequested bool
+	// openPRs is the repo-wide open pull request listing fetched alongside
+	// the board (every cycle, not TTL-gated), feeding the status-bar PR
+	// indicator. openPRsFetched distinguishes a successful listing — even an
+	// empty one — from a failed/absent fetch (non-fatal, like metadata): when
+	// false, the handler keeps the previously known count.
+	openPRs        []provider.LinkedPR
+	openPRsFetched bool
 }
 
 // boardFetchErrorMsg is sent when the provider fails to fetch board data.
@@ -821,6 +828,12 @@ type Board struct {
 	prList                      prListState
 	agentList                   agentListState
 	dispatch                    dispatchState
+	// openPRCount is the repo-wide open-PR total shown by the status-bar PR
+	// indicator, updated by every successful ListOpenPRs result (board fetch
+	// cycles and the v modal's fetch). -1 is the "never fetched" sentinel:
+	// prIndicatorCount falls back to the card-linked sum until the first
+	// successful listing, mirroring prListState's fallback precedence.
+	openPRCount int
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
@@ -890,6 +903,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		normalHints:        hints,
 		cenciWatcher:       watcher,
 		gitReader:          gitReader,
+		openPRCount:        -1,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
 			providerIndex:   0,
@@ -1617,34 +1631,31 @@ func (b Board) agentBadgeFor(card Card) string {
 	return agentBadgeText(ws.Status, ws.Agent)
 }
 
-// agentCounts returns how many cards on the current board have a live agent
-// window in the running / need_input states. Counts are board-scoped: only
-// windows that join to a visible card (via agentStatusFor) contribute, keeping
-// the status-bar summary consistent with the per-card badges. When no snapshot
-// is stored (cenci off/absent), agentStatusFor returns nil for every card
-// and both counts are naturally zero.
+// agentCounts returns how many live agent windows are in the running /
+// need_input states. Every tracked window in the snapshot counts — matched to
+// a board card or not — keeping the status-bar summary consistent with the
+// agents list modal's all-windows scope (a window with no card still ran or
+// still wants input). When no snapshot is stored (cenci off/absent), both
+// counts are naturally zero.
 func (b Board) agentCounts() (running, needInput int) {
-	for _, col := range b.Columns {
-		for _, card := range col.Cards {
-			ws := b.agentStatusFor(card)
-			if ws == nil {
-				continue
-			}
-			switch ws.Status {
-			case agentStatusRunning:
-				running++
-			case agentStatusNeedInput:
-				needInput++
-			}
+	if b.agentSnapshot == nil {
+		return 0, 0
+	}
+	for _, w := range b.agentSnapshot.Windows {
+		switch w.Status {
+		case agentStatusRunning:
+			running++
+		case agentStatusNeedInput:
+			needInput++
 		}
 	}
 	return
 }
 
-// prCounts sums the linked pull requests across every card in every column,
-// producing the board-wide total shown in the status-bar PR indicator. It is a
-// raw count of linked PRs with no open/merged/closed filtering (LinkedPR has no
-// state today). Mirrors agentCounts' full-board iteration.
+// prCounts sums the linked pull requests across every card in every column —
+// the card-linked fallback prIndicatorCount shows until a repo-wide open-PR
+// listing succeeds. It is a raw count of linked PRs with no open/merged/closed
+// filtering (LinkedPR has no state today).
 func (b Board) prCounts() int {
 	total := 0
 	for _, col := range b.Columns {
@@ -1653,6 +1664,19 @@ func (b Board) prCounts() int {
 		}
 	}
 	return total
+}
+
+// prIndicatorCount returns the count for the status-bar PR indicator: the
+// repo-wide open-PR total (the same population the v modal lists) once any
+// ListOpenPRs fetch has succeeded, falling back to the card-linked sum before
+// that. This mirrors prListState's precedence, where card-linked entries are
+// the fallback until the repo-wide listing arrives; a later failed listing
+// keeps the last known total rather than reverting to the fallback.
+func (b Board) prIndicatorCount() int {
+	if b.openPRCount >= 0 {
+		return b.openPRCount
+	}
+	return b.prCounts()
 }
 
 func (b Board) Init() tea.Cmd {

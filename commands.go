@@ -47,6 +47,12 @@ func subscribeCenciWatchCmd(w cenciwatch.Watcher) tea.Cmd {
 // board itself). The returned boardFetchedMsg.metadataRequested records
 // which mode this fetch ran in, so the handler knows whether to advance
 // lastMetadataFetch.
+//
+// The repo-wide open-PR listing behind the status-bar PR indicator is fetched
+// concurrently on every cycle (not TTL-gated: PRs open and close far more
+// often than collaborators/labels change). Its failure is non-fatal — the
+// message just reports openPRsFetched=false and the handler keeps the
+// previous count.
 func fetchBoardCmd(p provider.BoardProvider, includeMetadata bool) tea.Cmd {
 	return func() tea.Msg {
 		type boardResult struct {
@@ -65,20 +71,40 @@ func fetchBoardCmd(p provider.BoardProvider, includeMetadata bool) tea.Cmd {
 			labels []string
 			err    error
 		}
+		type openPRsResult struct {
+			prs []provider.LinkedPR
+			err error
+		}
 
 		boardCh := make(chan boardResult, 1)
+		openPRCh := make(chan openPRsResult, 1)
 
 		go func() {
 			board, err := p.FetchBoard(context.Background())
 			boardCh <- boardResult{board: board, err: err}
 		}()
+		go func() {
+			prs, err := p.ListOpenPRs(context.Background())
+			openPRCh <- openPRsResult{prs: prs, err: err}
+		}()
+
+		applyOpenPRs := func(msg *boardFetchedMsg) {
+			pr := <-openPRCh
+			if pr.err != nil {
+				return
+			}
+			msg.openPRs = pr.prs
+			msg.openPRsFetched = true
+		}
 
 		if !includeMetadata {
 			br := <-boardCh
 			if br.err != nil {
 				return boardFetchErrorMsg{err: br.err}
 			}
-			return boardFetchedMsg{board: br.board, metadataRequested: false}
+			msg := boardFetchedMsg{board: br.board, metadataRequested: false}
+			applyOpenPRs(&msg)
+			return msg
 		}
 
 		collabCh := make(chan collabResult, 1)
@@ -124,6 +150,8 @@ func fetchBoardCmd(p provider.BoardProvider, includeMetadata bool) tea.Cmd {
 		} else {
 			msg.labelErr = lr.err
 		}
+
+		applyOpenPRs(&msg)
 
 		return msg
 	}
