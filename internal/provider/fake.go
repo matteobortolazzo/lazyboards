@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Compile-time check: *FakeProvider implements BoardProvider.
@@ -30,6 +31,21 @@ type FakeProvider struct {
 	ListOpenPRsCalls          int
 }
 
+// fakeCreatedAtBase anchors the fixture cards' creation timestamps.
+// fakeCreatedAt gives each fixture card a distinct value (one day apart,
+// decreasing as the card number increases) so the board's newest-created-
+// first default sort (#412) has an observable effect on the fake/dev-mode
+// data while preserving the fixture's original by-number display order
+// within each column (lower-numbered cards were "created" more recently,
+// so they continue to sort first under the newest-first default).
+var fakeCreatedAtBase = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// fakeCreatedAt returns a distinct creation timestamp for fixture card
+// number n, decreasing with n.
+func fakeCreatedAt(n int) time.Time {
+	return fakeCreatedAtBase.AddDate(0, 0, -n)
+}
+
 // NewFakeProvider returns a FakeProvider pre-populated with hardcoded Kanban data.
 func NewFakeProvider() *FakeProvider {
 	return &FakeProvider{
@@ -37,33 +53,33 @@ func NewFakeProvider() *FakeProvider {
 			{
 				Title: "New",
 				Cards: []Card{
-					{Number: 1, Title: "Setup CI", Labels: []Label{{Name: "infra"}}, Body: "Configure GitHub Actions for CI pipeline.", Assignees: []Assignee{{Login: "alice"}}},
+					{Number: 1, Title: "Setup CI", Labels: []Label{{Name: "infra"}}, Body: "Configure GitHub Actions for CI pipeline.", Assignees: []Assignee{{Login: "alice"}}, CreatedAt: fakeCreatedAt(1)},
 					{Number: 2, Title: "Data model", Labels: []Label{{Name: "design"}}, Body: "Design the core data model for boards and cards.", Assignees: []Assignee{{Login: "alice"}, {Login: "bob"}}, LinkedPRs: []LinkedPR{
 						{Number: 20, Title: "feat: add data model", URL: "https://github.com/owner/repo/pull/20"},
-					}},
+					}, CreatedAt: fakeCreatedAt(2)},
 					{Number: 3, Title: "Add README", Labels: []Label{{Name: "docs"}}, LinkedPRs: []LinkedPR{
 						{Number: 30, Title: "docs: add README", URL: "https://github.com/owner/repo/pull/30"},
 						{Number: 31, Title: "docs: improve README", URL: "https://github.com/owner/repo/pull/31"},
-					}},
+					}, CreatedAt: fakeCreatedAt(3)},
 				},
 			},
 			{
 				Title: "Refined",
 				Cards: []Card{
-					{Number: 4, Title: "User auth", Labels: []Label{{Name: "feature"}}},
-					{Number: 5, Title: "API routes", Labels: []Label{{Name: "backend"}}},
-					{Number: 6, Title: "Error types", Labels: []Label{{Name: "backend"}}},
-					{Number: 7, Title: "DB migrate", Labels: []Label{{Name: "infra"}}},
+					{Number: 4, Title: "User auth", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(4)},
+					{Number: 5, Title: "API routes", Labels: []Label{{Name: "backend"}}, CreatedAt: fakeCreatedAt(5)},
+					{Number: 6, Title: "Error types", Labels: []Label{{Name: "backend"}}, CreatedAt: fakeCreatedAt(6)},
+					{Number: 7, Title: "DB migrate", Labels: []Label{{Name: "infra"}}, CreatedAt: fakeCreatedAt(7)},
 				},
 			},
 			{
 				Title: "Implementing",
 				Cards: []Card{
-					{Number: 8, Title: "Board view", Labels: []Label{{Name: "feature"}}},
-					{Number: 9, Title: "Key binds", Labels: []Label{{Name: "feature"}}},
-					{Number: 10, Title: "Col nav", Labels: []Label{{Name: "feature"}}},
-					{Number: 11, Title: "Lipgloss", Labels: []Label{{Name: "ui"}}},
-					{Number: 12, Title: "Config", Labels: []Label{{Name: "feature"}}},
+					{Number: 8, Title: "Board view", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(8)},
+					{Number: 9, Title: "Key binds", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(9)},
+					{Number: 10, Title: "Col nav", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(10)},
+					{Number: 11, Title: "Lipgloss", Labels: []Label{{Name: "ui"}}, CreatedAt: fakeCreatedAt(11)},
+					{Number: 12, Title: "Config", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(12)},
 				},
 			},
 		},

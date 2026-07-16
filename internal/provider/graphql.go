@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"time"
 
 	"github.com/shurcooL/githubv4"
 )
@@ -58,6 +59,7 @@ type issueNode struct {
 	labels    []Label
 	assignees []Assignee
 	linkedPRs []LinkedPR
+	createdAt time.Time
 
 	hasMoreClosingPRs  bool
 	closingPREndCursor string
@@ -73,6 +75,7 @@ type issueNode struct {
 //	        title
 //	        body
 //	        url
+//	        createdAt
 //	        labels(first: 50) { nodes { name color } }
 //	        assignees(first: 20) { nodes { login } }
 //	        closedByPullRequestsReferences(first: 100) {
@@ -100,11 +103,12 @@ type pageInfoFragment struct {
 }
 
 type issueQueryNode struct {
-	Number githubv4.Int
-	Title  githubv4.String
-	Body   githubv4.String
-	URL    githubv4.String
-	Labels struct {
+	Number    githubv4.Int
+	Title     githubv4.String
+	Body      githubv4.String
+	URL       githubv4.String
+	CreatedAt githubv4.DateTime
+	Labels    struct {
 		Nodes []labelQueryNode
 	} `graphql:"labels(first: 50)"`
 	Assignees struct {
@@ -383,6 +387,7 @@ func mapIssueQueryNode(n issueQueryNode) issueNode {
 		labels:             labels,
 		assignees:          assignees,
 		linkedPRs:          mapLinkedPRs(n.ClosedByPullRequestsReferences.Nodes),
+		createdAt:          n.CreatedAt.Time,
 		hasMoreClosingPRs:  bool(n.ClosedByPullRequestsReferences.PageInfo.HasNextPage),
 		closingPREndCursor: string(n.ClosedByPullRequestsReferences.PageInfo.EndCursor),
 	}

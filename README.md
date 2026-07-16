@@ -438,6 +438,7 @@ Press `?` at any time to open the in-app help popup.
 | `a` | Assign collaborator |
 | `g` | Git menu |
 | `d` | (cenci) Dispatch |
+| `u` | Toggle sort order (newest/oldest created first; board-wide, applies to all columns) |
 | `f` | Filter (toggle) |
 | `l` / `→` | Detail panel |
 | `j` / `↓` | Next card |
