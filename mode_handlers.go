@@ -268,7 +268,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b.handleTicketOpenKey()
 	case "l", "right":
 		b.detailFocused = true
-		b.statusBar.SetActionHints(detailFocusHints)
+		b.rebuildDetailHints()
 	case "shift+tab":
 		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
 	case "tab":
@@ -668,7 +668,7 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// the hint set matching where the user came from.
 	restoreHints := func() {
 		if b.detailFocused {
-			b.statusBar.SetActionHints(detailFocusHints)
+			b.rebuildDetailHints()
 		} else {
 			b.statusBar.SetActionHints(b.normalHints)
 		}

@@ -1161,31 +1161,20 @@ func (b *Board) prScopeGated(act config.Action) bool {
 	return act.Scope == "pr" && len(b.selectedCard().LinkedPRs) == 0
 }
 
-// rebuildNormalHints reconstructs the normalHints slice by merging global
-// actions with the active column's per-column actions (column overrides global).
-func (b *Board) rebuildNormalHints() {
-	hints := make([]Hint, 0, len(normalModeHints)+len(b.actions)+2)
-
-	// Help pointer stays left-most so it survives left-to-right truncation.
-	hints = append(hints, helpHint)
-
+// gatedActionHints returns the scope-gated custom-action hints: global
+// actions overlaid with the active column's per-column actions (column
+// overrides global), filtered by the same rule used for dispatch: board-scope
+// hints always show; card-scope hints only when the active column has cards;
+// pr-scope hints only when the selected card has a linked PR (same gate as
+// the hardcoded "p" open-PR hint). Shared by rebuildNormalHints and
+// rebuildDetailHints so the card-list and detail-focused hint bars apply
+// identical scope gating and column-override precedence.
+func (b *Board) gatedActionHints() []Hint {
 	// Determine if the active column has cards.
 	hasCards := false
 	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
 		hasCards = len(b.Columns[b.ActiveTab].Cards) > 0
 	}
-
-	// Default mode hints.
-	hints = append(hints, normalModeHints...)
-
-	// Persistent sort-order hint (#412): reflects b.sortNewestFirst, toggled
-	// by the 'u' key. Shown regardless of whether the active column has
-	// cards, like the other default-mode hints above.
-	sortDesc := "sort: newest"
-	if !b.sortNewestFirst {
-		sortDesc = "sort: oldest"
-	}
-	hints = append(hints, Hint{Key: "u", Desc: sortDesc})
 
 	// Collect action hints with their scopes: start with global, overlay column-specific.
 	type actionEntry struct {
@@ -1212,9 +1201,7 @@ func (b *Board) rebuildNormalHints() {
 		}
 	}
 
-	// Filter: show board-scope hints always; card-scope hints only when column
-	// has cards; pr-scope hints only when the selected card has a linked PR
-	// (same gate as the hardcoded "p" open-PR hint above).
+	hints := make([]Hint, 0, len(actionEntries))
 	hasLinkedPR := hasCards && len(b.selectedCard().LinkedPRs) > 0
 	for _, entry := range actionEntries {
 		switch entry.scope {
@@ -1230,8 +1217,55 @@ func (b *Board) rebuildNormalHints() {
 			}
 		}
 	}
+	return hints
+}
+
+// rebuildNormalHints reconstructs the normalHints slice by merging global
+// actions with the active column's per-column actions (column overrides global).
+func (b *Board) rebuildNormalHints() {
+	hints := make([]Hint, 0, len(normalModeHints)+len(b.actions)+2)
+
+	// Help pointer stays left-most so it survives left-to-right truncation.
+	hints = append(hints, helpHint)
+
+	// Default mode hints.
+	hints = append(hints, normalModeHints...)
+
+	// Persistent sort-order hint (#412): reflects b.sortNewestFirst, toggled
+	// by the 'u' key. Shown regardless of whether the active column has
+	// cards, like the other default-mode hints above.
+	sortDesc := "sort: newest"
+	if !b.sortNewestFirst {
+		sortDesc = "sort: oldest"
+	}
+	hints = append(hints, Hint{Key: "u", Desc: sortDesc})
+
+	hints = append(hints, b.gatedActionHints()...)
 
 	b.normalHints = hints
+}
+
+// rebuildDetailHints reconstructs and applies the status bar hints shown when
+// the detail panel is focused: the "?" help pointer (so users never get stuck
+// without a pointer to the full help modal, matching rebuildNormalHints), the
+// built-in detail-panel hints, and the same scope-gated custom-action merge
+// used by rebuildNormalHints -- so the detail-focused hint bar reflects the
+// user's configured custom actions exactly like the card-list hint bar does.
+// Unlike normalHints, the result isn't cached on Board: every call site that
+// (re-)enters detail focus needs a fresh rebuild anyway (the gating depends
+// on the selected card/column, which can change while unfocused), so there's
+// no separate "restore the last-built hints" caller to justify a field.
+func (b *Board) rebuildDetailHints() {
+	hints := make([]Hint, 0, len(detailFocusHints)+len(b.actions)+2)
+
+	// Help pointer stays left-most so it survives left-to-right truncation.
+	hints = append(hints, helpHint)
+
+	hints = append(hints, detailFocusHints...)
+
+	hints = append(hints, b.gatedActionHints()...)
+
+	b.statusBar.SetActionHints(hints)
 }
 
 // mapSlice transforms each element of in with f, returning nil when in is
