@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -1128,6 +1129,41 @@ func TestComposeDetailMarkdown_NoAssignees_ShowsNone(t *testing.T) {
 
 	if !strings.Contains(md, "assignees: (none)") {
 		t.Errorf("composeDetailMarkdown should contain 'assignees: (none)' for cards without assignees, got:\n%s", md)
+	}
+}
+
+// --- Created Date in Detail Panel ---
+
+func TestComposeDetailMarkdown_CreatedField(t *testing.T) {
+	// composeDetailMarkdown should include a "created:" field with the
+	// card's creation date, formatted as YYYY-MM-DD.
+	card := Card{
+		Number:    5,
+		Title:     "Card with created date",
+		CreatedAt: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC),
+		Body:      "Some body",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if !strings.Contains(md, "created: 2026-01-15") {
+		t.Errorf("composeDetailMarkdown should contain 'created: 2026-01-15', got:\n%s", md)
+	}
+}
+
+func TestComposeDetailMarkdown_NoCreatedAt_ShowsUnknown(t *testing.T) {
+	// A card with a zero-value CreatedAt should show "created: (unknown)"
+	// rather than a zero-time string.
+	card := Card{
+		Number: 3,
+		Title:  "Card without created date",
+		Body:   "Body text",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if !strings.Contains(md, "created: (unknown)") {
+		t.Errorf("composeDetailMarkdown should contain 'created: (unknown)' when CreatedAt is zero, got:\n%s", md)
 	}
 }
 

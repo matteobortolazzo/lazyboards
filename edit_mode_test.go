@@ -3,6 +3,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
@@ -381,6 +382,39 @@ func TestEditMode_CardUpdatedMsg(t *testing.T) {
 	view := b.View()
 	if !strings.Contains(strings.ToLower(view), "updated") {
 		t.Errorf("View() after card update should contain 'updated' message, got:\n%s", view)
+	}
+}
+
+func TestEditMode_CardUpdatedPreservesCreatedAt(t *testing.T) {
+	b := newBoardWithBody(t, "Original body", "Other body")
+
+	// Seed the selected local card with a known non-zero CreatedAt, mimicking
+	// data populated by an earlier board fetch.
+	originalCreatedAt := time.Date(2025, 3, 10, 9, 0, 0, 0, time.UTC)
+	selectedCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	selectedCard.CreatedAt = originalCreatedAt
+	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor] = selectedCard
+
+	// Send cardUpdatedMsg whose card does NOT carry the same CreatedAt
+	// (the mutation response never repopulates CreatedAt).
+	updatedCard := provider.Card{
+		Number: selectedCard.Number,
+		Title:  "Updated Title",
+		Body:   "Updated body",
+		Labels: []provider.Label{{Name: "bug"}},
+	}
+	m, cmd := b.Update(cardUpdatedMsg{card: updatedCard})
+	b = m.(Board)
+	if cmd == nil {
+		t.Fatal("Update() returned nil cmd after cardUpdatedMsg, want status bar command")
+	}
+
+	// The local card's CreatedAt should be preserved from the existing local
+	// card, not dropped or overwritten by the mutation response.
+	localCard := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor]
+	if !localCard.CreatedAt.Equal(originalCreatedAt) {
+		t.Errorf("card CreatedAt = %v after cardUpdatedMsg, want %v (preserved from existing local card)",
+			localCard.CreatedAt, originalCreatedAt)
 	}
 }
 
