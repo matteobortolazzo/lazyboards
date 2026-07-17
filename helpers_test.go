@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -200,6 +202,26 @@ func newBoardWithEmptyColumn(t *testing.T, actions map[string]config.Action) (Bo
 	board.Width = 120
 	board.Height = 40
 	return board, fe
+}
+
+// mustLoadTestConfig writes yamlContent to a temp local config file and loads
+// it via config.Load, failing the test on error. This exercises action scope
+// resolution (defaulting/inference) through the real parsing/validation path
+// production code uses, rather than constructing config.Action literals
+// directly with an already-resolved Scope.
+func mustLoadTestConfig(t *testing.T, yamlContent string) config.Config {
+	t.Helper()
+	dir := t.TempDir()
+	localPath := filepath.Join(dir, ".lazyboards.yml")
+	if err := os.WriteFile(localPath, []byte(yamlContent), 0600); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+	globalPath := filepath.Join(dir, "nonexistent-global.yml")
+	cfg, err := config.Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("config.Load() failed: %v", err)
+	}
+	return cfg
 }
 
 // newBoardWithBody creates a Board with one column containing two cards.

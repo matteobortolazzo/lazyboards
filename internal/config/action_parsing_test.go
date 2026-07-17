@@ -984,6 +984,187 @@ columns:
 	}
 }
 
+// --- Auto-infer board scope when scope is omitted and the template has no
+// ticket-specific placeholders (#435) ---
+
+func TestLoad_ActionScopeOmitted_NoTicketVars_InfersBoard(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "url_with_repo_vars_only",
+			yaml: `provider: github
+actions:
+  B:
+    name: Open board
+    type: url
+    url: "https://github.com/{repo_owner}/{repo_name}/issues"
+`,
+		},
+		{
+			name: "url_with_no_vars",
+			yaml: `provider: github
+actions:
+  B:
+    name: Open board
+    type: url
+    url: "https://example.com/dashboard"
+`,
+		},
+		{
+			name: "shell_with_no_vars",
+			yaml: `provider: github
+actions:
+  B:
+    name: Deploy
+    type: shell
+    command: "docker compose up -d"
+`,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			result := mustLoadConfig(t, c.yaml, "")
+			action := result.Actions["B"]
+			if action.Scope != "board" {
+				t.Errorf("Actions[B].Scope = %q, want %q (omitted scope with no ticket-specific vars should infer board)", action.Scope, "board")
+			}
+		})
+	}
+}
+
+func TestLoad_ColumnActionScopeOmitted_NoTicketVars_InfersBoard(t *testing.T) {
+	yamlContent := `provider: github
+columns:
+  - name: Backlog
+    actions:
+      B:
+        name: View backlog
+        type: url
+        url: "https://github.com/{repo_owner}/{repo_name}/issues"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	colAction := result.Columns[0].Actions["B"]
+	if colAction.Scope != "board" {
+		t.Errorf("Columns[0].Actions[B].Scope = %q, want %q (omitted scope with no ticket-specific vars should infer board in per-column overrides too)", colAction.Scope, "board")
+	}
+}
+
+func TestLoad_ActionScopeOmitted_WithTicketVar_DefaultsToCard(t *testing.T) {
+	// Presence of any ticket-specific placeholder must keep the default at
+	// "card" -- unchanged from today's behavior -- even though the inference
+	// now looks at the template.
+	vars := []string{"number", "title", "tags", "session", "window"}
+	for _, v := range vars {
+		t.Run(v, func(t *testing.T) {
+			yamlContent := `provider: github
+actions:
+  B:
+    name: Ticket var action
+    type: url
+    url: "https://example.com/{` + v + `}"
+`
+			result := mustLoadConfig(t, yamlContent, "")
+			action := result.Actions["B"]
+			if action.Scope != "card" {
+				t.Errorf("Actions[B].Scope = %q, want %q (template referencing {%s} should still default to card)", action.Scope, "card", v)
+			}
+		})
+	}
+}
+
+func TestLoad_ActionScopeOmitted_WithPRVar_ReturnsError(t *testing.T) {
+	// A {pr_*} placeholder also keeps the default at "card" per the ticket,
+	// which in turn trips the existing "card scope cannot use pr-specific
+	// variables" validation -- so omitting scope on a pr-var template must
+	// still surface that error rather than silently succeeding.
+	prVars := []string{"pr_branch", "pr_number", "pr_url", "pr_title", "pr_worktree"}
+	for _, v := range prVars {
+		t.Run(v, func(t *testing.T) {
+			yamlContent := `provider: github
+actions:
+  W:
+    name: PR var action
+    type: shell
+    command: "echo {` + v + `}"
+`
+			_, err := loadConfigFromStrings(t, yamlContent, "")
+			if err == nil {
+				t.Fatalf("Load() returned nil error, want error for omitted-scope action using {%s} (defaults to card, which rejects pr vars)", v)
+			}
+			errLower := strings.ToLower(err.Error())
+			if !strings.Contains(errLower, "scope") || !strings.Contains(errLower, v) {
+				t.Errorf("error = %q, want it to contain 'scope' and %q", err.Error(), v)
+			}
+		})
+	}
+}
+
+func TestLoad_ExplicitScopeCard_NotOverriddenByInference(t *testing.T) {
+	// An explicit "card" scope must never be overridden by the inference,
+	// even when the template has no ticket-specific placeholders.
+	yamlContent := `provider: github
+actions:
+  B:
+    name: Explicit card
+    type: shell
+    scope: card
+    command: "docker compose up -d"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	action := result.Actions["B"]
+	if action.Scope != "card" {
+		t.Errorf("Actions[B].Scope = %q, want %q (explicit scope must not be overridden by inference)", action.Scope, "card")
+	}
+}
+
+func TestLoad_ExplicitScopePR_NotOverriddenByInference(t *testing.T) {
+	// An explicit "pr" scope must never be overridden by the inference,
+	// even when the template has no ticket-specific placeholders.
+	yamlContent := `provider: github
+actions:
+  W:
+    name: Explicit pr
+    type: shell
+    scope: pr
+    command: "docker compose up -d"
+`
+	result := mustLoadConfig(t, yamlContent, "")
+	action := result.Actions["W"]
+	if action.Scope != "pr" {
+		t.Errorf("Actions[W].Scope = %q, want %q (explicit scope must not be overridden by inference)", action.Scope, "pr")
+	}
+}
+
+// --- cardSpecificVarPattern must include {window} (#435 latent bug fix) ---
+
+func TestCardSpecificVarPattern_MatchesWindow(t *testing.T) {
+	if !cardSpecificVarPattern.MatchString("{window}") {
+		t.Error("cardSpecificVarPattern should match {window}: it is card-derived (per-card cenci window name) and documented as card-specific in the README")
+	}
+}
+
+func TestLoad_ActionScopeBoard_WithWindow_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  B:
+    name: Board with window
+    type: url
+    scope: board
+    url: "https://example.com/{window}"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for board-scope action using {window}")
+	}
+	errLower := strings.ToLower(err.Error())
+	if !strings.Contains(errLower, "scope") || !strings.Contains(errLower, "window") {
+		t.Errorf("error = %q, want it to contain 'scope' and 'window'", err.Error())
+	}
+}
+
 func TestLoad_ScopeConflict_BoardAndPRSameLetterDifferentMaps_NoError(t *testing.T) {
 	// Per the Q1 decision, only card<->pr is a rejected conflict; board
 	// sharing a letter with pr across maps is existing (unchanged) behavior.

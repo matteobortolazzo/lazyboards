@@ -114,8 +114,11 @@ func (c Config) ActionRefreshDelayValue() int {
 	return *c.ActionRefreshDelay
 }
 
-// DefaultScope returns "card" when s is empty, otherwise s unchanged. An
-// action's scope defaults to "card" when not explicitly set.
+// DefaultScope returns "card" when s is empty, otherwise s unchanged. This is
+// a defensive passthrough for actions whose scope has already been resolved
+// by validateActions (which calls inferScope to pick "card" or "board" based
+// on the action's template) — it is not itself the source of truth for the
+// default-scope policy.
 func DefaultScope(s string) string {
 	if s == "" {
 		return "card"
@@ -514,10 +517,22 @@ func validateColumns(cfg *Config) error {
 }
 
 // cardSpecificVarPattern matches card-specific template variables.
-var cardSpecificVarPattern = regexp.MustCompile(`\{(number|title|tags|session)\}`)
+var cardSpecificVarPattern = regexp.MustCompile(`\{(number|title|tags|session|window)\}`)
 
 // prSpecificVarPattern matches PR-specific template variables (scope: pr only).
 var prSpecificVarPattern = regexp.MustCompile(`\{(pr_branch|pr_number|pr_url|pr_title|pr_worktree)\}`)
+
+// inferScope returns the default scope for an action whose scope was omitted
+// from config: "board" when the template references no ticket-specific
+// placeholder (card-specific or pr-specific), otherwise "card" (today's
+// default). It never overrides an explicit scope -- callers only invoke it
+// when scope is empty.
+func inferScope(template string) string {
+	if cardSpecificVarPattern.MatchString(template) || prSpecificVarPattern.MatchString(template) {
+		return "card"
+	}
+	return "board"
+}
 
 // validateActions checks that all action definitions are well-formed.
 func validateActions(actions map[string]Action) error {
@@ -552,20 +567,21 @@ func validateActions(actions map[string]Action) error {
 		if action.Type == "shell" && strings.TrimSpace(action.Command) == "" {
 			return fmt.Errorf("action %q: command is required when type is \"shell\"", key)
 		}
-		// Default empty scope to "card".
+		// Default empty scope: infer "board" when the template has no
+		// ticket-specific placeholders, otherwise "card" (today's default).
+		template := action.URL + action.Command
 		if action.Scope == "" {
-			action.Scope = "card"
+			action.Scope = inferScope(template)
 			actions[key] = action
 		}
 		// Validate scope value.
 		if action.Scope != "card" && action.Scope != "board" && action.Scope != "pr" {
 			return fmt.Errorf("action %q: scope must be \"card\", \"board\", or \"pr\", got %q", key, action.Scope)
 		}
-		template := action.URL + action.Command
 		// Board-scope actions must not reference card-specific variables.
 		if action.Scope == "board" {
 			if cardSpecificVarPattern.MatchString(template) {
-				return fmt.Errorf("action %q: scope \"board\" cannot use card-specific variables ({number}, {title}, {tags}, {session})", key)
+				return fmt.Errorf("action %q: scope \"board\" cannot use card-specific variables ({number}, {title}, {tags}, {session}, {window})", key)
 			}
 			if prSpecificVarPattern.MatchString(template) {
 				return fmt.Errorf("action %q: scope \"board\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title}, {pr_worktree})", key)
