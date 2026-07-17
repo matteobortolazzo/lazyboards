@@ -213,6 +213,16 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return b, nil
 
+	case dispatchLoopToggleMsg:
+		if msg.err != "" {
+			b.dispatch.loading = false
+			b.dispatch.err = msg.err
+			return b, nil
+		}
+		// The toggle only reports exit status; re-query for the authoritative
+		// loop state. Keep loading=true until that lands (mirrors dispatchEnrollMsg).
+		return b, queryDispatchStatusCmd(b.executor)
+
 	case spinner.TickMsg:
 		if b.mode == loadingMode || b.mode == creatingMode || b.refreshing {
 			var cmd tea.Cmd

@@ -458,6 +458,27 @@ func dispatchOnceCmd(executor action.Executor) tea.Cmd {
 	}
 }
 
+// toggleLoopCmd returns a tea.Cmd that turns the fleet-wide cenci dispatch
+// loop on or off, chosen from its current enabled state. The loop is a global
+// daemon setting shared by every enrolled repo, so — like dispatchOnceCmd —
+// the command is fleet-wide and takes no --dir/--repo filter. It only checks
+// the exec exit status; stdout is ignored (the authoritative new state comes
+// from a follow-up queryDispatchStatusCmd re-query, mirroring toggleEnrollCmd).
+func toggleLoopCmd(executor action.Executor, enabled bool) tea.Cmd {
+	return func() tea.Msg {
+		sub := "on"
+		if enabled {
+			sub = "off"
+		}
+		command := "cenci dispatch loop " + sub
+		_, stderr, err := executor.RunShellOutput(command)
+		if err != nil {
+			return dispatchLoopToggleMsg{err: classifyCenciError(err, stderr)}
+		}
+		return dispatchLoopToggleMsg{}
+	}
+}
+
 // composeFrontmatter builds a YAML frontmatter string with title, labels (always included, bare key when empty), and body.
 func composeFrontmatter(title string, labels []string, body string) string {
 	var sb strings.Builder
