@@ -101,6 +101,47 @@ func TestDetailFocusedHints_OrderingSurvivesTruncation(t *testing.T) {
 	}
 }
 
+// --- Custom-action hint bar follows config file order (#435/#437) ---
+
+func TestDetailFocusedHints_OrderMatchesConfigOrder(t *testing.T) {
+	localYAML := `provider: github
+repo: matteobortolazzo/lazyboards
+actions:
+  Z:
+    name: Zebra action
+    type: shell
+    scope: board
+    command: "echo z"
+  A:
+    name: Apple action
+    type: shell
+    scope: board
+    command: "echo a"
+  M:
+    name: Mango action
+    type: shell
+    scope: board
+    command: "echo m"
+`
+	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
+
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true after 'l'")
+	}
+
+	hints := b.statusBar.hints
+	z := hintIndex(hints, "Z")
+	a := hintIndex(hints, "A")
+	m := hintIndex(hints, "M")
+	if z == -1 || a == -1 || m == -1 {
+		t.Fatalf("expected hints for Z, A, M; got: %+v", hints)
+	}
+	if !(z < a && a < m) {
+		t.Errorf("detail-focused hint order should match the config file order Z, A, M; got indices Z=%d A=%d M=%d in %+v", z, a, m, hints)
+	}
+}
+
 // --- AC2: scope gating mirrors rebuildNormalHints / dispatch ---
 
 func TestDetailFocusedHints_BoardScopeAction_VisibleEvenOnEmptyColumn(t *testing.T) {

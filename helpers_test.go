@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -359,6 +361,32 @@ func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, co
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, actions, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+	return loadFromFakeProvider(t, b, p), fe
+}
+
+// newConfigLoadedActionTestBoard writes localYAML to a temp .lazyboards.yml,
+// loads it through the real config.Load() (so Action.Order is populated from
+// document position, unlike hand-built map[string]config.Action fixtures
+// used elsewhere, which leave Order at its zero value), and builds a loaded
+// Board from the resulting actions/columns. Returns the board and the
+// FakeExecutor for assertion.
+func newConfigLoadedActionTestBoard(t *testing.T, localYAML string) (Board, *action.FakeExecutor) {
+	t.Helper()
+	dir := t.TempDir()
+	localPath := filepath.Join(dir, "local.yml")
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+	globalPath := filepath.Join(dir, "nonexistent-global.yml")
+
+	cfg, err := config.Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("config.Load() returned unexpected error: %v", err)
+	}
+
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, cfg.Actions, nil, cfg.Columns, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
 	return loadFromFakeProvider(t, b, p), fe
 }
 
