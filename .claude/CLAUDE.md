@@ -68,6 +68,7 @@ Tests are split by domain to mirror production code:
 | `pr_count_test.go` | PR count aggregation and status bar indicator |
 | `pr_list_test.go` | Global PR list modal navigation and selection |
 | `pr_picker_test.go` | Single/multi-PR picker (open in browser, status messages) |
+| `pr_status_test.go` | Pure PR-status derivation/priority functions (`prStatus`, `prStatusSymbol`, `prStatusStyle`, `worstPRStatus`) |
 | `key_sequence_test.go` | Custom-action key sequences (prefix keys, pending state, which-key hints, cancellation) |
 | `search_mode_test.go` | Search mode (enter/exit, query clearing) |
 | `version_test.go` | App version injection/fallback, `--version` flag handling |

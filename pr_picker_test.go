@@ -427,6 +427,58 @@ func TestPRPicker_Enter_WithoutPendingPRAction_StillOpensURL(t *testing.T) {
 	}
 }
 
+// --- PR status glyph in the PR picker (#431) ---
+//
+// viewPRPickerModal prepends the same prStatusSymbol(prStatus(pr)) +
+// prStatusStyle prefix used by the global PR list (pr_list_test.go) to the
+// single shown PR row. UNKNOWN renders no glyph, matching the PR list's
+// (and diverging from the board glyph's neutral-color) behavior.
+
+// TestPRPicker_View_ShowsStatusSymbolStyledForSelectedPR asserts the
+// currently-selected PR's row renders prStatusSymbol("conflicting") styled
+// via prConflictingStyle.
+func TestPRPicker_View_ShowsStatusSymbolStyledForSelectedPR(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Two PRs", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: conflicting", URL: "https://github.com/o/r/pull/10", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"},
+			{Number: 11, Title: "feat: unresolved", URL: "https://github.com/o/r/pull/11", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
+		}},
+	}, 120, 40)
+	b = sendKey(t, b, keyMsg("p"))
+	if b.mode != prPickerMode {
+		t.Fatalf("test setup: expected prPickerMode, got %d", b.mode)
+	}
+
+	view := b.viewPRPickerModal()
+	want := prConflictingStyle.Render(prStatusSymbol("conflicting"))
+	if !strings.Contains(view, want) {
+		t.Errorf("PR picker view missing conflicting status symbol styled %q; got:\n%s", want, view)
+	}
+}
+
+// TestPRPicker_View_UnknownStatusRendersNoGlyph asserts the picker shows no
+// status glyph for a PR whose mergeable state is UNKNOWN.
+func TestPRPicker_View_UnknownStatusRendersNoGlyph(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Two PRs", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: conflicting", URL: "https://github.com/o/r/pull/10", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"},
+			{Number: 11, Title: "feat: unresolved", URL: "https://github.com/o/r/pull/11", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
+		}},
+	}, 120, 40)
+	b = sendKey(t, b, keyMsg("p"))
+	b = sendKey(t, b, arrowMsg(tea.KeyRight)) // move to the second (unresolved) PR
+	if b.prPickerIndex != 1 {
+		t.Fatalf("test setup: expected prPickerIndex 1, got %d", b.prPickerIndex)
+	}
+
+	view := b.viewPRPickerModal()
+	for _, status := range []string{"draft", "mergeable", "conflicting", "blocked"} {
+		if sym := prStatusSymbol(status); sym != "" && strings.Contains(view, sym) {
+			t.Errorf("picker view for unknown-status PR contains a known-state glyph %q (status %s), want none; got:\n%s", sym, status, view)
+		}
+	}
+}
+
 func TestPRPicker_Escape_ClearsPendingPRAction(t *testing.T) {
 	actions := map[string]config.Action{
 		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch}"},

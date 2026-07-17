@@ -446,3 +446,87 @@ func TestMapIssuesQuery_MapsOuterPageInfo(t *testing.T) {
 		t.Fatalf("mapIssuesQuery() pagination = hasNextPage=%v endCursor=%q, want hasNextPage=true endCursor=%q", got.hasNextPage, got.endCursor, "issue-cursor-1")
 	}
 }
+
+// --- PR status fields (isDraft/mergeable/mergeStateStatus, #431) ---
+//
+// GitHub's PR status is exposed by cards, the global PR list, and the PR
+// picker; deriving/styling it lives in view.go (see pr_status_test.go), but
+// the raw GraphQL fields must first survive the pullRequestQueryNode ->
+// LinkedPR mapping in mapLinkedPRs. These tests pin that mapping using real
+// githubv4 enum constants (never hand-copied string literals), so the
+// producer (githubv4's typed enums) and this mapping stay in lockstep.
+
+// TestPullRequestQueryNode_HasStatusFields pins that pullRequestQueryNode
+// selects isDraft/mergeable/mergeStateStatus with the correct githubv4 enum
+// types, mirroring TestIssueQueryNode_HasCreatedAtField's reflection-based
+// field pin above.
+func TestPullRequestQueryNode_HasStatusFields(t *testing.T) {
+	typ := reflect.TypeOf(pullRequestQueryNode{})
+	tests := []struct {
+		field    string
+		wantType reflect.Type
+	}{
+		{"IsDraft", reflect.TypeOf(githubv4.Boolean(false))},
+		{"Mergeable", reflect.TypeOf(githubv4.MergeableState(""))},
+		{"MergeStateStatus", reflect.TypeOf(githubv4.MergeStateStatus(""))},
+	}
+	for _, tt := range tests {
+		f, ok := typ.FieldByName(tt.field)
+		if !ok {
+			t.Fatalf("pullRequestQueryNode is missing field %q", tt.field)
+		}
+		if f.Type != tt.wantType {
+			t.Errorf("pullRequestQueryNode.%s type = %v, want %v", tt.field, f.Type, tt.wantType)
+		}
+	}
+}
+
+// TestMapLinkedPRs_PopulatesStatusFields exercises mapLinkedPRs (the single
+// choke point shared by both closedByPullRequestsReferences and
+// pullRequests queries) across every isDraft/mergeable/mergeStateStatus
+// combination the ticket cares about, including MergeableStateUnknown.
+// Fixture input and expected output both derive from the real githubv4 enum
+// constants -- never a hand-copied "UNKNOWN"/"CONFLICTING" string literal --
+// per the project's producer-sample testing rule.
+func TestMapLinkedPRs_PopulatesStatusFields(t *testing.T) {
+	tests := []struct {
+		name             string
+		isDraft          githubv4.Boolean
+		mergeable        githubv4.MergeableState
+		mergeStateStatus githubv4.MergeStateStatus
+	}{
+		{"draft PR", true, githubv4.MergeableStateUnknown, githubv4.MergeStateStatusDraft},
+		{"clean mergeable PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusClean},
+		{"conflicting PR", false, githubv4.MergeableStateConflicting, githubv4.MergeStateStatusDirty},
+		{"blocked PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusBlocked},
+		{"behind PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusBehind},
+		{"unstable PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusUnstable},
+		{"unresolved mergeability", false, githubv4.MergeableStateUnknown, githubv4.MergeStateStatusUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var item pullRequestQueryNode
+			item.Number = githubv4.Int(1)
+			item.Title = githubv4.String("some PR")
+			item.URL = githubv4.String("https://github.com/o/r/pull/1")
+			item.IsDraft = tt.isDraft
+			item.Mergeable = tt.mergeable
+			item.MergeStateStatus = tt.mergeStateStatus
+
+			got := mapLinkedPRs([]pullRequestQueryNode{item})
+
+			if len(got) != 1 {
+				t.Fatalf("mapLinkedPRs() returned %d PRs, want 1", len(got))
+			}
+			if got[0].IsDraft != bool(tt.isDraft) {
+				t.Errorf("IsDraft = %v, want %v", got[0].IsDraft, tt.isDraft)
+			}
+			if got[0].Mergeable != string(tt.mergeable) {
+				t.Errorf("Mergeable = %q, want %q", got[0].Mergeable, string(tt.mergeable))
+			}
+			if got[0].MergeStateStatus != string(tt.mergeStateStatus) {
+				t.Errorf("MergeStateStatus = %q, want %q", got[0].MergeStateStatus, string(tt.mergeStateStatus))
+			}
+		})
+	}
+}

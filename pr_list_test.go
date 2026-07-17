@@ -555,6 +555,102 @@ func TestPRList_Hints_IncludePRScopedActions(t *testing.T) {
 	}
 }
 
+// --- PR status glyphs in the global PR list (#431) ---
+//
+// Each row is prefixed with prStatusSymbol(prStatus(entry.pr)) styled via
+// prStatusStyle, mirroring the codebase's existing agent-badge convention.
+// UNKNOWN renders a blank placeholder (no glyph) here -- unlike the board
+// glyph's neutral-color fallback (view_test.go's Q1 regression test) -- since
+// these rows already show the PR number/title and don't need a "has a PR"
+// signal from the glyph itself.
+
+// TestPRList_View_RowShowsStatusSymbolStyledPerEntry asserts a row for a
+// conflicting PR renders prStatusSymbol("conflicting") styled via
+// prConflictingStyle.
+func TestPRList_View_RowShowsStatusSymbolStyledPerEntry(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{
+		{Number: 1, Title: "Conflicting PR card", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: conflicting", URL: "https://github.com/o/r/pull/10", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"},
+		}},
+	}, fe)
+	b = sendKey(t, b, keyMsg("v"))
+
+	view := b.viewPRListModal()
+	want := prConflictingStyle.Render(prStatusSymbol("conflicting"))
+	if !strings.Contains(view, want) {
+		t.Errorf("PR list view missing conflicting status symbol styled %q; got:\n%s", want, view)
+	}
+}
+
+// TestPRList_View_UnknownStatusRendersNoGlyph asserts a row whose PR status
+// is UNKNOWN shows no status glyph at all (blank placeholder), diverging
+// intentionally from the board glyph's neutral-color-but-still-colored
+// behavior on UNKNOWN.
+func TestPRList_View_UnknownStatusRendersNoGlyph(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{
+		{Number: 1, Title: "Unresolved PR card", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: unresolved", URL: "https://github.com/o/r/pull/10", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
+		}},
+	}, fe)
+	b = sendKey(t, b, keyMsg("v"))
+
+	view := b.viewPRListModal()
+	var row string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "#10") {
+			row = line
+			break
+		}
+	}
+	if row == "" {
+		t.Fatalf("PR list view missing row for #10; got:\n%s", view)
+	}
+	for _, status := range []string{"draft", "mergeable", "conflicting", "blocked"} {
+		if sym := prStatusSymbol(status); sym != "" && strings.Contains(row, sym) {
+			t.Errorf("row for unknown-status PR contains a known-state glyph %q (status %s), want no glyph; row = %q", sym, status, row)
+		}
+	}
+}
+
+// TestPRList_View_ColumnAlignment_UnknownAndKnownStatusRowsMatch asserts the
+// "#NN" column lands at the same rendered column for a row with no status
+// glyph (unknown) as for a row with a styled glyph (known status) -- the
+// glyph slot must occupy a fixed rendered width whether or not a glyph is
+// actually shown, or the "#NN" column jitters left/right per row.
+func TestPRList_View_ColumnAlignment_UnknownAndKnownStatusRowsMatch(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{
+		{Number: 1, Title: "Mixed status card", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: unresolved", URL: "https://github.com/o/r/pull/10", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
+			{Number: 20, Title: "feat: conflicting", URL: "https://github.com/o/r/pull/20", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"},
+		}},
+	}, fe)
+	b = sendKey(t, b, keyMsg("v"))
+
+	view := b.viewPRListModal()
+	var unknownRow, knownRow string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "#10") {
+			unknownRow = line
+		}
+		if strings.Contains(line, "#20") {
+			knownRow = line
+		}
+	}
+	if unknownRow == "" || knownRow == "" {
+		t.Fatalf("view missing expected PR rows; got:\n%s", view)
+	}
+
+	unknownPrefixWidth := lipgloss.Width(unknownRow[:strings.Index(unknownRow, "#10")])
+	knownPrefixWidth := lipgloss.Width(knownRow[:strings.Index(knownRow, "#20")])
+	if unknownPrefixWidth != knownPrefixWidth {
+		t.Errorf("column widths before # differ: unknown-status row = %d, known-status row = %d\nunknown row: %q\nknown row:   %q",
+			unknownPrefixWidth, knownPrefixWidth, unknownRow, knownRow)
+	}
+}
+
 func TestPRList_ActionHints_AreSortedByKey(t *testing.T) {
 	b, _ := prListActionFixture(t, map[string]config.Action{
 		"Z": {Name: "Last", Scope: "pr"},
