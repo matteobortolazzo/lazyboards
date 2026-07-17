@@ -1055,20 +1055,18 @@ func (b *Board) filterMoveUp() {
 	}
 }
 
-// moveCursor returns cursor moved one step within [0, length-1]: down moves
-// forward (clamped at length-1), up moves backward (clamped at 0). Never
-// wraps around.
+// moveCursor returns cursor moved one step within [0, length-1], cycling
+// around the ends: down from the last item wraps to the first, up from the
+// first item wraps to the last. Lists with 0 or 1 items are a no-op (cursor
+// is returned unchanged, avoiding a divide-by-zero).
 func moveCursor(cursor, length int, down bool) int {
-	if down {
-		if cursor < length-1 {
-			cursor++
-		}
+	if length <= 1 {
 		return cursor
 	}
-	if cursor > 0 {
-		cursor--
+	if down {
+		return (cursor + 1) % length
 	}
-	return cursor
+	return (cursor - 1 + length) % length
 }
 
 // dispatchGitMenuKey closes the git menu and runs the built-in action bound to

@@ -191,18 +191,25 @@ func TestPRList_OpenPRsMsg_IgnoredAfterModalReopened(t *testing.T) {
 	}
 }
 
-func TestPRList_Navigation_MovesAndClampsCursor(t *testing.T) {
+func TestPRList_Navigation_MovesAndWrapsCursor(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 	b = sendKey(t, b, keyMsg("v"))
 
 	if b.prList.cursor != 0 {
 		t.Fatalf("initial cursor = %d, want 0", b.prList.cursor)
 	}
+	lastIndex := len(b.prList.entries) - 1
 
-	// k at the top stays clamped at 0.
+	// k at the top wraps to the last entry.
 	b = sendKey(t, b, keyMsg("k"))
+	if b.prList.cursor != lastIndex {
+		t.Errorf("cursor after k at top = %d, want %d (wrap to last)", b.prList.cursor, lastIndex)
+	}
+
+	// j from the last entry wraps back to the first.
+	b = sendKey(t, b, keyMsg("j"))
 	if b.prList.cursor != 0 {
-		t.Errorf("cursor after k at top = %d, want 0", b.prList.cursor)
+		t.Errorf("cursor after j at bottom = %d, want 0 (wrap to first)", b.prList.cursor)
 	}
 
 	b = sendKey(t, b, keyMsg("j"))
@@ -210,12 +217,32 @@ func TestPRList_Navigation_MovesAndClampsCursor(t *testing.T) {
 		t.Errorf("cursor after j = %d, want 1", b.prList.cursor)
 	}
 
-	// Walk to the bottom and confirm it clamps at the last entry.
+	// Walk to the bottom and confirm one more j wraps past it, back to 0.
 	b = sendKey(t, b, keyMsg("j"))
+	if b.prList.cursor != lastIndex {
+		t.Fatalf("cursor after walking to bottom = %d, want %d", b.prList.cursor, lastIndex)
+	}
 	b = sendKey(t, b, keyMsg("j"))
-	b = sendKey(t, b, keyMsg("j"))
-	if b.prList.cursor != 2 {
-		t.Errorf("cursor after walking past bottom = %d, want 2", b.prList.cursor)
+	if b.prList.cursor != 0 {
+		t.Errorf("cursor after walking past bottom = %d, want 0 (wrap to first)", b.prList.cursor)
+	}
+}
+
+// TestPRList_Navigation_ArrowKeys_WrapsCursor confirms Up/Down arrow keys
+// wrap identically to j/k: both route through the shared moveCursor helper.
+func TestPRList_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	lastIndex := len(b.prList.entries) - 1
+
+	b = sendKey(t, b, arrowMsg(tea.KeyUp))
+	if b.prList.cursor != lastIndex {
+		t.Errorf("cursor after Up at top = %d, want %d (wrap to last)", b.prList.cursor, lastIndex)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	if b.prList.cursor != 0 {
+		t.Errorf("cursor after Down at bottom = %d, want 0 (wrap to first)", b.prList.cursor)
 	}
 }
 

@@ -157,26 +157,93 @@ func TestGitPanel_JK_Navigation(t *testing.T) {
 	}
 }
 
-func TestGitPanel_CursorClampsAtBounds(t *testing.T) {
+func TestGitPanel_CursorWrapsAtBounds(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
 	b = sendKey(t, b, keyMsg("g"))
 	if b.mode != gitPanelMode {
 		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
 	}
+	lastIndex := len(b.gitPanel.items) - 1
 
+	// k at the top wraps to the last item.
+	b = sendKey(t, b, keyMsg("k"))
+	if b.gitPanel.cursor != lastIndex {
+		t.Errorf("cursor after k at top = %d, want %d (wrap to last)", b.gitPanel.cursor, lastIndex)
+	}
+
+	// j from the last item wraps back to the first.
+	b = sendKey(t, b, keyMsg("j"))
+	if b.gitPanel.cursor != 0 {
+		t.Errorf("cursor after j at bottom = %d, want 0 (wrap to first)", b.gitPanel.cursor)
+	}
+
+	// A full round trip stays in bounds throughout.
 	for i := 0; i < 20; i++ {
 		b = sendKey(t, b, keyMsg("k"))
+		if b.gitPanel.cursor < 0 || b.gitPanel.cursor > lastIndex {
+			t.Fatalf("iteration %d: cursor out of bounds: %d (want [0, %d])", i, b.gitPanel.cursor, lastIndex)
+		}
 	}
-	if b.gitPanel.cursor < 0 {
-		t.Errorf("cursor went below 0: %d", b.gitPanel.cursor)
-	}
-
 	for i := 0; i < 20; i++ {
 		b = sendKey(t, b, keyMsg("j"))
+		if b.gitPanel.cursor < 0 || b.gitPanel.cursor > lastIndex {
+			t.Fatalf("iteration %d: cursor out of bounds: %d (want [0, %d])", i, b.gitPanel.cursor, lastIndex)
+		}
 	}
-	if b.gitPanel.cursor >= len(b.gitPanel.items) {
-		t.Errorf("cursor went past items: cursor=%d, len=%d", b.gitPanel.cursor, len(b.gitPanel.items))
+}
+
+// TestGitPanel_Navigation_ArrowKeys_WrapsCursor confirms Up/Down arrow keys
+// wrap identically to j/k: both route through the shared moveCursor helper.
+func TestGitPanel_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
+	b, _ := newGitPanelTestBoard(t, nil, nil)
+	b = sendKey(t, b, keyMsg("g"))
+	lastIndex := len(b.gitPanel.items) - 1
+
+	b = sendKey(t, b, arrowMsg(tea.KeyUp))
+	if b.gitPanel.cursor != lastIndex {
+		t.Errorf("cursor after Up at top = %d, want %d (wrap to last)", b.gitPanel.cursor, lastIndex)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	if b.gitPanel.cursor != 0 {
+		t.Errorf("cursor after Down at bottom = %d, want 0 (wrap to first)", b.gitPanel.cursor)
+	}
+}
+
+// TestGitPanel_SingleItem_NavigationIsNoOp covers the length<=1 guard for one
+// of the four modal list handlers (docs/list-cursor-invariants.md): with a
+// single default git action registered, j/k must never move the cursor off 0
+// and must not panic.
+func TestGitPanel_SingleItem_NavigationIsNoOp(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	singleAction := map[string]config.Action{
+		"P": {Name: "Push", Type: "shell", Command: "git push", Scope: "board"},
+	}
+	b := NewBoard(p, nil, singleAction, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+	m, _ := b.Update(boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{{Title: "Empty", Cards: nil}},
+	}})
+	loaded := m.(Board)
+	loaded.Width = 120
+	loaded.Height = 40
+
+	loaded = sendKey(t, loaded, keyMsg("g"))
+	if loaded.mode != gitPanelMode {
+		t.Fatalf("expected gitPanelMode after 'g', got %d", loaded.mode)
+	}
+	if len(loaded.gitPanel.items) != 1 {
+		t.Fatalf("len(gitPanel.items) = %d, want 1", len(loaded.gitPanel.items))
+	}
+
+	loaded = sendKey(t, loaded, keyMsg("j"))
+	if loaded.gitPanel.cursor != 0 {
+		t.Errorf("cursor after j on single-item list = %d, want 0 (no-op)", loaded.gitPanel.cursor)
+	}
+	loaded = sendKey(t, loaded, keyMsg("k"))
+	if loaded.gitPanel.cursor != 0 {
+		t.Errorf("cursor after k on single-item list = %d, want 0 (no-op)", loaded.gitPanel.cursor)
 	}
 }
 
