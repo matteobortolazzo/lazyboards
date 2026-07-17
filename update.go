@@ -1016,6 +1016,7 @@ func (b Board) handleCardUpdated(msg cardUpdatedMsg) (tea.Model, tea.Cmd) {
 			Labels:    mapLabels(msg.card.Labels),
 			LinkedPRs: b.Columns[ci].Cards[i].LinkedPRs,
 			Assignees: b.Columns[ci].Cards[i].Assignees,
+			CreatedAt: b.Columns[ci].Cards[i].CreatedAt,
 		}
 	}
 	cmd := b.statusBar.SetTimedMessage("Card updated", StatusSuccess, statusMessageDuration)

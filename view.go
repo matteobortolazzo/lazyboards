@@ -687,6 +687,7 @@ func escapeMarkdown(s string) string {
 // composeDetailMarkdown builds a markdown string for the detail panel.
 // Card metadata is rendered as markdown text followed by a --- horizontal rule.
 // A "labels:" field is always shown: label names when present, "(none)" when empty.
+// A "created:" field is always shown: the creation date, or "(unknown)" when CreatedAt is zero.
 // If the card has a body, it is appended after the horizontal rule.
 func composeDetailMarkdown(card Card) string {
 	var sb strings.Builder
@@ -713,6 +714,12 @@ func composeDetailMarkdown(card Card) string {
 		sb.WriteString("assignees: " + strings.Join(logins, ", ") + "\n\n")
 	} else {
 		sb.WriteString("assignees: (none)\n\n")
+	}
+
+	if card.CreatedAt.IsZero() {
+		sb.WriteString("created: (unknown)\n\n")
+	} else {
+		sb.WriteString("created: " + card.CreatedAt.Format("2006-01-02") + "\n\n")
 	}
 
 	sb.WriteString("---")
