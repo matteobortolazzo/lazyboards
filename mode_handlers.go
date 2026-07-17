@@ -275,19 +275,11 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.switchColumn((b.ActiveTab + 1) % len(b.Columns))
 	case "j", "down":
 		col := &b.Columns[b.ActiveTab]
-		maxIdx := len(col.Cards) - 1
-		if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
-			maxIdx = len(b.filteredCards()) - 1
-		}
-		if col.Cursor < maxIdx {
-			col.Cursor++
-		}
+		col.Cursor = moveCursor(col.Cursor, len(b.visibleCards()), true)
 		b.onCursorMoved()
 	case "k", "up":
 		col := &b.Columns[b.ActiveTab]
-		if col.Cursor > 0 {
-			col.Cursor--
-		}
+		col.Cursor = moveCursor(col.Cursor, len(b.visibleCards()), false)
 		b.onCursorMoved()
 	case "a":
 		if len(b.Columns) == 0 || b.ActiveTab >= len(b.Columns) {
@@ -617,18 +609,13 @@ func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// containing those letters stay typeable.
 	case tea.KeyDown, tea.KeyCtrlN:
 		col := &b.Columns[b.ActiveTab]
-		filtered := b.filteredCards()
-		if col.Cursor < len(filtered)-1 {
-			col.Cursor++
-		}
+		col.Cursor = moveCursor(col.Cursor, len(b.visibleCards()), true)
 		b.detailScrollOffset = 0
 		b.clampScrollOffset()
 		return b, nil
 	case tea.KeyUp, tea.KeyCtrlP:
 		col := &b.Columns[b.ActiveTab]
-		if col.Cursor > 0 {
-			col.Cursor--
-		}
+		col.Cursor = moveCursor(col.Cursor, len(b.visibleCards()), false)
 		b.detailScrollOffset = 0
 		b.clampScrollOffset()
 		return b, nil

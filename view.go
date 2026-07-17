@@ -909,6 +909,12 @@ type helpSection struct {
 // helpSections is the ordered list of static help sections.
 // Custom Actions and Usage are appended dynamically by buildHelpContent().
 // When adding a new mode, add its section here so keybindings appear in the help popup.
+// The six j/k-navigated lists (card list, PR list, agents list, assignee
+// picker, filter picker, git menu) all wrap from last item to first and back
+// (#426); their entries here intentionally keep the "Navigate" wording rather
+// than switching to "Cycle X" like the Left/Right pickers below, since they
+// remain navigation controls -- wraparound is a behavior refinement, not a
+// change of purpose.
 var helpSections = []helpSection{
 	{"Normal Mode", [][2]string{
 		{"?", "Help"},

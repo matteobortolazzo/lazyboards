@@ -4,6 +4,8 @@ When a code path mutates `b.Columns[ci].Cards` (the card list of a column), the 
 
 ## Rules
 
+- **Navigation-time cycling (superseding "never wraps around", #426):** all six `j`/`k`-navigated lists (card list, PR list modal, agents list modal, assignee picker, filter picker, git menu) cycle via the shared `moveCursor` helper (`update.go`) -- moving past the last item wraps to the first, and moving before the first wraps to the last. Lists with 0 or 1 items are a no-op.
+  This is a *navigation-time* behavior applied only inside key handlers. It does not replace or weaken the post-mutation clamp rule below, which still applies whenever `Cards` is spliced/replaced out from under an existing cursor value. The two coexist: cycling picks the next/previous valid index from a stable list, while the clamp rule re-validates the cursor after the list itself changes size.
 - After any splice or replacement of `b.Columns[ci].Cards`, immediately clamp `b.Columns[ci].Cursor` to the new list length: `if col.Cursor >= len(col.Cards) { col.Cursor = len(col.Cards) - 1; if col.Cursor < 0 { col.Cursor = 0 } }`. This applies to all card-removal scenarios (background fetch, user action) consistently.
 - Example precedents: `handleBoardFetched` (line ~429, refresh discards old cards) and `handleCardClosed` (line ~759, user closes a card). Both use the identical clamp pattern — do not invent variations.
 - Do not assume that navigation guards alone (e.g., `Cursor < len(Cards)` checks in key handlers) protect View renderers; View renderers may be called from other paths where the cursor was not re-validated. Always enforce the invariant at the mutation site.

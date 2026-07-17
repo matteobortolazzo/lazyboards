@@ -173,6 +173,30 @@ func TestSearchMode_JKTypeIntoQuery(t *testing.T) {
 	}
 }
 
+// TestSearchMode_BareJK_DoesNotMoveCursor is a regression guard for the
+// card-list wrap migration (#426 PR 2): bare j/k must keep reaching the
+// search textinput and must never move the card cursor, even though j/k
+// route through moveCursor everywhere else the card list navigates.
+func TestSearchMode_BareJK_DoesNotMoveCursor(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Bug: login fails", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Bug: crash on load", Labels: []provider.Label{{Name: "bug"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b = sendKey(t, b, keyMsg("/"))
+	cursorBefore := b.Columns[b.ActiveTab].Cursor
+
+	b = sendKey(t, b, keyMsg("j"))
+
+	if b.searchQuery != "j" {
+		t.Errorf("searchQuery = %q after typing 'j' in search mode, want %q (bare j/k must reach the textinput)", b.searchQuery, "j")
+	}
+	if got := b.Columns[b.ActiveTab].Cursor; got != cursorBefore {
+		t.Errorf("cursor = %d after typing 'j' in search mode, want %d (unchanged; bare j/k must not navigate)", got, cursorBefore)
+	}
+}
+
 // --- Filter Matching (filteredCards method) ---
 
 func TestSearchMode_EmptyQuery_ReturnsAllCards(t *testing.T) {
@@ -313,7 +337,11 @@ func TestSearchMode_TypingResetsScrollOffset(t *testing.T) {
 
 // --- Navigation on Filtered List ---
 
-func TestSearchMode_CtrlNP_NavigatesFilteredCards(t *testing.T) {
+// TestSearchMode_CtrlNP_WrapsPastFilteredEnds asserts ctrl+n/ctrl+p cycle
+// through the search-filtered card list (#426 PR 2): moving past the last
+// filtered card wraps to the first, and moving before the first wraps to the
+// last, mirroring the four modal lists already on moveCursor.
+func TestSearchMode_CtrlNP_WrapsPastFilteredEnds(t *testing.T) {
 	// Create cards where a search query matches exactly 3 cards.
 	cards := []provider.Card{
 		{Number: 1, Title: "Bug: login fails", Labels: []provider.Label{{Name: "bug"}}},
@@ -334,10 +362,17 @@ func TestSearchMode_CtrlNP_NavigatesFilteredCards(t *testing.T) {
 	if len(filtered) != 3 {
 		t.Fatalf("precondition: filteredCards() for 'Bug' = %d, want 3", len(filtered))
 	}
+	lastIndex := len(filtered) - 1
 
-	// ctrl+n moves down the filtered list; a third press clamps at the end.
-	b = sendKey(t, b, arrowMsg(tea.KeyCtrlN))
-	b = sendKey(t, b, arrowMsg(tea.KeyCtrlN))
+	// Walk to the last filtered card via ctrl+n.
+	for i := 0; i < lastIndex; i++ {
+		b = sendKey(t, b, arrowMsg(tea.KeyCtrlN))
+	}
+	if got := b.Columns[b.ActiveTab].Cursor; got != lastIndex {
+		t.Fatalf("precondition: cursor = %d, want %d (last filtered card)", got, lastIndex)
+	}
+
+	// One more ctrl+n from the last filtered card should wrap to the first.
 	b = sendKey(t, b, arrowMsg(tea.KeyCtrlN))
 
 	// Navigation must not leave search mode or touch the query.
@@ -347,21 +382,21 @@ func TestSearchMode_CtrlNP_NavigatesFilteredCards(t *testing.T) {
 	if b.searchQuery != "Bug" {
 		t.Errorf("searchQuery = %q after ctrl+n, want %q (navigation must not edit the query)", b.searchQuery, "Bug")
 	}
-
-	col := b.Columns[b.ActiveTab]
-	filteredCount := len(b.filteredCards())
-	if col.Cursor != filteredCount-1 {
-		t.Errorf("cursor = %d after ctrl+n past end of filtered list, want clamp at %d", col.Cursor, filteredCount-1)
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("cursor = %d after ctrl+n past end of filtered list, want 0 (wrap to first)", got)
 	}
 
-	// ctrl+p goes back up.
+	// ctrl+p from the first filtered card should wrap back to the last.
 	b = sendKey(t, b, arrowMsg(tea.KeyCtrlP))
-	if got := b.Columns[b.ActiveTab].Cursor; got != filteredCount-2 {
-		t.Errorf("cursor = %d after ctrl+p, want %d", got, filteredCount-2)
+	if got := b.Columns[b.ActiveTab].Cursor; got != lastIndex {
+		t.Errorf("cursor = %d after ctrl+p at first filtered card, want %d (wrap to last)", got, lastIndex)
 	}
 }
 
-func TestSearchMode_ArrowKeys_NavigateFilteredCards(t *testing.T) {
+// TestSearchMode_ArrowKeys_WrapPastFilteredEnds mirrors
+// TestSearchMode_CtrlNP_WrapsPastFilteredEnds for Down/Up arrows, which share
+// the same key-match branch as ctrl+n/ctrl+p in handleSearchModeKey.
+func TestSearchMode_ArrowKeys_WrapPastFilteredEnds(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "Bug: login fails", Labels: []provider.Label{{Name: "bug"}}},
 		{Number: 2, Title: "Bug: crash on load", Labels: []provider.Label{{Name: "bug"}}},
@@ -373,9 +408,17 @@ func TestSearchMode_ArrowKeys_NavigateFilteredCards(t *testing.T) {
 	if got := b.Columns[b.ActiveTab].Cursor; got != 1 {
 		t.Errorf("cursor = %d after down arrow, want 1", got)
 	}
-	b = sendKey(t, b, arrowMsg(tea.KeyUp))
+
+	// One more Down arrow from the last matching card should wrap to the first.
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
 	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
-		t.Errorf("cursor = %d after up arrow, want 0", got)
+		t.Errorf("cursor = %d after down arrow past last matching card, want 0 (wrap to first)", got)
+	}
+
+	// Up arrow from the first matching card should wrap to the last.
+	b = sendKey(t, b, arrowMsg(tea.KeyUp))
+	if got := b.Columns[b.ActiveTab].Cursor; got != 1 {
+		t.Errorf("cursor = %d after up arrow at first matching card, want 1 (wrap to last)", got)
 	}
 }
 
