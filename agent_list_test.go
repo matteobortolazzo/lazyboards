@@ -328,23 +328,53 @@ func TestAgentList_View_KeepsSelectedRowVisibleWithinTerminal(t *testing.T) {
 
 // --- Navigation ---
 
-func TestAgentList_Navigation_MovesAndClampsCursor(t *testing.T) {
+func TestAgentList_Navigation_MovesAndWrapsCursor(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
 	b = sendKey(t, b, keyMsg("w"))
+	lastIndex := len(b.agentListEntries()) - 1
 
-	for _, k := range []string{"j", "j", "j", "j"} {
-		b = sendKey(t, b, keyMsg(k))
-	}
-	if b.agentList.cursor != 2 {
-		t.Errorf("cursor after walking past bottom = %d, want 2", b.agentList.cursor)
+	// k at the top wraps to the last window.
+	b = sendKey(t, b, keyMsg("k"))
+	if b.agentList.cursor != lastIndex {
+		t.Errorf("cursor after k at top = %d, want %d (wrap to last)", b.agentList.cursor, lastIndex)
 	}
 
-	for _, k := range []string{"k", "k", "k", "k"} {
-		b = sendKey(t, b, keyMsg(k))
-	}
+	// j from the last window wraps back to the first.
+	b = sendKey(t, b, keyMsg("j"))
 	if b.agentList.cursor != 0 {
-		t.Errorf("cursor after walking past top = %d, want 0", b.agentList.cursor)
+		t.Errorf("cursor after j at bottom = %d, want 0 (wrap to first)", b.agentList.cursor)
+	}
+
+	// Walk to the bottom and confirm one more j wraps past it, back to 0.
+	for i := 0; i < lastIndex; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+	if b.agentList.cursor != lastIndex {
+		t.Fatalf("cursor after walking to bottom = %d, want %d", b.agentList.cursor, lastIndex)
+	}
+	b = sendKey(t, b, keyMsg("j"))
+	if b.agentList.cursor != 0 {
+		t.Errorf("cursor after walking past bottom = %d, want 0 (wrap to first)", b.agentList.cursor)
+	}
+}
+
+// TestAgentList_Navigation_ArrowKeys_WrapsCursor confirms Up/Down arrow keys
+// wrap identically to j/k: both route through the shared moveCursor helper.
+func TestAgentList_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, threeWindows())
+	b = sendKey(t, b, keyMsg("w"))
+	lastIndex := len(b.agentListEntries()) - 1
+
+	b = sendKey(t, b, arrowMsg(tea.KeyUp))
+	if b.agentList.cursor != lastIndex {
+		t.Errorf("cursor after Up at top = %d, want %d (wrap to last)", b.agentList.cursor, lastIndex)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	if b.agentList.cursor != 0 {
+		t.Errorf("cursor after Down at bottom = %d, want 0 (wrap to first)", b.agentList.cursor)
 	}
 }
 

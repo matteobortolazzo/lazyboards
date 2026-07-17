@@ -8,6 +8,51 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 )
 
+// --- moveCursor: shared always-wrapping cursor helper ---
+//
+// moveCursor is the single implementation shared by all four modal list
+// handlers (PR list, agents list, assignee picker, git menu). It always
+// wraps: moving down past the last index lands on 0, moving up past 0 lands
+// on the last index. Lists of length <= 1 are a no-op in either direction
+// (docs/list-cursor-invariants.md: mutation-site invariants apply uniformly
+// across every consumer of a shared helper).
+
+func TestMoveCursor_WrapsPastLastToFirst(t *testing.T) {
+	const length = 3
+	got := moveCursor(length-1, length, true)
+	if got != 0 {
+		t.Errorf("moveCursor(%d, %d, down) = %d, want 0 (wrap from last to first)", length-1, length, got)
+	}
+}
+
+func TestMoveCursor_WrapsPastFirstToLast(t *testing.T) {
+	const length = 3
+	got := moveCursor(0, length, false)
+	if got != length-1 {
+		t.Errorf("moveCursor(0, %d, up) = %d, want %d (wrap from first to last)", length, got, length-1)
+	}
+}
+
+func TestMoveCursor_EmptyList_NoOp(t *testing.T) {
+	const length = 0
+	if got := moveCursor(0, length, true); got != 0 {
+		t.Errorf("moveCursor(0, %d, down) = %d, want 0 (empty list is a no-op)", length, got)
+	}
+	if got := moveCursor(0, length, false); got != 0 {
+		t.Errorf("moveCursor(0, %d, up) = %d, want 0 (empty list is a no-op)", length, got)
+	}
+}
+
+func TestMoveCursor_SingleItem_NoOp(t *testing.T) {
+	const length = 1
+	if got := moveCursor(0, length, true); got != 0 {
+		t.Errorf("moveCursor(0, %d, down) = %d, want 0 (single-item list is a no-op)", length, got)
+	}
+	if got := moveCursor(0, length, false); got != 0 {
+		t.Errorf("moveCursor(0, %d, up) = %d, want 0 (single-item list is a no-op)", length, got)
+	}
+}
+
 // --- Quit ---
 
 func TestQuit_Q_ReturnsQuitCmd(t *testing.T) {

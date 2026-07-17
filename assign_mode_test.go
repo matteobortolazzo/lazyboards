@@ -153,28 +153,58 @@ func TestAssignMode_JK_Navigation(t *testing.T) {
 	}
 }
 
-func TestAssignMode_CursorClampsAtBounds(t *testing.T) {
+func TestAssignMode_CursorWrapsAtBounds(t *testing.T) {
 	b := newBoardWithCollaborators(t)
 
 	b = sendKey(t, b, keyMsg("a"))
 	if b.mode != assignMode {
 		t.Fatalf("expected assignMode after 'a', got %d", b.mode)
 	}
+	lastIndex := len(b.assign.items) - 1
 
-	// Press k many times to go above 0.
+	// k at the top wraps to the last item.
+	b = sendKey(t, b, keyMsg("k"))
+	if b.assign.cursor != lastIndex {
+		t.Errorf("cursor after k at top = %d, want %d (wrap to last)", b.assign.cursor, lastIndex)
+	}
+
+	// j from the last item wraps back to the first.
+	b = sendKey(t, b, keyMsg("j"))
+	if b.assign.cursor != 0 {
+		t.Errorf("cursor after j at bottom = %d, want 0 (wrap to first)", b.assign.cursor)
+	}
+
+	// A full round trip stays in bounds throughout: never below 0, never at
+	// or past len(items) except when it wraps exactly to 0.
 	for i := 0; i < 20; i++ {
 		b = sendKey(t, b, keyMsg("k"))
+		if b.assign.cursor < 0 || b.assign.cursor > lastIndex {
+			t.Fatalf("iteration %d: cursor out of bounds: %d (want [0, %d])", i, b.assign.cursor, lastIndex)
+		}
 	}
-	if b.assign.cursor < 0 {
-		t.Errorf("cursor went below 0: %d", b.assign.cursor)
-	}
-
-	// Press j many times to exceed items length.
 	for i := 0; i < 20; i++ {
 		b = sendKey(t, b, keyMsg("j"))
+		if b.assign.cursor < 0 || b.assign.cursor > lastIndex {
+			t.Fatalf("iteration %d: cursor out of bounds: %d (want [0, %d])", i, b.assign.cursor, lastIndex)
+		}
 	}
-	if b.assign.cursor >= len(b.assign.items) {
-		t.Errorf("cursor went past items: cursor=%d, len=%d", b.assign.cursor, len(b.assign.items))
+}
+
+// TestAssignMode_Navigation_ArrowKeys_WrapsCursor confirms Up/Down arrow keys
+// wrap identically to j/k: both route through the shared moveCursor helper.
+func TestAssignMode_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
+	b := newBoardWithCollaborators(t)
+	b = sendKey(t, b, keyMsg("a"))
+	lastIndex := len(b.assign.items) - 1
+
+	b = sendKey(t, b, arrowMsg(tea.KeyUp))
+	if b.assign.cursor != lastIndex {
+		t.Errorf("cursor after Up at top = %d, want %d (wrap to last)", b.assign.cursor, lastIndex)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	if b.assign.cursor != 0 {
+		t.Errorf("cursor after Down at bottom = %d, want 0 (wrap to first)", b.assign.cursor)
 	}
 }
 
