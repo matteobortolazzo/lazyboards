@@ -1,11 +1,15 @@
 name: Version Bump
 
-# Auto-versioning: every push to main computes the next semver from the latest
-# v* tag (the source of truth) and the triggering commit's conventional-commit
-# type, creates the new tag, and dispatches the Release workflow.
+# Auto-versioning: after CI succeeds on a push to main, computes the next
+# semver from the latest v* tag (the source of truth) and the triggering
+# commit's conventional-commit type, creates the new tag, and dispatches the
+# Release workflow. Gated on CI's `workflow_run` completion (rather than
+# listening to `push` directly) so a commit that fails tests/lint never gets
+# tagged and released.
 on:
-  push:
-    branches: [main]
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
 
 permissions:
   contents: write   # create tags
@@ -14,11 +18,17 @@ permissions:
 jobs:
   bump:
     runs-on: ubuntu-latest
-    # Safety net: never react to a push made by the bot itself.
-    if: github.actor != 'github-actions[bot]'
+    # Only bump on a successful CI run for a push to main, and never react to
+    # a push made by the bot itself.
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.actor.login != 'github-actions[bot]'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
