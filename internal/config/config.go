@@ -18,6 +18,12 @@ type Action struct {
 	URL     string `yaml:"url"`
 	Command string `yaml:"command"`
 	Scope   string `yaml:"scope"`
+	// Order is derived metadata reflecting the action's position in its
+	// source YAML file (see assignActionOrder). It is never read from or
+	// written to the YAML file itself, so it can't be hand-set by a user
+	// and doesn't get scrambled by Save()'s random map-key re-marshal
+	// order (pre-existing behavior, unaffected by this field).
+	Order int `yaml:"-"`
 }
 
 // ColumnConfig defines a column with optional per-column actions.
@@ -174,6 +180,9 @@ func Load(globalPath, localPath string) (Config, error) {
 		if err := yaml.Unmarshal(globalData, &cfg); err != nil {
 			return Config{}, err
 		}
+		if _, err := assignActionOrder(globalData, cfg.Actions, cfg.Columns); err != nil {
+			return Config{}, err
+		}
 	}
 
 	// Identity fields (provider, repo, project) only come from local config,
@@ -182,7 +191,18 @@ func Load(globalPath, localPath string) (Config, error) {
 	cfg.Repo = ""
 	cfg.Project = ""
 
-	// Save global actions and columns before local override.
+	// Save global actions and columns before local override. Columns is a
+	// genuine frozen snapshot here: yaml.v3 fully replaces a slice field on a
+	// second Unmarshal (never merges), so globalColumns keeps referring to
+	// the original global-only slice untouched by the local load below.
+	// Actions is NOT a frozen snapshot the same way: yaml.v3 reuses an
+	// existing non-nil map field and merges new/overridden keys into it in
+	// place, so globalActions ends up aliasing cfg.Actions once the local
+	// unmarshal runs. That's why the key-existence-based Order offset below
+	// can't rely on map identity/length here the way the column-level merge
+	// (mergeColumnActions) can — it instead tracks which keys the local
+	// document itself declared (localActionKeys, from assignActionOrder's
+	// return value) to know which entries are genuinely global-only.
 	globalActions := cfg.Actions
 	globalColumns := cfg.Columns
 
@@ -191,10 +211,16 @@ func Load(globalPath, localPath string) (Config, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Config{}, err
 	}
+	var localActionKeys map[string]bool
 	if err == nil {
 		if err := yaml.Unmarshal(localData, &cfg); err != nil {
 			return Config{}, err
 		}
+		keys, err := assignActionOrder(localData, cfg.Actions, cfg.Columns)
+		if err != nil {
+			return Config{}, err
+		}
+		localActionKeys = keys
 	}
 
 	// Merge actions: preserve global-only entries as defaults, local entries take priority.
@@ -204,6 +230,18 @@ func Load(globalPath, localPath string) (Config, error) {
 		}
 		for k, v := range globalActions {
 			if _, exists := cfg.Actions[k]; !exists {
+				cfg.Actions[k] = v
+			}
+		}
+	}
+
+	// Push every key the local document didn't declare itself (i.e.
+	// inherited unchanged from global) after all locally-declared keys,
+	// preserving each group's relative order.
+	if localCount := len(localActionKeys); localCount > 0 {
+		for k, v := range cfg.Actions {
+			if !localActionKeys[k] {
+				v.Order += localCount
 				cfg.Actions[k] = v
 			}
 		}
@@ -252,6 +290,90 @@ func Load(globalPath, localPath string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// assignActionOrder parses data a second time as a yaml.Node tree and stamps
+// each entry in actions (and each column's own actions) with its 1-based
+// position in the raw document, so callers can render actions in the order
+// the user wrote them instead of Go's randomized map order. actions and
+// columns must be the already-unmarshaled values produced from this same
+// data, since map values holding structs aren't addressable and require a
+// read-modify-write. Columns are matched by index, not name: within one raw
+// document, columns is already in document order courtesy of normal yaml.v3
+// unmarshaling, so columnsNode.Content[i] lines up with columns[i]
+// positionally. Name-based matching across documents (global vs local) is a
+// separate, later concern handled by mergeColumnActions/columnsByNameLower.
+//
+// It returns the set of top-level action keys this document's own actions:
+// mapping declares (nil if the document has none), which Load() uses to tell
+// genuinely local keys apart from keys merely inherited unchanged from
+// another document (see the comment on globalActions in Load()).
+func assignActionOrder(data []byte, actions map[string]Action, columns []ColumnConfig) (declaredKeys map[string]bool, err error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+	if len(root.Content) == 0 {
+		return nil, nil
+	}
+	docNode := root.Content[0]
+	if docNode.Kind != yaml.MappingNode {
+		return nil, nil
+	}
+
+	var actionsNode, columnsNode *yaml.Node
+	for i := 0; i+1 < len(docNode.Content); i += 2 {
+		key := docNode.Content[i]
+		value := docNode.Content[i+1]
+		switch key.Value {
+		case "actions":
+			actionsNode = value
+		case "columns":
+			columnsNode = value
+		}
+	}
+
+	if actionsNode != nil {
+		declaredKeys = stampActionOrder(actionsNode, actions)
+	}
+
+	if columnsNode != nil && columnsNode.Kind == yaml.SequenceNode {
+		for i, colNode := range columnsNode.Content {
+			if i >= len(columns) || colNode.Kind != yaml.MappingNode {
+				continue
+			}
+			for j := 0; j+1 < len(colNode.Content); j += 2 {
+				key := colNode.Content[j]
+				value := colNode.Content[j+1]
+				if key.Value == "actions" {
+					stampActionOrder(value, columns[i].Actions)
+				}
+			}
+		}
+	}
+
+	return declaredKeys, nil
+}
+
+// stampActionOrder walks a YAML mapping node of action keys, assigns each
+// matching entry in actions its 1-based document position, and returns the
+// set of keys found in the node.
+func stampActionOrder(node *yaml.Node, actions map[string]Action) map[string]bool {
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	keys := make(map[string]bool, len(node.Content)/2)
+	order := 1
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i].Value
+		keys[key] = true
+		if a, ok := actions[key]; ok {
+			a.Order = order
+			actions[key] = a
+		}
+		order++
+	}
+	return keys
 }
 
 // LocalExists returns true if the file at path exists.
@@ -323,8 +445,12 @@ func mergeColumnActions(columns []ColumnConfig, globalColumns []ColumnConfig) {
 			continue
 		}
 		// Non-empty local actions: fill in global-only keys (local wins on conflicts).
+		localCount := len(columns[i].Actions)
 		for k, v := range gc.Actions {
 			if _, exists := columns[i].Actions[k]; !exists {
+				// Push global-only fill-ins after all local entries, preserving
+				// each group's relative order.
+				v.Order += localCount
 				columns[i].Actions[k] = v
 			}
 		}
