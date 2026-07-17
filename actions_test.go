@@ -1202,7 +1202,7 @@ actions:
 	if z == -1 || a == -1 || m == -1 {
 		t.Fatalf("expected hints for Z, A, M; got: %+v", hints)
 	}
-	if !(z < a && a < m) {
+	if z >= a || a >= m {
 		t.Errorf("hint order should match the config file order Z, A, M; got indices Z=%d A=%d M=%d in %+v", z, a, m, hints)
 	}
 }
@@ -1244,7 +1244,7 @@ columns:
 	if x == -1 || y == -1 || z == -1 {
 		t.Fatalf("expected hints for X, Y, Z; got: %+v", hints)
 	}
-	if !(x < y && y < z) {
+	if x >= y || y >= z {
 		t.Errorf("Y's overridden hint should keep its global position (between X and Z); got indices X=%d Y=%d Z=%d in %+v", x, y, z, hints)
 	}
 	if hints[y].Desc != "Overridden Y" {
@@ -1271,7 +1271,7 @@ func TestAction_HintBar_ZeroOrderActionsFallBackToAlphabetical(t *testing.T) {
 	if a == -1 || m == -1 || z == -1 {
 		t.Fatalf("expected hints for A, M, Z; got: %+v", hints)
 	}
-	if !(a < m && m < z) {
+	if a >= m || m >= z {
 		t.Errorf("zero-Order actions should render alphabetically (A, M, Z); got indices A=%d M=%d Z=%d in %+v", a, m, z, hints)
 	}
 }
