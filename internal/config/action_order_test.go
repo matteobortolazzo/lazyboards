@@ -235,8 +235,8 @@ func TestValidateActions_ScopeDefaulting_PreservesOrder(t *testing.T) {
 	if actions["A"].Order != 5 {
 		t.Errorf("Actions[A].Order = %d, want 5 (scope-defaulting round-trip must preserve Order)", actions["A"].Order)
 	}
-	if actions["A"].Scope != "card" {
-		t.Errorf("Actions[A].Scope = %q, want %q (default scope applied)", actions["A"].Scope, "card")
+	if actions["A"].Scope != "board" {
+		t.Errorf("Actions[A].Scope = %q, want %q (scope inferred from template with no ticket-specific placeholders)", actions["A"].Scope, "board")
 	}
 	if actions["B"].Order != 10 {
 		t.Errorf("Actions[B].Order = %d, want 10", actions["B"].Order)

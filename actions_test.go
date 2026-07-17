@@ -667,6 +667,87 @@ func TestAction_BoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
 	}
 }
 
+// --- Auto-inferred board-scope action dispatch tests (#435) ---
+//
+// These go through config.Load() (via mustLoadTestConfig) so the scope
+// inference actually runs, unlike the config.Action{Scope: "board"} literals
+// used elsewhere in this file.
+
+func TestAction_InferredBoardScope_URLFiresWithEmptyColumn(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  B:
+    name: Open board
+    type: url
+    url: "https://github.com/{repo_owner}/{repo_name}/issues"
+`
+	cfg := mustLoadTestConfig(t, yamlContent)
+	if cfg.Actions["B"].Scope != "board" {
+		t.Fatalf("precondition failed: Actions[B].Scope = %q, want %q (inference should have resolved it)", cfg.Actions["B"].Scope, "board")
+	}
+
+	b, fe := newBoardWithEmptyColumn(t, cfg.Actions)
+
+	// Press the inferred board-scope action key with no cards in the column.
+	b = sendKey(t, b, keyMsg("B"))
+	_ = b
+
+	if len(fe.OpenURLCalls) == 0 {
+		t.Fatal("expected OpenURL to be called for inferred board-scope action on empty column, but no calls recorded")
+	}
+	expectedURL := "https://github.com/matteobortolazzo/lazyboards/issues"
+	if fe.OpenURLCalls[0] != expectedURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], expectedURL)
+	}
+}
+
+func TestAction_InferredBoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  S:
+    name: Deploy
+    type: shell
+    command: "deploy --repo {repo_owner}/{repo_name}"
+`
+	cfg := mustLoadTestConfig(t, yamlContent)
+	if cfg.Actions["S"].Scope != "board" {
+		t.Fatalf("precondition failed: Actions[S].Scope = %q, want %q (inference should have resolved it)", cfg.Actions["S"].Scope, "board")
+	}
+
+	b, fe := newBoardWithEmptyColumn(t, cfg.Actions)
+
+	m2, cmd := b.Update(keyMsg("S"))
+	b = m2.(Board)
+	_ = b
+
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected RunShell to be called for inferred board-scope action on empty column, but no calls recorded")
+	}
+	expectedCmd := "deploy --repo " + action.ShellEscape("matteobortolazzo") + "/" + action.ShellEscape("lazyboards")
+	if fe.RunShellCalls[0] != expectedCmd {
+		t.Errorf("RunShell called with %q, want %q", fe.RunShellCalls[0], expectedCmd)
+	}
+}
+
+func TestAction_InferredBoardScopeHint_VisibleOnEmptyColumn(t *testing.T) {
+	yamlContent := `provider: github
+actions:
+  B:
+    name: Open board
+    type: url
+    url: "https://github.com/{repo_owner}/{repo_name}/issues"
+`
+	cfg := mustLoadTestConfig(t, yamlContent)
+	b, _ := newBoardWithEmptyColumn(t, cfg.Actions)
+
+	view := b.View()
+	if !strings.Contains(view, "Open board") {
+		t.Errorf("View() should contain inferred board-scope hint %q on empty column, got:\n%s", "Open board", view)
+	}
+}
+
 func TestAction_CardScope_StillIgnoredWhenNoCards(t *testing.T) {
 	// Explicit scope: card should preserve existing behavior: silently ignored when no cards.
 	actions := map[string]config.Action{
