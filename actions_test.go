@@ -1318,7 +1318,7 @@ columns:
 	if bIdx == -1 || aIdx == -1 || d == -1 {
 		t.Fatalf("expected hints for B, A, D; got: %+v", hints)
 	}
-	if !(bIdx < d && aIdx < d) {
+	if bIdx >= d || aIdx >= d {
 		t.Errorf("column-only key D should append after the global order (B, A); got indices B=%d A=%d D=%d in %+v", bIdx, aIdx, d, hints)
 	}
 }

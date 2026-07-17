@@ -137,7 +137,7 @@ actions:
 	if z == -1 || a == -1 || m == -1 {
 		t.Fatalf("expected hints for Z, A, M; got: %+v", hints)
 	}
-	if !(z < a && a < m) {
+	if z >= a || a >= m {
 		t.Errorf("detail-focused hint order should match the config file order Z, A, M; got indices Z=%d A=%d M=%d in %+v", z, a, m, hints)
 	}
 }
