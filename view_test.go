@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/muesli/termenv"
 )
 
 func TestView_TabBarShowsAllTabNames(t *testing.T) {
@@ -1019,5 +1020,85 @@ func TestHelpModal_ShowsFilterToggle(t *testing.T) {
 	// The help modal should show "f" mapped to "Filter (toggle)" in the Normal Mode section.
 	if !strings.Contains(view, "Filter (toggle)") {
 		t.Errorf("help modal should contain %q key binding, got:\n%s", "Filter (toggle)", view)
+	}
+}
+
+// --- Card list PR status glyph (#431) ---
+//
+// cardDisplayText's linkedPRGlyph is recolored per the worst PR status
+// across a card's linked PRs, mirroring the agent-badge styling pattern
+// already exercised by TestViewCardList_NeedInputRendersSingleMarkInRed in
+// cenciwatch_test.go. The glyph character itself never changes; only its
+// color does.
+
+// TestViewCardList_PRStatusGlyph_ConflictingStyled asserts a card with a
+// single conflicting linked PR renders its board glyph in prConflictingStyle.
+func TestViewCardList_PRStatusGlyph_ConflictingStyled(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Has conflicting PR", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: PR", URL: "https://github.com/o/r/pull/10", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"},
+		}},
+	}, 120, 40)
+
+	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
+	want := prConflictingStyle.Render(linkedPRGlyph)
+	if !strings.Contains(out, want) {
+		t.Errorf("rendered card list missing conflicting-styled PR glyph %q; got:\n%s", want, out)
+	}
+}
+
+// TestViewCardList_PRStatusGlyph_WorstOfMultipleLinkedPRsWins asserts a card
+// with a draft PR and a blocked PR renders the worse (blocked) status, not
+// the draft one -- worstPRStatus's priority ordering exercised through the
+// rendered view.
+//
+// The comparison forces an ANSI256 color profile for the duration of the
+// test: prDraftStyle/prBlockedStyle are plain lipgloss styles (no dedicated
+// renderer, matching the agent-badge convention), so lipgloss's default
+// global renderer would otherwise auto-detect "no color support" in a
+// non-TTY `go test` run and render every style as identical plain text,
+// making draft- and blocked-styled output indistinguishable regardless of
+// which one the code actually picked.
+func TestViewCardList_PRStatusGlyph_WorstOfMultipleLinkedPRsWins(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Two PRs, one blocked one draft", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "draft PR", URL: "https://github.com/o/r/pull/10", IsDraft: true, Mergeable: "MERGEABLE", MergeStateStatus: "DRAFT"},
+			{Number: 11, Title: "blocked PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "BLOCKED"},
+		}},
+	}, 120, 40)
+
+	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
+	wantBlocked := prBlockedStyle.Render(linkedPRGlyph)
+	if !strings.Contains(out, wantBlocked) {
+		t.Errorf("rendered card list missing blocked-styled PR glyph (worst of draft+blocked should be blocked) %q; got:\n%s", wantBlocked, out)
+	}
+	if strings.Contains(out, prDraftStyle.Render(linkedPRGlyph)) {
+		t.Errorf("rendered card list should not show draft styling when a worse (blocked) status is present; got:\n%s", out)
+	}
+}
+
+// TestViewCardList_PRStatusGlyph_UnknownKeepsNeutralColor is the Q1
+// regression test: the board glyph keeps its current neutral
+// prIndicatorStyle color when the worst linked-PR status is UNKNOWN. This is
+// a deliberate divergence from the PR list/picker modals (which render no
+// glyph at all on UNKNOWN, see pr_list_test.go /
+// TestPRList_View_UnknownStatusRendersNoGlyph) -- the board glyph must keep
+// signaling "this card has a linked PR" even when the status can't yet be
+// determined.
+func TestViewCardList_PRStatusGlyph_UnknownKeepsNeutralColor(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Has PR with unresolved mergeability", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: PR", URL: "https://github.com/o/r/pull/10", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
+		}},
+	}, 120, 40)
+
+	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
+	want := prIndicatorStyle.Render(linkedPRGlyph)
+	if !strings.Contains(out, want) {
+		t.Errorf("rendered card list should keep neutral prIndicatorStyle coloring on unknown PR status %q; got:\n%s", want, out)
 	}
 }

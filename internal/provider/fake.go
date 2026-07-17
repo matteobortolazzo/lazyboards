@@ -53,13 +53,19 @@ func NewFakeProvider() *FakeProvider {
 			{
 				Title: "New",
 				Cards: []Card{
+					// Card #1 deliberately has no LinkedPRs: it's the default
+					// selected card and several tests (e.g. newDeleteTestBoard)
+					// rely on it being a valid target for PR-linked-gated flows.
 					{Number: 1, Title: "Setup CI", Labels: []Label{{Name: "infra"}}, Body: "Configure GitHub Actions for CI pipeline.", Assignees: []Assignee{{Login: "alice"}}, CreatedAt: fakeCreatedAt(1)},
 					{Number: 2, Title: "Data model", Labels: []Label{{Name: "design"}}, Body: "Design the core data model for boards and cards.", Assignees: []Assignee{{Login: "alice"}, {Login: "bob"}}, LinkedPRs: []LinkedPR{
-						{Number: 20, Title: "feat: add data model", URL: "https://github.com/owner/repo/pull/20"},
+						{Number: 20, Title: "feat: add data model", URL: "https://github.com/owner/repo/pull/20", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
 					}, CreatedAt: fakeCreatedAt(2)},
+					// Card #3 links two PRs (one draft, one blocked) to exercise
+					// worstPRStatus's priority ordering (blocked beats draft) in
+					// dev-mode/manual verification.
 					{Number: 3, Title: "Add README", Labels: []Label{{Name: "docs"}}, LinkedPRs: []LinkedPR{
-						{Number: 30, Title: "docs: add README", URL: "https://github.com/owner/repo/pull/30"},
-						{Number: 31, Title: "docs: improve README", URL: "https://github.com/owner/repo/pull/31"},
+						{Number: 30, Title: "docs: add README", URL: "https://github.com/owner/repo/pull/30", IsDraft: true, Mergeable: "MERGEABLE", MergeStateStatus: "DRAFT"},
+						{Number: 31, Title: "docs: improve README", URL: "https://github.com/owner/repo/pull/31", Mergeable: "MERGEABLE", MergeStateStatus: "BLOCKED"},
 					}, CreatedAt: fakeCreatedAt(3)},
 				},
 			},
@@ -108,13 +114,22 @@ func (f *FakeProvider) FetchBoard(_ context.Context) (Board, error) {
 // linked to a card above, plus one (#40) no card links to, so the open-PR
 // overview can be exercised against both linked and unlinked rows. Ordered
 // newest-first to mirror the real provider's CREATED_AT DESC ordering.
+// Status fields mirror each PR's card-linked counterpart so dev-mode/manual
+// verification covers draft/mergeable/blocked plus one unresolved/unknown
+// mergeability (#40, the unlinked PR). "Conflicting" is intentionally not
+// represented here — it's already exercised in isolation by pr_status_test.go
+// and the rendered-view tests in view_test.go/pr_list_test.go/
+// pr_picker_test.go, and every card in this shared fixture is either a
+// PR-gating test target (card #1, see NewFakeProvider) or already used above,
+// so there is no free card to attach a 5th example to without risking
+// collisions with other tests built on this fixture.
 func (f *FakeProvider) ListOpenPRs(_ context.Context) ([]LinkedPR, error) {
 	f.ListOpenPRsCalls++
 	return []LinkedPR{
-		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40"},
-		{Number: 31, Title: "docs: improve README", URL: "https://github.com/owner/repo/pull/31"},
-		{Number: 30, Title: "docs: add README", URL: "https://github.com/owner/repo/pull/30"},
-		{Number: 20, Title: "feat: add data model", URL: "https://github.com/owner/repo/pull/20"},
+		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
+		{Number: 31, Title: "docs: improve README", URL: "https://github.com/owner/repo/pull/31", Mergeable: "MERGEABLE", MergeStateStatus: "BLOCKED"},
+		{Number: 30, Title: "docs: add README", URL: "https://github.com/owner/repo/pull/30", IsDraft: true, Mergeable: "MERGEABLE", MergeStateStatus: "DRAFT"},
+		{Number: 20, Title: "feat: add data model", URL: "https://github.com/owner/repo/pull/20", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
 	}, nil
 }
 

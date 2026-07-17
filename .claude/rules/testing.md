@@ -24,3 +24,6 @@ Test real flows end-to-end through the application stack.
 
 ## When a Test Forces an Implausible Production Shape
 If making a test pass requires production code to do something the plan/spec doesn't call for — a duplicated side-effecting call, an unreachable branch, a magic constant — stop and fix the test, don't bend production to it. A "guard against a race" comment justifying two concurrent `tea.Batch` Cmds is a red flag: batched Cmds run concurrently and cannot order a write-then-read.
+
+## Shared Fixtures
+- Modifications to `internal/provider/fake.go` or other shared test fixtures require running the full test suite, not just tests that directly import the fixture. Multiple test files depend on specific fixture properties (e.g., "Card #1 must have zero LinkedPRs for PR-gating tests" in `delete_mode_test.go` and "ListOpenPRs must have exactly N entries" in other PR-count tests). Test failures from fixture changes only surface when the complete suite runs, so partial test runs during implementation cannot validate safety.

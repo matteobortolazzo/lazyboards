@@ -46,9 +46,16 @@ var (
 	agentStoppedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	agentNeedInputStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	agentFailedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
-	cardNumberStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	hintKeyStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-	hintDescStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	// PR status badge styles (#431), same single-mark/solid-color family as
+	// the agent status badges above. prIndicatorStyle (defined above) remains
+	// the neutral/unknown fallback for the board glyph.
+	prMergeableStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
+	prConflictingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+	prBlockedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("215"))
+	prDraftStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	cardNumberStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	hintKeyStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	hintDescStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	// Git status segment styles (status bar), lazygit-style but muted to match
 	// the rest of the palette: additions green, deletions red, push/pull
 	// (ahead/behind) share one gentle orange since they're both just "sync"
@@ -279,11 +286,19 @@ type filterItem struct {
 }
 
 // LinkedPR represents a pull request linked to a card.
+//
+// IsDraft/Mergeable/MergeStateStatus mirror provider.LinkedPR's raw
+// GitHub fields verbatim; deriving a status/glyph/style from them is
+// presentation logic that lives in view.go (prStatus, prStatusSymbol,
+// prStatusStyle, worstPRStatus).
 type LinkedPR struct {
-	Number int
-	Title  string
-	URL    string
-	Branch string
+	Number           int
+	Title            string
+	URL              string
+	Branch           string
+	IsDraft          bool
+	Mergeable        string
+	MergeStateStatus string
 }
 
 // Label represents a card label with an optional hex color.
@@ -1284,7 +1299,15 @@ func mapSlice[T, U any](in []T, f func(T) U) []U {
 
 func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
 	return mapSlice(prs, func(pr provider.LinkedPR) LinkedPR {
-		return LinkedPR{Number: pr.Number, Title: pr.Title, URL: pr.URL, Branch: pr.Branch}
+		return LinkedPR{
+			Number:           pr.Number,
+			Title:            pr.Title,
+			URL:              pr.URL,
+			Branch:           pr.Branch,
+			IsDraft:          pr.IsDraft,
+			Mergeable:        pr.Mergeable,
+			MergeStateStatus: pr.MergeStateStatus,
+		}
 	})
 }
 

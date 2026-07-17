@@ -364,6 +364,128 @@ func agentBadgeStyle(status string) lipgloss.Style {
 	}
 }
 
+// prStatus derives a single-PR status from GitHub's raw isDraft/mergeable/
+// mergeStateStatus fields: one of "draft", "mergeable", "conflicting",
+// "blocked", or "unknown".
+//
+// Mergeable == "UNKNOWN" short-circuits to "unknown" before the draft/blocked
+// checks -- an unresolved mergeability calculation must never be misreported
+// as draft/blocked just because the PR also happens to match one of those
+// signals. Draft is derived from IsDraft (not mergeStateStatus == "DRAFT")
+// per the ticket, and is checked before mergeStateStatus's blocked-family
+// values so a draft PR always reports as draft regardless of its
+// mergeStateStatus.
+func prStatus(pr LinkedPR) string {
+	if pr.Mergeable == "UNKNOWN" {
+		return "unknown"
+	}
+	if pr.IsDraft {
+		return "draft"
+	}
+	if pr.Mergeable == "CONFLICTING" {
+		return "conflicting"
+	}
+	switch pr.MergeStateStatus {
+	case "BLOCKED", "BEHIND", "UNSTABLE":
+		return "blocked"
+	case "DIRTY":
+		// DIRTY means "the merge commit cannot be cleanly created" -- the
+		// same real-world condition as Mergeable == "CONFLICTING" above.
+		// Checked explicitly here (not left to fall through to Mergeable)
+		// so conflict detection doesn't silently depend on Mergeable and
+		// MergeStateStatus agreeing -- GitHub-side staleness/propagation
+		// lag can leave Mergeable == "MERGEABLE" while MergeStateStatus
+		// has already moved to DIRTY.
+		return "conflicting"
+	}
+	// HAS_HOOKS ("mergeable with passing status and pre-receive hooks") and
+	// CLEAN intentionally fall through to the Mergeable check below.
+	if pr.Mergeable == "MERGEABLE" {
+		return "mergeable"
+	}
+	return "unknown"
+}
+
+// prStatusSymbol maps a prStatus value to its badge glyph. Returns "" for
+// "unknown" and any other unrecognized status (no glyph), mirroring
+// agentStatusSymbol's blank-for-idle convention.
+func prStatusSymbol(status string) string {
+	switch status {
+	case "draft":
+		return "●" // ●
+	case "mergeable":
+		return "✓" // ✓
+	case "conflicting":
+		return "✗" // ✗
+	case "blocked":
+		return "!"
+	default:
+		return ""
+	}
+}
+
+// prStatusStyle maps a prStatus value to its badge style.
+func prStatusStyle(status string) lipgloss.Style {
+	switch status {
+	case "draft":
+		return prDraftStyle
+	case "mergeable":
+		return prMergeableStyle
+	case "conflicting":
+		return prConflictingStyle
+	case "blocked":
+		return prBlockedStyle
+	default:
+		return prIndicatorStyle
+	}
+}
+
+// prStatusSymbolWidth is the rendered cell width of every known-status
+// glyph (●, ✓, ✗, !) -- all single-width per go-runewidth.
+const prStatusSymbolWidth = 1
+
+// prStatusPrefix renders the status glyph column for a PR list row, padded
+// to a fixed rendered width (prStatusSymbolWidth + a separator space) so
+// unknown-status rows (no glyph) occupy exactly the same column width as
+// known-status rows -- otherwise the "#NN" column jitters left/right
+// depending on whether that row's status is known. Width is measured with
+// lipgloss.Width, not len(), per docs/terminal-rendering.md.
+func prStatusPrefix(status string) string {
+	symbol := prStatusSymbol(status)
+	pad := prStatusSymbolWidth - lipgloss.Width(symbol)
+	if pad < 0 {
+		pad = 0
+	}
+	return strings.Repeat(" ", pad) + prStatusStyle(status).Render(symbol) + " "
+}
+
+// prStatusRank orders prStatus values worst-to-best for worstPRStatus:
+// Conflicting > Blocked > Draft > Mergeable. "unknown" is deliberately
+// absent (its zero rank) so it never wins over a known status.
+var prStatusRank = map[string]int{
+	"conflicting": 4,
+	"blocked":     3,
+	"draft":       2,
+	"mergeable":   1,
+}
+
+// worstPRStatus returns the worst status across a card's linked PRs, using
+// priority order Conflicting > Blocked > Draft > Mergeable. "unknown" never
+// wins over a known status from another linked PR, and is only returned when
+// every linked PR (or the slice itself) has no known status.
+func worstPRStatus(prs []LinkedPR) string {
+	worst := "unknown"
+	best := 0
+	for _, pr := range prs {
+		status := prStatus(pr)
+		if r := prStatusRank[status]; r > best {
+			best = r
+			worst = status
+		}
+	}
+	return worst
+}
+
 // cardDisplayText builds the raw display text for a card: "#N title [PR icon] [Working icon] [label dots] [agent badge]".
 // Returns the assembled text and the rune-length of the number prefix (for wrap indentation).
 // columnNames controls which labels are hidden from the dot display.
@@ -547,10 +669,14 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 			}
 		}
 		lines := wrapTitle(text, contentWidth, prefixLen)
-		// Style PR indicator.
+		// Style PR indicator: colored per the worst linked-PR status, except
+		// "unknown" keeps the neutral prIndicatorStyle color so the glyph
+		// still signals "has a linked PR" before GitHub finishes computing
+		// mergeability (see prStatusStyle's "unknown" -> prIndicatorStyle
+		// default).
 		if hasPR && len(lines) > 0 {
 			last := len(lines) - 1
-			lines[last] = strings.Replace(lines[last], linkedPRGlyph, prIndicatorStyle.Render(linkedPRGlyph), 1)
+			lines[last] = strings.Replace(lines[last], linkedPRGlyph, prStatusStyle(worstPRStatus(card.LinkedPRs)).Render(linkedPRGlyph), 1)
 		}
 		// Style Working indicator.
 		if hasWorking && len(lines) > 0 {
@@ -890,7 +1016,12 @@ func (b Board) viewPRPickerModal() string {
 	pr := card.LinkedPRs[b.prPickerIndex]
 
 	modalWidth := 50
-	prDisplay := fmt.Sprintf("\u25c0 #%d %s \u25b6", pr.Number, pr.Title)
+	status := prStatus(pr)
+	var prPrefix string
+	if symbol := prStatusSymbol(status); symbol != "" {
+		prPrefix = prStatusStyle(status).Render(symbol) + " "
+	}
+	prDisplay := prPrefix + fmt.Sprintf("\u25c0 #%d %s \u25b6", pr.Number, pr.Title)
 
 	pickerHints := NewStatusBar(prPickerHints)
 	modalContent := "Select PR\n\n" +
@@ -1365,7 +1496,9 @@ func (b Board) viewPRListModal() string {
 		for i := start; i < end; i++ {
 			entry := b.prList.entries[i]
 			title := truncateOutput(entry.pr.Title, 32)
-			display := fmt.Sprintf("  #%d  %s", entry.pr.Number, title)
+			status := prStatus(entry.pr)
+			prefix := prStatusPrefix(status)
+			display := fmt.Sprintf("%s  #%d  %s", prefix, entry.pr.Number, title)
 			if entry.cardNumber != 0 {
 				display += fmt.Sprintf("  —  %s #%d", entry.columnTitle, entry.cardNumber)
 			}

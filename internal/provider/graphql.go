@@ -130,12 +130,15 @@ type assigneeQueryNode struct {
 }
 
 // pullRequestQueryNode represents a PR from GitHub's
-// closedByPullRequestsReferences connection.
+// closedByPullRequestsReferences and pullRequests connections.
 type pullRequestQueryNode struct {
-	Number      githubv4.Int
-	Title       githubv4.String
-	URL         githubv4.String
-	HeadRefName githubv4.String
+	Number           githubv4.Int
+	Title            githubv4.String
+	URL              githubv4.String
+	HeadRefName      githubv4.String
+	IsDraft          githubv4.Boolean
+	Mergeable        githubv4.MergeableState
+	MergeStateStatus githubv4.MergeStateStatus
 }
 
 // closingPRPage is one follow-up page of an issue's closing PRs
@@ -156,7 +159,7 @@ type closingPRPage struct {
 //	  repository(owner: $owner, name: $name) {
 //	    issue(number: $issueNumber) {
 //	      closedByPullRequestsReferences(first: 100, after: $closingPRCursor) {
-//	        nodes { number title url headRefName }
+//	        nodes { number title url headRefName isDraft mergeable mergeStateStatus }
 //	        pageInfo { hasNextPage endCursor }
 //	      }
 //	    }
@@ -187,7 +190,7 @@ type openPRPage struct {
 //	query($owner: String!, $name: String!, $prCursor: String) {
 //	  repository(owner: $owner, name: $name) {
 //	    pullRequests(states: [OPEN], orderBy: {field: CREATED_AT, direction: DESC}, first: 100, after: $prCursor) {
-//	      nodes { number title url headRefName }
+//	      nodes { number title url headRefName isDraft mergeable mergeStateStatus }
 //	      pageInfo { hasNextPage endCursor }
 //	    }
 //	  }
@@ -408,10 +411,13 @@ func mapLinkedPRs(items []pullRequestQueryNode) []LinkedPR {
 		}
 		seen[number] = true
 		linkedPRs = append(linkedPRs, LinkedPR{
-			Number: number,
-			Title:  string(pr.Title),
-			URL:    string(pr.URL),
-			Branch: string(pr.HeadRefName),
+			Number:           number,
+			Title:            string(pr.Title),
+			URL:              string(pr.URL),
+			Branch:           string(pr.HeadRefName),
+			IsDraft:          bool(pr.IsDraft),
+			Mergeable:        string(pr.Mergeable),
+			MergeStateStatus: string(pr.MergeStateStatus),
 		})
 	}
 	return linkedPRs

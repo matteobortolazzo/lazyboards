@@ -82,6 +82,8 @@ Cards are GitHub issues. Each column maps to a label — an issue with the label
 
 Linked pull requests come from GitHub's closing-PR relationship: supported closing keywords such as `Fixes #123`, `Closes #123`, and `Resolves #123`, plus links added manually through GitHub's Development sidebar. Mere issue mentions are ignored, as are closed PRs. Press `p` to open a linked PR, or pick from multiple.
 
+The card's PR glyph is colored by the linked PR's status: gray `●` draft, green `✓` mergeable, red `✗` conflicting, yellow `!` blocked (failing checks, behind base, or needs review). A card with several linked PRs shows the worst status (conflicting beats blocked beats draft beats mergeable). While GitHub is still computing a PR's mergeability, the glyph keeps its neutral color rather than guessing. The same colored glyph prefixes each row in the PR list (`v`) and PR picker (`p`) modals, blank there instead of neutral when status isn't known yet.
+
 The board auto-refreshes in the background (default: every 5 minutes). Press `r` for an immediate refresh.
 
 ### Dispatch Panel
