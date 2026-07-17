@@ -1035,21 +1035,27 @@ func (b *Board) restoreModeHints() {
 	b.statusBar.SetActionHints(b.normalHints)
 }
 
-// filterMoveDown moves the filter cursor to the next selectable (non-header) item.
+// filterMoveDown cycles the filter cursor to the next selectable (non-header)
+// item, wrapping from the last selectable item to the first.
 func (b *Board) filterMoveDown() {
-	for i := b.filterCursor + 1; i < len(b.filterItems); i++ {
-		if !b.filterItems[i].isHeader {
-			b.filterCursor = i
-			return
-		}
-	}
+	b.filterMove(true)
 }
 
-// filterMoveUp moves the filter cursor to the previous selectable (non-header) item.
+// filterMoveUp cycles the filter cursor to the previous selectable
+// (non-header) item, wrapping from the first selectable item to the last.
 func (b *Board) filterMoveUp() {
-	for i := b.filterCursor - 1; i >= 0; i-- {
-		if !b.filterItems[i].isHeader {
-			b.filterCursor = i
+	b.filterMove(false)
+}
+
+// filterMove steps the filter cursor one position via moveCursor, skipping
+// header rows, until it lands on a selectable item or the loop's bound
+// (len(filterItems) iterations) is reached -- guarding against an infinite
+// loop if every item were somehow a header. A list with no selectable items
+// is a no-op.
+func (b *Board) filterMove(down bool) {
+	for range b.filterItems {
+		b.filterCursor = moveCursor(b.filterCursor, len(b.filterItems), down)
+		if !b.filterItems[b.filterCursor].isHeader {
 			return
 		}
 	}

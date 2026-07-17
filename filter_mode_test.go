@@ -458,6 +458,202 @@ func TestFilterMode_NavigationSkipsAssigneesHeader(t *testing.T) {
 	}
 }
 
+// --- Wrap-around tests (#426 PR 2) ---
+//
+// The filter picker's header-skipping cursor is rebuilt on the shared
+// moveCursor wrap primitive: moving down from the last selectable item wraps
+// to the first selectable item (skipping the leading "Labels" header), and
+// moving up from the first selectable item wraps to the last selectable item
+// -- never landing on a header in either direction.
+
+// selectableFilterCount counts the non-header items in b.filterItems.
+func selectableFilterCount(b Board) int {
+	count := 0
+	for _, item := range b.filterItems {
+		if !item.isHeader {
+			count++
+		}
+	}
+	return count
+}
+
+func TestFilterMode_JWrapsFromLastSelectableToFirstSelectable(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	b = sendKey(t, b, keyMsg("f"))
+
+	firstSelectable := b.filterCursor
+	selectableCount := selectableFilterCount(b)
+	if selectableCount <= 1 {
+		t.Fatal("fixture needs more than one selectable filter item to test wraparound")
+	}
+
+	// Walk down to the last selectable item.
+	for i := 0; i < selectableCount-1; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+	if b.filterItems[b.filterCursor].isHeader {
+		t.Fatalf("precondition: cursor landed on a header at index %d", b.filterCursor)
+	}
+
+	// One more 'j' from the last selectable item should wrap to the first
+	// selectable item, skipping the leading "Labels" header.
+	b = sendKey(t, b, keyMsg("j"))
+	if b.filterCursor != firstSelectable {
+		t.Errorf("cursor after 'j' past last selectable item = %d, want %d (wrap to first selectable)", b.filterCursor, firstSelectable)
+	}
+	if b.filterItems[b.filterCursor].isHeader {
+		t.Error("cursor after wrap-down landed on a header item")
+	}
+}
+
+func TestFilterMode_KWrapsFromFirstSelectableToLastSelectable(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	b = sendKey(t, b, keyMsg("f"))
+
+	firstSelectable := b.filterCursor
+	selectableCount := selectableFilterCount(b)
+	if selectableCount <= 1 {
+		t.Fatal("fixture needs more than one selectable filter item to test wraparound")
+	}
+
+	// Walk down to the last selectable item to know its index.
+	for i := 0; i < selectableCount-1; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+	lastSelectable := b.filterCursor
+
+	// Walk back up to the first selectable item.
+	for i := 0; i < selectableCount-1; i++ {
+		b = sendKey(t, b, keyMsg("k"))
+	}
+	if b.filterCursor != firstSelectable {
+		t.Fatalf("precondition: cursor = %d, want %d (first selectable)", b.filterCursor, firstSelectable)
+	}
+
+	// One more 'k' from the first selectable item should wrap to the last
+	// selectable item, never landing on the leading "Labels" header.
+	b = sendKey(t, b, keyMsg("k"))
+	if b.filterCursor != lastSelectable {
+		t.Errorf("cursor after 'k' before first selectable item = %d, want %d (wrap to last selectable)", b.filterCursor, lastSelectable)
+	}
+	if b.filterItems[b.filterCursor].isHeader {
+		t.Error("cursor after wrap-up landed on a header item")
+	}
+}
+
+func TestFilterMode_DownArrowWrapsFromLastSelectableToFirstSelectable(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	b = sendKey(t, b, keyMsg("f"))
+
+	firstSelectable := b.filterCursor
+	selectableCount := selectableFilterCount(b)
+	if selectableCount <= 1 {
+		t.Fatal("fixture needs more than one selectable filter item to test wraparound")
+	}
+
+	for i := 0; i < selectableCount-1; i++ {
+		b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	if b.filterCursor != firstSelectable {
+		t.Errorf("cursor after Down arrow past last selectable item = %d, want %d (wrap to first selectable)", b.filterCursor, firstSelectable)
+	}
+	if b.filterItems[b.filterCursor].isHeader {
+		t.Error("cursor after wrap-down landed on a header item")
+	}
+}
+
+func TestFilterMode_UpArrowWrapsFromFirstSelectableToLastSelectable(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	b = sendKey(t, b, keyMsg("f"))
+
+	firstSelectable := b.filterCursor
+	selectableCount := selectableFilterCount(b)
+	if selectableCount <= 1 {
+		t.Fatal("fixture needs more than one selectable filter item to test wraparound")
+	}
+
+	for i := 0; i < selectableCount-1; i++ {
+		b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	}
+	lastSelectable := b.filterCursor
+
+	for i := 0; i < selectableCount-1; i++ {
+		b = sendKey(t, b, arrowMsg(tea.KeyUp))
+	}
+	if b.filterCursor != firstSelectable {
+		t.Fatalf("precondition: cursor = %d, want %d (first selectable)", b.filterCursor, firstSelectable)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyUp))
+	if b.filterCursor != lastSelectable {
+		t.Errorf("cursor after Up arrow before first selectable item = %d, want %d (wrap to last selectable)", b.filterCursor, lastSelectable)
+	}
+	if b.filterItems[b.filterCursor].isHeader {
+		t.Error("cursor after wrap-up landed on a header item")
+	}
+}
+
+// TestFilterMode_ZeroSelectableItems_NoOp covers the moveCursor length<=1
+// no-op guard for a filter picker forced into filterMode with zero
+// selectable items -- j/k must leave the cursor at 0 and must not panic
+// walking the header-skip loop.
+func TestFilterMode_ZeroSelectableItems_NoOp(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	b.mode = filterMode
+	b.filterItems = nil
+	b.filterCursor = 0
+
+	b = sendKey(t, b, keyMsg("j"))
+	if b.filterCursor != 0 {
+		t.Errorf("cursor after 'j' with zero selectable items = %d, want 0 (no-op)", b.filterCursor)
+	}
+
+	b = sendKey(t, b, keyMsg("k"))
+	if b.filterCursor != 0 {
+		t.Errorf("cursor after 'k' with zero selectable items = %d, want 0 (no-op)", b.filterCursor)
+	}
+}
+
+// TestFilterMode_SingleSelectableItem_NoOp covers the moveCursor length<=1
+// no-op guard for a filter picker with exactly one selectable item.
+func TestFilterMode_SingleSelectableItem_NoOp(t *testing.T) {
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: "Card One", Labels: []provider.Label{{Name: "bug"}}},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+
+	board = sendKey(t, board, keyMsg("f"))
+	if board.mode != filterMode {
+		t.Fatalf("expected filterMode after 'f', got %d", board.mode)
+	}
+	if got := selectableFilterCount(board); got != 1 {
+		t.Fatalf("precondition: selectableFilterCount = %d, want 1", got)
+	}
+	initialCursor := board.filterCursor
+
+	board = sendKey(t, board, keyMsg("j"))
+	if board.filterCursor != initialCursor {
+		t.Errorf("cursor after 'j' with single selectable item = %d, want %d (no-op)", board.filterCursor, initialCursor)
+	}
+
+	board = sendKey(t, board, keyMsg("k"))
+	if board.filterCursor != initialCursor {
+		t.Errorf("cursor after 'k' with single selectable item = %d, want %d (no-op)", board.filterCursor, initialCursor)
+	}
+}
+
 // --- Selection tests ---
 
 func TestFilterMode_SelectLabel_SetsFilterByLabel(t *testing.T) {

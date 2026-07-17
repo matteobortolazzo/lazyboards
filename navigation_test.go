@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 // --- Tab Navigation ---
@@ -202,32 +203,166 @@ func TestItemNavigation_UpArrow_MovesCursorUp(t *testing.T) {
 	}
 }
 
-func TestItemNavigation_K_ClampsAtStart(t *testing.T) {
+// TestItemNavigation_K_WrapsToLastAtStart, TestItemNavigation_J_WrapsToFirstAtEnd,
+// and TestItemNavigation_ArrowKeys_WrapAtBounds cover the card list's
+// migration onto the shared moveCursor wrap primitive (#426 PR 2): the
+// per-column card list no longer clamps at the first/last card, it cycles,
+// matching the four modal lists (PR list, agents list, assignee picker, git
+// menu) that already wrap via moveCursor.
+
+func TestItemNavigation_K_WrapsToLastAtStart(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
-	// Already at cursor 0, pressing k should stay at 0
+	lastIndex := len(b.Columns[b.ActiveTab].Cards) - 1
+	if lastIndex <= 0 {
+		t.Fatal("active column needs more than one card to test wraparound")
+	}
+
+	// At cursor 0, pressing 'k' should wrap to the last card.
 	b = sendKey(t, b, keyMsg("k"))
 	cursor := b.Columns[b.ActiveTab].Cursor
-	if cursor != 0 {
-		t.Errorf("'k' at cursor 0: cursor = %d, want 0", cursor)
+	if cursor != lastIndex {
+		t.Errorf("'k' at cursor 0: cursor = %d, want %d (wrap to last card)", cursor, lastIndex)
 	}
 }
 
-func TestItemNavigation_J_ClampsAtEnd(t *testing.T) {
+func TestItemNavigation_J_WrapsToFirstAtEnd(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	requireColumns(t, b)
 	cardCount := len(b.Columns[b.ActiveTab].Cards)
-	if cardCount == 0 {
-		t.Fatal("active column has no cards; cannot test cursor clamping")
+	if cardCount <= 1 {
+		t.Fatal("active column needs more than one card to test wraparound")
 	}
-	// Press j more times than there are cards
-	for i := 0; i < cardCount+1; i++ {
+
+	// Walk to the last card.
+	for i := 0; i < cardCount-1; i++ {
 		b = sendKey(t, b, keyMsg("j"))
 	}
-	cursor := b.Columns[b.ActiveTab].Cursor
 	lastIndex := cardCount - 1
-	if cursor != lastIndex {
-		t.Errorf("pressing 'j' past end: cursor = %d, want %d", cursor, lastIndex)
+	if got := b.Columns[b.ActiveTab].Cursor; got != lastIndex {
+		t.Fatalf("precondition: cursor = %d, want %d (last card)", got, lastIndex)
+	}
+
+	// One more 'j' from the last card should wrap to the first.
+	b = sendKey(t, b, keyMsg("j"))
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("'j' past last card: cursor = %d, want 0 (wrap to first)", got)
+	}
+}
+
+// TestItemNavigation_ArrowKeys_WrapAtBounds confirms Up/Down arrow keys wrap
+// identically to j/k in the card list (both route through moveCursor).
+func TestItemNavigation_ArrowKeys_WrapAtBounds(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	requireColumns(t, b)
+	lastIndex := len(b.Columns[b.ActiveTab].Cards) - 1
+	if lastIndex <= 0 {
+		t.Fatal("active column needs more than one card to test wraparound")
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyUp))
+	if got := b.Columns[b.ActiveTab].Cursor; got != lastIndex {
+		t.Errorf("Up arrow at cursor 0: cursor = %d, want %d (wrap to last card)", got, lastIndex)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("Down arrow at last card: cursor = %d, want 0 (wrap to first card)", got)
+	}
+}
+
+// TestItemNavigation_SingleCard_JK_NoOp and TestItemNavigation_EmptyColumn_JK_NoOp
+// cover the length<=1 guard for the card list specifically (moveCursor's own
+// empty/single coverage landed in PR 1 for the four modal lists; the plan
+// requires the same coverage for the card list and filter picker in PR 2).
+
+func TestItemNavigation_SingleCard_JK_NoOp(t *testing.T) {
+	b := newBoardWithCards(t, 1, 40)
+	if got := len(b.Columns[b.ActiveTab].Cards); got != 1 {
+		t.Fatalf("precondition: active column has %d cards, want 1", got)
+	}
+
+	b = sendKey(t, b, keyMsg("j"))
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("'j' on single-card column: cursor = %d, want 0 (no-op)", got)
+	}
+
+	b = sendKey(t, b, keyMsg("k"))
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("'k' on single-card column: cursor = %d, want 0 (no-op)", got)
+	}
+}
+
+func TestItemNavigation_EmptyColumn_JK_NoOp(t *testing.T) {
+	b, _ := newBoardWithEmptyColumn(t, nil)
+
+	b = sendKey(t, b, keyMsg("j"))
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("'j' on empty column: cursor = %d, want 0 (no-op, no panic)", got)
+	}
+
+	b = sendKey(t, b, keyMsg("k"))
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("'k' on empty column: cursor = %d, want 0 (no-op, no panic)", got)
+	}
+}
+
+// TestItemNavigation_KWrapsToLastFilteredCard_WhenFilterActive and
+// TestItemNavigation_JWrapsToFirstFilteredCard_WhenFilterActive assert the
+// card list's wrap length comes from b.visibleCards() (the search/filter-aware
+// list), not the column's raw, unfiltered card count.
+func TestItemNavigation_KWrapsToLastFilteredCard_WhenFilterActive(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Bug one", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Feature one", Labels: []provider.Label{{Name: "feature"}}},
+		{Number: 3, Title: "Bug two", Labels: []provider.Label{{Name: "bug"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+
+	filtered := b.filteredCards()
+	if len(filtered) != 2 {
+		t.Fatalf("precondition: filteredCards() = %d, want 2", len(filtered))
+	}
+
+	// 'k' at cursor 0 with an active filter should wrap to the last
+	// *filtered* card (index 1), not clamp in place, and never land on the
+	// unfiltered column's excluded "Feature one" card.
+	b = sendKey(t, b, keyMsg("k"))
+	if got := b.Columns[b.ActiveTab].Cursor; got != len(filtered)-1 {
+		t.Errorf("cursor after 'k' with active filter = %d, want %d (wrap to last filtered card)", got, len(filtered)-1)
+	}
+}
+
+func TestItemNavigation_JWrapsToFirstFilteredCard_WhenFilterActive(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Bug one", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Feature one", Labels: []provider.Label{{Name: "feature"}}},
+		{Number: 3, Title: "Bug two", Labels: []provider.Label{{Name: "bug"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+
+	filtered := b.filteredCards()
+	if len(filtered) != 2 {
+		t.Fatalf("precondition: filteredCards() = %d, want 2", len(filtered))
+	}
+
+	// Walk to the last filtered card.
+	b = sendKey(t, b, keyMsg("j"))
+	if got := b.Columns[b.ActiveTab].Cursor; got != len(filtered)-1 {
+		t.Fatalf("precondition: cursor = %d, want %d (last filtered card)", got, len(filtered)-1)
+	}
+
+	// One more 'j' should wrap to the first filtered card instead of
+	// clamping at the last filtered card's index.
+	b = sendKey(t, b, keyMsg("j"))
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("'j' past last filtered card: cursor = %d, want 0 (wrap to first)", got)
 	}
 }
 
