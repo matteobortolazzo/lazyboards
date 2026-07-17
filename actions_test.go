@@ -1171,6 +1171,158 @@ func TestAction_DetailFocused_PRScope_SinglePRFiresImmediately(t *testing.T) {
 	}
 }
 
+// --- Custom-action hint bar follows config file order (#435/#437) ---
+
+func TestAction_HintBar_OrderMatchesConfigOrder(t *testing.T) {
+	localYAML := `provider: github
+repo: matteobortolazzo/lazyboards
+actions:
+  Z:
+    name: Zebra action
+    type: shell
+    scope: board
+    command: "echo z"
+  A:
+    name: Apple action
+    type: shell
+    scope: board
+    command: "echo a"
+  M:
+    name: Mango action
+    type: shell
+    scope: board
+    command: "echo m"
+`
+	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
+
+	hints := b.normalHints
+	z := hintIndex(hints, "Z")
+	a := hintIndex(hints, "A")
+	m := hintIndex(hints, "M")
+	if z == -1 || a == -1 || m == -1 {
+		t.Fatalf("expected hints for Z, A, M; got: %+v", hints)
+	}
+	if z >= a || a >= m {
+		t.Errorf("hint order should match the config file order Z, A, M; got indices Z=%d A=%d M=%d in %+v", z, a, m, hints)
+	}
+}
+
+func TestAction_HintBar_ColumnOverride_KeepsGlobalPosition(t *testing.T) {
+	localYAML := `provider: github
+repo: matteobortolazzo/lazyboards
+actions:
+  X:
+    name: Global X
+    type: shell
+    scope: board
+    command: "echo x"
+  Y:
+    name: Global Y
+    type: shell
+    scope: board
+    command: "echo y"
+  Z:
+    name: Global Z
+    type: shell
+    scope: board
+    command: "echo z"
+columns:
+  - name: New
+    actions:
+      Y:
+        name: Overridden Y
+        type: shell
+        scope: board
+        command: "echo overridden-y"
+`
+	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
+
+	hints := b.normalHints
+	x := hintIndex(hints, "X")
+	y := hintIndex(hints, "Y")
+	z := hintIndex(hints, "Z")
+	if x == -1 || y == -1 || z == -1 {
+		t.Fatalf("expected hints for X, Y, Z; got: %+v", hints)
+	}
+	if x >= y || y >= z {
+		t.Errorf("Y's overridden hint should keep its global position (between X and Z); got indices X=%d Y=%d Z=%d in %+v", x, y, z, hints)
+	}
+	if hints[y].Desc != "Overridden Y" {
+		t.Errorf("Y hint Desc = %q, want %q (column override should win the value)", hints[y].Desc, "Overridden Y")
+	}
+}
+
+func TestAction_HintBar_ZeroOrderActionsFallBackToAlphabetical(t *testing.T) {
+	// Hand-built map fixtures (not through config.Load()) leave Order at its
+	// zero value for every entry; the hint bar must degrade to alphabetical
+	// order in that case, keeping every existing single/no-order test
+	// meaningful.
+	actions := map[string]config.Action{
+		"Z": {Name: "Zebra", Type: "shell", Scope: "board", Command: "echo z"},
+		"A": {Name: "Apple", Type: "shell", Scope: "board", Command: "echo a"},
+		"M": {Name: "Mango", Type: "shell", Scope: "board", Command: "echo m"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+
+	hints := b.normalHints
+	a := hintIndex(hints, "A")
+	m := hintIndex(hints, "M")
+	z := hintIndex(hints, "Z")
+	if a == -1 || m == -1 || z == -1 {
+		t.Fatalf("expected hints for A, M, Z; got: %+v", hints)
+	}
+	if a >= m || m >= z {
+		t.Errorf("zero-Order actions should render alphabetically (A, M, Z); got indices A=%d M=%d Z=%d in %+v", a, m, z, hints)
+	}
+}
+
+func TestAction_HintBar_ColumnOnlyKeysAppendAfterGlobalOrder(t *testing.T) {
+	localYAML := `provider: github
+repo: matteobortolazzo/lazyboards
+actions:
+  B:
+    name: Global B
+    type: shell
+    scope: board
+    command: "echo b"
+  A:
+    name: Global A
+    type: shell
+    scope: board
+    command: "echo a"
+columns:
+  - name: New
+    actions:
+      B:
+        name: Global B
+        type: shell
+        scope: board
+        command: "echo b"
+      A:
+        name: Global A
+        type: shell
+        scope: board
+        command: "echo a"
+      D:
+        name: Column-only D
+        type: shell
+        scope: board
+        command: "echo d"
+`
+	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
+
+	hints := b.normalHints
+	bIdx := hintIndex(hints, "B")
+	aIdx := hintIndex(hints, "A")
+	d := hintIndex(hints, "D")
+	if bIdx == -1 || aIdx == -1 || d == -1 {
+		t.Fatalf("expected hints for B, A, D; got: %+v", hints)
+	}
+	if bIdx >= d || aIdx >= d {
+		t.Errorf("column-only key D should append after the global order (B, A); got indices B=%d A=%d D=%d in %+v", bIdx, aIdx, d, hints)
+	}
+}
+
 func TestAction_DetailFocused_PRScope_MultiplePRsOpensPicker(t *testing.T) {
 	actions := map[string]config.Action{
 		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch}"},

@@ -1191,6 +1191,26 @@ func (b *Board) prScopeGated(act config.Action) bool {
 	return act.Scope == "pr" && len(b.selectedCard().LinkedPRs) == 0
 }
 
+// orderedKeys returns m's keys sorted by (Order, key): Order ascending
+// primary, key string ascending tiebreaker. The tiebreaker is what makes any
+// hand-built map[string]config.Action (every existing test fixture that
+// doesn't go through config.Load(), where Order is left at its zero value)
+// degrade gracefully to alphabetical order -- the same convention
+// prListActionHints already uses via sort.Strings(keys).
+func orderedKeys(m map[string]config.Action) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if m[keys[i]].Order != m[keys[j]].Order {
+			return m[keys[i]].Order < m[keys[j]].Order
+		}
+		return keys[i] < keys[j]
+	})
+	return keys
+}
+
 // gatedActionHints returns the scope-gated custom-action hints: global
 // actions overlaid with the active column's per-column actions (column
 // overrides global), filtered by the same rule used for dispatch: board-scope
@@ -1199,6 +1219,13 @@ func (b *Board) prScopeGated(act config.Action) bool {
 // the hardcoded "p" open-PR hint). Shared by rebuildNormalHints and
 // rebuildDetailHints so the card-list and detail-focused hint bars apply
 // identical scope gating and column-override precedence.
+//
+// The hint sequence follows config file order (see internal/config's
+// Action.Order): all of the global order first, then any keys present only
+// in the active column's actions appended in the column's own order. A key
+// the active column overrides keeps its *global* position in the bar -- a
+// column override changes what a key does, not where it sits in a bar the
+// user scans by muscle memory.
 func (b *Board) gatedActionHints() []Hint {
 	// Determine if the active column has cards.
 	hasCards := false
@@ -1206,44 +1233,55 @@ func (b *Board) gatedActionHints() []Hint {
 		hasCards = len(b.Columns[b.ActiveTab].Cards) > 0
 	}
 
-	// Collect action hints with their scopes: start with global, overlay column-specific.
-	type actionEntry struct {
-		hint  Hint
-		scope string
-	}
-	actionEntries := make(map[string]actionEntry)
-	for key, act := range b.actions {
-		scope := config.DefaultScope(act.Scope)
-		actionEntries[key] = actionEntry{hint: Hint{Key: key, Desc: act.Name}, scope: scope}
-	}
-
-	// Overlay active column's actions.
+	// Resolve the active column's own actions map, if any.
+	var colActions map[string]config.Action
 	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
 		colTitle := b.Columns[b.ActiveTab].Title
 		for _, cc := range b.columnConfigs {
 			if strings.EqualFold(cc.Name, colTitle) {
-				for key, act := range cc.Actions {
-					scope := config.DefaultScope(act.Scope)
-					actionEntries[key] = actionEntry{hint: Hint{Key: key, Desc: act.Name}, scope: scope}
-				}
+				colActions = cc.Actions
 				break
 			}
 		}
 	}
 
-	hints := make([]Hint, 0, len(actionEntries))
+	globalOrder := orderedKeys(b.actions)
+	colOrder := orderedKeys(colActions)
+
+	seen := make(map[string]bool, len(globalOrder)+len(colOrder))
+	keys := make([]string, 0, len(globalOrder)+len(colOrder))
+	keys = append(keys, globalOrder...)
+	for _, key := range globalOrder {
+		seen[key] = true
+	}
+	for _, key := range colOrder {
+		if !seen[key] {
+			keys = append(keys, key)
+			seen[key] = true
+		}
+	}
+
+	hints := make([]Hint, 0, len(keys))
 	hasLinkedPR := hasCards && len(b.selectedCard().LinkedPRs) > 0
-	for _, entry := range actionEntries {
-		switch entry.scope {
+	for _, key := range keys {
+		act, ok := colActions[key]
+		if !ok {
+			act, ok = b.actions[key]
+		}
+		if !ok {
+			continue
+		}
+		hint := Hint{Key: key, Desc: act.Name}
+		switch config.DefaultScope(act.Scope) {
 		case "board":
-			hints = append(hints, entry.hint)
+			hints = append(hints, hint)
 		case "pr":
 			if hasLinkedPR {
-				hints = append(hints, entry.hint)
+				hints = append(hints, hint)
 			}
 		default:
 			if hasCards {
-				hints = append(hints, entry.hint)
+				hints = append(hints, hint)
 			}
 		}
 	}
