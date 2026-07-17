@@ -92,15 +92,9 @@ Press `d` to open the agent dispatch panel for the repo you're currently in. It 
 
 Once a repo is enrolled, `o` triggers a dispatch run — but this is **fleet-wide**: it dispatches across *all* enrolled repos, not just the one currently open. The panel shows a summary of the last run (dispatched/skipped counts) after it completes.
 
-The panel also shows a read-only "Loop" line reporting the daemon-owned background dispatch loop's state (off, on with its interval, daemon not running, no runs yet, or the last run's dispatched/skipped counts and any error) — lazyboards never starts or stops this loop itself. To start or stop the loop, configure a custom shell action that calls `cenci dispatch loop on`/`off` directly, for example in `~/.config/lazyboards/config.yml` (global) or `.lazyboards.yml` (per-project):
+The panel also shows a "Loop" line reporting the daemon-owned background dispatch loop's state (off, on with its interval, daemon not running, no runs yet, or the last run's dispatched/skipped counts and any error). Press `l` to toggle the loop on or off. Because the loop is **fleet-wide and persistent** — it keeps dispatching across *every* enrolled repo on a timer until turned off — the toggle asks for confirmation in both directions (`y` to confirm, `n`/`Esc` to cancel) and names the blast radius before you commit. The toggle is offered only when cenci can report the loop's current state; against a cenci binary too old to report it, the panel shows the Loop line without the `l` affordance.
 
-```yaml
-actions:
-  S: { name: Start dispatch loop, type: shell, command: "cenci dispatch loop on", scope: board }
-  X: { name: Stop dispatch loop, type: shell, command: "cenci dispatch loop off", scope: board }
-```
-
-This split is deliberate and holds across the app: anything that continuously *displays* live cenci state (agent badges, this Loop line, the status-bar dispatch segment) is built in, while anything that *changes* cenci state (loop on/off, enroll) is yours to bind as a [custom action](#custom-actions). When the cenci-watch daemon connection is up (`cenci: true`), the Loop line updates live from the daemon's pushed state; on disconnect it falls back to the result of the last `cenci dispatch status` query made when the panel opened.
+This split is deliberate and holds across the app: continuously *displaying* live cenci state (agent badges, this Loop line, the status-bar dispatch segment) is built in, and so are the dispatch panel's own mutating controls (enroll/unenroll, dispatch-once, and the loop toggle) — each acts on cenci's own repo/fleet state through a single modal key. Anything else that shells out to cenci with app-specific templating is yours to bind as a [custom action](#custom-actions). When the cenci-watch daemon connection is up (`cenci: true`), the Loop line updates live from the daemon's pushed state; on disconnect it falls back to the result of the last `cenci dispatch status` query made when the panel opened.
 
 See the [Dispatch keybindings](#dispatch-cenci) for the full key reference.
 
@@ -145,7 +139,7 @@ This walks through wiring lazyboards to a real [cenci-watch](https://github.com/
 
    Jumping to a card's agent window is built in — no custom action needed. Press `s` on a card to jump straight to its agent's tmux window (a picker opens if several windows match), or press `w` to open the full Agents modal listing every cenci-watch window.
 
-4. **Let cenci pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `cenci dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or start the recurring loop with the custom `cenci dispatch loop on` action described above. Tune concurrency, quiet hours, and per-agent budgets in cenci's own `dispatch` config block (`$XDG_CONFIG_HOME/cenci/config.json`) — see the [cenci README](https://github.com/matteobortolazzo/cenci/tree/main/watch#configuration-1) for the full reference.
+4. **Let cenci pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `cenci dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or turn the recurring loop on/off with `l` (see the [Dispatch Panel](#dispatch-panel)). Tune concurrency, quiet hours, and per-agent budgets in cenci's own `dispatch` config block (`$XDG_CONFIG_HOME/cenci/config.json`) — see the [cenci README](https://github.com/matteobortolazzo/cenci/tree/main/watch#configuration-1) for the full reference.
 
 ## Configuration
 
@@ -196,7 +190,7 @@ Save and close to apply changes. Leave the title blank to cancel. If you add lab
 
 ## Custom Actions
 
-Bind uppercase keys (A-Z) to URL or shell actions in your config. The uppercase namespace is fully yours — no built-in ever claims an uppercase key in normal mode (the built-in git shortcuts live inside the [Git Menu](#git-menu)). Custom actions are also the designated home for commands that change cenci state, like `cenci dispatch loop on`/`off` (see the [Dispatch Panel](#dispatch-panel)):
+Bind uppercase keys (A-Z) to URL or shell actions in your config. The uppercase namespace is fully yours — no built-in ever claims an uppercase key in normal mode (the built-in git shortcuts live inside the [Git Menu](#git-menu)). The dispatch panel's own cenci controls (enroll, dispatch-once, loop on/off) are built in — see the [Dispatch Panel](#dispatch-panel) — so you only need custom actions for cenci commands the panel doesn't cover:
 
 ```yaml
 actions:
@@ -636,6 +630,8 @@ what enrollment and a dispatch run actually do.
 | `d` | Open (from normal mode) |
 | `Enter` | Enroll/Unenroll current repo |
 | `o` | Dispatch once (all enrolled repos) |
+| `l` | Toggle dispatch loop on/off (all enrolled repos) |
+| `y` / `n`,`Esc` | Confirm / cancel the loop toggle |
 | `Esc` | Close |
 
 ### Error Mode

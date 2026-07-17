@@ -706,19 +706,26 @@ type dispatchState struct {
 	// (ticket #313). Upstream, that object is the same producer type as the
 	// socket snapshot's "dispatch" object (cenci's watch.DispatchState), so
 	// both wire boundaries decode into the one cenciwatch.DispatchState type
-	// (#402). lazyboards is a pure reader of this state -- starting and
-	// stopping the loop is a user-configured custom shell action, not a
-	// code path here. loop is nil only when the top-level "loop" key was
+	// (#402). The dispatch modal renders this state and also toggles it on/off
+	// via the built-in 'l' key (a confirmed toggleLoopCmd, #433). loop is nil
+	// only when the top-level "loop" key was
 	// entirely absent from the decoded JSON (a cenci binary that
 	// predates this feature); in that case loopErr holds a guard message.
 	loop    *cenciwatch.DispatchState
 	loopErr string
+
+	// confirmingLoop is true while the modal is showing the two-step
+	// confirmation prompt for a loop on/off toggle. The loop is a persistent,
+	// fleet-wide daemon setting shared by every enrolled repo, so flipping it
+	// is gated behind an explicit y/n confirm in BOTH directions (#433).
+	confirmingLoop bool
 }
 
 // dispatchModeHints are the status bar hints shown in dispatch mode.
 var dispatchModeHints = []Hint{
 	{Key: "enter", Desc: "Enroll/Unenroll"},
 	{Key: "o", Desc: "Dispatch once"},
+	{Key: "l", Desc: "Toggle loop"},
 	{Key: "esc", Desc: "Close"},
 }
 
@@ -746,6 +753,14 @@ type dispatchRunMsg struct {
 	result string
 	err    string
 	lines  []string
+}
+
+// dispatchLoopToggleMsg is sent when toggleLoopCmd finishes turning the
+// fleet-wide dispatch loop on or off. Like dispatchEnrollMsg it only carries
+// an exec-status error; the authoritative new loop state is obtained by a
+// follow-up queryDispatchStatusCmd re-query, not from the toggle's stdout.
+type dispatchLoopToggleMsg struct {
+	err string
 }
 
 // configState groups fields related to the config modal.

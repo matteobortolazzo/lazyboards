@@ -548,6 +548,37 @@ func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // is open. Enter toggles enrollment for the current repo; "o" runs a
 // fleet-wide dispatch pass. The modal is rendered by viewDispatchModal (#284).
 func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A pending loop-toggle confirmation scopes every key to y/n/esc. Esc
+	// cancels the CONFIRM only -- it must not also close the whole modal.
+	if b.dispatch.confirmingLoop {
+		if msg.Type == tea.KeyEscape {
+			b.dispatch.confirmingLoop = false
+			return b, nil
+		}
+		switch msg.String() {
+		case "n":
+			b.dispatch.confirmingLoop = false
+			return b, nil
+		case "y":
+			b.dispatch.confirmingLoop = false
+			if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
+				// A busy/error state can arrive between opening the confirm and
+				// confirming (e.g. a background status poll set err); don't fire
+				// the toggle on top of it. Mirrors the 'l' entry guard.
+				return b, nil
+			}
+			loop, _ := b.dispatchLoopSource()
+			if loop == nil {
+				// Defensive: the live state went unknown between opening the
+				// confirm and confirming; there is no direction to toggle.
+				return b, nil
+			}
+			b.dispatch.loading = true
+			return b, toggleLoopCmd(b.executor, loop.Enabled)
+		}
+		return b, nil
+	}
+
 	switch msg.Type {
 	case tea.KeyEscape:
 		b.mode = normalMode
@@ -574,6 +605,18 @@ func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		b.dispatch.running = true
 		return b, dispatchOnceCmd(b.executor)
+	case "l":
+		if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
+			return b, nil
+		}
+		// The loop is fleet-wide and not tied to this repo's enrollment, but a
+		// toggle needs a known current state to pick a direction. An old cenci
+		// binary (nil loop) can't report that, so there is nothing to toggle.
+		if loop, _ := b.dispatchLoopSource(); loop == nil {
+			return b, nil
+		}
+		b.dispatch.confirmingLoop = true
+		return b, nil
 	}
 
 	return b, nil

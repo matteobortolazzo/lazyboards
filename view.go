@@ -1168,6 +1168,8 @@ var helpSections = []helpSection{
 		{"d", "Open (from Normal Mode)"},
 		{"enter", "Enroll/Unenroll"},
 		{"o", "Dispatch once"},
+		{"l", "Toggle loop on/off (all enrolled repos)"},
+		{"y/n", "Confirm/cancel loop toggle"},
 		{"esc", "Close"},
 	}},
 	{"Label Confirm", [][2]string{
@@ -1709,15 +1711,34 @@ func (b Board) viewDispatchModal() string {
 		}
 
 		lines = append(lines, "")
-		lines = append(lines, renderLoopLine(b.dispatchLoopSource()))
+		loop, loopErr := b.dispatchLoopSource()
+		lines = append(lines, renderLoopLine(loop, loopErr))
 
-		enterDesc := "Enroll"
-		if b.dispatch.enrolled {
-			enterDesc = "Unenroll"
-		}
-		hints = []Hint{{Key: "esc", Desc: "Close"}, {Key: "enter", Desc: enterDesc}}
-		if b.dispatch.enrolled {
-			hints = append(hints, Hint{Key: "o", Desc: "Dispatch once"})
+		if b.dispatch.confirmingLoop {
+			// Fleet-wide, persistent toggle: confirm in both directions and spell
+			// out the blast radius so a single keypress doesn't silently commit
+			// every enrolled repo (#433).
+			lines = append(lines, "")
+			lines = append(lines, fmt.Sprintf("Turn dispatch loop %s? Affects all enrolled repos.", loopToggleTarget(loop)))
+			hints = []Hint{{Key: "y", Desc: "Confirm"}, {Key: "n/esc", Desc: "Cancel"}}
+		} else {
+			// The loop toggle needs a known current state to pick a direction;
+			// omit the affordance entirely when the loop state is unknown. It
+			// lives on its own line under the Loop line (rather than the bottom
+			// hint bar) both because it reads as an action on the state directly
+			// above it, and because a fourth hint overflows the modal width.
+			if loop != nil {
+				lines = append(lines, fmt.Sprintf("  l: Turn loop %s", loopToggleTarget(loop)))
+			}
+
+			enterDesc := "Enroll"
+			if b.dispatch.enrolled {
+				enterDesc = "Unenroll"
+			}
+			hints = []Hint{{Key: "esc", Desc: "Close"}, {Key: "enter", Desc: enterDesc}}
+			if b.dispatch.enrolled {
+				hints = append(hints, Hint{Key: "o", Desc: "Dispatch once"})
+			}
 		}
 	}
 
@@ -1749,13 +1770,25 @@ func (b Board) dispatchLoopSource() (*cenciwatch.DispatchState, string) {
 	return b.dispatch.loop, b.dispatch.loopErr
 }
 
+// loopToggleTarget returns the direction ("on"/"off") that a toggle would move
+// the fleet-wide dispatch loop, given its current state. A nil loop (unknown
+// state) reports "on" defensively, but callers gate the toggle on loop != nil,
+// so that fallback is never surfaced to the user.
+func loopToggleTarget(loop *cenciwatch.DispatchState) string {
+	if loop != nil && loop.Enabled {
+		return "off"
+	}
+	return "on"
+}
+
 // renderLoopLine renders the "Loop: ..." status line describing the
 // daemon-owned background dispatch loop, sourced by dispatchLoopSource from
 // either the live socket snapshot or the "loop" object in
 // `cenci dispatch status --json` (ticket #313) -- both decode into the
-// shared cenciwatch.DispatchState wire type (#402). lazyboards is a pure
-// reader of this state -- starting/stopping the loop is a user-configured
-// custom shell action, not a code path here. Precedence: old-binary guard >
+// shared cenciwatch.DispatchState wire type (#402). lazyboards renders this
+// state read-only here; toggling the loop on/off is the modal's built-in 'l'
+// key (a confirmed toggleLoopCmd), not a render concern (#433). Precedence:
+// old-binary guard >
 // nil loop (defensive) > last_error > enabled/off > daemon-not-running >
 // never-run > normal summary.
 func renderLoopLine(loop *cenciwatch.DispatchState, loopErr string) string {

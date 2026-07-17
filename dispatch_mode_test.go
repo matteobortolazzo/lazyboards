@@ -10,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -1255,5 +1256,480 @@ func TestDispatchView_NoLastLinesShowsNoExtraSection(t *testing.T) {
 	}
 	if strings.Contains(view, "more") {
 		t.Errorf("dispatch view with no lastLines should not render a truncation notice, got:\n%s", view)
+	}
+}
+
+// --- Loop on/off toggle (#433) ---
+//
+// The dispatch loop is a persistent, fleet-wide daemon setting shared by every
+// enrolled repo. Toggling it is built-in (key 'l' in the modal), but because
+// the blast radius is the whole fleet it goes through a two-step confirm in
+// BOTH directions, mirroring the close-confirm flow.
+
+func TestDispatchModeHints_IncludesLoopToggle(t *testing.T) {
+	keys := make(map[string]bool)
+	for _, h := range dispatchModeHints {
+		keys[h.Key] = true
+	}
+	if !keys["l"] {
+		t.Errorf("dispatchModeHints missing 'l' (loop toggle) entry: %+v", dispatchModeHints)
+	}
+}
+
+func TestDispatch_L_EntersConfirmWhenLoopKnown(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: false}}
+
+	m, cmd := b.Update(keyMsg("l"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if !b2.dispatch.confirmingLoop {
+		t.Error("expected dispatch.confirmingLoop=true after pressing 'l' with a known loop state")
+	}
+	if b2.mode != dispatchMode {
+		t.Errorf("'l' should stay in dispatchMode, got %v", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("pressing 'l' should only open the confirm prompt, not fire a Cmd")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("pressing 'l' must not run any command before confirmation, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestDispatch_L_OffersToggleEvenWhenNotEnrolled(t *testing.T) {
+	// The loop is a global daemon setting affecting the whole fleet, not this
+	// repo's enrollment. So 'l' must open the confirm even from a repo that is
+	// NOT enrolled -- unlike 'o' (dispatch-once), which is gated on enrollment.
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: false, loop: &cenciwatch.DispatchState{Enabled: true}}
+
+	m, cmd := b.Update(keyMsg("l"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if !b2.dispatch.confirmingLoop {
+		t.Error("'l' must open the loop-toggle confirm regardless of this repo's enrollment")
+	}
+	if cmd != nil {
+		t.Error("'l' should only open the confirm prompt, not fire a Cmd")
+	}
+}
+
+func TestDispatch_L_NoopWhenLoopUnknown(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	// loop nil = old cenci binary, state unknown -> cannot toggle a state we
+	// can't read.
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: nil}
+
+	m, cmd := b.Update(keyMsg("l"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.dispatch.confirmingLoop {
+		t.Error("'l' with unknown loop state must NOT enter the confirm prompt")
+	}
+	if cmd != nil {
+		t.Error("'l' with unknown loop state should be a no-op (nil Cmd)")
+	}
+}
+
+func TestDispatch_L_NoopWhileBusy(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state dispatchState
+	}{
+		{"loading", dispatchState{repo: "owner/repo", loading: true, loop: &cenciwatch.DispatchState{}}},
+		{"running", dispatchState{repo: "owner/repo", running: true, loop: &cenciwatch.DispatchState{}}},
+		{"error", dispatchState{repo: "owner/repo", err: "boom", loop: &cenciwatch.DispatchState{}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newDispatchTestBoard(t)
+			b.mode = dispatchMode
+			b.dispatch = tc.state
+
+			m, cmd := b.Update(keyMsg("l"))
+			b2, ok := m.(Board)
+			if !ok {
+				t.Fatalf("Update returned %T, want Board", m)
+			}
+			if b2.dispatch.confirmingLoop {
+				t.Errorf("'l' while %s must not open the confirm prompt", tc.name)
+			}
+			if cmd != nil {
+				t.Errorf("'l' while %s should be a no-op (nil Cmd)", tc.name)
+			}
+		})
+	}
+}
+
+func TestDispatch_LoopConfirm_Y_FiresToggleOff_WhenEnabled(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true}
+
+	m, cmd := b.Update(keyMsg("y"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.dispatch.confirmingLoop {
+		t.Error("confirming with 'y' should clear dispatch.confirmingLoop")
+	}
+	if !b2.dispatch.loading {
+		t.Error("expected dispatch.loading=true after confirming a loop toggle")
+	}
+	if cmd == nil {
+		t.Fatal("expected confirming 'y' to fire the loop-toggle Cmd")
+	}
+
+	msgs := collectMsgs(cmd)
+	found := false
+	for _, msg := range msgs {
+		if _, ok := msg.(dispatchLoopToggleMsg); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a dispatchLoopToggleMsg among executed commands, got %#v", msgs)
+	}
+	if len(fe.RunShellOutputCalls) == 0 {
+		t.Fatal("expected RunShellOutput to be called")
+	}
+	cmdStr := fe.RunShellOutputCalls[0]
+	if !strings.Contains(cmdStr, "dispatch loop off") {
+		t.Errorf("loop enabled -> toggle should turn it OFF, got %q", cmdStr)
+	}
+}
+
+func TestDispatch_LoopConfirm_Y_FiresToggleOn_WhenDisabled(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: false}, confirmingLoop: true}
+
+	m, cmd := b.Update(keyMsg("y"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if !b2.dispatch.loading {
+		t.Error("expected dispatch.loading=true after confirming a loop toggle")
+	}
+	if cmd == nil {
+		t.Fatal("expected confirming 'y' to fire the loop-toggle Cmd")
+	}
+
+	msgs := collectMsgs(cmd)
+	found := false
+	for _, msg := range msgs {
+		if _, ok := msg.(dispatchLoopToggleMsg); ok {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a dispatchLoopToggleMsg among executed commands, got %#v", msgs)
+	}
+	if len(fe.RunShellOutputCalls) == 0 {
+		t.Fatal("expected RunShellOutput to be called")
+	}
+	cmdStr := fe.RunShellOutputCalls[0]
+	if !strings.Contains(cmdStr, "dispatch loop on") {
+		t.Errorf("loop disabled -> toggle should turn it ON, got %q", cmdStr)
+	}
+}
+
+func TestDispatch_LoopConfirm_N_Cancels(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true}
+
+	m, cmd := b.Update(keyMsg("n"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.dispatch.confirmingLoop {
+		t.Error("'n' should cancel the loop-toggle confirm")
+	}
+	if b2.mode != dispatchMode {
+		t.Errorf("'n' should keep the dispatch modal open, got mode %v", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("cancelling with 'n' should not fire a Cmd")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("cancelling must not run any command, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestDispatch_LoopConfirm_Y_NoopWhenBusy(t *testing.T) {
+	// A busy/error state can arrive between opening the confirm (which is gated
+	// on !busy) and pressing 'y' -- e.g. a background status poll sets err. The
+	// confirm handler must re-check the same guard the 'l' entry does and not
+	// fire the toggle on top of it, only dismissing the confirm.
+	for _, tc := range []struct {
+		name  string
+		state dispatchState
+	}{
+		{"loading", dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true, loading: true}},
+		{"running", dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true, running: true}},
+		{"error", dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true, err: "boom"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fe := &action.FakeExecutor{}
+			b := newDispatchTestBoardWithExecutor(t, fe)
+			b.mode = dispatchMode
+			b.dispatch = tc.state
+
+			m, cmd := b.Update(keyMsg("y"))
+			b2, ok := m.(Board)
+			if !ok {
+				t.Fatalf("Update returned %T, want Board", m)
+			}
+			if b2.dispatch.confirmingLoop {
+				t.Errorf("'y' while %s should dismiss the confirm", tc.name)
+			}
+			if cmd != nil {
+				t.Errorf("'y' while %s must not fire the toggle Cmd", tc.name)
+			}
+			if len(fe.RunShellOutputCalls) != 0 {
+				t.Errorf("'y' while %s must not run any command, got %v", tc.name, fe.RunShellOutputCalls)
+			}
+		})
+	}
+}
+
+func TestDispatch_LoopConfirm_Esc_CancelsButKeepsModalOpen(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.dispatch.confirmingLoop {
+		t.Error("Esc during the loop-toggle confirm should cancel the confirm")
+	}
+	// Esc while confirming a loop toggle cancels the CONFIRM only -- it must not
+	// also close the whole modal (that would be a surprising double action).
+	if b2.mode != dispatchMode {
+		t.Errorf("Esc during confirm should keep the dispatch modal open, got mode %v", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("cancelling the confirm with Esc should not fire a Cmd")
+	}
+}
+
+func TestDispatch_HandleLoopToggleMsg_SuccessRequeries(t *testing.T) {
+	fe := &action.FakeExecutor{
+		RunShellOutputResults: []action.RunShellOutputResult{
+			{}, // version probe
+			{Stdout: `{"repo":"owner/repo","dir":"/tmp/x","enrolled":true,"loop":{"enabled":true,"daemon_running":true}}`},
+		},
+	}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{loading: true}
+
+	m, cmd := b.Update(dispatchLoopToggleMsg{})
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if !b2.dispatch.loading {
+		t.Error("expected dispatch.loading to remain true after a successful loop toggle (awaiting requery)")
+	}
+	if cmd == nil {
+		t.Fatal("expected a requery Cmd after a successful dispatchLoopToggleMsg")
+	}
+
+	msgs := collectMsgs(cmd)
+	var found *dispatchStatusMsg
+	for _, m2 := range msgs {
+		if sm, ok := m2.(dispatchStatusMsg); ok {
+			found = &sm
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected requery to produce a dispatchStatusMsg, got %#v", msgs)
+	}
+	if found.loop == nil || !found.loop.Enabled {
+		t.Errorf("expected the requery to reflect the new enabled loop state, got %#v", found.loop)
+	}
+}
+
+func TestDispatch_HandleLoopToggleMsg_Error(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{loading: true}
+
+	m, cmd := b.Update(dispatchLoopToggleMsg{err: "boom"})
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.dispatch.loading {
+		t.Error("expected dispatch.loading=false after dispatchLoopToggleMsg with err")
+	}
+	if b2.dispatch.err != "boom" {
+		t.Errorf("dispatch.err = %q, want %q", b2.dispatch.err, "boom")
+	}
+	if cmd != nil {
+		t.Error("a failed loop toggle should not fire a follow-up Cmd")
+	}
+}
+
+// --- toggleLoopCmd (#433) ---
+
+func TestToggleLoopCmd_On(t *testing.T) {
+	fe := &action.FakeExecutor{}
+
+	cmd := toggleLoopCmd(fe, false) // currently off -> turn on
+	msg := cmd()
+
+	if _, ok := msg.(dispatchLoopToggleMsg); !ok {
+		t.Fatalf("toggleLoopCmd() returned %T, want dispatchLoopToggleMsg", msg)
+	}
+	// == 1 guards a no-duplicate-side-effect invariant: the toggle must shell
+	// out to cenci exactly once, never issuing the state-changing command twice.
+	if len(fe.RunShellOutputCalls) != 1 {
+		t.Fatalf("expected 1 RunShellOutput call, got %d", len(fe.RunShellOutputCalls))
+	}
+	cmdStr := fe.RunShellOutputCalls[0]
+	if !strings.Contains(cmdStr, "dispatch loop on") {
+		t.Errorf("RunShellOutput called with %q, want substring %q", cmdStr, "dispatch loop on")
+	}
+	// The loop is fleet-wide (a global daemon setting), never scoped to one repo.
+	if strings.Contains(cmdStr, "--dir") || strings.Contains(cmdStr, "--repo") {
+		t.Errorf("loop toggle must be fleet-wide (no --dir/--repo filter), got %q", cmdStr)
+	}
+}
+
+func TestToggleLoopCmd_Off(t *testing.T) {
+	fe := &action.FakeExecutor{}
+
+	cmd := toggleLoopCmd(fe, true) // currently on -> turn off
+	msg := cmd()
+
+	if _, ok := msg.(dispatchLoopToggleMsg); !ok {
+		t.Fatalf("toggleLoopCmd() returned %T, want dispatchLoopToggleMsg", msg)
+	}
+	// == 1 guards a no-duplicate-side-effect invariant: the toggle must shell
+	// out to cenci exactly once, never issuing the state-changing command twice.
+	if len(fe.RunShellOutputCalls) != 1 {
+		t.Fatalf("expected 1 RunShellOutput call, got %d", len(fe.RunShellOutputCalls))
+	}
+	cmdStr := fe.RunShellOutputCalls[0]
+	if !strings.Contains(cmdStr, "dispatch loop off") {
+		t.Errorf("RunShellOutput called with %q, want substring %q", cmdStr, "dispatch loop off")
+	}
+}
+
+func TestToggleLoopCmd_Error(t *testing.T) {
+	fe := &action.FakeExecutor{
+		RunShellOutputErr:    errors.New("exit status 127"),
+		RunShellOutputStderr: "cenci: command not found",
+	}
+
+	cmd := toggleLoopCmd(fe, false)
+	msg := cmd()
+
+	toggleMsg, ok := msg.(dispatchLoopToggleMsg)
+	if !ok {
+		t.Fatalf("toggleLoopCmd() returned %T, want dispatchLoopToggleMsg", msg)
+	}
+	if toggleMsg.err == "" {
+		t.Error("expected dispatchLoopToggleMsg.err to be non-empty on exec error")
+	}
+}
+
+func TestToggleLoopCmd_IgnoresStdout(t *testing.T) {
+	// The toggle must check exit code ONLY -- the authoritative new state comes
+	// from the follow-up status re-query, not from parsing this stdout.
+	fe := &action.FakeExecutor{RunShellOutputStdout: "{not valid json at all"}
+
+	cmd := toggleLoopCmd(fe, true)
+	msg := cmd()
+
+	toggleMsg, ok := msg.(dispatchLoopToggleMsg)
+	if !ok {
+		t.Fatalf("toggleLoopCmd() returned %T, want dispatchLoopToggleMsg", msg)
+	}
+	if toggleMsg.err != "" {
+		t.Errorf("dispatchLoopToggleMsg.err = %q, want empty (toggle must ignore stdout and check exit code only)", toggleMsg.err)
+	}
+}
+
+// --- viewDispatchModal loop-toggle affordance + confirm prompt (#433) ---
+
+func TestDispatchView_LoopToggleHint_TurnsOnWhenDisabled(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: false}}
+
+	view := b.View()
+
+	if !strings.Contains(view, "Turn loop on") {
+		t.Errorf("ready dispatch view with a disabled loop should offer a 'Turn loop on' hint, got:\n%s", view)
+	}
+}
+
+func TestDispatchView_LoopToggleHint_TurnsOffWhenEnabled(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true, DaemonRunning: true}}
+
+	view := b.View()
+
+	if !strings.Contains(view, "Turn loop off") {
+		t.Errorf("ready dispatch view with an enabled loop should offer a 'Turn loop off' hint, got:\n%s", view)
+	}
+}
+
+func TestDispatchView_LoopToggleHint_HiddenWhenLoopUnknown(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	// old binary: loop state unknown -> no toggle affordance.
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: nil, loopErr: "cenci version too old"}
+
+	view := b.View()
+
+	if strings.Contains(view, "Turn loop") {
+		t.Errorf("dispatch view with unknown loop state must NOT offer a loop-toggle hint, got:\n%s", view)
+	}
+}
+
+func TestDispatchView_ConfirmPrompt_ShowsDirectionAndFleetScope(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: false}, confirmingLoop: true}
+
+	view := b.View()
+
+	if !strings.Contains(view, "Turn dispatch loop on") {
+		t.Errorf("confirm prompt for a disabled loop should ask to turn it on, got:\n%s", view)
+	}
+	if !strings.Contains(view, "all enrolled repos") {
+		t.Errorf("confirm prompt must surface the fleet-wide blast radius, got:\n%s", view)
+	}
+	// While confirming, the modal offers y/n, not the normal enroll/dispatch hints.
+	if !strings.Contains(view, "Confirm") || !strings.Contains(view, "Cancel") {
+		t.Errorf("confirm prompt should offer Confirm/Cancel hints, got:\n%s", view)
 	}
 }
