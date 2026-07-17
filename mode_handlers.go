@@ -561,6 +561,12 @@ func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		case "y":
 			b.dispatch.confirmingLoop = false
+			if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
+				// A busy/error state can arrive between opening the confirm and
+				// confirming (e.g. a background status poll set err); don't fire
+				// the toggle on top of it. Mirrors the 'l' entry guard.
+				return b, nil
+			}
 			loop, _ := b.dispatchLoopSource()
 			if loop == nil {
 				// Defensive: the live state went unknown between opening the

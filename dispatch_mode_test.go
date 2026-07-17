@@ -1475,6 +1475,43 @@ func TestDispatch_LoopConfirm_N_Cancels(t *testing.T) {
 	}
 }
 
+func TestDispatch_LoopConfirm_Y_NoopWhenBusy(t *testing.T) {
+	// A busy/error state can arrive between opening the confirm (which is gated
+	// on !busy) and pressing 'y' -- e.g. a background status poll sets err. The
+	// confirm handler must re-check the same guard the 'l' entry does and not
+	// fire the toggle on top of it, only dismissing the confirm.
+	for _, tc := range []struct {
+		name  string
+		state dispatchState
+	}{
+		{"loading", dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true, loading: true}},
+		{"running", dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true, running: true}},
+		{"error", dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true, err: "boom"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fe := &action.FakeExecutor{}
+			b := newDispatchTestBoardWithExecutor(t, fe)
+			b.mode = dispatchMode
+			b.dispatch = tc.state
+
+			m, cmd := b.Update(keyMsg("y"))
+			b2, ok := m.(Board)
+			if !ok {
+				t.Fatalf("Update returned %T, want Board", m)
+			}
+			if b2.dispatch.confirmingLoop {
+				t.Errorf("'y' while %s should dismiss the confirm", tc.name)
+			}
+			if cmd != nil {
+				t.Errorf("'y' while %s must not fire the toggle Cmd", tc.name)
+			}
+			if len(fe.RunShellOutputCalls) != 0 {
+				t.Errorf("'y' while %s must not run any command, got %v", tc.name, fe.RunShellOutputCalls)
+			}
+		})
+	}
+}
+
 func TestDispatch_LoopConfirm_Esc_CancelsButKeepsModalOpen(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newDispatchTestBoardWithExecutor(t, fe)
@@ -1569,6 +1606,8 @@ func TestToggleLoopCmd_On(t *testing.T) {
 	if _, ok := msg.(dispatchLoopToggleMsg); !ok {
 		t.Fatalf("toggleLoopCmd() returned %T, want dispatchLoopToggleMsg", msg)
 	}
+	// == 1 guards a no-duplicate-side-effect invariant: the toggle must shell
+	// out to cenci exactly once, never issuing the state-changing command twice.
 	if len(fe.RunShellOutputCalls) != 1 {
 		t.Fatalf("expected 1 RunShellOutput call, got %d", len(fe.RunShellOutputCalls))
 	}
@@ -1591,6 +1630,8 @@ func TestToggleLoopCmd_Off(t *testing.T) {
 	if _, ok := msg.(dispatchLoopToggleMsg); !ok {
 		t.Fatalf("toggleLoopCmd() returned %T, want dispatchLoopToggleMsg", msg)
 	}
+	// == 1 guards a no-duplicate-side-effect invariant: the toggle must shell
+	// out to cenci exactly once, never issuing the state-changing command twice.
 	if len(fe.RunShellOutputCalls) != 1 {
 		t.Fatalf("expected 1 RunShellOutput call, got %d", len(fe.RunShellOutputCalls))
 	}
