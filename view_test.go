@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"github.com/muesli/termenv"
 )
@@ -571,35 +572,33 @@ func TestView_CardList_NoWorkingIndicator_WhenNoWorkingLabel(t *testing.T) {
 	}
 }
 
+// TestView_CardList_BothPRAndWorkingIndicators verifies a card with both a
+// linked PR and the "Working" label renders both indicators, but on
+// separate lines (#439): the Working spinner stays inline on the title
+// line, while the linked PR now renders as its own status line beneath the
+// title (prStatusPrefix(status) + "#N") instead of sharing the title line
+// with an inline glyph.
 func TestView_CardList_BothPRAndWorkingIndicators(t *testing.T) {
 	b := newBoardWithWorkingLabel(t)
 	view := b.View()
 
-	// Card 4 has both a linked PR and the "Working" label.
-	// The view should contain both indicator icons.
-	if !strings.Contains(view, "\ue728") {
-		t.Error("View() should contain PR indicator \ue728 for card with linked PR")
-	}
+	// Card 4 has both a linked PR (#20, zero-value Mergeable/MergeStateStatus
+	// -> "unknown" status) and the "Working" label.
 	if !strings.Contains(view, "\uf110") {
 		t.Error("View() should contain Working indicator \uf110 for card with 'Working' label")
 	}
-
-	// Verify ordering: PR icon (\ue728) should appear before Working icon (\uf110)
-	// on the same line for card 4.
-	lines := strings.Split(view, "\n")
-	foundBothOnSameLine := false
-	for _, line := range lines {
-		prIdx := strings.Index(line, "\ue728")
-		workIdx := strings.Index(line, "\uf110")
-		if prIdx >= 0 && workIdx >= 0 {
-			foundBothOnSameLine = true
-			if prIdx >= workIdx {
-				t.Errorf("PR indicator should appear before Working indicator, but PR at index %d, Working at index %d in line %q", prIdx, workIdx, line)
-			}
-		}
+	wantPRLine := prStatusPrefix("unknown") + "#20"
+	if !strings.Contains(view, wantPRLine) {
+		t.Errorf("View() should contain PR status line %q for card's linked PR; got:\n%s", wantPRLine, view)
 	}
-	if !foundBothOnSameLine {
-		t.Error("expected at least one line containing both PR indicator and Working indicator for card with both")
+
+	// The Working indicator's title line and the PR status line must be
+	// separate lines, not merged together the way the old inline glyph was.
+	lines := strings.Split(view, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "\uf110") && strings.Contains(line, wantPRLine) {
+			t.Errorf("Working indicator and PR status line should render on separate lines, but found together in %q", line)
+		}
 	}
 }
 
@@ -1023,17 +1022,17 @@ func TestHelpModal_ShowsFilterToggle(t *testing.T) {
 	}
 }
 
-// --- Card list PR status glyph (#431) ---
+// --- Card list PR status lines (#439) ---
 //
-// cardDisplayText's linkedPRGlyph is recolored per the worst PR status
-// across a card's linked PRs, mirroring the agent-badge styling pattern
-// already exercised by TestViewCardList_NeedInputRendersSingleMarkInRed in
-// cenciwatch_test.go. The glyph character itself never changes; only its
-// color does.
+// PR status moved off the title line's single collapsed glyph onto its own
+// dedicated line per linked PR (prStatusPrefix(status) + "#N"), so a card
+// with multiple linked PRs shows each one's own status instead of only the
+// worst of them (worstPRStatus's old inline-glyph collapse).
 
-// TestViewCardList_PRStatusGlyph_ConflictingStyled asserts a card with a
-// single conflicting linked PR renders its board glyph in prConflictingStyle.
-func TestViewCardList_PRStatusGlyph_ConflictingStyled(t *testing.T) {
+// TestViewCardList_PRStatusLine_ConflictingStyled asserts a card with a
+// single conflicting linked PR renders a dedicated status line carrying the
+// prConflictingStyle-rendered glyph and the PR's number.
+func TestViewCardList_PRStatusLine_ConflictingStyled(t *testing.T) {
 	b := newBoardWithInlineCards(t, []provider.Card{
 		{Number: 1, Title: "Has conflicting PR", LinkedPRs: []provider.LinkedPR{
 			{Number: 10, Title: "feat: PR", URL: "https://github.com/o/r/pull/10", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"},
@@ -1041,16 +1040,18 @@ func TestViewCardList_PRStatusGlyph_ConflictingStyled(t *testing.T) {
 	}, 120, 40)
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
-	want := prConflictingStyle.Render(linkedPRGlyph)
+	want := prStatusPrefix("conflicting") + "#10"
 	if !strings.Contains(out, want) {
-		t.Errorf("rendered card list missing conflicting-styled PR glyph %q; got:\n%s", want, out)
+		t.Errorf("rendered card list missing conflicting PR status line %q; got:\n%s", want, out)
 	}
 }
 
-// TestViewCardList_PRStatusGlyph_WorstOfMultipleLinkedPRsWins asserts a card
-// with a draft PR and a blocked PR renders the worse (blocked) status, not
-// the draft one -- worstPRStatus's priority ordering exercised through the
-// rendered view.
+// TestViewCardList_PRStatusLine_MultiplePRs_EachShowsOwnStatus asserts a card
+// with a draft PR and a blocked PR renders BOTH as their own status lines --
+// per-PR status (prStatus applied individually), not the single
+// worst-of-all-linked-PRs status the old inline glyph collapsed to
+// (worstPRStatus). This is the ticket's core "stacked PRs" scenario: neither
+// status may be dropped in favor of the other.
 //
 // The comparison forces an ANSI256 color profile for the duration of the
 // test: prDraftStyle/prBlockedStyle are plain lipgloss styles (no dedicated
@@ -1059,7 +1060,7 @@ func TestViewCardList_PRStatusGlyph_ConflictingStyled(t *testing.T) {
 // non-TTY `go test` run and render every style as identical plain text,
 // making draft- and blocked-styled output indistinguishable regardless of
 // which one the code actually picked.
-func TestViewCardList_PRStatusGlyph_WorstOfMultipleLinkedPRsWins(t *testing.T) {
+func TestViewCardList_PRStatusLine_MultiplePRs_EachShowsOwnStatus(t *testing.T) {
 	original := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
@@ -1072,24 +1073,26 @@ func TestViewCardList_PRStatusGlyph_WorstOfMultipleLinkedPRsWins(t *testing.T) {
 	}, 120, 40)
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
-	wantBlocked := prBlockedStyle.Render(linkedPRGlyph)
-	if !strings.Contains(out, wantBlocked) {
-		t.Errorf("rendered card list missing blocked-styled PR glyph (worst of draft+blocked should be blocked) %q; got:\n%s", wantBlocked, out)
+	wantDraft := prStatusPrefix("draft") + "#10"
+	wantBlocked := prStatusPrefix("blocked") + "#11"
+	if !strings.Contains(out, wantDraft) {
+		t.Errorf("rendered card list missing draft PR status line %q (per-PR status must not be dropped in favor of the worse one); got:\n%s", wantDraft, out)
 	}
-	if strings.Contains(out, prDraftStyle.Render(linkedPRGlyph)) {
-		t.Errorf("rendered card list should not show draft styling when a worse (blocked) status is present; got:\n%s", out)
+	if !strings.Contains(out, wantBlocked) {
+		t.Errorf("rendered card list missing blocked PR status line %q; got:\n%s", wantBlocked, out)
 	}
 }
 
-// TestViewCardList_PRStatusGlyph_UnknownKeepsNeutralColor is the Q1
-// regression test: the board glyph keeps its current neutral
-// prIndicatorStyle color when the worst linked-PR status is UNKNOWN. This is
-// a deliberate divergence from the PR list/picker modals (which render no
+// TestViewCardList_PRStatusLine_UnknownKeepsNeutralColor is the Q1
+// regression test carried over from the inline-glyph era: a linked PR's
+// status line keeps the neutral prIndicatorStyle fallback color
+// (prStatusStyle's default case) when its status is UNKNOWN. This is a
+// deliberate divergence from the PR list/picker modals (which render no
 // glyph at all on UNKNOWN, see pr_list_test.go /
-// TestPRList_View_UnknownStatusRendersNoGlyph) -- the board glyph must keep
-// signaling "this card has a linked PR" even when the status can't yet be
-// determined.
-func TestViewCardList_PRStatusGlyph_UnknownKeepsNeutralColor(t *testing.T) {
+// TestPRList_View_UnknownStatusRendersNoGlyph) -- the board's per-PR line
+// must keep signaling "this is a linked PR" even when its status can't yet
+// be determined.
+func TestViewCardList_PRStatusLine_UnknownKeepsNeutralColor(t *testing.T) {
 	b := newBoardWithInlineCards(t, []provider.Card{
 		{Number: 1, Title: "Has PR with unresolved mergeability", LinkedPRs: []provider.LinkedPR{
 			{Number: 10, Title: "feat: PR", URL: "https://github.com/o/r/pull/10", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
@@ -1097,8 +1100,387 @@ func TestViewCardList_PRStatusGlyph_UnknownKeepsNeutralColor(t *testing.T) {
 	}, 120, 40)
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
-	want := prIndicatorStyle.Render(linkedPRGlyph)
+	want := prStatusPrefix("unknown") + "#10"
 	if !strings.Contains(out, want) {
-		t.Errorf("rendered card list should keep neutral prIndicatorStyle coloring on unknown PR status %q; got:\n%s", want, out)
+		t.Errorf("rendered card list should keep the neutral prIndicatorStyle status line %q; got:\n%s", want, out)
+	}
+}
+
+// --- cardStatusLines (#439) ---
+//
+// Agent and PR status render as dedicated lines under the card title instead
+// of a single collapsed inline glyph. Agent lines are derived from
+// cardAgentWindows (every session-scoped window joined to the card, not just
+// the single "best" one the now-removed agentBadgeFor/agentStatusFor picked),
+// and PR lines are derived per-PR from prStatus (not the now-removed
+// worstPRStatus's single collapsed status). Agent lines render before PR
+// lines (Q3); idle/badge-less agent windows are skipped entirely, with no
+// vertical cost (Q2).
+
+// TestCardStatusLines_AgentOnly_SkipsIdleRendersRunning verifies a single
+// non-idle agent window renders as one status line carrying its styled
+// badge, and that a card with only an agent window (no linked PRs) yields
+// exactly one line.
+func TestCardStatusLines_AgentOnly_SkipsIdleRendersRunning(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 7, Title: "Fix flaky test"},
+	}, 120, 40)
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
+			{WindowName: "7", Status: "running", Agent: "claude"},
+		},
+	}
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 1 {
+		t.Fatalf("cardStatusLines() = %d lines, want 1 (one running agent window, no linked PRs); got %v", len(lines), lines)
+	}
+	wantBadge := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
+	if !strings.Contains(lines[0], wantBadge) {
+		t.Errorf("agent status line %q missing styled badge %q", lines[0], wantBadge)
+	}
+}
+
+// TestCardStatusLines_IdleWindow_SkippedEntirely verifies an idle-only
+// window produces no status line and no vertical cost (Q2).
+func TestCardStatusLines_IdleWindow_SkippedEntirely(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 7, Title: "Idle card"},
+	}, 120, 40)
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
+			{WindowName: "7", Status: "idle", Agent: "claude"},
+		},
+	}
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 0 {
+		t.Errorf("cardStatusLines() = %v, want no lines for an idle-only agent window", lines)
+	}
+}
+
+// TestCardStatusLines_MultipleAgentWindows_OneLineEach verifies a card
+// joined to more than one live agent window (the rare case agentBadgeFor's
+// single "best window" pick used to silently lose) renders one status line
+// per non-idle window, in snapshot order.
+func TestCardStatusLines_MultipleAgentWindows_OneLineEach(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 7, Title: "Two windows"},
+	}, 120, 40)
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
+			{WindowName: "7-implement", Status: "running", Agent: "claude"},
+			{WindowName: "7-review", Status: "failed", Agent: "codex"},
+		},
+	}
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 2 {
+		t.Fatalf("cardStatusLines() = %d lines, want 2 (one per non-idle window); got %v", len(lines), lines)
+	}
+	wantRunning := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
+	wantFailed := agentBadgeStyle("failed").Render(agentBadgeText("failed", "codex"))
+	if !strings.Contains(lines[0], wantRunning) {
+		t.Errorf("first agent line %q missing running badge %q (snapshot order)", lines[0], wantRunning)
+	}
+	if !strings.Contains(lines[1], wantFailed) {
+		t.Errorf("second agent line %q missing failed badge %q (snapshot order)", lines[1], wantFailed)
+	}
+}
+
+// TestCardStatusLines_PROnly_ShowsNumberAndStatus verifies a single linked
+// PR (no agent windows) renders as one status line: prStatusPrefix(status) +
+// "#N" (Q1: number + status only, no title).
+func TestCardStatusLines_PROnly_ShowsNumberAndStatus(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Has PR", LinkedPRs: []provider.LinkedPR{
+			{Number: 11, Title: "feat: PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		}},
+	}, 120, 40)
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 1 {
+		t.Fatalf("cardStatusLines() = %d lines, want 1 (one linked PR, no agent windows); got %v", len(lines), lines)
+	}
+	want := prStatusPrefix("mergeable") + "#11"
+	if !strings.Contains(lines[0], want) {
+		t.Errorf("PR status line %q missing expected content %q", lines[0], want)
+	}
+}
+
+// TestCardStatusLines_MultiplePRs_EachShowsOwnStatus_NotWorst is the direct
+// unit-level counterpart of TestViewCardList_PRStatusLine_MultiplePRs_EachShowsOwnStatus:
+// a card with a draft PR and a blocked PR must yield two lines, each with
+// its own PR's status -- never collapsed to the single worst status.
+func TestCardStatusLines_MultiplePRs_EachShowsOwnStatus_NotWorst(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Stacked PRs", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "draft PR", URL: "https://github.com/o/r/pull/10", IsDraft: true, Mergeable: "MERGEABLE", MergeStateStatus: "DRAFT"},
+			{Number: 11, Title: "blocked PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "BLOCKED"},
+		}},
+	}, 120, 40)
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 2 {
+		t.Fatalf("cardStatusLines() = %d lines, want 2 (one per linked PR); got %v", len(lines), lines)
+	}
+	wantDraft := prStatusPrefix("draft") + "#10"
+	wantBlocked := prStatusPrefix("blocked") + "#11"
+	if !strings.Contains(lines[0], wantDraft) {
+		t.Errorf("first PR line %q missing draft content %q (per-PR status, not worst-of-all)", lines[0], wantDraft)
+	}
+	if !strings.Contains(lines[1], wantBlocked) {
+		t.Errorf("second PR line %q missing blocked content %q (per-PR status, not worst-of-all)", lines[1], wantBlocked)
+	}
+}
+
+// TestCardStatusLines_AgentThenPR_AgentLinesBeforePRLines verifies the Q3
+// ordering: when a card has both agent windows and linked PRs, every agent
+// line precedes every PR line.
+func TestCardStatusLines_AgentThenPR_AgentLinesBeforePRLines(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 7, Title: "Agent and PR", LinkedPRs: []provider.LinkedPR{
+			{Number: 11, Title: "feat: PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		}},
+	}, 120, 40)
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
+			{WindowName: "7", Status: "running", Agent: "claude"},
+		},
+	}
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 2 {
+		t.Fatalf("cardStatusLines() = %d lines, want 2 (1 agent + 1 PR); got %v", len(lines), lines)
+	}
+	wantAgent := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
+	wantPR := prStatusPrefix("mergeable") + "#11"
+	if !strings.Contains(lines[0], wantAgent) {
+		t.Errorf("first line %q should be the agent line %q (agent lines precede PR lines)", lines[0], wantAgent)
+	}
+	if !strings.Contains(lines[1], wantPR) {
+		t.Errorf("second line %q should be the PR line %q (agent lines precede PR lines)", lines[1], wantPR)
+	}
+}
+
+// TestCardStatusLines_NoAgentNoPR_ReturnsNoLines verifies the common-case
+// card (no agent windows, no linked PRs) costs zero status lines.
+func TestCardStatusLines_NoAgentNoPR_ReturnsNoLines(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Plain card"},
+	}, 120, 40)
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 0 {
+		t.Errorf("cardStatusLines() = %v, want no lines for a card with no agent windows and no linked PRs", lines)
+	}
+}
+
+// TestCardStatusLines_Indentation_MatchesGivenIndentWidth verifies every
+// status line is prefixed with exactly indentWidth spaces -- the same
+// continuation indent wrapTitle uses for a wrapped title's "#N " prefix, so
+// status lines visually align under the title text rather than the "#N "
+// number prefix.
+func TestCardStatusLines_Indentation_MatchesGivenIndentWidth(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 42, Title: "Double-digit number", LinkedPRs: []provider.LinkedPR{
+			{Number: 11, Title: "feat: PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		}},
+	}, 120, 40)
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
+			{WindowName: "42", Status: "running", Agent: "claude"},
+		},
+	}
+	card := b.Columns[0].Cards[0]
+	// "#42 " is 4 runes -- wrapTitle's continuation indent for this card.
+	indentWidth := cardTitlePrefixWidth(card)
+	if indentWidth != 4 {
+		t.Fatalf("test setup: indentWidth = %d, want 4 for card #42", indentWidth)
+	}
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 2 {
+		t.Fatalf("cardStatusLines() = %d lines, want 2; got %v", len(lines), lines)
+	}
+	wantIndent := strings.Repeat(" ", indentWidth)
+	for i, line := range lines {
+		if !strings.HasPrefix(line, wantIndent) {
+			t.Errorf("status line %d %q does not start with the %d-space indent matching wrapTitle's continuation indent", i, line, indentWidth)
+		}
+	}
+}
+
+// --- cardLineCount (Board method, #439) ---
+//
+// cardLineCount becomes a Board method so it can call b.cardStatusLines
+// directly; its returned count must include the card's status lines, not
+// just its (possibly wrapped) title lines, since that count is the single
+// source of truth clampScrollOffset, viewCardList, and handleCardClick all
+// share (docs/list-cursor-invariants.md).
+
+// TestCardLineCount_IncludesAgentAndPRStatusLines verifies the count is
+// title lines + agent status lines + PR status lines, not just the title.
+func TestCardLineCount_IncludesAgentAndPRStatusLines(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Card with agent and PR", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: PR", URL: "https://github.com/o/r/pull/10", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		}},
+	}, 120, 40)
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
+			{WindowName: "1", Status: "running", Agent: "claude"},
+		},
+	}
+	card := b.Columns[0].Cards[0]
+	columnNames := []string{"Column A"}
+
+	// A wide contentWidth keeps the title on a single line, isolating the
+	// count to title(1) + agent(1) + PR(1).
+	got := b.cardLineCount(card, 80, columnNames)
+	want := 3
+	if got != want {
+		t.Errorf("cardLineCount() = %d, want %d (1 title line + 1 agent status line + 1 PR status line)", got, want)
+	}
+}
+
+// TestCardLineCount_NoAgentNoPR_IsJustTitleLines verifies the common-case
+// card (no agent windows, no linked PRs) still costs only its title line(s).
+func TestCardLineCount_NoAgentNoPR_IsJustTitleLines(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Plain card"},
+	}, 120, 40)
+	card := b.Columns[0].Cards[0]
+	columnNames := []string{"Column A"}
+
+	got := b.cardLineCount(card, 80, columnNames)
+	if got != 1 {
+		t.Errorf("cardLineCount() = %d, want 1 for a card with no agent windows and no linked PRs", got)
+	}
+}
+
+// --- Scroll / click integration with variable card heights (#439) ---
+//
+// Single source of truth (docs/list-cursor-invariants.md): cardLineCount is
+// shared by clampScrollOffset, viewCardList's visible-window loop, and
+// handleCardClick. A card whose height is inflated by multiple PR status
+// lines must be counted identically everywhere, or scroll math and click
+// hit-detection silently disagree with what's rendered.
+
+// TestHandleCardClick_TallMultiPRCard_ClickTargetsAccountForStatusLines
+// verifies handleCardClick's line-count math correctly accounts for a card
+// whose height is inflated by multiple PR status lines, not just its title
+// line -- a click landing on any of that card's status lines selects it, and
+// a click on the row just past its last status line selects the next card.
+func TestHandleCardClick_TallMultiPRCard_ClickTargetsAccountForStatusLines(t *testing.T) {
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", true, false, nil, nil)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{Number: 1, Title: "First"},
+				{Number: 2, Title: "Second", LinkedPRs: []provider.LinkedPR{
+					{Number: 10, Title: "first PR", URL: "https://github.com/o/r/pull/10", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+					{Number: 11, Title: "second PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+					{Number: 12, Title: "third PR", URL: "https://github.com/o/r/pull/12", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+				}},
+				{Number: 3, Title: "Third"},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = 120
+	board.Height = 40
+
+	// Row layout (ScrollOffset=0, no up-arrow indicator):
+	// Y=2:    card 0 ("First", 1 line)
+	// Y=3..6: card 1 ("Second", 1 title line + 3 PR status lines = 4 lines)
+	// Y=7:    card 2 ("Third", 1 line)
+
+	// A click on one of card 1's PR status lines (Y=5) must select card 1,
+	// not miscount past it.
+	clicked := sendKey(t, board, tea.MouseMsg{
+		X: leftPanelX(), Y: 5, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress,
+	})
+	if got := clicked.Columns[0].Cursor; got != 1 {
+		t.Errorf("click on card 1's PR status line (Y=5): cursor = %d, want 1", got)
+	}
+
+	// A click on the row just past card 1's status lines must select card 2,
+	// confirming the tall card's full height (not just its title line) was
+	// counted.
+	clicked = sendKey(t, board, tea.MouseMsg{
+		X: leftPanelX(), Y: 7, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress,
+	})
+	if got := clicked.Columns[0].Cursor; got != 2 {
+		t.Errorf("click below card 1's status lines (Y=7): cursor = %d, want 2 (card 3)", got)
+	}
+}
+
+// TestScroll_TallMultiPRCard_ScrollOffsetAccountsForStatusLines verifies
+// clampScrollOffset's per-card cardLineCount summation counts a multi-PR
+// card's full height (title + PR status lines), not a flat "1 line per
+// card" assumption -- forcing scroll math that a flat-height bug would get
+// wrong.
+func TestScroll_TallMultiPRCard_ScrollOffsetAccountsForStatusLines(t *testing.T) {
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+
+	cards := []provider.Card{
+		{Number: 1, Title: "First"},
+		{Number: 2, Title: "Second"},
+		{Number: 3, Title: "Stacked PRs card", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "first", URL: "https://github.com/o/r/pull/10", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+			{Number: 11, Title: "second", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+			{Number: 12, Title: "third", URL: "https://github.com/o/r/pull/12", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		}},
+		{Number: 4, Title: "Fourth"},
+		{Number: 5, Title: "Fifth"},
+	}
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{{Title: "Column A", Cards: cards}},
+	}}
+	m, _ := b.Update(msg)
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = 120
+	// panelHeight = Height - 6. Total lines = 1+1+4+1+1 = 8. Height=13 gives
+	// panelHeight=7, less than the 8 total lines -- forces scrolling only if
+	// the tall card's 3 extra PR lines are actually counted.
+	board.Height = 13
+
+	// Navigate to the last card.
+	for i := 0; i < len(cards)-1; i++ {
+		board = sendKey(t, board, keyMsg("j"))
+	}
+
+	col := board.Columns[board.ActiveTab]
+	if col.Cursor != len(cards)-1 {
+		t.Fatalf("Cursor = %d, want %d (last card)", col.Cursor, len(cards)-1)
+	}
+	if col.ScrollOffset <= 0 {
+		t.Errorf("ScrollOffset = %d after scrolling past the tall multi-PR card, want > 0 (its 3 PR status lines must count toward scroll math)", col.ScrollOffset)
 	}
 }

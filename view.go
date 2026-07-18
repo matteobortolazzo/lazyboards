@@ -459,44 +459,16 @@ func prStatusPrefix(status string) string {
 	return strings.Repeat(" ", pad) + prStatusStyle(status).Render(symbol) + " "
 }
 
-// prStatusRank orders prStatus values worst-to-best for worstPRStatus:
-// Conflicting > Blocked > Draft > Mergeable. "unknown" is deliberately
-// absent (its zero rank) so it never wins over a known status.
-var prStatusRank = map[string]int{
-	"conflicting": 4,
-	"blocked":     3,
-	"draft":       2,
-	"mergeable":   1,
-}
-
-// worstPRStatus returns the worst status across a card's linked PRs, using
-// priority order Conflicting > Blocked > Draft > Mergeable. "unknown" never
-// wins over a known status from another linked PR, and is only returned when
-// every linked PR (or the slice itself) has no known status.
-func worstPRStatus(prs []LinkedPR) string {
-	worst := "unknown"
-	best := 0
-	for _, pr := range prs {
-		status := prStatus(pr)
-		if r := prStatusRank[status]; r > best {
-			best = r
-			worst = status
-		}
-	}
-	return worst
-}
-
-// cardDisplayText builds the raw display text for a card: "#N title [PR icon] [Working icon] [label dots] [agent badge]".
+// cardDisplayText builds the raw display text for a card's title line:
+// "#N title [Working icon] [label dots]". Agent status and linked-PR status
+// no longer render inline here -- they render as separate lines beneath the
+// title via cardStatusLines (#439).
 // Returns the assembled text and the rune-length of the number prefix (for wrap indentation).
 // columnNames controls which labels are hidden from the dot display.
 // workingLabel is the configured label name that triggers the spinner icon.
-// agentBadge, when non-empty, is appended verbatim as a fixed-width status badge.
-func cardDisplayText(card Card, columnNames []string, workingLabel string, agentBadge string) (string, int) {
+func cardDisplayText(card Card, columnNames []string, workingLabel string) (string, int) {
 	prefix := fmt.Sprintf("#%d ", card.Number)
 	text := prefix + card.Title
-	if len(card.LinkedPRs) > 0 {
-		text += " " + linkedPRGlyph
-	}
 	// Spinner icon uses case-insensitive match against the configured working label.
 	for _, label := range card.Labels {
 		if workingLabel != "" && strings.EqualFold(label.Name, workingLabel) {
@@ -509,17 +481,41 @@ func cardDisplayText(card Card, columnNames []string, workingLabel string, agent
 			text += " \u25cf"
 		}
 	}
-	if agentBadge != "" {
-		text += " " + agentBadge
-	}
 	return text, len([]rune(prefix))
 }
 
-// cardLineCount returns the number of visual lines a card occupies
-// when its title is wrapped to fit within contentWidth.
-func cardLineCount(card Card, contentWidth int, columnNames []string, workingLabel string, agentBadge string) int {
-	text, prefixLen := cardDisplayText(card, columnNames, workingLabel, agentBadge)
-	return len(wrapTitle(text, contentWidth, prefixLen))
+// cardStatusLines returns the status lines rendered under a card's title:
+// one line per non-idle agent window joined to the card (agent lines first),
+// then one line per linked PR (PR lines last), each prefixed with indentWidth
+// spaces to align under the title text -- the same continuation indent
+// wrapTitle uses for the "#N " prefix. Idle/badge-less agent windows are
+// skipped entirely (no line, no vertical cost).
+func (b Board) cardStatusLines(card Card, indentWidth int) []string {
+	indent := strings.Repeat(" ", indentWidth)
+	var lines []string
+	for _, w := range b.cardAgentWindows(card.Number) {
+		badge := agentBadgeText(w.Status, w.Agent)
+		if badge == "" {
+			continue
+		}
+		lines = append(lines, indent+agentBadgeStyle(w.Status).Render(badge))
+	}
+	for _, pr := range card.LinkedPRs {
+		status := prStatus(pr)
+		lines = append(lines, indent+prStatusPrefix(status)+fmt.Sprintf("#%d", pr.Number))
+	}
+	return lines
+}
+
+// cardLineCount returns the number of visual lines a card occupies: its
+// (possibly wrapped) title lines plus its agent/PR status lines
+// (cardStatusLines). This is the single source of truth shared by
+// clampScrollOffset, viewCardList, and handleCardClick
+// (docs/list-cursor-invariants.md) -- they must never disagree about a
+// card's rendered height.
+func (b Board) cardLineCount(card Card, contentWidth int, columnNames []string) int {
+	text, prefixLen := cardDisplayText(card, columnNames, b.workingLabel)
+	return len(wrapTitle(text, contentWidth, prefixLen)) + len(b.cardStatusLines(card, prefixLen))
 }
 
 func (b *Board) clampScrollOffset() {
@@ -552,7 +548,7 @@ func (b *Board) clampScrollOffset() {
 	// Compute total lines for all cards.
 	totalLines := 0
 	for i := 0; i < totalCards; i++ {
-		totalLines += cardLineCount(cards[i], contentWidth, columnNames, b.workingLabel, b.agentBadgeFor(cards[i]))
+		totalLines += b.cardLineCount(cards[i], contentWidth, columnNames)
 	}
 
 	if totalLines <= panelHeight {
@@ -572,7 +568,7 @@ func (b *Board) clampScrollOffset() {
 		linesUsed := 0
 		lastVisible := col.ScrollOffset
 		for lastVisible < totalCards {
-			cl := cardLineCount(cards[lastVisible], contentWidth, columnNames, b.workingLabel, b.agentBadgeFor(cards[lastVisible]))
+			cl := b.cardLineCount(cards[lastVisible], contentWidth, columnNames)
 			neededForDown := 0
 			if lastVisible+1 < totalCards {
 				neededForDown = 1
@@ -591,10 +587,10 @@ func (b *Board) clampScrollOffset() {
 			// Scroll down so cursor card is the last visible.
 			// Work backwards from cursor to find the ScrollOffset.
 			col.ScrollOffset = col.Cursor
-			linesFromCursor := cardLineCount(cards[col.Cursor], contentWidth, columnNames, b.workingLabel, b.agentBadgeFor(cards[col.Cursor]))
+			linesFromCursor := b.cardLineCount(cards[col.Cursor], contentWidth, columnNames)
 			avail := panelHeight - 1 // reserve 1 for up indicator (since we're scrolling down)
 			for col.ScrollOffset > 0 {
-				prevLines := cardLineCount(cards[col.ScrollOffset-1], contentWidth, columnNames, b.workingLabel, b.agentBadgeFor(cards[col.ScrollOffset-1]))
+				prevLines := b.cardLineCount(cards[col.ScrollOffset-1], contentWidth, columnNames)
 				neededForDown := 0
 				if col.Cursor+1 < totalCards {
 					neededForDown = 1
@@ -657,10 +653,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 	}
 	var allCards []wrappedCard
 	for j, card := range col.Cards {
-		ws := b.agentStatusFor(card)
-		badge := b.agentBadgeFor(card)
-		text, prefixLen := cardDisplayText(card, columnNames, b.workingLabel, badge)
-		hasPR := len(card.LinkedPRs) > 0
+		text, prefixLen := cardDisplayText(card, columnNames, b.workingLabel)
 		hasWorking := false
 		for _, label := range card.Labels {
 			if b.workingLabel != "" && strings.EqualFold(label.Name, b.workingLabel) {
@@ -669,24 +662,10 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 			}
 		}
 		lines := wrapTitle(text, contentWidth, prefixLen)
-		// Style PR indicator: colored per the worst linked-PR status, except
-		// "unknown" keeps the neutral prIndicatorStyle color so the glyph
-		// still signals "has a linked PR" before GitHub finishes computing
-		// mergeability (see prStatusStyle's "unknown" -> prIndicatorStyle
-		// default).
-		if hasPR && len(lines) > 0 {
-			last := len(lines) - 1
-			lines[last] = strings.Replace(lines[last], linkedPRGlyph, prStatusStyle(worstPRStatus(card.LinkedPRs)).Render(linkedPRGlyph), 1)
-		}
 		// Style Working indicator.
 		if hasWorking && len(lines) > 0 {
 			last := len(lines) - 1
 			lines[last] = strings.Replace(lines[last], "\uf110", workingIndicatorStyle.Render("\uf110"), 1)
-		}
-		// Style agent status badge.
-		if badge != "" && ws != nil && len(lines) > 0 {
-			last := len(lines) - 1
-			lines[last] = strings.Replace(lines[last], badge, agentBadgeStyle(ws.Status).Render(badge), 1)
 		}
 		// Style label dots with per-label colors (skip hidden labels).
 		for _, label := range card.Labels {
@@ -706,6 +685,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 			prefix := fmt.Sprintf("#%d ", card.Number)
 			lines[0] = strings.Replace(lines[0], prefix, cardNumberStyle.Render(prefix), 1)
 		}
+		lines = append(lines, b.cardStatusLines(card, prefixLen)...)
 		allCards = append(allCards, wrappedCard{lines: lines, selected: j == col.Cursor})
 	}
 

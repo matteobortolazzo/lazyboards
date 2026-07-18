@@ -79,7 +79,7 @@ func collectCmdMsgs(cmd tea.Cmd) []tea.Msg {
 	return []tea.Msg{msg}
 }
 
-// --- agentStatusFor: ticket-number-prefix join (#257, <number>-<skill> names) ---
+// --- agentStatusForNumber: ticket-number-prefix join (#257, <number>-<skill> names) ---
 
 // A dispatched <number>-<skill> window joins to its card by ticket number.
 func TestBoard_AgentStatusFor_SkillWindowMatchesByNumber(t *testing.T) {
@@ -93,15 +93,15 @@ func TestBoard_AgentStatusFor_SkillWindowMatchesByNumber(t *testing.T) {
 		},
 	}
 
-	got := b.agentStatusFor(card)
+	got := b.agentStatusForNumber(card.Number)
 	if got == nil {
-		t.Fatalf("agentStatusFor() = nil, want a match for window 230-refine")
+		t.Fatalf("agentStatusForNumber() = nil, want a match for window 230-refine")
 	}
 	if got.Status != "running" {
-		t.Errorf("agentStatusFor().Status = %q, want %q", got.Status, "running")
+		t.Errorf("agentStatusForNumber().Status = %q, want %q", got.Status, "running")
 	}
 	if got.Agent != "claude" {
-		t.Errorf("agentStatusFor().Agent = %q, want %q", got.Agent, "claude")
+		t.Errorf("agentStatusForNumber().Agent = %q, want %q", got.Agent, "claude")
 	}
 }
 
@@ -120,8 +120,8 @@ func TestBoard_AgentStatusFor_LegacyTitleSlugWindowStillMatches(t *testing.T) {
 		},
 	}
 
-	if got := b.agentStatusFor(card); got == nil {
-		t.Fatalf("agentStatusFor() = nil, want a match for legacy window %q", legacyName)
+	if got := b.agentStatusForNumber(card.Number); got == nil {
+		t.Fatalf("agentStatusForNumber() = nil, want a match for legacy window %q", legacyName)
 	}
 }
 
@@ -137,8 +137,8 @@ func TestBoard_AgentStatusFor_BareNumberWindowMatches(t *testing.T) {
 		},
 	}
 
-	if got := b.agentStatusFor(card); got == nil || got.Status != "need-input" {
-		t.Errorf("agentStatusFor() = %+v, want the bare-number window (need_input)", got)
+	if got := b.agentStatusForNumber(card.Number); got == nil || got.Status != "need-input" {
+		t.Errorf("agentStatusForNumber() = %+v, want the bare-number window (need_input)", got)
 	}
 }
 
@@ -154,8 +154,8 @@ func TestBoard_AgentStatusFor_NumberPrefixBoundary(t *testing.T) {
 		},
 	}
 
-	if got := b.agentStatusFor(card); got != nil {
-		t.Errorf("agentStatusFor() = %+v, want nil (23 must not match 230-refine)", got)
+	if got := b.agentStatusForNumber(card.Number); got != nil {
+		t.Errorf("agentStatusForNumber() = %+v, want nil (23 must not match 230-refine)", got)
 	}
 }
 
@@ -173,12 +173,12 @@ func TestBoard_AgentStatusFor_PrefersActiveWindow(t *testing.T) {
 		},
 	}
 
-	got := b.agentStatusFor(card)
+	got := b.agentStatusForNumber(card.Number)
 	if got == nil {
-		t.Fatalf("agentStatusFor() = nil, want the active window")
+		t.Fatalf("agentStatusForNumber() = nil, want the active window")
 	}
 	if got.Status != "running" || got.WindowName != "55-refine" {
-		t.Errorf("agentStatusFor() = %+v, want the running 55-refine window", got)
+		t.Errorf("agentStatusForNumber() = %+v, want the running 55-refine window", got)
 	}
 }
 
@@ -194,8 +194,8 @@ func TestBoard_AgentStatusFor_NoMatchingWindowReturnsNil(t *testing.T) {
 		},
 	}
 
-	if got := b.agentStatusFor(card); got != nil {
-		t.Errorf("agentStatusFor() = %+v, want nil (no matching window)", got)
+	if got := b.agentStatusForNumber(card.Number); got != nil {
+		t.Errorf("agentStatusForNumber() = %+v, want nil (no matching window)", got)
 	}
 }
 
@@ -207,8 +207,8 @@ func TestBoard_AgentStatusFor_NilSnapshotReturnsNil(t *testing.T) {
 		t.Fatal("test setup: agentSnapshot should be nil by default")
 	}
 
-	if got := b.agentStatusFor(card); got != nil {
-		t.Errorf("agentStatusFor() = %+v, want nil (no snapshot stored yet)", got)
+	if got := b.agentStatusForNumber(card.Number); got != nil {
+		t.Errorf("agentStatusForNumber() = %+v, want nil (no snapshot stored yet)", got)
 	}
 }
 
@@ -559,12 +559,12 @@ func TestBoard_AgentBadge_NeedInputFromDaemonWireFormat(t *testing.T) {
 	}
 	b.agentSnapshot = &snap
 
-	ws := b.agentStatusFor(card)
+	ws := b.agentStatusForNumber(card.Number)
 	if ws == nil {
-		t.Fatalf("agentStatusFor() = nil, want the need-input window for card #%d", cardNumber)
+		t.Fatalf("agentStatusForNumber() = nil, want the need-input window for card #%d", cardNumber)
 	}
-	if badge := b.agentBadgeFor(card); badge == "" {
-		t.Errorf("agentBadgeFor() = %q, want a non-empty badge for a need-input agent", badge)
+	if badge := agentBadgeText(ws.Status, ws.Agent); badge == "" {
+		t.Errorf("agentBadgeText() = %q, want a non-empty badge for a need-input agent", badge)
 	}
 	if _, needInput, _, _, _, _ := b.agentCounts(); needInput != 1 {
 		t.Errorf("agentCounts() needInput = %d, want 1 for one matched need-input card", needInput)
@@ -594,9 +594,11 @@ func TestAgentBadgeText_EmptyAgentSymbolOnly(t *testing.T) {
 	}
 }
 
-// TestBoard_AgentBadgeFor_AppendedToDisplayText verifies a matching non-idle
-// window causes cardDisplayText to append the badge.
-func TestBoard_AgentBadgeFor_AppendedToDisplayText(t *testing.T) {
+// TestBoard_AgentBadgeFor_AppearsAsSeparateStatusLine verifies a matching
+// non-idle window's badge renders as its own status line via
+// cardStatusLines (#439) -- it no longer appends to cardDisplayText's
+// returned title text.
+func TestBoard_AgentBadgeFor_AppearsAsSeparateStatusLine(t *testing.T) {
 	const cardNumber = 7
 	const cardTitle = "Fix flaky test"
 	b := newCenciWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
@@ -606,13 +608,33 @@ func TestBoard_AgentBadgeFor_AppendedToDisplayText(t *testing.T) {
 		Windows: []cenciwatch.WindowState{{WindowName: name, Status: "running", Agent: "claude"}},
 	}
 
-	badge := b.agentBadgeFor(card)
-	if badge == "" {
-		t.Fatal("agentBadgeFor() returned empty for a matching running window")
+	ws := b.agentStatusForNumber(card.Number)
+	if ws == nil {
+		t.Fatal("agentStatusForNumber() = nil, want a match for the running window")
 	}
-	text, _ := cardDisplayText(card, []string{"Column A"}, b.workingLabel, badge)
-	if !strings.Contains(text, badge) {
-		t.Errorf("cardDisplayText did not append badge %q; got %q", badge, text)
+	badge := agentBadgeText(ws.Status, ws.Agent)
+	if badge == "" {
+		t.Fatal("agentBadgeText() returned empty for a matching running window")
+	}
+
+	// cardDisplayText's title text must NOT contain the badge -- it moved to
+	// its own status line.
+	text, indentWidth := cardDisplayText(card, []string{"Column A"}, b.workingLabel)
+	if strings.Contains(text, badge) {
+		t.Errorf("cardDisplayText() title %q should not contain the agent badge %q (badge moved to its own status line)", text, badge)
+	}
+
+	// The badge appears instead as a line from cardStatusLines.
+	lines := b.cardStatusLines(card, indentWidth)
+	found := false
+	for _, line := range lines {
+		if strings.Contains(line, badge) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("cardStatusLines() = %v, want a line containing the agent badge %q", lines, badge)
 	}
 }
 
@@ -636,8 +658,12 @@ func TestBoard_AgentBadgeFor_NoBadgeCases(t *testing.T) {
 			b := newCenciWatchCardTestBoard(t, cardNumber, cardTitle, config.DefaultSessionMaxLength)
 			b.agentSnapshot = tt.snap
 			card := b.Columns[0].Cards[0]
-			if badge := b.agentBadgeFor(card); badge != "" {
-				t.Errorf("agentBadgeFor() = %q, want empty", badge)
+			badge := ""
+			if ws := b.agentStatusForNumber(card.Number); ws != nil {
+				badge = agentBadgeText(ws.Status, ws.Agent)
+			}
+			if badge != "" {
+				t.Errorf("badge = %q, want empty", badge)
 			}
 		})
 	}
@@ -736,7 +762,7 @@ func TestViewCardList_WorkingLabelAndBadgeCoexist(t *testing.T) {
 
 // TestAgentStatusFailed_ConstantMatchesLiteral guards the agentStatusFailed
 // constant against drifting from the "failed" literal used across the
-// cenci join (agentBadgeText, agentCounts, agentStatusFor callers).
+// cenci join (agentBadgeText, agentCounts, agentStatusForNumber callers).
 func TestAgentStatusFailed_ConstantMatchesLiteral(t *testing.T) {
 	if agentStatusFailed != "failed" {
 		t.Errorf("agentStatusFailed = %q, want %q", agentStatusFailed, "failed")

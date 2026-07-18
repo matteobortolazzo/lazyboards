@@ -61,7 +61,7 @@ func NewFakeProvider() *FakeProvider {
 						{Number: 20, Title: "feat: add data model", URL: "https://github.com/owner/repo/pull/20", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
 					}, CreatedAt: fakeCreatedAt(2)},
 					// Card #3 links two PRs (one draft, one blocked) to exercise
-					// worstPRStatus's priority ordering (blocked beats draft) in
+					// each linked PR rendering its own status line (#439) in
 					// dev-mode/manual verification.
 					{Number: 3, Title: "Add README", Labels: []Label{{Name: "docs"}}, LinkedPRs: []LinkedPR{
 						{Number: 30, Title: "docs: add README", URL: "https://github.com/owner/repo/pull/30", IsDraft: true, Mergeable: "MERGEABLE", MergeStateStatus: "DRAFT"},

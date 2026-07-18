@@ -334,6 +334,13 @@ func newBoardWithInlineCards(t *testing.T, cards []provider.Card, width, height 
 	return board
 }
 
+// cardTitlePrefixWidth returns the rune-length of a card's "#N " title
+// prefix -- the same indentWidth cardDisplayText/wrapTitle compute for the
+// card, used by cardStatusLines tests to align status lines under the title.
+func cardTitlePrefixWidth(card Card) int {
+	return len([]rune(fmt.Sprintf("#%d ", card.Number)))
+}
+
 // newBoardWithInlineCardsAndExecutor is newBoardWithInlineCards with a
 // FakeExecutor wired in so tests can assert OpenURL/shell side effects.
 func newBoardWithInlineCardsAndExecutor(t *testing.T, cards []provider.Card, fe *action.FakeExecutor) Board {
