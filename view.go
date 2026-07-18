@@ -366,7 +366,7 @@ func agentBadgeStyle(status string) lipgloss.Style {
 
 // prStatus derives a single-PR status from GitHub's raw isDraft/mergeable/
 // mergeStateStatus fields: one of "draft", "mergeable", "conflicting",
-// "blocked", or "unknown".
+// "blocked", "unstable", or "unknown".
 //
 // Mergeable == "UNKNOWN" short-circuits to "unknown" before the draft/blocked
 // checks -- an unresolved mergeability calculation must never be misreported
@@ -386,8 +386,10 @@ func prStatus(pr LinkedPR) string {
 		return "conflicting"
 	}
 	switch pr.MergeStateStatus {
-	case "BLOCKED", "BEHIND", "UNSTABLE":
+	case "BLOCKED", "BEHIND":
 		return "blocked"
+	case "UNSTABLE":
+		return "unstable"
 	case "DIRTY":
 		// DIRTY means "the merge commit cannot be cleanly created" -- the
 		// same real-world condition as Mergeable == "CONFLICTING" above.
@@ -419,6 +421,8 @@ func prStatusSymbol(status string) string {
 		return "✗" // ✗
 	case "blocked":
 		return "!"
+	case "unstable":
+		return "●"
 	default:
 		return ""
 	}
@@ -433,7 +437,7 @@ func prStatusStyle(status string) lipgloss.Style {
 		return prMergeableStyle
 	case "conflicting":
 		return prConflictingStyle
-	case "blocked":
+	case "blocked", "unstable":
 		return prBlockedStyle
 	default:
 		return prIndicatorStyle
@@ -444,19 +448,25 @@ func prStatusStyle(status string) lipgloss.Style {
 // glyph (●, ✓, ✗, !) -- all single-width per go-runewidth.
 const prStatusSymbolWidth = 1
 
-// prStatusPrefix renders the status glyph column for a PR list row, padded
-// to a fixed rendered width (prStatusSymbolWidth + a separator space) so
+// prStatusPrefix renders the fixed-width prefix column for a PR list row:
+// the purple linkedPRGlyph marker followed by the status glyph, padded to a
+// fixed rendered width (prStatusSymbolWidth + a separator space) so
 // unknown-status rows (no glyph) occupy exactly the same column width as
 // known-status rows -- otherwise the "#NN" column jitters left/right
 // depending on whether that row's status is known. Width is measured with
 // lipgloss.Width, not len(), per docs/terminal-rendering.md.
+//
+// This is the single choke point used by both viewPRListModal and
+// cardStatusLines, so the purple marker prefixes every PR row/line for all
+// statuses, including "unknown".
 func prStatusPrefix(status string) string {
 	symbol := prStatusSymbol(status)
 	pad := prStatusSymbolWidth - lipgloss.Width(symbol)
 	if pad < 0 {
 		pad = 0
 	}
-	return strings.Repeat(" ", pad) + prStatusStyle(status).Render(symbol) + " "
+	statusColumn := strings.Repeat(" ", pad) + prStatusStyle(status).Render(symbol) + " "
+	return prIndicatorStyle.Render(linkedPRGlyph) + " " + statusColumn
 }
 
 // cardDisplayText builds the raw display text for a card's title line:

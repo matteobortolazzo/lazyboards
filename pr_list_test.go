@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
@@ -625,12 +626,13 @@ func TestPRList_View_ColumnAlignment_UnknownAndKnownStatusRowsMatch(t *testing.T
 		{Number: 1, Title: "Mixed status card", LinkedPRs: []provider.LinkedPR{
 			{Number: 10, Title: "feat: unresolved", URL: "https://github.com/o/r/pull/10", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
 			{Number: 20, Title: "feat: conflicting", URL: "https://github.com/o/r/pull/20", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"},
+			{Number: 30, Title: "feat: unstable", URL: "https://github.com/o/r/pull/30", Mergeable: "MERGEABLE", MergeStateStatus: "UNSTABLE"},
 		}},
 	}, fe)
 	b = sendKey(t, b, keyMsg("v"))
 
 	view := b.viewPRListModal()
-	var unknownRow, knownRow string
+	var unknownRow, knownRow, unstableRow string
 	for _, line := range strings.Split(view, "\n") {
 		if strings.Contains(line, "#10") {
 			unknownRow = line
@@ -638,16 +640,96 @@ func TestPRList_View_ColumnAlignment_UnknownAndKnownStatusRowsMatch(t *testing.T
 		if strings.Contains(line, "#20") {
 			knownRow = line
 		}
+		if strings.Contains(line, "#30") {
+			unstableRow = line
+		}
 	}
-	if unknownRow == "" || knownRow == "" {
+	if unknownRow == "" || knownRow == "" || unstableRow == "" {
 		t.Fatalf("view missing expected PR rows; got:\n%s", view)
 	}
 
 	unknownPrefixWidth := lipgloss.Width(unknownRow[:strings.Index(unknownRow, "#10")])
 	knownPrefixWidth := lipgloss.Width(knownRow[:strings.Index(knownRow, "#20")])
+	unstablePrefixWidth := lipgloss.Width(unstableRow[:strings.Index(unstableRow, "#30")])
 	if unknownPrefixWidth != knownPrefixWidth {
 		t.Errorf("column widths before # differ: unknown-status row = %d, known-status row = %d\nunknown row: %q\nknown row:   %q",
 			unknownPrefixWidth, knownPrefixWidth, unknownRow, knownRow)
+	}
+	if unstablePrefixWidth != knownPrefixWidth {
+		t.Errorf("column widths before # differ: unstable-status row = %d, known-status row = %d\nunstable row: %q\nknown row:    %q",
+			unstablePrefixWidth, knownPrefixWidth, unstableRow, knownRow)
+	}
+}
+
+// --- purple linkedPRGlyph prefix on every PR list row (#447) ---
+//
+// Every row is now prefixed with the purple linkedPRGlyph marker (color 183,
+// via prIndicatorStyle) in addition to the existing status glyph -- the same
+// icon already used for the status-bar aggregate open-PR count.
+
+// TestPRList_View_RowsPrefixedWithPurpleLinkedPRGlyph asserts a known-status
+// row (mergeable) is prefixed with the purple linkedPRGlyph marker.
+func TestPRList_View_RowsPrefixedWithPurpleLinkedPRGlyph(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	fe := &action.FakeExecutor{}
+	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{
+		{Number: 1, Title: "Mergeable PR card", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: mergeable", URL: "https://github.com/o/r/pull/10", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		}},
+	}, fe)
+	b = sendKey(t, b, keyMsg("v"))
+
+	view := b.viewPRListModal()
+	var row string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "#10") {
+			row = line
+			break
+		}
+	}
+	if row == "" {
+		t.Fatalf("PR list view missing row for #10; got:\n%s", view)
+	}
+	wantGlyph := prIndicatorStyle.Render(linkedPRGlyph)
+	if !strings.Contains(row, wantGlyph) {
+		t.Errorf("PR list row %q missing purple linkedPRGlyph prefix %q", row, wantGlyph)
+	}
+}
+
+// TestPRList_View_UnknownStatusRow_StillPrefixedWithPurpleLinkedPRGlyph
+// asserts the purple glyph prefix applies uniformly even to an
+// "unknown"-status row, which renders no status glyph of its own -- the
+// purple icon is a prefix in addition to the status glyph, not a substitute.
+func TestPRList_View_UnknownStatusRow_StillPrefixedWithPurpleLinkedPRGlyph(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	fe := &action.FakeExecutor{}
+	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{
+		{Number: 1, Title: "Unresolved PR card", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: unresolved", URL: "https://github.com/o/r/pull/10", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
+		}},
+	}, fe)
+	b = sendKey(t, b, keyMsg("v"))
+
+	view := b.viewPRListModal()
+	var row string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "#10") {
+			row = line
+			break
+		}
+	}
+	if row == "" {
+		t.Fatalf("PR list view missing row for #10; got:\n%s", view)
+	}
+	wantGlyph := prIndicatorStyle.Render(linkedPRGlyph)
+	if !strings.Contains(row, wantGlyph) {
+		t.Errorf("unknown-status PR list row %q missing purple linkedPRGlyph prefix %q", row, wantGlyph)
 	}
 }
 

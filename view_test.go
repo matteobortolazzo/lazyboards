@@ -1325,6 +1325,102 @@ func TestCardStatusLines_Indentation_MatchesGivenIndentWidth(t *testing.T) {
 	}
 }
 
+// --- purple linkedPRGlyph prefix + "unstable" status (#447) ---
+
+// TestCardStatusLines_UnstablePR_ShowsDotGlyphNotExclamation asserts a PR
+// with MergeStateStatus == "UNSTABLE" ("PR is building") renders its status
+// line with the "●" dot glyph styled prBlockedStyle -- the same orange/215
+// color BLOCKED/BEHIND use, but explicitly not the "!" exclamation glyph,
+// since "still running checks" is not the same alarm level as "GitHub is
+// actively blocking this merge".
+//
+// The comparison forces an ANSI256 color profile per docs/terminal-rendering.md:
+// prBlockedStyle is a plain lipgloss style with no dedicated renderer, so
+// lipgloss's default global renderer would otherwise auto-detect "no color
+// support" in a non-TTY `go test` run and render every style as identical
+// plain text, making the styled-glyph assertion pass trivially.
+func TestCardStatusLines_UnstablePR_ShowsDotGlyphNotExclamation(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Building PR", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: PR", URL: "https://github.com/o/r/pull/10", Mergeable: "MERGEABLE", MergeStateStatus: "UNSTABLE"},
+		}},
+	}, 120, 40)
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 1 {
+		t.Fatalf("cardStatusLines() = %d lines, want 1; got %v", len(lines), lines)
+	}
+	wantDot := prBlockedStyle.Render("●")
+	if !strings.Contains(lines[0], wantDot) {
+		t.Errorf("unstable PR status line %q missing prBlockedStyle-rendered dot glyph %q", lines[0], wantDot)
+	}
+	wantExclamation := prBlockedStyle.Render("!")
+	if strings.Contains(lines[0], wantExclamation) {
+		t.Errorf("unstable PR status line %q contains the blocked exclamation glyph %q, want the dot glyph instead", lines[0], wantExclamation)
+	}
+}
+
+// TestCardStatusLines_PRLine_PrefixedWithPurpleLinkedPRGlyph asserts every
+// per-card PR status line is prefixed with the purple linkedPRGlyph marker
+// (color 183, via prIndicatorStyle) in addition to the existing status
+// glyph -- extending the board glyph already used elsewhere (status-bar
+// aggregate count) to every individual PR row.
+func TestCardStatusLines_PRLine_PrefixedWithPurpleLinkedPRGlyph(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Has PR", LinkedPRs: []provider.LinkedPR{
+			{Number: 11, Title: "feat: PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		}},
+	}, 120, 40)
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 1 {
+		t.Fatalf("cardStatusLines() = %d lines, want 1; got %v", len(lines), lines)
+	}
+	wantGlyph := prIndicatorStyle.Render(linkedPRGlyph)
+	if !strings.Contains(lines[0], wantGlyph) {
+		t.Errorf("PR status line %q missing purple linkedPRGlyph prefix %q", lines[0], wantGlyph)
+	}
+}
+
+// TestCardStatusLines_UnknownPRLine_StillGetsPurpleGlyphPrefix asserts the
+// purple linkedPRGlyph prefix applies uniformly to every status, including
+// "unknown" (which renders no status glyph of its own) -- the purple icon is
+// a prefix in addition to the status glyph, not a substitute for it.
+func TestCardStatusLines_UnknownPRLine_StillGetsPurpleGlyphPrefix(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Unresolved PR", LinkedPRs: []provider.LinkedPR{
+			{Number: 11, Title: "feat: PR", URL: "https://github.com/o/r/pull/11", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
+		}},
+	}, 120, 40)
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 1 {
+		t.Fatalf("cardStatusLines() = %d lines, want 1; got %v", len(lines), lines)
+	}
+	wantGlyph := prIndicatorStyle.Render(linkedPRGlyph)
+	if !strings.Contains(lines[0], wantGlyph) {
+		t.Errorf("unknown-status PR line %q missing purple linkedPRGlyph prefix %q", lines[0], wantGlyph)
+	}
+}
+
 // --- cardLineCount (Board method, #439) ---
 //
 // cardLineCount becomes a Board method so it can call b.cardStatusLines
