@@ -54,7 +54,8 @@ func NewGitHubProvider(client GitHubClient, gql graphQLBoardClient, owner, repo 
 
 // FetchBoard retrieves open issues and maps them to board columns, paging
 // through gql.fetchIssuePage (a single GraphQL query per page fetches each
-// issue's core fields plus its first 100 open closing PRs).
+// issue's core fields plus its first 100 closing PRs and its first 100
+// cross-referenced open-PR mentions, unioned into issue.linkedPRs -- #441).
 //
 // GraphQL's `issues` connection excludes pull requests by construction
 // (unlike the REST Issues API, which mixes them in and requires a runtime
@@ -62,6 +63,8 @@ func NewGitHubProvider(client GitHubClient, gql graphQLBoardClient, owner, repo 
 //
 // Issues with more than 100 closing PRs (issue.hasMoreClosingPRs)
 // trigger a bounded per-issue follow-up query via fetchClosingPRFollowups.
+// Mentions beyond the first 100 are not paginated (see TimelineItems' doc
+// comment in graphql.go) -- a deliberate scope cut, not an oversight.
 func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 	if len(g.columns) == 0 {
 		return Board{}, errors.New("at least one column is required")
