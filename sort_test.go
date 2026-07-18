@@ -102,20 +102,21 @@ func TestSortColumns_TogglingFieldFlipsOrder(t *testing.T) {
 }
 
 // --- 'u' toggle (#412) ---
+//
+// The 'u' key itself stays a built-in normal-mode command with a persistent
+// sort-order effect, but its hint is intentionally omitted from the status
+// bar (#443) to reduce bottom-bar clutter; it remains documented in the '?'
+// help modal (see helpSections in view.go).
 
-func TestNormalMode_U_HintShowsNewestFirstByDefault(t *testing.T) {
+func TestNormalMode_U_HintHiddenFromStatusBar(t *testing.T) {
 	b := newLoadedTestBoard(t)
 
-	idx := hintIndex(b.normalHints, "u")
-	if idx == -1 {
-		t.Fatalf("normalHints should contain a %q hint, got: %+v", "u", b.normalHints)
-	}
-	if b.normalHints[idx].Desc != "sort: newest" {
-		t.Errorf("u hint Desc = %q, want %q", b.normalHints[idx].Desc, "sort: newest")
+	if idx := hintIndex(b.normalHints, "u"); idx != -1 {
+		t.Errorf("normalHints should not contain a %q hint (#443), got: %+v", "u", b.normalHints)
 	}
 }
 
-func TestNormalMode_U_TogglesSortOrder_FlipsOrderAndHint(t *testing.T) {
+func TestNormalMode_U_TogglesSortOrder_FlipsOrder(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "Oldest", CreatedAt: sortTestOlder},
 		{Number: 2, Title: "Newest", CreatedAt: sortTestNewest},
@@ -135,12 +136,8 @@ func TestNormalMode_U_TogglesSortOrder_FlipsOrderAndHint(t *testing.T) {
 
 	assertCardOrder(t, updated.Columns[0].Cards, []int{1, 3, 2}) // oldest-first
 
-	idx := hintIndex(updated.normalHints, "u")
-	if idx == -1 {
-		t.Fatalf("normalHints should contain a %q hint after toggle, got: %+v", "u", updated.normalHints)
-	}
-	if updated.normalHints[idx].Desc != "sort: oldest" {
-		t.Errorf("u hint Desc after toggle = %q, want %q", updated.normalHints[idx].Desc, "sort: oldest")
+	if idx := hintIndex(updated.normalHints, "u"); idx != -1 {
+		t.Errorf("normalHints should not contain a %q hint after toggle (#443), got: %+v", "u", updated.normalHints)
 	}
 }
 
@@ -155,9 +152,8 @@ func TestNormalMode_U_TogglingTwiceRestoresNewestFirst(t *testing.T) {
 	b = sendKey(t, b, keyMsg("u"))
 
 	assertCardOrder(t, b.Columns[0].Cards, []int{2, 1})
-	idx := hintIndex(b.normalHints, "u")
-	if idx == -1 || b.normalHints[idx].Desc != "sort: newest" {
-		t.Errorf("after toggling twice, u hint = %+v, want Desc %q", b.normalHints, "sort: newest")
+	if idx := hintIndex(b.normalHints, "u"); idx != -1 {
+		t.Errorf("after toggling twice, normalHints should still not contain a %q hint (#443), got: %+v", "u", b.normalHints)
 	}
 }
 
