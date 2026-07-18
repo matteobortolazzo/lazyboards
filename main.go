@@ -173,8 +173,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Auto-detect provider and repo from git remote
-	gitInfo := gitdetect.DetectRemote(".git/config")
+	// Auto-detect provider and repo from git remote. ResolveConfigPath
+	// handles both a normal ".git" directory and a linked worktree's
+	// ".git" gitdir-pointer file (see internal/git/remote.go).
+	gitInfo := gitdetect.DetectRemote(gitdetect.ResolveConfigPath(".git"))
 
 	// Config overrides git-detected values
 	prov := cfg.Provider
