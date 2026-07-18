@@ -13,12 +13,15 @@ import (
 // pr_list_test.go, and pr_picker_test.go cover the three rendered
 // consumers.
 //
-// Four known states, derived from GitHub GraphQL fields isDraft/mergeable/
+// Five known states, derived from GitHub GraphQL fields isDraft/mergeable/
 // mergeStateStatus:
 //   - "draft"       <- IsDraft == true
 //   - "mergeable"    <- Mergeable == "MERGEABLE"
 //   - "conflicting"  <- Mergeable == "CONFLICTING" or MergeStateStatus == "DIRTY"
-//   - "blocked"      <- MergeStateStatus in BLOCKED/BEHIND/UNSTABLE
+//   - "blocked"      <- MergeStateStatus in BLOCKED/BEHIND
+//   - "unstable"     <- MergeStateStatus == "UNSTABLE" (#447: split out of
+//     "blocked" -- "PR is building" is not the same alarm level as
+//     BLOCKED/BEHIND, so it gets its own status and a calmer glyph)
 //   - "unknown"      <- Mergeable == "UNKNOWN" (short-circuits before the
 //     draft/blocked checks)
 
@@ -52,7 +55,6 @@ func TestPRStatus_Blocked(t *testing.T) {
 	}{
 		{"blocked", "BLOCKED"},
 		{"behind", "BEHIND"},
-		{"unstable", "UNSTABLE"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -61,6 +63,18 @@ func TestPRStatus_Blocked(t *testing.T) {
 				t.Errorf("prStatus(mergeStateStatus=%s) = %q, want %q", tt.mergeStateStatus, got, "blocked")
 			}
 		})
+	}
+}
+
+// TestPRStatus_Unstable asserts MergeStateStatus == "UNSTABLE" ("PR is
+// building") maps to its own "unstable" status (#447), split out of the
+// "blocked" bucket it used to share with BLOCKED/BEHIND -- a PR still
+// running checks is not the same alarm level as one GitHub is actively
+// blocking or that has fallen behind its base branch.
+func TestPRStatus_Unstable(t *testing.T) {
+	pr := LinkedPR{IsDraft: false, Mergeable: "MERGEABLE", MergeStateStatus: "UNSTABLE"}
+	if got := prStatus(pr); got != "unstable" {
+		t.Errorf("prStatus(mergeStateStatus=UNSTABLE) = %q, want %q", got, "unstable")
 	}
 }
 
@@ -138,6 +152,7 @@ func TestPRStatusSymbol_AllKnownStates(t *testing.T) {
 		{"mergeable", "✓"},   // ✓
 		{"conflicting", "✗"}, // ✗
 		{"blocked", "!"},
+		{"unstable", "●"}, // ● (#447: distinct from the "!" alarm glyph)
 	}
 	for _, tt := range tests {
 		if got := prStatusSymbol(tt.status); got != tt.want {
@@ -165,6 +180,7 @@ func TestPRStatusStyle_MapsEachKnownStatusToItsNamedStyle(t *testing.T) {
 		{"mergeable", prMergeableStyle},
 		{"conflicting", prConflictingStyle},
 		{"blocked", prBlockedStyle},
+		{"unstable", prBlockedStyle}, // #447: same orange/215 color as "blocked", different glyph
 	}
 	for _, tt := range tests {
 		got := prStatusStyle(tt.status).Render("x")
