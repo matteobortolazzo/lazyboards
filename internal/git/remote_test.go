@@ -114,3 +114,88 @@ func TestDetectRemote(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveConfigPath(t *testing.T) {
+	t.Run("PlainDirectory", func(t *testing.T) {
+		// A normal (non-worktree) repo: ".git" is a directory containing
+		// "config" directly.
+		gitDir := t.TempDir()
+
+		got := ResolveConfigPath(gitDir)
+
+		want := filepath.Join(gitDir, "config")
+		if got != want {
+			t.Errorf("ResolveConfigPath() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("WorktreeGitdirFileWithCommondir", func(t *testing.T) {
+		// A linked worktree (`git worktree add`): the repo root's ".git" is
+		// a file pointing at a per-worktree gitdir under the common
+		// ".git/worktrees/<name>" directory, and that gitdir's "commondir"
+		// file records the relative path back to the shared config.
+		repoRoot := t.TempDir()
+		commonGitDir := filepath.Join(repoRoot, ".git")
+		worktreeGitDir := filepath.Join(commonGitDir, "worktrees", "wt1")
+		if err := os.MkdirAll(worktreeGitDir, 0755); err != nil {
+			t.Fatalf("failed to create worktree gitdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(worktreeGitDir, "commondir"), []byte("../..\n"), 0644); err != nil {
+			t.Fatalf("failed to write commondir file: %v", err)
+		}
+		gitFile := filepath.Join(repoRoot, ".git-worktree-entry")
+		if err := os.WriteFile(gitFile, []byte("gitdir: "+worktreeGitDir+"\n"), 0644); err != nil {
+			t.Fatalf("failed to write gitdir pointer file: %v", err)
+		}
+
+		got := ResolveConfigPath(gitFile)
+
+		want := filepath.Join(commonGitDir, "config")
+		if got != want {
+			t.Errorf("ResolveConfigPath() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("GitdirFileWithoutCommondir", func(t *testing.T) {
+		// A gitdir pointer with no "commondir" file: treat the pointed-at
+		// directory itself as the config's home.
+		repoRoot := t.TempDir()
+		targetGitDir := filepath.Join(repoRoot, "actual-gitdir")
+		if err := os.MkdirAll(targetGitDir, 0755); err != nil {
+			t.Fatalf("failed to create target gitdir: %v", err)
+		}
+		gitFile := filepath.Join(repoRoot, ".git-worktree-entry")
+		if err := os.WriteFile(gitFile, []byte("gitdir: "+targetGitDir), 0644); err != nil {
+			t.Fatalf("failed to write gitdir pointer file: %v", err)
+		}
+
+		got := ResolveConfigPath(gitFile)
+
+		want := filepath.Join(targetGitDir, "config")
+		if got != want {
+			t.Errorf("ResolveConfigPath() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("MalformedGitdirFile", func(t *testing.T) {
+		repoRoot := t.TempDir()
+		gitFile := filepath.Join(repoRoot, ".git-worktree-entry")
+		if err := os.WriteFile(gitFile, []byte("not-a-gitdir-pointer"), 0644); err != nil {
+			t.Fatalf("failed to write malformed gitdir pointer file: %v", err)
+		}
+
+		got := ResolveConfigPath(gitFile)
+
+		if got != "" {
+			t.Errorf("ResolveConfigPath() = %q, want empty string", got)
+		}
+	})
+
+	t.Run("MissingPath", func(t *testing.T) {
+		got := ResolveConfigPath(filepath.Join(t.TempDir(), "nonexistent"))
+
+		if got != "" {
+			t.Errorf("ResolveConfigPath() = %q, want empty string", got)
+		}
+	})
+}

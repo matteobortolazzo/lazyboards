@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -21,6 +22,42 @@ func DetectRemote(gitConfigPath string) RemoteInfo {
 		return RemoteInfo{}
 	}
 	return parseRemoteURL(originURL)
+}
+
+// ResolveConfigPath resolves the path to the git config file holding remote
+// info, given the path to a repo's ".git" entry. That entry is a directory
+// in a normal (non-worktree) repo, but a plain file containing a
+// "gitdir: <path>" pointer in a linked worktree (created via `git worktree
+// add`). For the latter, the shared config lives in the common git dir,
+// found by following an optional "commondir" file (relative to the pointed
+// gitdir) inside the per-worktree gitdir; if no "commondir" file is
+// present, the pointed gitdir is treated as the common dir itself. Returns
+// "" if gitPath does not exist or is a malformed gitdir pointer file.
+func ResolveConfigPath(gitPath string) string {
+	info, err := os.Stat(gitPath)
+	if err != nil {
+		return ""
+	}
+	if info.IsDir() {
+		return filepath.Join(gitPath, "config")
+	}
+
+	content, err := os.ReadFile(gitPath)
+	if err != nil {
+		return ""
+	}
+	line := strings.TrimSpace(string(content))
+	const prefix = "gitdir: "
+	if !strings.HasPrefix(line, prefix) {
+		return ""
+	}
+	gitDir := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+
+	commonDir := gitDir
+	if commondirContent, err := os.ReadFile(filepath.Join(gitDir, "commondir")); err == nil {
+		commonDir = filepath.Join(gitDir, strings.TrimSpace(string(commondirContent)))
+	}
+	return filepath.Join(commonDir, "config")
 }
 
 // extractOriginURL reads the git config file and returns the URL from
