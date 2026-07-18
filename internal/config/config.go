@@ -65,6 +65,7 @@ type Config struct {
 	Mouse              *bool             `yaml:"mouse,omitempty"`
 	Cenci              *bool             `yaml:"cenci,omitempty"`
 	Cleanup            *string           `yaml:"cleanup,omitempty"`
+	UpdateCheck        *bool             `yaml:"update_check,omitempty"`
 }
 
 // WorkingLabelValue returns the configured working label, or DefaultWorkingLabel if not set.
@@ -91,6 +92,15 @@ func (c Config) CenciValue() bool {
 		return true
 	}
 	return *c.Cenci
+}
+
+// UpdateCheckValue returns true if the startup version-update check is enabled.
+// Defaults to true (enabled) when the field is not set.
+func (c Config) UpdateCheckValue() bool {
+	if c.UpdateCheck == nil {
+		return true
+	}
+	return *c.UpdateCheck
 }
 
 // CleanupValue returns the configured top-level default cleanup command, or ""

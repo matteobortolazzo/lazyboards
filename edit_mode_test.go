@@ -217,7 +217,7 @@ func TestEditMode_EKeyDetailFocused(t *testing.T) {
 func TestEditMode_EKeyNoCards(t *testing.T) {
 	// Load a board with an empty column.
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Empty", Cards: nil},

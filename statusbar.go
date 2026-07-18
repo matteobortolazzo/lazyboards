@@ -37,6 +37,12 @@ type StatusBar struct {
 	level          StatusLevel
 	gitStatus      string
 	dispatchStatus string
+	// stickyMessage is a separate, non-timed notice (used by the
+	// update-available check, #444). It survives ClearMessage() -- only
+	// ClearStickyMessage() removes it -- and only appears in View() when no
+	// timed message is currently active.
+	stickyMessage string
+	stickyLevel   StatusLevel
 }
 
 // NewStatusBar creates a StatusBar with the given default hints.
@@ -58,6 +64,27 @@ func (s *StatusBar) SetTimedMessage(msg string, level StatusLevel, duration time
 func (s *StatusBar) ClearMessage() {
 	s.message = ""
 	s.level = StatusInfo
+}
+
+// SetStickyMessage sets a persistent status-bar notice that stays visible
+// (styled by level) until explicitly cleared with ClearStickyMessage(). Unlike
+// SetTimedMessage, it does not auto-clear and is not affected by
+// ClearMessage(). A timed message, while active, still takes precedence over
+// the sticky message.
+func (s *StatusBar) SetStickyMessage(msg string, level StatusLevel) {
+	s.stickyMessage = msg
+	s.stickyLevel = level
+}
+
+// ClearStickyMessage removes the sticky message.
+func (s *StatusBar) ClearStickyMessage() {
+	s.stickyMessage = ""
+	s.stickyLevel = StatusInfo
+}
+
+// HasStickyMessage reports whether a sticky message is currently set.
+func (s StatusBar) HasStickyMessage() bool {
+	return s.stickyMessage != ""
 }
 
 // SetActionHints replaces the current hints.
@@ -134,6 +161,17 @@ func (l StatusLevel) style() *lipgloss.Style {
 	default:
 		return nil
 	}
+}
+
+// renderLevelMessage renders msg styled per level (or unstyled for
+// StatusInfo), prefixed with prefix. Shared by View()'s timed-message and
+// sticky-message branches, which render the exact same "prefix + leveled
+// text" shape for their respective message fields.
+func renderLevelMessage(prefix, msg string, level StatusLevel) string {
+	if st := level.style(); st != nil {
+		return prefix + st.Render(msg)
+	}
+	return prefix + msg
 }
 
 // agentPrefix builds the styled agent-status count prefix shown at the head of
@@ -267,10 +305,11 @@ func (s StatusBar) View(width int, counts ...int) string {
 	}
 
 	if s.message != "" {
-		if st := s.level.style(); st != nil {
-			return prefix + st.Render(s.message)
-		}
-		return prefix + s.message
+		return renderLevelMessage(prefix, s.message, s.level)
+	}
+
+	if s.stickyMessage != "" {
+		return renderLevelMessage(prefix, s.stickyMessage, s.stickyLevel)
 	}
 
 	// The prefix consumes width that is no longer available for hints.

@@ -19,6 +19,15 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.statusBar.ClearMessage()
 		return b, nil
 
+	case updateCheckMsg:
+		if msg.err == nil && versionNewer(appVersion(), msg.latest) {
+			b.statusBar.SetStickyMessage(
+				"Update available: "+appVersion()+" → "+msg.latest+" · run go install github.com/matteobortolazzo/lazyboards@latest",
+				StatusInfo,
+			)
+		}
+		return b, nil
+
 	case refreshTickMsg:
 		return b.handleRefreshTick()
 
@@ -300,6 +309,10 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return b, tea.Quit
 		}
+
+		// Any keypress dismisses the sticky update-available notice, without
+		// swallowing the key -- its own normal action still runs below.
+		b.statusBar.ClearStickyMessage()
 
 		switch b.mode {
 		case loadingMode, creatingMode:

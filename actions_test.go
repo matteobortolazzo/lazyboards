@@ -81,7 +81,7 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, actions, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
 
 	// Board starts in loadingMode. Press the action key.
 	b = sendKey(t, b, keyMsg("X"))
@@ -332,7 +332,7 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, true)
 
 	// Load a board with a card that has labels containing URL-special characters.
 	cardLabels := []provider.Label{{Name: "bug&fix"}, {Name: "feature?v2"}}
@@ -420,7 +420,7 @@ func TestAction_CommentVariableExpansion(t *testing.T) {
 func TestTicketOpen_NormalMode_OpensCardURL(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, true)
 
 	// Load a board with a card that has a URL.
 	cardURL := "https://github.com/matteobortolazzo/lazyboards/issues/42"
@@ -450,7 +450,7 @@ func TestTicketOpen_NormalMode_OpensCardURL(t *testing.T) {
 func TestTicketOpen_NormalMode_EmptyURL_ShowsMessage(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, true)
 
 	// Load a board with a card that has no URL.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -493,7 +493,7 @@ func TestTicketOpen_NormalMode_NoCards_DoesNothing(t *testing.T) {
 func TestTicketOpen_DetailFocused_OpensCardURL(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, true)
 
 	// Load a board with a card that has a URL.
 	cardURL := "https://github.com/matteobortolazzo/lazyboards/issues/7"
@@ -524,7 +524,7 @@ func TestTicketOpen_DetailFocused_OpensCardURL(t *testing.T) {
 func TestTicketOpen_ShowsOpenedMessage(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, true)
 
 	// Load a board with a card that has a URL.
 	cardNumber := 99
@@ -566,7 +566,7 @@ func TestTicketOpen_OpenHintHiddenOnEmptyColumn(t *testing.T) {
 func TestTicketOpen_OpenHintNotInNormalBar(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, true)
 	b = loadFromFakeProvider(t, b, p)
 
 	// Even with cards loaded, the "o" (Open) hint should NOT appear in the
@@ -1044,7 +1044,7 @@ func TestAction_PRScope_SinglePR_ShellEscapesMaliciousBranch(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, true)
 
 	maliciousBranch := "feature/x; rm -rf / #"
 	msg := boardFetchedMsg{board: provider.Board{
@@ -1080,7 +1080,7 @@ func TestAction_PRScope_SinglePR_URLEscapesMaliciousBranch(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, 0, "Working", false, false, nil, nil, true)
 
 	maliciousBranch := "feature/x&evil=1"
 	msg := boardFetchedMsg{board: provider.Board{

@@ -155,6 +155,168 @@ func TestStatusBar_TimedMessage_InfoLevel_RendersUnstyled(t *testing.T) {
 	}
 }
 
+// --- StatusBar: Sticky Message (#444) ---
+//
+// The sticky notice (used by the update-available check) is a SEPARATE field
+// from the timed message, so a timer clearing the timed message can never
+// clear it -- ClearMessage() only zeroes the timed message. Full precedence:
+// timed message (while active) > sticky message > hints. The sticky message
+// also suppresses the git/dispatch tail segments (same as the timed message
+// does), and the always-visible agent/PR prefix still renders alongside it.
+
+func TestStatusBar_StickyMessage_OverridesHints(t *testing.T) {
+	hints := []Hint{{Key: "n", Desc: "New"}, {Key: "q", Desc: "Quit"}}
+	sb := NewStatusBar(hints)
+	sb.SetStickyMessage("Update available", StatusInfo)
+	view := sb.View(200, 0, 0)
+
+	if !strings.Contains(view, "Update available") {
+		t.Errorf("View() = %q, want it to contain the sticky message", view)
+	}
+	if strings.Contains(view, "New") {
+		t.Errorf("View() = %q, should NOT contain hints when a sticky message is active", view)
+	}
+}
+
+func TestStatusBar_StickyMessage_StyledByLevel(t *testing.T) {
+	sb := NewStatusBar(nil)
+	sb.SetStickyMessage("Update available: v1.0.0 -> v1.1.0", StatusWarning)
+	view := sb.View(200, 0, 0)
+
+	if !strings.Contains(view, "Update available") {
+		t.Errorf("View() = %q, want it to contain the sticky message", view)
+	}
+	if view == "Update available: v1.0.0 -> v1.1.0" {
+		t.Errorf("View() = %q, want the sticky message styled per its level (not raw text)", view)
+	}
+}
+
+func TestStatusBar_StickyMessage_PrefixStillShown(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetStickyMessage("Update available", StatusInfo)
+	view := sb.View(200, 2, 1)
+
+	if !strings.Contains(view, "▶2") || !strings.Contains(view, "!1") {
+		t.Errorf("View() = %q, want agent counts visible alongside a sticky message", view)
+	}
+	if !strings.Contains(view, "Update available") {
+		t.Errorf("View() = %q, want the sticky message to remain visible", view)
+	}
+	if strings.Index(view, "▶2") > strings.Index(view, "Update available") {
+		t.Errorf("View() = %q, want the prefix before the sticky message", view)
+	}
+}
+
+func TestStatusBar_StickyMessage_SuppressesGitAndDispatchSegments(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetGitStatus("main +2~1 ↑3↓0")
+	sb.SetDispatchStatus("⟳ dispatch")
+	sb.SetStickyMessage("Update available", StatusInfo)
+	view := sb.View(200)
+
+	if strings.Contains(view, "main +2~1") {
+		t.Errorf("View() = %q, should NOT contain the git segment while a sticky message is active", view)
+	}
+	if strings.Contains(view, "dispatch") {
+		t.Errorf("View() = %q, should NOT contain the dispatch segment while a sticky message is active", view)
+	}
+}
+
+func TestStatusBar_TimedMessage_WinsOverSticky(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetStickyMessage("Update available", StatusInfo)
+	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
+	view := sb.View(200)
+
+	if !strings.Contains(view, "Board refreshed") {
+		t.Errorf("View() = %q, want the timed message to win while active", view)
+	}
+	if strings.Contains(view, "Update available") {
+		t.Errorf("View() = %q, should NOT contain the sticky message while the timed message is active", view)
+	}
+}
+
+func TestStatusBar_StickyMessage_ReappearsAfterTimedMessageCleared(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetStickyMessage("Update available", StatusInfo)
+	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
+
+	// While the timed message is active, it wins.
+	viewWhileTimed := sb.View(200)
+	if !strings.Contains(viewWhileTimed, "Board refreshed") {
+		t.Fatalf("viewWhileTimed = %q, want the timed message active (test setup)", viewWhileTimed)
+	}
+
+	sb.ClearMessage()
+	view := sb.View(200)
+
+	if strings.Contains(view, "Board refreshed") {
+		t.Errorf("View() = %q, should NOT contain the timed message after ClearMessage()", view)
+	}
+	if !strings.Contains(view, "Update available") {
+		t.Errorf("View() = %q, want the sticky message to reappear once the timed message is cleared", view)
+	}
+}
+
+func TestStatusBar_ClearMessage_DoesNotClearSticky(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetStickyMessage("Update available", StatusInfo)
+
+	// ClearMessage() only ever targeted the timed message (clearStatusMsg's
+	// handler); it must not have any effect on the sticky field.
+	sb.ClearMessage()
+
+	if !sb.HasStickyMessage() {
+		t.Error("ClearMessage() cleared the sticky message, want it to survive (only ClearStickyMessage() should clear it)")
+	}
+	view := sb.View(200)
+	if !strings.Contains(view, "Update available") {
+		t.Errorf("View() = %q, want the sticky message still visible after ClearMessage()", view)
+	}
+}
+
+func TestStatusBar_HasStickyMessage_FalseInitially(t *testing.T) {
+	sb := NewStatusBar(nil)
+	if sb.HasStickyMessage() {
+		t.Error("HasStickyMessage() = true on a fresh StatusBar, want false")
+	}
+}
+
+func TestStatusBar_HasStickyMessage_TrueAfterSet(t *testing.T) {
+	sb := NewStatusBar(nil)
+	sb.SetStickyMessage("Update available", StatusInfo)
+	if !sb.HasStickyMessage() {
+		t.Error("HasStickyMessage() = false after SetStickyMessage(), want true")
+	}
+}
+
+func TestStatusBar_ClearStickyMessage_ClearsIt(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetStickyMessage("Update available", StatusInfo)
+	sb.ClearStickyMessage()
+
+	if sb.HasStickyMessage() {
+		t.Error("HasStickyMessage() = true after ClearStickyMessage(), want false")
+	}
+	view := sb.View(200)
+	if strings.Contains(view, "Update available") {
+		t.Errorf("View() = %q, should NOT contain the sticky message after ClearStickyMessage()", view)
+	}
+	if !strings.Contains(view, "Quit") {
+		t.Errorf("View() = %q, want hints restored after ClearStickyMessage()", view)
+	}
+}
+
+func TestStatusBar_NoTimedOrSticky_HintsShown(t *testing.T) {
+	hints := []Hint{{Key: "n", Desc: "New"}}
+	sb := NewStatusBar(hints)
+	view := sb.View(200, 0, 0)
+
+	if !strings.Contains(view, "New") {
+		t.Errorf("View() = %q, want hints shown when neither a timed nor a sticky message is set", view)
+	}
+}
+
 // --- StatusBar: SetActionHints ---
 
 func TestStatusBar_SetActionHints_OverridesDefaults(t *testing.T) {

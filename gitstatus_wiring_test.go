@@ -15,7 +15,7 @@ import (
 func newGitStatusTestBoard(t *testing.T, reader gitdetect.Reader) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, reader)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, reader, true)
 	return loadFromFakeProvider(t, b, p)
 }
 
@@ -195,7 +195,7 @@ func TestHandleBoardFetched_Refreshing_TriggersGitStatusRefresh(t *testing.T) {
 
 func TestHandleBoardFetched_InitialLoad_TriggersGitStatusRefresh(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, gitdetect.FakeReader{Status: gitdetect.Status{Branch: "main"}})
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, gitdetect.FakeReader{Status: gitdetect.Status{Branch: "main"}}, true)
 
 	board, err := p.FetchBoard(context.Background())
 	if err != nil {

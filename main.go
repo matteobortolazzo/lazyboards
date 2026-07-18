@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,6 +62,15 @@ func (c *gitHubClient) CreateComment(ctx context.Context, owner string, repo str
 	return c.issues.CreateComment(ctx, owner, repo, number, comment)
 }
 
+// lazyboardsRepoOwner and lazyboardsRepoName identify this project's own
+// GitHub repo -- the fixed target for the startup update check, independent
+// of whatever repo the user has configured the board to track issues/PRs
+// for (b.repoOwner/b.repoName).
+const (
+	lazyboardsRepoOwner = "matteobortolazzo"
+	lazyboardsRepoName  = "lazyboards"
+)
+
 // version is injected at release time via -ldflags "-X main.version=...".
 // Empty in local builds; appVersion() then falls back to build info.
 var version = ""
@@ -83,6 +93,66 @@ func appVersion() string {
 func versionRequested(args []string) bool {
 	return len(args) > 1 &&
 		(args[1] == "--version" || args[1] == "-v" || args[1] == "version")
+}
+
+// versionNewer reports whether latest is a newer version than current. Both
+// operands may optionally start with a "v"/"V" prefix, which is stripped
+// before comparison. Each version is split into dot-separated components and
+// compared numerically component-by-component (not lexically, so 1.9.0 is
+// correctly older than 1.10.0). If one version has fewer components but
+// matches as a prefix, the shorter one is treated as older. Any non-numeric
+// component in either operand fails safe to false (no false positive).
+func versionNewer(current, latest string) bool {
+	currentParts, ok := parseVersionComponents(current)
+	if !ok {
+		return false
+	}
+	latestParts, ok := parseVersionComponents(latest)
+	if !ok {
+		return false
+	}
+
+	n := len(currentParts)
+	if len(latestParts) > n {
+		n = len(latestParts)
+	}
+	for i := 0; i < n; i++ {
+		var c, l int
+		if i < len(currentParts) {
+			c = currentParts[i]
+		}
+		if i < len(latestParts) {
+			l = latestParts[i]
+		}
+		if l > c {
+			return true
+		}
+		if l < c {
+			return false
+		}
+	}
+	return false
+}
+
+// parseVersionComponents strips a leading v/V and splits s on "." into
+// numeric components. ok is false if any component fails to parse as an int.
+func parseVersionComponents(s string) (parts []int, ok bool) {
+	s = strings.TrimPrefix(strings.TrimPrefix(s, "v"), "V")
+	for _, c := range strings.Split(s, ".") {
+		n, err := strconv.Atoi(c)
+		if err != nil {
+			return nil, false
+		}
+		parts = append(parts, n)
+	}
+	return parts, true
+}
+
+// shouldCheckForUpdate reports whether the startup version-update check
+// should run: never for "dev" builds (unreleased/local builds have nothing
+// meaningful to compare), and never when the config has disabled it.
+func shouldCheckForUpdate(version string, enabled bool) bool {
+	return version != "dev" && enabled
 }
 
 func main() {
@@ -126,7 +196,7 @@ func main() {
 	// First-launch flow: show config popup when no local config exists
 	// and git detection didn't provide both provider and repo.
 	if !config.LocalExists(config.DefaultLocalPath) && (prov == "" || repo == "") {
-		board := NewBoard(nil, nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, 0, config.DefaultWorkingLabel, false, true, nil, nil)
+		board := NewBoard(nil, nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, 0, config.DefaultWorkingLabel, false, true, nil, nil, cfg.UpdateCheckValue())
 		p := tea.NewProgram(board, tea.WithAltScreen())
 		m, err := p.Run()
 		if err != nil {
@@ -226,7 +296,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error opening debug log: %v\n", err)
 	}
 
-	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader)
+	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader, cfg.UpdateCheckValue())
 	// Scope the agents list to this instance's own tmux session (#410).
 	board.tmuxSession = resolveTmuxSession(action.DefaultExecutor{})
 

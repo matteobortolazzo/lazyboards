@@ -612,3 +612,71 @@ func TestCenciValue_ExplicitTrueReturnsTrue(t *testing.T) {
 		t.Error("CenciValue() = false when Cenci is explicitly true, want true")
 	}
 }
+
+// --- UpdateCheck config tests (#444) ---
+
+func TestLoad_UpdateCheck_ParsesFromYAML(t *testing.T) {
+	yamlContent := "provider: github\nupdate_check: false\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	if result.UpdateCheck == nil {
+		t.Fatal("UpdateCheck should not be nil when set in config")
+	}
+	if *result.UpdateCheck != false {
+		t.Errorf("UpdateCheck = %v, want false", *result.UpdateCheck)
+	}
+	if result.UpdateCheckValue() {
+		t.Error("UpdateCheckValue() = true when update_check is explicitly false, want false")
+	}
+}
+
+func TestLoad_UpdateCheck_DefaultsWhenOmitted(t *testing.T) {
+	yamlContent := "provider: github\n"
+
+	result := mustLoadConfig(t, yamlContent, "")
+
+	if result.UpdateCheck != nil {
+		t.Errorf("UpdateCheck should be nil when omitted, got %v", *result.UpdateCheck)
+	}
+	if !result.UpdateCheckValue() {
+		t.Error("UpdateCheckValue() = false when omitted, want true (default)")
+	}
+}
+
+func TestLoad_UpdateCheck_LocalOverridesGlobal(t *testing.T) {
+	globalYAML := "provider: github\nupdate_check: false\n"
+	localYAML := "update_check: true\n"
+
+	result := mustLoadConfig(t, globalYAML, localYAML)
+
+	if result.UpdateCheck == nil {
+		t.Fatal("UpdateCheck should not be nil when set in local config")
+	}
+	if !*result.UpdateCheck {
+		t.Error("UpdateCheck = false, want true (local should override global)")
+	}
+}
+
+func TestUpdateCheckValue_NilDefaultsToTrue(t *testing.T) {
+	cfg := Config{}
+	if !cfg.UpdateCheckValue() {
+		t.Error("UpdateCheckValue() = false when UpdateCheck is nil, want true (update check enabled by default)")
+	}
+}
+
+func TestUpdateCheckValue_ExplicitFalseReturnsFalse(t *testing.T) {
+	enabled := false
+	cfg := Config{UpdateCheck: &enabled}
+	if cfg.UpdateCheckValue() {
+		t.Error("UpdateCheckValue() = true when UpdateCheck is explicitly false, want false")
+	}
+}
+
+func TestUpdateCheckValue_ExplicitTrueReturnsTrue(t *testing.T) {
+	enabled := true
+	cfg := Config{UpdateCheck: &enabled}
+	if !cfg.UpdateCheckValue() {
+		t.Error("UpdateCheckValue() = false when UpdateCheck is explicitly true, want true")
+	}
+}

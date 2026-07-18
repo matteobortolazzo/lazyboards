@@ -170,6 +170,7 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `working_label` | string | `"Working"` | Label that shows a working indicator on cards |
 | `mouse` | bool | `true` | Enable mouse support |
 | `cenci` | bool | `true` | Enable live agent status badges + status-bar counts (requires the cenci-watch daemon; silently off when absent) |
+| `update_check` | bool | `true` | Check for newer lazyboards releases on startup and show a sticky notice when one is available |
 | `cleanup` | string | — | Default cleanup command applied to every column that doesn't set its own (see [Column Cleanup](#column-cleanup)) |
 | `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, actions, cleanup) |
 | `actions` | map | — | Global custom actions (see [Custom Actions](#custom-actions)) |

@@ -22,7 +22,7 @@ import (
 func newDeleteTestBoard(t *testing.T) (Board, *provider.FakeProvider) {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
 	board, err := p.FetchBoard(context.Background())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
@@ -61,7 +61,7 @@ func newDeleteTestBoardWithFailingDelete(t *testing.T, deleteErr error) (Board, 
 	t.Helper()
 	fp := provider.NewFakeProvider()
 	fd := &failingDeleteProvider{FakeProvider: fp, deleteErr: deleteErr}
-	b := NewBoard(fd, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(fd, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
 	board, err := fp.FetchBoard(context.Background())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
@@ -159,7 +159,7 @@ func TestDeleteMode_TKey_EntersDeleteModeWithCommentStep(t *testing.T) {
 
 func TestDeleteMode_TKey_NoColumns_DoesNothing(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
 	msg := boardFetchedMsg{board: provider.Board{Columns: nil}}
 	m, _ := b.Update(msg)
 	b = m.(Board)
@@ -179,7 +179,7 @@ func TestDeleteMode_TKey_NoColumns_DoesNothing(t *testing.T) {
 
 func TestDeleteMode_TKey_NoVisibleCards_DoesNothing(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Empty", Cards: nil},

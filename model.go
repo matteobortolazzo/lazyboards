@@ -869,11 +869,14 @@ type Board struct {
 	// default), false oldest-first. Runtime-only, toggled by the 'u' key
 	// (#412); resets to true on every launch, never persisted to config.
 	sortNewestFirst bool
+	// updateCheckEnabled mirrors config.Config.UpdateCheckValue(): whether
+	// Init() should kick off the startup version-update check (#444).
+	updateCheckEnabled bool
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher cenciwatch.Watcher, gitReader gitdetect.Reader) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher cenciwatch.Watcher, gitReader gitdetect.Reader, updateCheckEnabled bool) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 0
@@ -940,6 +943,7 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		gitReader:          gitReader,
 		openPRCount:        -1,
 		sortNewestFirst:    true,
+		updateCheckEnabled: updateCheckEnabled,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
 			providerIndex:   0,
@@ -1850,6 +1854,11 @@ func (b Board) Init() tea.Cmd {
 	}
 	if b.gitReader != nil {
 		cmd = tea.Batch(cmd, fetchGitStatusCmd(b.gitReader, "."), scheduleGitStatusTick(b))
+	}
+	if shouldCheckForUpdate(appVersion(), b.updateCheckEnabled) {
+		// Always targets lazyboards' own repo, not the board's tracked repo
+		// (b.repoOwner/b.repoName may be an entirely different project).
+		cmd = tea.Batch(cmd, checkForUpdateCmd(lazyboardsRepoOwner, lazyboardsRepoName))
 	}
 	return cmd
 }

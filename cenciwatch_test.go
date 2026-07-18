@@ -27,7 +27,7 @@ import (
 func newCenciWatchTestBoard(t *testing.T, watcher cenciwatch.Watcher) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	return NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, watcher, nil)
+	return NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, watcher, nil, true)
 }
 
 // newCenciWatchCardTestBoard creates a loaded Board with a single card in a
@@ -35,7 +35,7 @@ func newCenciWatchTestBoard(t *testing.T, watcher cenciwatch.Watcher) Board {
 func newCenciWatchCardTestBoard(t *testing.T, cardNumber int, cardTitle string, sessionMaxLen int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", sessionMaxLen, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", sessionMaxLen, 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -358,7 +358,7 @@ func TestBoard_Init_WithWatcher_SubscriptionDeliversSnapshot(t *testing.T) {
 func newAgentCountsBoard(t *testing.T, cards []provider.Card) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil, true)
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{{Title: "Column A", Cards: cards}},
 	}}
@@ -735,7 +735,7 @@ func TestViewCardList_WorkingLabelAndBadgeCoexist(t *testing.T) {
 	const cardNumber = 7
 	const cardTitle = "Fix flaky test"
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", config.DefaultSessionMaxLength, 0, 0, "Working", false, false, nil, nil, true)
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: []provider.Card{
@@ -932,7 +932,7 @@ func TestBoard_DispatchStatusSegment_AppearsThenClearsLiveViaWatcher(t *testing.
 		Results: []cenciwatch.FakeWatcherResult{{Snap: snap}},
 	}
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, fw, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, fw, nil, true)
 	b.Width = 120
 	b.Height = 40
 

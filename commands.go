@@ -11,6 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/google/go-github/v68/github"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
@@ -195,6 +196,49 @@ func scheduleGitStatusTick(b Board) tea.Cmd {
 	return tea.Tick(gitStatusPollInterval, func(time.Time) tea.Msg {
 		return gitStatusTickMsg{}
 	})
+}
+
+// updateCheckMsg is sent when checkForUpdateCmd finishes querying GitHub for
+// the repo's latest release. err is non-nil on any fetch failure; latest is
+// the release's tag name (e.g. "v1.2.3") on success.
+type updateCheckMsg struct {
+	latest string
+	err    error
+}
+
+// updateCheckHTTPTimeout bounds how long the startup update check may block
+// on the network, so a hung/slow path (firewall black-hole, captive portal,
+// slow proxy) can never delay startup indefinitely.
+const updateCheckHTTPTimeout = 5 * time.Second
+
+// fetchLatestReleaseTag is the network seam checkForUpdateCmd calls to look
+// up a repo's latest release tag name. It's a package-level var (rather than
+// a plain function) so tests can substitute a fake and observe which
+// owner/repo the startup update check targets, without making a real HTTP
+// call.
+var fetchLatestReleaseTag = func(ctx context.Context, owner, repo string) (string, error) {
+	client := github.NewClient(nil)
+	release, _, err := client.Repositories.GetLatestRelease(ctx, owner, repo)
+	if err != nil {
+		return "", err
+	}
+	return release.GetTagName(), nil
+}
+
+// checkForUpdateCmd returns a tea.Cmd that queries GitHub's latest release
+// for owner/repo (unauthenticated -- no token required for a public repo's
+// releases) and reports the result via updateCheckMsg. The version comparison
+// itself happens in the Update() handler, not here.
+func checkForUpdateCmd(owner, repo string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), updateCheckHTTPTimeout)
+		defer cancel()
+		latest, err := fetchLatestReleaseTag(ctx, owner, repo)
+		if err != nil {
+			return updateCheckMsg{err: err}
+		}
+		return updateCheckMsg{latest: latest}
+	}
 }
 
 // createCardCmd returns a tea.Cmd that creates a card via the provider.
