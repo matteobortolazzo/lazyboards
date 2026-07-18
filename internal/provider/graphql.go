@@ -8,8 +8,9 @@ import (
 )
 
 // graphQLBoardClient is a narrow, typed-result seam over the GitHub GraphQL
-// API used to fetch issues (and the open PRs that GitHub recognizes as
-// closing them) in a single paginated query.
+// API used to fetch issues (and their linked PRs -- the open PRs GitHub
+// recognizes as closing them, unioned with open PRs that merely mention
+// them, #441) in a single paginated query.
 //
 // It intentionally does NOT expose githubv4's raw Query(ctx, q interface{},
 // vars) reflection-based API: a fake implementing that signature would need
@@ -82,6 +83,15 @@ type issueNode struct {
 //	          nodes { number title url headRefName }
 //	          pageInfo { hasNextPage endCursor }
 //	        }
+//	        timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT]) {
+//	          nodes {
+//	            ... on CrossReferencedEvent {
+//	              source {
+//	                ... on PullRequest { number title url headRefName state }
+//	              }
+//	            }
+//	          }
+//	        }
 //	      }
 //	      pageInfo { hasNextPage endCursor }
 //	    }
@@ -118,6 +128,16 @@ type issueQueryNode struct {
 		Nodes    []pullRequestQueryNode
 		PageInfo pageInfoFragment
 	} `graphql:"closedByPullRequestsReferences(first: 100)"`
+	// TimelineItems captures the first 100 cross-referenced mentions of this
+	// issue (#441). Unlike ClosedByPullRequestsReferences, there is no
+	// follow-up pagination for mentions beyond this page -- an issue with
+	// over 100 distinct PR mentions is rare enough that a bounded first page
+	// is an acceptable, deliberate scope cut rather than an oversight;
+	// follow-up pagination can be added the same way fetchIssueClosingPRPage
+	// was if this proves insufficient in practice.
+	TimelineItems struct {
+		Nodes []timelineItemQueryNode
+	} `graphql:"timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT])"`
 }
 
 type labelQueryNode struct {
@@ -130,7 +150,11 @@ type assigneeQueryNode struct {
 }
 
 // pullRequestQueryNode represents a PR from GitHub's
-// closedByPullRequestsReferences and pullRequests connections.
+// closedByPullRequestsReferences, pullRequests, and cross-referenced
+// timeline-mention connections. State is only consumed by the mention path
+// (mapMentionedPRs): a closing PR is trusted as-is, but a stale mention of a
+// PR that has since closed or merged must not resurrect a dead link on a
+// still-open issue.
 type pullRequestQueryNode struct {
 	Number           githubv4.Int
 	Title            githubv4.String
@@ -139,6 +163,24 @@ type pullRequestQueryNode struct {
 	IsDraft          githubv4.Boolean
 	Mergeable        githubv4.MergeableState
 	MergeStateStatus githubv4.MergeStateStatus
+	State            githubv4.PullRequestState
+}
+
+// timelineItemQueryNode represents one CROSS_REFERENCED_EVENT timeline item
+// on an issue -- a PR (or another issue) that mentions this issue somewhere
+// in its body/title, whether or not the mention uses a closing keyword
+// (e.g. this project's own stacked-PR convention, "Stack: 2/3 -- depends on
+// #<prev>" per docs/git-workflow.md, is a non-closing mention). Source is a
+// GraphQL union (Issue or PullRequest); only the "... on PullRequest" inline
+// fragment is requested, so a cross-reference sourced from a plain Issue
+// leaves PullRequest zero-valued (Number == 0), which mapMentionedPRs
+// filters out.
+type timelineItemQueryNode struct {
+	CrossReferencedEvent struct {
+		Source struct {
+			PullRequest pullRequestQueryNode `graphql:"... on PullRequest"`
+		}
+	} `graphql:"... on CrossReferencedEvent"`
 }
 
 // closingPRPage is one follow-up page of an issue's closing PRs
@@ -389,11 +431,51 @@ func mapIssueQueryNode(n issueQueryNode) issueNode {
 		url:                string(n.URL),
 		labels:             labels,
 		assignees:          assignees,
-		linkedPRs:          mapLinkedPRs(n.ClosedByPullRequestsReferences.Nodes),
+		linkedPRs:          mergeLinkedPRs(mapLinkedPRs(n.ClosedByPullRequestsReferences.Nodes), mapMentionedPRs(n.TimelineItems.Nodes)),
 		createdAt:          n.CreatedAt.Time,
 		hasMoreClosingPRs:  bool(n.ClosedByPullRequestsReferences.PageInfo.HasNextPage),
 		closingPREndCursor: string(n.ClosedByPullRequestsReferences.PageInfo.EndCursor),
 	}
+}
+
+// mapMentionedPRs extracts open pull requests from an issue's
+// CROSS_REFERENCED_EVENT timeline items -- PRs that reference this issue
+// without necessarily closing it. A cross-reference whose source is an
+// Issue rather than a PullRequest leaves the inline fragment zero-valued
+// (Number == 0), filtered out here. Closed/merged PRs are filtered by State
+// so a stale mention of a long-dead PR can't resurrect a link on an issue
+// that's still open -- the same staleness problem #373 fixed for the
+// closing-PR connection. Reuses mapLinkedPRs for identical dedup/mapping
+// semantics.
+func mapMentionedPRs(items []timelineItemQueryNode) []LinkedPR {
+	var candidates []pullRequestQueryNode
+	for _, item := range items {
+		pr := item.CrossReferencedEvent.Source.PullRequest
+		if pr.Number == 0 || pr.State != githubv4.PullRequestStateOpen {
+			continue
+		}
+		candidates = append(candidates, pr)
+	}
+	return mapLinkedPRs(candidates)
+}
+
+// mergeLinkedPRs unions LinkedPR lists -- closing PRs first, then
+// cross-referenced mentions -- deduping by PR number so a PR satisfying
+// both (e.g. "Fixes #123" is also technically a cross-reference of #123) is
+// only listed once.
+func mergeLinkedPRs(lists ...[]LinkedPR) []LinkedPR {
+	seen := make(map[int]bool)
+	var merged []LinkedPR
+	for _, list := range lists {
+		for _, pr := range list {
+			if seen[pr.Number] {
+				continue
+			}
+			seen[pr.Number] = true
+			merged = append(merged, pr)
+		}
+	}
+	return merged
 }
 
 // mapLinkedPRs maps GitHub-recognized closing PRs and dedupes them by number.

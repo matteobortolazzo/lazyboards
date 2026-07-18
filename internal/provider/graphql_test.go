@@ -530,3 +530,160 @@ func TestMapLinkedPRs_PopulatesStatusFields(t *testing.T) {
 		})
 	}
 }
+
+// --- Cross-referenced PR mentions (#441) ---
+//
+// #373 narrowed linked-PR detection to closedByPullRequestsReferences only,
+// which requires a closing keyword (Fixes/Closes/Resolves) or a manual
+// Development-sidebar link. A PR that merely references a ticket -- e.g.
+// this project's own stacked-PR convention ("Stack: 2/3 -- depends on
+// #<prev>" per docs/git-workflow.md), or a "Related to #N" note -- stopped
+// showing up anywhere. These tests pin the fix: union closing PRs with open
+// cross-referenced mentions, deduped by PR number.
+
+// TestPullRequestQueryNode_HasStateField pins that pullRequestQueryNode
+// selects state, needed to filter cross-referenced mentions down to open
+// PRs only (a stale mention of a long-closed PR must not resurrect a dead
+// link on a still-open issue).
+func TestPullRequestQueryNode_HasStateField(t *testing.T) {
+	field, ok := reflect.TypeOf(pullRequestQueryNode{}).FieldByName("State")
+	if !ok {
+		t.Fatal("pullRequestQueryNode is missing a State field")
+	}
+	if field.Type != reflect.TypeOf(githubv4.PullRequestState("")) {
+		t.Fatalf("pullRequestQueryNode.State type = %v, want %v", field.Type, reflect.TypeOf(githubv4.PullRequestState("")))
+	}
+}
+
+// TestIssueQuery_UsesGitHubTimelineMentionsConnection pins that issueQueryNode
+// requests CROSS_REFERENCED_EVENT timeline items alongside the closing-PR
+// connection, mirroring TestIssueQuery_UsesGitHubClosingPRConnection.
+func TestIssueQuery_UsesGitHubTimelineMentionsConnection(t *testing.T) {
+	field, ok := reflect.TypeOf(issueQueryNode{}).FieldByName("TimelineItems")
+	if !ok {
+		t.Fatal("issueQueryNode is missing TimelineItems")
+	}
+	if got, want := field.Tag.Get("graphql"), "timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT])"; got != want {
+		t.Fatalf("timeline mentions GraphQL field = %q, want %q", got, want)
+	}
+}
+
+// buildMentionItem constructs a CROSS_REFERENCED_EVENT timeline item whose
+// source is a PullRequest, mirroring buildClosingPRItem's helper style.
+func buildMentionItem(number int, title, url string, state githubv4.PullRequestState) timelineItemQueryNode {
+	var item timelineItemQueryNode
+	item.CrossReferencedEvent.Source.PullRequest.Number = githubv4.Int(number)
+	item.CrossReferencedEvent.Source.PullRequest.Title = githubv4.String(title)
+	item.CrossReferencedEvent.Source.PullRequest.URL = githubv4.String(url)
+	item.CrossReferencedEvent.Source.PullRequest.State = state
+	return item
+}
+
+// TestMapMentionedPRs_IncludesOpenMention asserts a plain open cross-reference
+// (no closing keyword) is surfaced as a LinkedPR.
+func TestMapMentionedPRs_IncludesOpenMention(t *testing.T) {
+	items := []timelineItemQueryNode{
+		buildMentionItem(390, "Related-to mention PR", "https://github.com/o/r/pull/390", githubv4.PullRequestStateOpen),
+	}
+
+	got := mapMentionedPRs(items)
+
+	if len(got) != 1 || got[0].Number != 390 {
+		t.Fatalf("mapMentionedPRs() = %+v, want a single LinkedPR with Number 390", got)
+	}
+}
+
+// TestMapMentionedPRs_ExcludesClosedAndMergedMentions asserts a stale
+// reference to a PR that has since closed or merged is filtered out, so it
+// can't resurrect a dead link on a still-open issue.
+func TestMapMentionedPRs_ExcludesClosedAndMergedMentions(t *testing.T) {
+	items := []timelineItemQueryNode{
+		buildMentionItem(1, "closed PR mention", "https://github.com/o/r/pull/1", githubv4.PullRequestStateClosed),
+		buildMentionItem(2, "merged PR mention", "https://github.com/o/r/pull/2", githubv4.PullRequestStateMerged),
+	}
+
+	got := mapMentionedPRs(items)
+
+	if len(got) != 0 {
+		t.Fatalf("mapMentionedPRs() = %+v, want none (closed/merged mentions must be excluded)", got)
+	}
+}
+
+// TestMapMentionedPRs_ExcludesNonPullRequestSources asserts a
+// CROSS_REFERENCED_EVENT sourced from a plain Issue (not a PullRequest)
+// leaves the "... on PullRequest" fragment zero-valued and is skipped.
+func TestMapMentionedPRs_ExcludesNonPullRequestSources(t *testing.T) {
+	var issueSourced timelineItemQueryNode // zero value: Source.PullRequest.Number == 0
+
+	got := mapMentionedPRs([]timelineItemQueryNode{issueSourced})
+
+	if len(got) != 0 {
+		t.Fatalf("mapMentionedPRs() = %+v, want none for a non-PullRequest source", got)
+	}
+}
+
+// TestMapMentionedPRs_DedupesByPRNumber mirrors
+// TestMapLinkedPRs_DedupesByPRNumberWithinIssue: the same PR cross-referenced
+// via more than one timeline item must only be counted once.
+func TestMapMentionedPRs_DedupesByPRNumber(t *testing.T) {
+	items := []timelineItemQueryNode{
+		buildMentionItem(7, "shared mention PR", "https://github.com/o/r/pull/7", githubv4.PullRequestStateOpen),
+		buildMentionItem(7, "shared mention PR", "https://github.com/o/r/pull/7", githubv4.PullRequestStateOpen),
+	}
+
+	got := mapMentionedPRs(items)
+
+	if len(got) != 1 {
+		t.Fatalf("mapMentionedPRs() returned %d PRs, want 1 (duplicate PR number must be deduped): %+v", len(got), got)
+	}
+}
+
+// TestMergeLinkedPRs_UnionsAndDedupesAcrossSources asserts mergeLinkedPRs
+// unions multiple LinkedPR lists (closing PRs, then mentions) while
+// deduping a PR number that appears in more than one list -- e.g. a PR
+// using "Fixes #123" is both a closing PR and technically a cross-reference
+// of #123.
+func TestMergeLinkedPRs_UnionsAndDedupesAcrossSources(t *testing.T) {
+	closing := []LinkedPR{{Number: 490, Title: "closes 490"}}
+	mentions := []LinkedPR{{Number: 490, Title: "closes 490"}, {Number: 390, Title: "related to 390"}}
+
+	got := mergeLinkedPRs(closing, mentions)
+
+	if len(got) != 2 {
+		t.Fatalf("mergeLinkedPRs() returned %d PRs, want 2 (deduped union): %+v", len(got), got)
+	}
+	byNumber := map[int]bool{}
+	for _, pr := range got {
+		byNumber[pr.Number] = true
+	}
+	if !byNumber[490] || !byNumber[390] {
+		t.Fatalf("mergeLinkedPRs() = %+v, want both PR #490 and #390 present", got)
+	}
+}
+
+// TestMapIssueQueryNode_LinksBothClosingAndMentionedPRs reproduces the
+// exact real-world regression: a ticket referenced only via a non-closing
+// mention (e.g. "Related to #390") must still surface its PR, alongside any
+// PR that closes the ticket outright.
+func TestMapIssueQueryNode_LinksBothClosingAndMentionedPRs(t *testing.T) {
+	var n issueQueryNode
+	n.ClosedByPullRequestsReferences.Nodes = []pullRequestQueryNode{
+		buildClosingPRItem(490, "fixes 490", "https://github.com/o/r/pull/490"),
+	}
+	n.TimelineItems.Nodes = []timelineItemQueryNode{
+		buildMentionItem(509, "related-to mention only", "https://github.com/o/r/pull/509", githubv4.PullRequestStateOpen),
+	}
+
+	got := mapIssueQueryNode(n)
+
+	if len(got.linkedPRs) != 2 {
+		t.Fatalf("mapIssueQueryNode().linkedPRs = %+v, want 2 (one closing, one mention-only)", got.linkedPRs)
+	}
+	byNumber := map[int]bool{}
+	for _, pr := range got.linkedPRs {
+		byNumber[pr.Number] = true
+	}
+	if !byNumber[490] || !byNumber[509] {
+		t.Fatalf("mapIssueQueryNode().linkedPRs = %+v, want both PR #490 (closing) and #509 (mention-only) present", got.linkedPRs)
+	}
+}
