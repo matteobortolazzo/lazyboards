@@ -1299,14 +1299,9 @@ func (b *Board) rebuildNormalHints() {
 	// Default mode hints.
 	hints = append(hints, normalModeHints...)
 
-	// Persistent sort-order hint (#412): reflects b.sortNewestFirst, toggled
-	// by the 'u' key. Shown regardless of whether the active column has
-	// cards, like the other default-mode hints above.
-	sortDesc := "sort: newest"
-	if !b.sortNewestFirst {
-		sortDesc = "sort: oldest"
-	}
-	hints = append(hints, Hint{Key: "u", Desc: sortDesc})
+	// The 'u' sort-order toggle (#412) is omitted from the status bar (#443)
+	// to reduce bottom-bar clutter; it stays documented in the '?' help
+	// modal (see helpSections in view.go) and still works as a keybinding.
 
 	hints = append(hints, b.gatedActionHints()...)
 
