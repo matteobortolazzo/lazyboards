@@ -243,7 +243,7 @@ func TestBuildSessionName_CustomMaxLen(t *testing.T) {
 // capName) does a hard cut at maxLen runes and trims only trailing hyphens —
 // it never backs off to the last complete segment. lazyboards must produce
 // byte-for-byte the same join key the daemon broadcasts as WindowName, or the
-// exact-equality lookup in agentStatusFor silently never matches and no
+// exact-equality lookup in agentStatusForNumber silently never matches and no
 // badge is shown. This reproduces a real title (#270) whose 40-char cutoff
 // does not land on a hyphen boundary.
 func TestBuildSessionName_MatchesCenciHardCutTruncation(t *testing.T) {

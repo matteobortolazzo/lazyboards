@@ -290,7 +290,7 @@ type filterItem struct {
 // IsDraft/Mergeable/MergeStateStatus mirror provider.LinkedPR's raw
 // GitHub fields verbatim; deriving a status/glyph/style from them is
 // presentation logic that lives in view.go (prStatus, prStatusSymbol,
-// prStatusStyle, worstPRStatus).
+// prStatusStyle).
 type LinkedPR struct {
 	Number           int
 	Title            string
@@ -1651,12 +1651,6 @@ func (b *Board) collectKnownLabels() map[string]bool {
 	return known
 }
 
-// agentStatusFor returns the cenci window state joined to card by ticket
-// number, or nil if no snapshot is stored yet or no window matches.
-func (b Board) agentStatusFor(card Card) *cenciwatch.WindowState {
-	return b.agentStatusForNumber(card.Number)
-}
-
 // agentStatusForNumber returns the cenci window state whose name joins to
 // the given ticket number, or nil if no snapshot is stored yet or no window
 // matches. A window joins when its name is exactly "<number>" or starts with
@@ -1803,16 +1797,6 @@ func agentWindowRef(w cenciwatch.WindowState) string {
 	default:
 		return w.WindowIndex
 	}
-}
-
-// agentBadgeFor returns the fixed-width badge text for the card's live agent
-// window, or "" when there is no match or the status is idle/unknown.
-func (b Board) agentBadgeFor(card Card) string {
-	ws := b.agentStatusFor(card)
-	if ws == nil {
-		return ""
-	}
-	return agentBadgeText(ws.Status, ws.Agent)
 }
 
 // agentCounts returns how many live agent windows are in each of the six

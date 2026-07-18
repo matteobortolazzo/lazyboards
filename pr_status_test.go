@@ -20,7 +20,7 @@ import (
 //   - "conflicting"  <- Mergeable == "CONFLICTING" or MergeStateStatus == "DIRTY"
 //   - "blocked"      <- MergeStateStatus in BLOCKED/BEHIND/UNSTABLE
 //   - "unknown"      <- Mergeable == "UNKNOWN" (short-circuits before the
-//     draft/blocked checks; never wins over a known status in worstPRStatus)
+//     draft/blocked checks)
 
 // --- prStatus: single-PR status derivation ---
 
@@ -172,80 +172,5 @@ func TestPRStatusStyle_MapsEachKnownStatusToItsNamedStyle(t *testing.T) {
 		if got != want {
 			t.Errorf("prStatusStyle(%q).Render(x) = %q, want %q (its dedicated style)", tt.status, got, want)
 		}
-	}
-}
-
-// --- worstPRStatus: worst-wins priority across a card's linked PRs ---
-// Priority: Conflicting > Blocked > Draft > Mergeable. UNKNOWN never wins
-// over a known status and is the fallback when every linked PR is UNKNOWN.
-
-// prWithStatus builds a LinkedPR whose fields derive the given prStatus
-// value, so worstPRStatus tests can be expressed in terms of status names
-// instead of duplicating field combinations already pinned by TestPRStatus_*.
-func prWithStatus(number int, status string) LinkedPR {
-	switch status {
-	case "draft":
-		return LinkedPR{Number: number, IsDraft: true, Mergeable: "MERGEABLE", MergeStateStatus: "DRAFT"}
-	case "mergeable":
-		return LinkedPR{Number: number, IsDraft: false, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"}
-	case "conflicting":
-		return LinkedPR{Number: number, IsDraft: false, Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"}
-	case "blocked":
-		return LinkedPR{Number: number, IsDraft: false, Mergeable: "MERGEABLE", MergeStateStatus: "BLOCKED"}
-	default:
-		return LinkedPR{Number: number, IsDraft: false, Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"}
-	}
-}
-
-func TestWorstPRStatus_SingleKnownStates(t *testing.T) {
-	for _, status := range []string{"draft", "mergeable", "conflicting", "blocked"} {
-		got := worstPRStatus([]LinkedPR{prWithStatus(1, status)})
-		if got != status {
-			t.Errorf("worstPRStatus([%s]) = %q, want %q", status, got, status)
-		}
-	}
-}
-
-func TestWorstPRStatus_PriorityOrdering(t *testing.T) {
-	tests := []struct {
-		name     string
-		statuses []string
-		want     string
-	}{
-		{"conflicting beats blocked", []string{"conflicting", "blocked"}, "conflicting"},
-		{"blocked beats draft", []string{"blocked", "draft"}, "blocked"},
-		{"draft beats mergeable", []string{"draft", "mergeable"}, "draft"},
-		{"conflicting beats everything", []string{"mergeable", "draft", "blocked", "conflicting"}, "conflicting"},
-		{"order in the slice does not matter", []string{"conflicting", "mergeable", "blocked", "draft"}, "conflicting"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var prs []LinkedPR
-			for i, s := range tt.statuses {
-				prs = append(prs, prWithStatus(i+1, s))
-			}
-			if got := worstPRStatus(prs); got != tt.want {
-				t.Errorf("worstPRStatus(%v) = %q, want %q", tt.statuses, got, tt.want)
-			}
-		})
-	}
-}
-
-// TestWorstPRStatus_UnknownDoesNotMaskKnownBadState asserts UNKNOWN never
-// wins the "worst wins" comparison over a known status from another linked
-// PR on the same card.
-func TestWorstPRStatus_UnknownDoesNotMaskKnownBadState(t *testing.T) {
-	prs := []LinkedPR{prWithStatus(1, "unknown"), prWithStatus(2, "conflicting")}
-	if got := worstPRStatus(prs); got != "conflicting" {
-		t.Errorf("worstPRStatus([unknown, conflicting]) = %q, want %q (unknown must not mask a known bad state)", got, "conflicting")
-	}
-}
-
-// TestWorstPRStatus_AllUnknown_ReturnsUnknown asserts an all-UNKNOWN slice
-// returns "unknown" rather than fabricating a known state.
-func TestWorstPRStatus_AllUnknown_ReturnsUnknown(t *testing.T) {
-	prs := []LinkedPR{prWithStatus(1, "unknown"), prWithStatus(2, "unknown")}
-	if got := worstPRStatus(prs); got != "unknown" {
-		t.Errorf("worstPRStatus(all unknown) = %q, want %q (must not fabricate a known state)", got, "unknown")
 	}
 }

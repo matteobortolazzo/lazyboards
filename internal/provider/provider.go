@@ -12,7 +12,7 @@ import (
 // MergeStateStatus as their enum string values, e.g. "MERGEABLE",
 // "CONFLICTING", "BLOCKED"). Deriving a human-facing status/glyph/style from
 // these fields is presentation logic and lives in view.go (prStatus,
-// prStatusSymbol, prStatusStyle, worstPRStatus), not in this package.
+// prStatusSymbol, prStatusStyle), not in this package.
 type LinkedPR struct {
 	Number           int
 	Title            string
