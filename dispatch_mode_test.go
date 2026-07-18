@@ -30,7 +30,7 @@ func newDispatchTestBoard(t *testing.T) Board {
 func newDispatchTestBoardWithExecutor(t *testing.T, fe *action.FakeExecutor) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)

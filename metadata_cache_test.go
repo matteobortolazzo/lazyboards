@@ -49,7 +49,7 @@ func TestMetadataDue_TTLElapsed_ReturnsTrue(t *testing.T) {
 // methods were not invoked during this cycle.
 func TestMetadataCache_RefreshTick_SkipsMetadataCallsWhenNotDue(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 5*time.Minute, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 5*time.Minute, 0, "Working", false, false, nil, nil, true)
 	b.Width = 120
 	b.Height = 40
 
@@ -147,7 +147,7 @@ func TestMetadataCache_RefreshTick_SkipsMetadataCallsWhenNotDue(t *testing.T) {
 // above).
 func TestMetadataCache_ManualRefresh_BypassesTTL(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 5*time.Minute, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 5*time.Minute, 0, "Working", false, false, nil, nil, true)
 	b.Width = 120
 	b.Height = 40
 

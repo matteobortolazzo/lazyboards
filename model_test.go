@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -26,6 +28,41 @@ func TestNewBoard_InitReturnsCmds(t *testing.T) {
 	cmd := b.Init()
 	if cmd == nil {
 		t.Error("Init() should return non-nil cmd (batch of spinner tick + fetch)")
+	}
+}
+
+// TestInit_UpdateCheckTargetsLazyboardsRepoNotTrackedRepo verifies the
+// startup update check always queries lazyboards' own GitHub repo, even when
+// the board is configured to track a completely different repo -- the check
+// is about lazyboards itself, not whatever project the user's board tracks
+// issues/PRs for (#444).
+func TestInit_UpdateCheckTargetsLazyboardsRepoNotTrackedRepo(t *testing.T) {
+	withVersion(t, "v1.0.0") // must not be "dev" for shouldCheckForUpdate to fire
+
+	saved := fetchLatestReleaseTag
+	t.Cleanup(func() { fetchLatestReleaseTag = saved })
+
+	type call struct{ owner, repo string }
+	calls := make(chan call, 1)
+	fetchLatestReleaseTag = func(_ context.Context, owner, repo string) (string, error) {
+		calls <- call{owner, repo}
+		return "v1.0.0", nil
+	}
+
+	p := provider.NewFakeProvider()
+	// The board deliberately tracks a repo that is NOT lazyboards, to prove
+	// the update-check target is independent of the board's tracked repo.
+	b := NewBoard(p, nil, nil, nil, nil, "someone-else", "unrelated-repo", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+
+	execCmds(b.Init())
+
+	select {
+	case c := <-calls:
+		if c.owner != lazyboardsRepoOwner || c.repo != lazyboardsRepoName {
+			t.Errorf("update check targeted %s/%s, want %s/%s", c.owner, c.repo, lazyboardsRepoOwner, lazyboardsRepoName)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected the update check to have queried fetchLatestReleaseTag, but it was never called")
 	}
 }
 

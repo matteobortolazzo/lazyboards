@@ -29,7 +29,7 @@ func newCleanupTestBoardWith(t *testing.T, cleanup string, watcher cenciwatch.Wa
 		{Name: "Implementing"},
 		{Name: "Implemented"},
 	}
-	b := NewBoard(p, nil, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false, false, watcher, nil)
+	b := NewBoard(p, nil, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false, false, watcher, nil, true)
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
@@ -543,7 +543,7 @@ func newCircuitBreakerTestBoard(t *testing.T, cleanup string, cardCount int) (Bo
 		{Name: "New", Cleanup: &cleanup},
 		{Name: "Refined"},
 	}
-	b := NewBoard(p, nil, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, 0, "Working", false, false, nil, nil, true)
 	m, cmd := b.Update(boardFetchedMsg{board: circuitBreakerBoard(cardCount, nil)})
 	b = m.(Board)
 	execCmds(cmd)

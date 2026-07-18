@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -244,5 +245,160 @@ func TestStatusBar_ColumnOnlyActionAppearsOnlyInColumn(t *testing.T) {
 	view1 := b.View()
 	if strings.Contains(view1, "Special") {
 		t.Errorf("on column 1, View() should NOT contain %q", "Special")
+	}
+}
+
+// --- Update check notice (#444) ---
+//
+// checkForUpdateCmd (the external GitHub HTTP shim) does only the fetch; the
+// updateCheckMsg handler in Update() does the version comparison (reading
+// appVersion()) and sets/clears the sticky status-bar notice. version is the
+// same injected-ldflag global appVersion() reads (see version_test.go).
+
+func withVersion(t *testing.T, v string) {
+	t.Helper()
+	saved := version
+	t.Cleanup(func() { version = saved })
+	version = v
+}
+
+func TestUpdateCheckMsg_NewerVersion_SetsStickyMessage(t *testing.T) {
+	withVersion(t, "v1.0.0")
+
+	b := newLoadedTestBoard(t)
+	m, cmd := b.Update(updateCheckMsg{latest: "v1.1.0"})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if !updated.statusBar.HasStickyMessage() {
+		t.Error("expected a sticky message to be set for a newer latest version")
+	}
+	updated.Width = 120
+	updated.Height = 40
+	view := updated.View()
+	if !strings.Contains(view, "v1.0.0") {
+		t.Errorf("View() = %q, want it to mention the current version %q", view, "v1.0.0")
+	}
+	if !strings.Contains(view, "v1.1.0") {
+		t.Errorf("View() = %q, want it to mention the latest version %q", view, "v1.1.0")
+	}
+	if !strings.Contains(view, "go install github.com/matteobortolazzo/lazyboards@latest") {
+		t.Errorf("View() = %q, want it to tell the user how to update", view)
+	}
+	if cmd != nil {
+		t.Errorf("Update(updateCheckMsg) cmd = %v, want nil (no further async work needed)", cmd)
+	}
+}
+
+func TestUpdateCheckMsg_SameVersion_NoSticky(t *testing.T) {
+	withVersion(t, "v1.0.0")
+
+	b := newLoadedTestBoard(t)
+	m, cmd := b.Update(updateCheckMsg{latest: "v1.0.0"})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.statusBar.HasStickyMessage() {
+		t.Error("expected no sticky message when the latest version equals the running version")
+	}
+	if cmd != nil {
+		t.Errorf("Update(updateCheckMsg) cmd = %v, want nil", cmd)
+	}
+}
+
+func TestUpdateCheckMsg_OlderLatest_NoSticky(t *testing.T) {
+	withVersion(t, "v1.2.0")
+
+	b := newLoadedTestBoard(t)
+	m, cmd := b.Update(updateCheckMsg{latest: "v1.1.0"})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.statusBar.HasStickyMessage() {
+		t.Error("expected no sticky message when the latest version is older than the running version")
+	}
+	if cmd != nil {
+		t.Errorf("Update(updateCheckMsg) cmd = %v, want nil", cmd)
+	}
+}
+
+func TestUpdateCheckMsg_FetchError_NoStickyNoCrash(t *testing.T) {
+	withVersion(t, "v1.0.0")
+
+	b := newLoadedTestBoard(t)
+	m, cmd := b.Update(updateCheckMsg{err: errors.New("network error")})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.statusBar.HasStickyMessage() {
+		t.Error("expected no sticky message when the update check failed")
+	}
+	if cmd != nil {
+		t.Errorf("Update(updateCheckMsg) cmd = %v, want nil", cmd)
+	}
+}
+
+// TestKeyPress_DismissesStickyMessage_AndStillPerformsNormalAction verifies
+// the sticky notice is dismissed by the user's next keypress, and that the
+// key's own normal action/cmd still fires -- no new dedicated keybinding is
+// introduced, so the dismiss must fall through to the per-mode handler rather
+// than swallowing the key.
+func TestKeyPress_DismissesStickyMessage_AndStillPerformsNormalAction(t *testing.T) {
+	withVersion(t, "v1.0.0")
+
+	b := newLoadedTestBoard(t)
+	m, _ := b.Update(updateCheckMsg{latest: "v1.1.0"})
+	primed, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if !primed.statusBar.HasStickyMessage() {
+		t.Fatalf("test setup: sticky message should be set before the keypress")
+	}
+
+	// 'q' in normal mode performs its own action (tea.Quit) independent of the
+	// sticky-dismiss wiring.
+	m2, cmd := primed.Update(keyMsg("q"))
+	updated, ok := m2.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m2)
+	}
+
+	if updated.statusBar.HasStickyMessage() {
+		t.Error("keypress should dismiss the sticky message")
+	}
+	if cmd == nil {
+		t.Error("keypress 'q' should still perform its normal action (a non-nil tea.Quit cmd)")
+	}
+}
+
+// TestKeyPress_NoStickyMessage_NoOpDismiss verifies dismissing an absent
+// sticky message is a harmless no-op: the key's normal action still fires
+// and no sticky message appears out of nowhere.
+func TestKeyPress_NoStickyMessage_NoOpDismiss(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	if b.statusBar.HasStickyMessage() {
+		t.Fatalf("test setup: no sticky message should be set")
+	}
+
+	m, cmd := b.Update(keyMsg("q"))
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if updated.statusBar.HasStickyMessage() {
+		t.Error("no sticky message should appear from a plain keypress")
+	}
+	if cmd == nil {
+		t.Error("keypress 'q' should still perform its normal action (a non-nil tea.Quit cmd)")
 	}
 }

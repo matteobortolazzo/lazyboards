@@ -36,7 +36,7 @@ func TestCloseMode_XKey_EntersCloseConfirmModeWithTargetCard(t *testing.T) {
 
 func TestCloseMode_XKey_NoColumns_DoesNothing(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
 	msg := boardFetchedMsg{board: provider.Board{Columns: nil}}
 	m, _ := b.Update(msg)
 	b = m.(Board)
