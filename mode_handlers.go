@@ -353,7 +353,6 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		b.dispatch = dispatchState{loading: true}
 		b.mode = dispatchMode
-		b.statusBar.SetActionHints(dispatchModeHints)
 		return b, queryDispatchStatusCmd(b.executor)
 	case "u":
 		// Capture the selected card's identity (filter-aware) before flipping

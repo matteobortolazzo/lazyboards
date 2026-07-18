@@ -172,21 +172,6 @@ func TestDispatch_EnterAndO_NoopWhenClean(t *testing.T) {
 	}
 }
 
-// --- dispatchModeHints gains enter/o entries (#283) ---
-
-func TestDispatchModeHints_IncludesEnterAndO(t *testing.T) {
-	keys := make(map[string]bool)
-	for _, h := range dispatchModeHints {
-		keys[h.Key] = true
-	}
-	if !keys["enter"] {
-		t.Errorf("dispatchModeHints missing 'enter' entry: %+v", dispatchModeHints)
-	}
-	if !keys["o"] {
-		t.Errorf("dispatchModeHints missing 'o' entry: %+v", dispatchModeHints)
-	}
-}
-
 // --- Pressing 'd' fires an async status query (#283) ---
 
 func TestDispatch_PressD_FiresStatusQueryCmd(t *testing.T) {
@@ -1265,16 +1250,6 @@ func TestDispatchView_NoLastLinesShowsNoExtraSection(t *testing.T) {
 // enrolled repo. Toggling it is built-in (key 'l' in the modal), but because
 // the blast radius is the whole fleet it goes through a two-step confirm in
 // BOTH directions, mirroring the close-confirm flow.
-
-func TestDispatchModeHints_IncludesLoopToggle(t *testing.T) {
-	keys := make(map[string]bool)
-	for _, h := range dispatchModeHints {
-		keys[h.Key] = true
-	}
-	if !keys["l"] {
-		t.Errorf("dispatchModeHints missing 'l' (loop toggle) entry: %+v", dispatchModeHints)
-	}
-}
 
 func TestDispatch_L_EntersConfirmWhenLoopKnown(t *testing.T) {
 	fe := &action.FakeExecutor{}

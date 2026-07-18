@@ -721,14 +721,6 @@ type dispatchState struct {
 	confirmingLoop bool
 }
 
-// dispatchModeHints are the status bar hints shown in dispatch mode.
-var dispatchModeHints = []Hint{
-	{Key: "enter", Desc: "Enroll/Unenroll"},
-	{Key: "o", Desc: "Dispatch once"},
-	{Key: "l", Desc: "Toggle loop"},
-	{Key: "esc", Desc: "Close"},
-}
-
 // dispatchStatusMsg is sent when queryDispatchStatusCmd finishes querying
 // cenci for the current repo's dispatch enrollment status. loop carries the
 // CLI's "loop" object, decoded into the shared cenciwatch.DispatchState
