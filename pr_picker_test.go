@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -476,6 +479,45 @@ func TestPRPicker_View_UnknownStatusRendersNoGlyph(t *testing.T) {
 		if sym := prStatusSymbol(status); sym != "" && strings.Contains(view, sym) {
 			t.Errorf("picker view for unknown-status PR contains a known-state glyph %q (status %s), want none; got:\n%s", sym, status, view)
 		}
+	}
+}
+
+// --- PR Picker selected-row styling matches other lists (#450) ---
+//
+// Every other list-like UI element in the app (card list, PR list, agents
+// list) highlights its current/selected row with selectedCardStyle (bold,
+// bright white). The PR Picker modal renders its PR text in the terminal's
+// default foreground color instead -- it should style the "#NN Title"
+// segment with selectedCardStyle just like the other lists.
+
+// TestPRPicker_View_StylesSelectedPRTextWithSelectedRowStyle asserts the
+// picker's focused/current PR text is rendered with selectedCardStyle,
+// matching the selected-row convention used by every other list in the app.
+func TestPRPicker_View_StylesSelectedPRTextWithSelectedRowStyle(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Two PRs", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: first PR", URL: "https://github.com/o/r/pull/10"},
+			{Number: 11, Title: "feat: second PR", URL: "https://github.com/o/r/pull/11"},
+		}},
+	}, 120, 40)
+
+	m, cmd := b.Update(keyMsg("p"))
+	b = m.(Board)
+	execCmds(cmd)
+	if b.mode != prPickerMode {
+		t.Fatalf("test setup: expected prPickerMode, got %d", b.mode)
+	}
+
+	pr := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].LinkedPRs[b.prPickerIndex]
+
+	view := b.viewPRPickerModal()
+	want := selectedCardStyle.Render(fmt.Sprintf("#%d %s", pr.Number, pr.Title))
+	if !strings.Contains(view, want) {
+		t.Errorf("PR picker view missing selected-row-styled PR text %q; got:\n%s", want, view)
 	}
 }
 
