@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 )
 
@@ -845,35 +846,53 @@ func composeDetailMarkdown(card Card) string {
 	return sb.String()
 }
 
+// renderDetailLines composes the card's frontmatter+body markdown, renders
+// it through glamour, and hard-wraps the result to contentWidth, returning
+// the final display lines. Glamour never breaks long unbreakable tokens
+// (e.g. a long URL), so a rendered line can come out wider than
+// contentWidth; ansi.Hardwrap makes the returned line count and per-line
+// width match what lipgloss will actually render (the per-line SGR/style
+// handling itself is done by lipgloss.Style.Render(), not by Hardwrap).
+//
+// Both viewCardDetail (rendering) and scrollDetailDown (scroll-offset math)
+// must call this same helper so their line counts cannot drift apart --
+// see docs/view-state-consistency.md.
+func renderDetailLines(card Card, contentWidth int) []string {
+	// Initialize glamour renderer if needed.
+	if cachedGlamourRenderer == nil || cachedGlamourRendererWidth != contentWidth {
+		mdStyle := styles.DarkStyleConfig
+		mdStyle.Document.Color = nil
+		mdStyle.Document.BackgroundColor = nil
+		mdStyle.Paragraph.Color = nil
+		mdStyle.Paragraph.BackgroundColor = nil
+		mdStyle.Text.Color = nil
+		r, err := glamour.NewTermRenderer(
+			glamour.WithStyles(mdStyle),
+			glamour.WithWordWrap(contentWidth),
+		)
+		if err == nil {
+			cachedGlamourRenderer = r
+			cachedGlamourRendererWidth = contentWidth
+		}
+	}
+
+	fullMarkdown := composeDetailMarkdown(card)
+	rendered := renderBody(fullMarkdown)
+
+	if contentWidth >= 1 {
+		rendered = ansi.Hardwrap(rendered, contentWidth, true)
+	}
+
+	return strings.Split(rendered, "\n")
+}
+
 func (b Board) viewCardDetail(col Column, contentWidth, panelHeight int, style lipgloss.Style) string {
 	var rightContent string
 	if len(col.Cards) > 0 {
 		card := col.Cards[col.Cursor]
 
-		// Initialize glamour renderer if needed.
-		if cachedGlamourRenderer == nil || cachedGlamourRendererWidth != contentWidth {
-			mdStyle := styles.DarkStyleConfig
-			mdStyle.Document.Color = nil
-			mdStyle.Document.BackgroundColor = nil
-			mdStyle.Paragraph.Color = nil
-			mdStyle.Paragraph.BackgroundColor = nil
-			mdStyle.Text.Color = nil
-			r, err := glamour.NewTermRenderer(
-				glamour.WithStyles(mdStyle),
-				glamour.WithWordWrap(contentWidth),
-			)
-			if err == nil {
-				cachedGlamourRenderer = r
-				cachedGlamourRendererWidth = contentWidth
-			}
-		}
-
-		// Build and render the full markdown (frontmatter + body).
-		fullMarkdown := composeDetailMarkdown(card)
-		rendered := renderBody(fullMarkdown)
-
 		// Apply unified scroll: the entire rendered content scrolls as one unit.
-		lines := strings.Split(rendered, "\n")
+		lines := renderDetailLines(card, contentWidth)
 		availableLines := panelHeight
 
 		startLine := b.detailScrollOffset

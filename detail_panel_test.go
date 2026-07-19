@@ -7,7 +7,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/muesli/termenv"
 )
 
 func TestDetailFocus_LeftArrow_ReturnsFocusToCardList(t *testing.T) {
@@ -1208,5 +1210,132 @@ func TestDetailFocus_PKey_MultiplePRs_OpensPicker(t *testing.T) {
 	}
 	if !b.detailFocused {
 		t.Error("after Esc from PR picker opened via detail panel, detail panel should still be focused")
+	}
+}
+
+// --- Detail Panel Hardwrap of Overlong Glamour Lines (#453) ---
+//
+// Glamour never breaks long unbreakable tokens (e.g. a long URL); a rendered
+// line can come out wider than the detail panel's content width. Two
+// downstream consumers assume glamour output never exceeds contentWidth:
+// the final style.Width(contentWidth).Height(panelHeight).Render() call
+// silently re-wraps overlong lines a second time (with ANSI state open,
+// corrupting styling), and the scroll/height math counts glamour lines
+// assuming one rendered line == one terminal row, which becomes wrong once
+// lipgloss re-wraps. Both symptoms are checked below by forcing a color
+// profile (per docs/terminal-rendering.md) so glamour/lipgloss actually
+// apply styling instead of silently degrading to plain text.
+
+// longOverflowURLBody builds a card body containing ten short filler
+// paragraphs followed by a markdown list item with a long, unbreakable URL.
+// Glamour word-wraps most of the URL but still emits one raw line 8 cells
+// wider than the ~69-cell detail panel content width at Width=120 (matches
+// the real-world reported bug). The ten filler paragraphs bring the raw
+// rendered line count to just under panelHeight (34) with no scrolling
+// required, so the extra display row lipgloss inserts when it re-wraps that
+// one overlong line pushes the panel's total rendered height past
+// panelHeight — this precise sizing is required to surface the bug; slack
+// at the bottom of an under-full panel would otherwise silently absorb the
+// extra row.
+func longOverflowURLBody() string {
+	var paragraphs []string
+	for i := 1; i <= 10; i++ {
+		paragraphs = append(paragraphs, fmt.Sprintf("body line %d", i))
+	}
+	longURLLine := "- <https://github.com/owner/repo/blob/16f29800fd2681bdf3eb4ccffe38be3baec6b/skills/thing/SKILL.md>"
+	paragraphs = append(paragraphs, longURLLine)
+	return strings.Join(paragraphs, "\n\n")
+}
+
+func TestView_DetailPanel_LongURL_DoesNotGrowPanelHeight(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	longBoard := newBoardWithBody(t, longOverflowURLBody(), "short body")
+	shortBoard := newBoardWithBody(t, "short body", "short body")
+
+	longView := longBoard.View()
+	shortView := shortBoard.View()
+
+	longLines := strings.Split(longView, "\n")
+	shortLines := strings.Split(shortView, "\n")
+
+	// The detail panel's rendered height must not grow just because its body
+	// contains an overlong, unbreakable token: a second lipgloss re-wrap of
+	// an overlong glamour line inflates the panel beyond panelHeight, making
+	// the right panel's border extend past the left panel's. (A per-line
+	// lipgloss.Width() <= b.Width assertion is deliberately not included
+	// here: lipgloss's own style.Width() call already forces every line to
+	// the requested width regardless of this fix, so it would pass even with
+	// the hardwrap fix reverted and guard nothing.)
+	if len(longLines) != len(shortLines) {
+		t.Errorf("View() with a long-URL body has %d output lines, want %d (same as a short body) — "+
+			"an overlong glamour line is forcing lipgloss to re-wrap and grow the panel height",
+			len(longLines), len(shortLines))
+	}
+}
+
+// scrollOverflowURLBody builds a card body with 40 filler paragraphs
+// followed by a markdown list item with a long, unbreakable URL, all as the
+// LAST content — enough raw content to require many 'j' presses to scroll to
+// the bottom (unlike longOverflowURLBody, which is sized to fit near
+// panelHeight with no scrolling). The long URL wraps to extra display rows
+// (via ansi.Hardwrap) that a scroll bound computed from the un-hardwrapped
+// line count would not know about, stranding the wrapped tail below the
+// reachable scroll offset.
+func scrollOverflowURLBody() string {
+	var paragraphs []string
+	for i := 1; i <= 40; i++ {
+		paragraphs = append(paragraphs, fmt.Sprintf("body line %d", i))
+	}
+	longURLLine := "- <https://github.com/owner/repo/blob/16f29800fd2681bdf3eb4ccffe38be3baec6b/skills/thing/SKILL.md>"
+	paragraphs = append(paragraphs, longURLLine)
+	return strings.Join(paragraphs, "\n\n")
+}
+
+func TestDetailFocus_JKey_ReachesHardwrappedTailAtMaxScroll(t *testing.T) {
+	// Bug: scrollDetailDown (update.go) independently recomputes rendered
+	// line count from renderBody() WITHOUT the ansi.Hardwrap step that
+	// viewCardDetail (view.go) applies. When a long unbreakable URL forces
+	// lipgloss to add extra display rows beyond what scrollDetailDown
+	// counted, its maxOffset caps scrolling short of the view's real
+	// maxOffset — the wrapped tail of the URL can never be scrolled into
+	// view, even though the view still shows a down-arrow "more content"
+	// indicator claiming otherwise.
+	b := newBoardWithBody(t, scrollOverflowURLBody(), "short body")
+
+	// Call View() to initialize the glamour renderer, matching the real
+	// BubbleTea lifecycle (View runs before every Update).
+	b.View()
+
+	// Enter detail focus and scroll all the way down.
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true")
+	}
+	for i := 0; i < 300; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+
+	view := b.View()
+
+	// The tail of the wrapped URL (its filename, split by ansi.Hardwrap onto
+	// its own display row past the raw, un-hardwrapped line count) must be
+	// reachable once scrolled to the bottom.
+	if !strings.Contains(view, "SKILL.") {
+		t.Errorf("View() at max scroll offset (%d) does not contain %q — "+
+			"the hardwrapped tail of the long URL is unreachable because the "+
+			"scroll bound was computed from a smaller, un-hardwrapped line count",
+			b.detailScrollOffset, "SKILL.")
+	}
+
+	// The down-arrow "more content below" indicator must not still be shown
+	// once truly at the bottom.
+	downArrow := "▼"
+	if strings.Contains(view, downArrow) {
+		t.Errorf("View() at max scroll offset (%d) still shows the down-arrow "+
+			"indicator %q — the view believes there is more content below the "+
+			"scroll bound that j/k can never reach", b.detailScrollOffset, downArrow)
 	}
 }

@@ -1237,16 +1237,17 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // scrollDetailDown increments the detail panel scroll offset by one line,
-// respecting the rendered content height and panel dimensions.
+// respecting the rendered content height and panel dimensions. Uses
+// renderDetailLines (view.go) -- the same helper viewCardDetail renders
+// with -- so the scroll bound and the rendered view cannot drift out of
+// sync (docs/view-state-consistency.md).
 func (b *Board) scrollDetailDown() {
 	if len(b.visibleCards()) == 0 {
 		return
 	}
 	card := b.selectedCard()
-	fullMarkdown := composeDetailMarkdown(card)
-	rendered := renderBody(fullMarkdown)
-	totalLines := len(strings.Split(rendered, "\n"))
-	panelHeight, _, _ := b.layoutDimensions()
+	panelHeight, _, contentWidth := b.layoutDimensions()
+	totalLines := len(renderDetailLines(card, contentWidth))
 	availableLines := panelHeight
 	if b.detailScrollOffset > 0 {
 		availableLines--
