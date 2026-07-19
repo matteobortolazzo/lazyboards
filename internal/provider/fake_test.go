@@ -556,7 +556,12 @@ func TestFakeProvider_GetAuthenticatedUser(t *testing.T) {
 
 // TestFakeProvider_ListOpenPRs_IncludesLinkedAndUnlinkedPRs asserts the fake
 // repo's open-PR list covers both kinds of rows the PR overview must render:
-// every PR linked to a board card, plus at least one PR no card links to.
+// every OPEN-state PR linked to a board card, plus at least one PR no card
+// links to. Card #3's PR #32 is deliberately excluded from this invariant:
+// it's a merged linked PR intentionally absent from ListOpenPRs (#449),
+// mirroring how closedByPullRequestsReferences returns closing PRs
+// regardless of state while the repo-wide open-PR query only returns OPEN
+// ones.
 func TestFakeProvider_ListOpenPRs_IncludesLinkedAndUnlinkedPRs(t *testing.T) {
 	fp := NewFakeProvider()
 
@@ -573,6 +578,9 @@ func TestFakeProvider_ListOpenPRs_IncludesLinkedAndUnlinkedPRs(t *testing.T) {
 	for _, col := range board.Columns {
 		for _, card := range col.Cards {
 			for _, pr := range card.LinkedPRs {
+				if pr.State == "CLOSED" || pr.State == "MERGED" {
+					continue
+				}
 				linked[pr.Number] = true
 			}
 		}
