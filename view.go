@@ -627,6 +627,18 @@ func (b *Board) clampScrollOffset() {
 	}
 }
 
+// selectedRowStyle renders text with selectedCardStyle when selected is true,
+// or returns it unstyled otherwise. This is the single choke point for the
+// selected-row highlight convention shared by every list-like UI element
+// (card list, PR list, filter picker, assignee picker, git menu, agents
+// list, PR picker).
+func selectedRowStyle(text string, selected bool) string {
+	if selected {
+		return selectedCardStyle.Render(text)
+	}
+	return text
+}
+
 func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lipgloss.Style) string {
 	columnNames := make([]string, len(b.Columns))
 	for i, c := range b.Columns {
@@ -712,9 +724,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		// All cards fit -- render everything.
 		for _, wc := range allCards {
 			for _, line := range wc.lines {
-				if wc.selected {
-					line = selectedCardStyle.Render(line)
-				}
+				line = selectedRowStyle(line, wc.selected)
 				leftLines = append(leftLines, line)
 			}
 		}
@@ -753,9 +763,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 		for j := col.ScrollOffset; j < endIdx; j++ {
 			wc := allCards[j]
 			for _, line := range wc.lines {
-				if wc.selected {
-					line = selectedCardStyle.Render(line)
-				}
+				line = selectedRowStyle(line, wc.selected)
 				leftLines = append(leftLines, line)
 			}
 		}
@@ -1030,7 +1038,9 @@ func (b Board) viewPRPickerModal() string {
 	if symbol := prStatusSymbol(status); symbol != "" {
 		prPrefix = prStatusStyle(status).Render(symbol) + " "
 	}
-	prDisplay := prPrefix + fmt.Sprintf("\u25c0 #%d %s \u25b6", pr.Number, pr.Title)
+	// Picker shows only the currently browsed PR — always selected, no cursor to compare.
+	prText := selectedRowStyle(fmt.Sprintf("#%d %s", pr.Number, pr.Title), true)
+	prDisplay := prPrefix + "\u25c0 " + prText + " \u25b6"
 
 	pickerHints := NewStatusBar(prPickerHints)
 	modalContent := "Select PR\n\n" +
@@ -1379,9 +1389,7 @@ func (b Board) viewFilterModal() string {
 			continue
 		}
 		display := "  " + item.value
-		if i == b.filterCursor {
-			display = selectedCardStyle.Render(display)
-		}
+		display = selectedRowStyle(display, i == b.filterCursor)
 		lines = append(lines, display)
 	}
 
@@ -1406,9 +1414,7 @@ func (b Board) viewAssignModal() string {
 			prefix = "* "
 		}
 		display := prefix + item.login
-		if i == b.assign.cursor {
-			display = selectedCardStyle.Render(display)
-		}
+		display = selectedRowStyle(display, i == b.assign.cursor)
 		lines = append(lines, display)
 	}
 
@@ -1429,9 +1435,7 @@ func (b Board) viewGitPanelModal() string {
 
 	for i, item := range b.gitPanel.items {
 		display := "  " + item.key + "  " + item.name
-		if i == b.gitPanel.cursor {
-			display = selectedCardStyle.Render(display)
-		}
+		display = selectedRowStyle(display, i == b.gitPanel.cursor)
 		lines = append(lines, display)
 	}
 
@@ -1513,9 +1517,7 @@ func (b Board) viewPRListModal() string {
 			if entry.cardNumber != 0 {
 				display += fmt.Sprintf("  —  %s #%d", entry.columnTitle, entry.cardNumber)
 			}
-			if i == b.prList.cursor {
-				display = selectedCardStyle.Render(display)
-			}
+			display = selectedRowStyle(display, i == b.prList.cursor)
 			lines = append(lines, display)
 		}
 		if showDown {
@@ -1625,9 +1627,7 @@ func (b Board) viewAgentListModal() string {
 			if entry.cardNumber != 0 {
 				display += fmt.Sprintf("  —  %s #%d", entry.columnTitle, entry.cardNumber)
 			}
-			if i == b.agentList.cursor {
-				display = selectedCardStyle.Render(display)
-			}
+			display = selectedRowStyle(display, i == b.agentList.cursor)
 			lines = append(lines, display)
 		}
 		if showDown {
