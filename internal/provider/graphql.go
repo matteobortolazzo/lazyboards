@@ -151,10 +151,12 @@ type assigneeQueryNode struct {
 
 // pullRequestQueryNode represents a PR from GitHub's
 // closedByPullRequestsReferences, pullRequests, and cross-referenced
-// timeline-mention connections. State is only consumed by the mention path
-// (mapMentionedPRs): a closing PR is trusted as-is, but a stale mention of a
-// PR that has since closed or merged must not resurrect a dead link on a
-// still-open issue.
+// timeline-mention connections. State is consumed by both the mention path
+// (mapMentionedPRs, which filters out stale mentions of PRs that have since
+// closed or merged so a dead link doesn't resurrect on a still-open issue)
+// and the closing-PR path (mapLinkedPRs, which carries State through to
+// LinkedPR so consumers like the global PR list can exclude closed/merged
+// entries from open-PR fallbacks).
 type pullRequestQueryNode struct {
 	Number           githubv4.Int
 	Title            githubv4.String
@@ -500,6 +502,7 @@ func mapLinkedPRs(items []pullRequestQueryNode) []LinkedPR {
 			IsDraft:          bool(pr.IsDraft),
 			Mergeable:        string(pr.Mergeable),
 			MergeStateStatus: string(pr.MergeStateStatus),
+			State:            string(pr.State),
 		})
 	}
 	return linkedPRs

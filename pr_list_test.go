@@ -59,6 +59,63 @@ func TestNormalMode_V_OpensPRListModal(t *testing.T) {
 	}
 }
 
+// TestNormalMode_V_FallbackExcludesClosedAndMergedLinkedPRs asserts the
+// instant fallback list built from card.LinkedPRs while the repo-wide fetch
+// is in flight (#449) excludes PRs whose State is CLOSED or MERGED --
+// closedByPullRequestsReferences includes linked PRs regardless of state, so
+// a merged/closed linked PR must not briefly flash in the "Open Pull
+// Requests" modal. The filter is exclusive: an entry with no State set (the
+// vast majority of existing fixtures) must still be kept, and once the real
+// open-PR fetch lands via openPRsMsg, the fallback's filtering must not
+// affect the replaced (already open-only) repo-wide list.
+func TestNormalMode_V_FallbackExcludesClosedAndMergedLinkedPRs(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{
+		{Number: 1, Title: "Mixed-state PR card", LinkedPRs: []provider.LinkedPR{
+			{Number: 11, Title: "feat: still open", URL: "https://github.com/owner/repo/pull/11"},
+			{Number: 32, Title: "fix: already merged", URL: "https://github.com/owner/repo/pull/32", State: "MERGED"},
+		}},
+	}, fe)
+
+	m, cmd := b.Update(keyMsg("v"))
+	b = m.(Board)
+	if cmd == nil {
+		t.Fatal("Update(v) returned nil cmd, want the repo-wide open-PR fetch command")
+	}
+
+	if len(b.prList.entries) != 1 {
+		t.Fatalf("entries = %d, want 1 (merged linked PR excluded from fallback)", len(b.prList.entries))
+	}
+	if got := b.prList.entries[0].pr.Number; got != 11 {
+		t.Errorf("entries[0].pr.Number = %d, want 11 (unset-State open PR kept)", got)
+	}
+	for _, e := range b.prList.entries {
+		if e.pr.Number == 32 {
+			t.Errorf("fallback entries contain merged PR #32, want it excluded: %+v", b.prList.entries)
+		}
+	}
+
+	// Feeding the real (open-only) fetch result must replace the fallback
+	// unchanged -- the exclusion only applies to the LinkedPRs-derived
+	// fallback, never to rows that already came from the repo-wide fetch.
+	msg, ok := cmd().(openPRsMsg)
+	if !ok {
+		t.Fatalf("cmd() returned %T, want openPRsMsg", msg)
+	}
+	msg.prs = []provider.LinkedPR{
+		{Number: 11, Title: "feat: still open", URL: "https://github.com/owner/repo/pull/11"},
+	}
+	m, _ = b.Update(msg)
+	b = m.(Board)
+
+	if len(b.prList.entries) != 1 {
+		t.Fatalf("entries after openPRsMsg = %d, want 1", len(b.prList.entries))
+	}
+	if got := b.prList.entries[0].pr.Number; got != 11 {
+		t.Errorf("entries[0].pr.Number after openPRsMsg = %d, want 11 (unfiltered repo-wide result)", got)
+	}
+}
+
 // TestNormalMode_V_FetchesRepoWideOpenPRs exercises the full wiring: the cmd
 // returned by pressing v queries the provider's open-PR list, and feeding its
 // message back through Update replaces the fallback entries with the

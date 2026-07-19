@@ -7,12 +7,13 @@ import (
 
 // LinkedPR represents a pull request linked to a card.
 //
-// IsDraft/Mergeable/MergeStateStatus carry GitHub's raw isDraft/mergeable/
-// mergeStateStatus GraphQL fields through verbatim (Mergeable/
-// MergeStateStatus as their enum string values, e.g. "MERGEABLE",
-// "CONFLICTING", "BLOCKED"). Deriving a human-facing status/glyph/style from
-// these fields is presentation logic and lives in view.go (prStatus,
-// prStatusSymbol, prStatusStyle), not in this package.
+// IsDraft/Mergeable/MergeStateStatus/State carry GitHub's raw isDraft/
+// mergeable/mergeStateStatus/state GraphQL fields through verbatim
+// (Mergeable/MergeStateStatus/State as their enum string values, e.g.
+// "MERGEABLE", "CONFLICTING", "BLOCKED", "OPEN"/"CLOSED"/"MERGED"). Deriving
+// a human-facing status/glyph/style from these fields is presentation logic
+// and lives in view.go (prStatus, prStatusSymbol, prStatusStyle), not in
+// this package.
 type LinkedPR struct {
 	Number           int
 	Title            string
@@ -21,6 +22,7 @@ type LinkedPR struct {
 	IsDraft          bool
 	Mergeable        string
 	MergeStateStatus string
+	State            string
 }
 
 // Label represents a card label with an optional hex color from the provider.

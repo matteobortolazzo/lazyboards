@@ -469,6 +469,7 @@ func TestPullRequestQueryNode_HasStatusFields(t *testing.T) {
 		{"IsDraft", reflect.TypeOf(githubv4.Boolean(false))},
 		{"Mergeable", reflect.TypeOf(githubv4.MergeableState(""))},
 		{"MergeStateStatus", reflect.TypeOf(githubv4.MergeStateStatus(""))},
+		{"State", reflect.TypeOf(githubv4.PullRequestState(""))},
 	}
 	for _, tt := range tests {
 		f, ok := typ.FieldByName(tt.field)
@@ -494,14 +495,17 @@ func TestMapLinkedPRs_PopulatesStatusFields(t *testing.T) {
 		isDraft          githubv4.Boolean
 		mergeable        githubv4.MergeableState
 		mergeStateStatus githubv4.MergeStateStatus
+		state            githubv4.PullRequestState
 	}{
-		{"draft PR", true, githubv4.MergeableStateUnknown, githubv4.MergeStateStatusDraft},
-		{"clean mergeable PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusClean},
-		{"conflicting PR", false, githubv4.MergeableStateConflicting, githubv4.MergeStateStatusDirty},
-		{"blocked PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusBlocked},
-		{"behind PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusBehind},
-		{"unstable PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusUnstable},
-		{"unresolved mergeability", false, githubv4.MergeableStateUnknown, githubv4.MergeStateStatusUnknown},
+		{"draft PR", true, githubv4.MergeableStateUnknown, githubv4.MergeStateStatusDraft, githubv4.PullRequestStateOpen},
+		{"clean mergeable PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusClean, githubv4.PullRequestStateOpen},
+		{"conflicting PR", false, githubv4.MergeableStateConflicting, githubv4.MergeStateStatusDirty, githubv4.PullRequestStateOpen},
+		{"blocked PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusBlocked, githubv4.PullRequestStateOpen},
+		{"behind PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusBehind, githubv4.PullRequestStateOpen},
+		{"unstable PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusUnstable, githubv4.PullRequestStateOpen},
+		{"unresolved mergeability", false, githubv4.MergeableStateUnknown, githubv4.MergeStateStatusUnknown, githubv4.PullRequestStateOpen},
+		{"merged PR", false, githubv4.MergeableStateMergeable, githubv4.MergeStateStatusClean, githubv4.PullRequestStateMerged},
+		{"closed PR", false, githubv4.MergeableStateUnknown, githubv4.MergeStateStatusUnknown, githubv4.PullRequestStateClosed},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -512,6 +516,7 @@ func TestMapLinkedPRs_PopulatesStatusFields(t *testing.T) {
 			item.IsDraft = tt.isDraft
 			item.Mergeable = tt.mergeable
 			item.MergeStateStatus = tt.mergeStateStatus
+			item.State = tt.state
 
 			got := mapLinkedPRs([]pullRequestQueryNode{item})
 
@@ -526,6 +531,9 @@ func TestMapLinkedPRs_PopulatesStatusFields(t *testing.T) {
 			}
 			if got[0].MergeStateStatus != string(tt.mergeStateStatus) {
 				t.Errorf("MergeStateStatus = %q, want %q", got[0].MergeStateStatus, string(tt.mergeStateStatus))
+			}
+			if got[0].State != string(tt.state) {
+				t.Errorf("State = %q, want %q", got[0].State, string(tt.state))
 			}
 		})
 	}

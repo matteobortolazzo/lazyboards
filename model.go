@@ -287,7 +287,7 @@ type filterItem struct {
 
 // LinkedPR represents a pull request linked to a card.
 //
-// IsDraft/Mergeable/MergeStateStatus mirror provider.LinkedPR's raw
+// IsDraft/Mergeable/MergeStateStatus/State mirror provider.LinkedPR's raw
 // GitHub fields verbatim; deriving a status/glyph/style from them is
 // presentation logic that lives in view.go (prStatus, prStatusSymbol,
 // prStatusStyle).
@@ -299,6 +299,7 @@ type LinkedPR struct {
 	IsDraft          bool
 	Mergeable        string
 	MergeStateStatus string
+	State            string
 }
 
 // Label represents a card label with an optional hex color.
@@ -1036,6 +1037,9 @@ func (b *Board) enterPRList() {
 	for _, col := range b.Columns {
 		for _, card := range col.Cards {
 			for _, pr := range card.LinkedPRs {
+				if pr.State == "CLOSED" || pr.State == "MERGED" {
+					continue
+				}
 				entries = append(entries, prListEntry{
 					pr:          pr,
 					cardNumber:  card.Number,
@@ -1351,6 +1355,7 @@ func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
 			IsDraft:          pr.IsDraft,
 			Mergeable:        pr.Mergeable,
 			MergeStateStatus: pr.MergeStateStatus,
+			State:            pr.State,
 		}
 	})
 }
@@ -1820,7 +1825,9 @@ func (b Board) agentCounts() (running, needInput, done, failed, stopped, idle in
 // prCounts sums the linked pull requests across every card in every column —
 // the card-linked fallback prIndicatorCount shows until a repo-wide open-PR
 // listing succeeds. It is a raw count of linked PRs with no open/merged/closed
-// filtering (LinkedPR has no state today).
+// filtering: LinkedPR now carries a State field (see enterPRList, which does
+// filter it for the PR list modal fallback), but filtering prCounts's
+// aggregate by state is out of scope for this ticket (#449).
 func (b Board) prCounts() int {
 	total := 0
 	for _, col := range b.Columns {
