@@ -298,6 +298,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error opening debug log: %v\n", err)
 	}
 
+	// Always-on crash reporting: a panic while BubbleTea owns the terminal
+	// prints its stack to stderr, which the altscreen restore then wipes. The
+	// deferred RecoverCrash guards in Update/View persist the stack to this
+	// file before re-panicking. If the home dir can't be resolved, crash
+	// logging simply stays disabled (empty path) — never block startup on it.
+	if crashPath, err := config.DefaultCrashLogPath(); err == nil {
+		debuglog.InitCrash(crashPath)
+	}
+
 	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader, cfg.UpdateCheckValue())
 	// Scope the agents list to this instance's own tmux session (#410).
 	board.tmuxSession = resolveTmuxSession(action.DefaultExecutor{})

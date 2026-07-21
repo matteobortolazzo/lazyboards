@@ -14,6 +14,11 @@ import (
 )
 
 func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Persist the stack of any panic in the update loop before BubbleTea's
+	// recovery restores the terminal and wipes it from view. RecoverCrash
+	// re-panics, so BubbleTea's own handling is unchanged.
+	defer debuglog.RecoverCrash("Update")
+
 	switch msg := msg.(type) {
 	case clearStatusMsg:
 		b.statusBar.ClearMessage()

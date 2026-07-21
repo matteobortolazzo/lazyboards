@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -84,4 +86,60 @@ func Errorf(format string, args ...any) {
 // is nil) or after a failed Init, matching Errorf's nil-safety.
 func Log(msg string) {
 	std.Log(msg)
+}
+
+// crashPath is the destination file for panic reports written by
+// RecoverCrash. Empty (the default) disables crash-file writing; RecoverCrash
+// still re-panics so terminal restoration is never affected. It is separate
+// from the LAZYBOARDS_DEBUG_LOG-backed std logger on purpose: crash reporting
+// must be on by default (you cannot predict a crash), whereas the debug log is
+// an opt-in diagnostic trail.
+var crashPath string
+
+// InitCrash sets the file that RecoverCrash writes panic reports to. An empty
+// path disables crash-file writing. The parent directory is created lazily on
+// the first crash, so the path need not exist yet.
+func InitCrash(path string) {
+	crashPath = path
+}
+
+// RecoverCrash is a deferred panic handler that writes a timestamped crash
+// report (panic value + full stack trace) to the file configured via
+// InitCrash, then RE-PANICS. Re-panicking is essential: a BubbleTea program
+// owns the terminal, and its own recovery is what restores it — swallowing the
+// panic here would leave the terminal in raw/altscreen mode. `where` labels
+// the call site (e.g. "Update", "View") in the report. With no panic in
+// flight, it is a no-op.
+//
+// Writing is best-effort: any error opening or writing the report is
+// swallowed so a logging failure can never mask, or take precedence over, the
+// original crash.
+func RecoverCrash(where string) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	// debug.Stack() here still captures the original panic site: deferred
+	// functions run before the stack unwinds past the panicking frame.
+	writeCrashReport(crashPath, where, r, debug.Stack(), time.Now())
+	panic(r)
+}
+
+// writeCrashReport appends one crash report to path. It is split out from
+// RecoverCrash so the timestamp is injectable for tests. An empty path, or any
+// I/O failure, is a silent no-op — crash logging must never itself panic.
+func writeCrashReport(path, where string, r any, stack []byte, now time.Time) {
+	if path == "" {
+		return
+	}
+	if dir := filepath.Dir(path); dir != "" {
+		_ = os.MkdirAll(dir, 0o700)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintf(f, "%s panic in %s: %v\n%s\n",
+		now.Format(time.RFC3339), where, r, stack)
 }

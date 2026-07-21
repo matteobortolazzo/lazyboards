@@ -315,6 +315,10 @@ When the cenci-watch daemon reports the background dispatch loop enabled, the st
 
 Set `LAZYBOARDS_DEBUG_LOG=<path>` to append watcher connection errors (including tolerated blips) to a file at `<path>`, one timestamped line per error — useful for diagnosing daemon connectivity issues. Unset (the default), this is a complete no-op: no file is created and there's no overhead.
 
+### Crash Reports
+
+If lazyboards panics, the stack trace is normally printed to stderr as the terminal is restored — where the altscreen switch tends to wipe it before you can read it. To make crashes diagnosable, lazyboards also appends each panic (timestamp, call site, panic value, and full stack trace) to `~/.config/lazyboards/crash.log`, alongside your config. This is always on and needs no configuration; the file and its parent directory are created on demand at crash time, so nothing is written during normal operation. After a crash, attach the latest entry from that file when reporting the issue.
+
 ### Column-Specific Actions
 
 Define actions under a column to override global actions for that column:
