@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
+	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 )
 
 // Package-level glamour renderer cache.
@@ -21,6 +22,10 @@ var (
 )
 
 func (b Board) View() string {
+	// Persist the stack of any panic during rendering before BubbleTea's
+	// recovery restores the terminal and wipes it. See Board.Update.
+	defer debuglog.RecoverCrash("View")
+
 	if b.Width == 0 {
 		return ""
 	}

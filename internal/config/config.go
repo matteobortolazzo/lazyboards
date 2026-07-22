@@ -179,6 +179,17 @@ func DefaultGlobalPath() (string, error) {
 	return filepath.Join(home, ".config", "lazyboards", "config.yml"), nil
 }
 
+// DefaultCrashLogPath returns the default file for panic reports, alongside
+// the global config at ~/.config/lazyboards/crash.log. The parent directory
+// is created on demand at crash time, so it need not exist yet.
+func DefaultCrashLogPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "lazyboards", "crash.log"), nil
+}
+
 // Load reads configuration from globalPath and localPath YAML files.
 // Local config merges on top of global. Returns defaults if no files exist.
 func Load(globalPath, localPath string) (Config, error) {

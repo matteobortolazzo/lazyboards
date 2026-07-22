@@ -271,3 +271,136 @@ func TestPackageErrorf_BeforeInit_DoesNotPanic(t *testing.T) {
 	}()
 	Errorf("boom")
 }
+
+// --- Crash logging (RecoverCrash / InitCrash) ---
+
+// crash runs fn under a RecoverCrash("<where>") guard and reports whether the
+// panic propagated past the guard. RecoverCrash must ALWAYS re-panic so the
+// surrounding BubbleTea runtime can still restore the terminal; a swallowed
+// panic would leave the program limping on in an inconsistent state.
+func crash(where string, fn func()) (repanicked bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			repanicked = true
+		}
+	}()
+	defer RecoverCrash(where)
+	fn()
+	return false
+}
+
+// TestRecoverCrash_WritesReportAndRepanics verifies a panic under RecoverCrash
+// writes a timestamped crash report containing the panic value AND a real
+// stack trace to the configured file, then re-panics.
+func TestRecoverCrash_WritesReportAndRepanics(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "crash.log")
+	InitCrash(path)
+	t.Cleanup(func() { InitCrash("") })
+
+	if !crash("Update", func() { panic("nil pointer in dispatch") }) {
+		t.Fatal("RecoverCrash swallowed the panic; want it to re-panic so BubbleTea can restore the terminal")
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("crash report file %q not written: %v", path, err)
+	}
+	content := string(data)
+
+	if !strings.Contains(content, "nil pointer in dispatch") {
+		t.Errorf("crash report = %q, want it to contain the panic value", content)
+	}
+	if !strings.Contains(content, "Update") {
+		t.Errorf("crash report = %q, want it to contain the %q call-site label", content, "Update")
+	}
+	// A real stack trace — not just the message — is the whole point. The
+	// deferred RecoverCrash frame lives in this package, so the trace must
+	// reference it.
+	if !strings.Contains(content, "debuglog") {
+		t.Errorf("crash report = %q, want it to contain a stack trace referencing the debuglog frame", content)
+	}
+	// Timestamped, RFC3339, like the rest of the log.
+	if _, err := time.Parse(time.RFC3339, strings.Fields(content)[0]); err != nil {
+		t.Errorf("crash report first field = %q, want a leading RFC3339 timestamp: %v", strings.Fields(content)[0], err)
+	}
+}
+
+// TestRecoverCrash_CreatesMissingParentDir verifies the crash file's parent
+// directory is created on demand — the default path lives under
+// ~/.config/lazyboards/, which may not exist yet on a fresh install.
+func TestRecoverCrash_CreatesMissingParentDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "does", "not", "exist", "crash.log")
+	InitCrash(path)
+	t.Cleanup(func() { InitCrash("") })
+
+	if !crash("View", func() { panic("boom") }) {
+		t.Fatal("RecoverCrash swallowed the panic; want re-panic")
+	}
+
+	if _, err := os.ReadFile(path); err != nil {
+		t.Fatalf("crash report not written to a path with missing parents: %v", err)
+	}
+}
+
+// TestRecoverCrash_AppendsAcrossCrashes verifies each crash appends a fresh
+// report rather than truncating, so a crash file keeps a history.
+func TestRecoverCrash_AppendsAcrossCrashes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "crash.log")
+	InitCrash(path)
+	t.Cleanup(func() { InitCrash("") })
+
+	crash("Update", func() { panic("first crash") })
+	crash("Update", func() { panic("second crash") })
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read crash file: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "first crash") || !strings.Contains(content, "second crash") {
+		t.Errorf("crash file = %q, want both reports present (append, not overwrite)", content)
+	}
+}
+
+// TestRecoverCrash_Unconfigured_StillRepanicsWritesNothing verifies that with
+// no crash path configured (InitCrash never called or given ""), RecoverCrash
+// still re-panics and creates no file — logging is best-effort, terminal
+// restoration is not.
+func TestRecoverCrash_Unconfigured_StillRepanicsWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	InitCrash("")
+	t.Cleanup(func() { InitCrash("") })
+
+	if !crash("Update", func() { panic("boom") }) {
+		t.Fatal("RecoverCrash swallowed the panic with no path configured; want re-panic")
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("failed to read temp dir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("RecoverCrash with no configured path created %d file(s), want zero", len(entries))
+	}
+}
+
+// TestRecoverCrash_NoPanic_IsNoOp verifies RecoverCrash is a harmless no-op
+// when deferred in a function that returns normally (no panic in flight).
+func TestRecoverCrash_NoPanic_IsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "crash.log")
+	InitCrash(path)
+	t.Cleanup(func() { InitCrash("") })
+
+	func() {
+		defer RecoverCrash("Update")
+	}()
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("RecoverCrash wrote a file with no panic in flight (err=%v), want no-op", err)
+	}
+}
