@@ -139,7 +139,7 @@ func writeCrashReport(path, where string, r any, stack []byte, now time.Time) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, _ = fmt.Fprintf(f, "%s panic in %s: %v\n%s\n",
 		now.Format(time.RFC3339), where, r, stack)
 }
