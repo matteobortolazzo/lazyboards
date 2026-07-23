@@ -49,6 +49,149 @@ func newBoardWithFilterableCards(t *testing.T) Board {
 	return board
 }
 
+// newBoardWithMilestoneFilterableCards creates a board with two columns for
+// milestone-filter matching/counts tests (#462).
+//
+// Column "Backlog" (5 cards):
+//   - #1 "Bug fix"      milestone="v1.0"
+//   - #2 "Feature work" milestone="v2.0"
+//   - #3 "Another bug"  milestone="v1.0"
+//   - #4 "Docs update"  milestone="" (no milestone)
+//   - #5 "Specific bug" milestone="v1.0"
+//
+// Column "In Progress" (2 cards):
+//   - #6 "Active feature" milestone="v2.0"
+//   - #7 "Active bug"     milestone="v1.0"
+func newBoardWithMilestoneFilterableCards(t *testing.T) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Backlog", Cards: []provider.Card{
+				{Number: 1, Title: "Bug fix", Milestone: "v1.0"},
+				{Number: 2, Title: "Feature work", Milestone: "v2.0"},
+				{Number: 3, Title: "Another bug", Milestone: "v1.0"},
+				{Number: 4, Title: "Docs update", Milestone: ""},
+				{Number: 5, Title: "Specific bug", Milestone: "v1.0"},
+			}},
+			{Title: "In Progress", Cards: []provider.Card{
+				{Number: 6, Title: "Active feature", Milestone: "v2.0"},
+				{Number: 7, Title: "Active bug", Milestone: "v1.0"},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
+func TestFilter_MilestoneFilter_ShowsOnlyMatchingCards(t *testing.T) {
+	b := newBoardWithMilestoneFilterableCards(t)
+
+	b.activeFilterType = filterByMilestone
+	b.activeFilterValue = "v1.0"
+
+	filtered := b.filteredCards()
+
+	// The Backlog column has 3 cards with milestone "v1.0" (#1, #3, #5).
+	expectedCount := 3
+	if len(filtered) != expectedCount {
+		t.Errorf("filteredCards() with milestone filter 'v1.0': got %d cards, want %d", len(filtered), expectedCount)
+	}
+
+	for _, card := range filtered {
+		if !strings.EqualFold(card.Milestone, "v1.0") {
+			t.Errorf("filteredCards() returned card #%d (%q) with milestone %q, want 'v1.0'", card.Number, card.Title, card.Milestone)
+		}
+	}
+}
+
+func TestFilter_MilestoneFilter_CaseInsensitive(t *testing.T) {
+	b := newBoardWithMilestoneFilterableCards(t)
+
+	b.activeFilterType = filterByMilestone
+	b.activeFilterValue = "V1.0" // uppercase against lowercase-stored data
+
+	filtered := b.filteredCards()
+
+	expectedCount := 3 // cards #1, #3, #5 have milestone "v1.0"
+	if len(filtered) != expectedCount {
+		t.Errorf("filteredCards() with milestone filter 'V1.0' (uppercase): got %d cards, want %d", len(filtered), expectedCount)
+	}
+}
+
+func TestFilter_MilestoneFilter_EmptyMilestoneCardsExcluded(t *testing.T) {
+	b := newBoardWithMilestoneFilterableCards(t)
+
+	b.activeFilterType = filterByMilestone
+	b.activeFilterValue = "v1.0"
+
+	filtered := b.filteredCards()
+
+	for _, card := range filtered {
+		if card.Number == 4 {
+			t.Error("filteredCards() with milestone filter 'v1.0' should not include card #4, which has no milestone")
+		}
+	}
+}
+
+func TestFilter_MilestoneFilter_EmptyActiveValueMatchesNothing(t *testing.T) {
+	b := newBoardWithMilestoneFilterableCards(t)
+
+	// Edge case: an empty active filter value must never match cards whose
+	// milestone is also empty. matchesGlobalFilter must special-case empty
+	// milestones so they never leak into a match.
+	b.activeFilterType = filterByMilestone
+	b.activeFilterValue = ""
+
+	colIdx, cardIdx, ok := b.findCard(4) // card #4 has milestone == ""
+	if !ok {
+		t.Fatal("precondition: card #4 not found")
+	}
+	card := b.Columns[colIdx].Cards[cardIdx]
+	if b.matchesGlobalFilter(card) {
+		t.Error("matchesGlobalFilter with empty activeFilterValue should not match a card with an empty milestone")
+	}
+}
+
+func TestFilter_MilestoneFilter_TabBar_ShowsFilteredCounts(t *testing.T) {
+	b := newBoardWithMilestoneFilterableCards(t)
+
+	b.activeFilterType = filterByMilestone
+	b.activeFilterValue = "v1.0"
+
+	view := b.View()
+
+	// Backlog: 3 of 5 cards have milestone "v1.0".
+	backlogCountStr := fmt.Sprintf("%d/%d", 3, len(b.Columns[0].Cards))
+	if !strings.Contains(view, backlogCountStr) {
+		t.Errorf("View() with active milestone filter should show filtered count %q in border title, not found in view", backlogCountStr)
+	}
+
+	// In Progress: 1 of 2 cards have milestone "v1.0".
+	inProgressCountStr := fmt.Sprintf("%d/%d", 1, len(b.Columns[1].Cards))
+	if !strings.Contains(view, inProgressCountStr) {
+		t.Errorf("View() with active milestone filter should show filtered count %q for In Progress column, not found in view", inProgressCountStr)
+	}
+}
+
+func TestFilter_MilestoneFilter_TotalFilteredCards(t *testing.T) {
+	b := newBoardWithMilestoneFilterableCards(t)
+
+	b.activeFilterType = filterByMilestone
+	b.activeFilterValue = "v1.0"
+
+	// 3 cards in Backlog + 1 card in In Progress match milestone "v1.0".
+	expectedTotal := 4
+	if got := b.totalFilteredCards(); got != expectedTotal {
+		t.Errorf("totalFilteredCards() with milestone filter 'v1.0' = %d, want %d", got, expectedTotal)
+	}
+}
+
 // --- filteredCards() with global filter ---
 
 func TestFilter_LabelFilter_ShowsOnlyMatchingCards(t *testing.T) {

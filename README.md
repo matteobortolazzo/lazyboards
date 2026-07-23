@@ -13,7 +13,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Edit cards in your editor with YAML frontmatter (title, labels, body)
 - Card creation via modal form with label and assignee fields
 - Assign and unassign collaborators to cards
-- Search cards by title and filter by label or assignee
+- Search cards by title and filter by label, assignee, or milestone
 - PR linking with picker modal
 - Custom actions: open URLs or run shell commands bound to Shift+key or multi-key sequences (neovim-style prefix keys), with column cleanup on departure
 - Mouse support: scroll, click tabs, click cards
@@ -583,6 +583,9 @@ time; once every unknown label is resolved, the edit is applied.
 | `Esc` | Cancel the whole edit |
 
 ### Filter
+
+The picker lists Labels, Assignees, and Milestones sections (only sections with
+at least one value are shown), built from the cards currently on the board.
 
 | Key | Action |
 |-----|--------|
