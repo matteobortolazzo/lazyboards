@@ -322,6 +322,7 @@ type Card struct {
 	URL       string
 	LinkedPRs []LinkedPR
 	Assignees []Assignee
+	Milestone string
 	CreatedAt time.Time
 }
 
@@ -1382,6 +1383,7 @@ func mapProviderCard(c provider.Card) Card {
 		URL:       c.URL,
 		LinkedPRs: mapLinkedPRs(c.LinkedPRs),
 		Assignees: mapAssignees(c.Assignees),
+		Milestone: c.Milestone,
 		CreatedAt: c.CreatedAt,
 	}
 }

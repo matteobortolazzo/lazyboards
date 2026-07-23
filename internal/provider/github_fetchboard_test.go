@@ -769,6 +769,55 @@ func TestGitHubFetchBoard_CardCreatedAtPopulated(t *testing.T) {
 	}
 }
 
+// --- Milestone Threading (#461) ---
+
+func TestGitHubFetchBoard_MilestonePopulated(t *testing.T) {
+	columns := []string{"Todo"}
+	wantMilestone := "v1.0"
+	issue := buildIssueNode(1, "Milestoned issue", "Todo")
+	issue.milestone = wantMilestone
+
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if card.Milestone != wantMilestone {
+		t.Errorf("card.Milestone = %q, want %q", card.Milestone, wantMilestone)
+	}
+}
+
+func TestGitHubFetchBoard_NoMilestone_EmptyString(t *testing.T) {
+	columns := []string{"Todo"}
+	// buildIssueNode does not set milestone, so issue.milestone is the zero value "".
+	issue := buildIssueNode(1, "Unmilestoned issue", "Todo")
+
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if card.Milestone != "" {
+		t.Errorf("card.Milestone = %q, want empty string for issue without a milestone", card.Milestone)
+	}
+}
+
 // --- FetchBoard Assignee Integration Tests ---
 
 func TestGitHubFetchBoard_AssigneesPopulated(t *testing.T) {

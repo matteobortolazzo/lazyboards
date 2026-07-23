@@ -431,6 +431,38 @@ func TestMapIssueQueryNode_MapsCreatedAt(t *testing.T) {
 	}
 }
 
+// TestMapIssueQueryNode_MapsMilestone asserts mapIssueQueryNode carries the
+// GraphQL milestone { title } field through to issueNode.milestone as a
+// plain string, mirroring TestMapIssueQueryNode_MapsCreatedAt's style: input
+// githubv4.String drives the expected output directly (no shared hardcoded
+// constant), since the milestone title is arbitrary user text rather than an
+// enum.
+func TestMapIssueQueryNode_MapsMilestone(t *testing.T) {
+	want := "v1.0"
+	var n issueQueryNode
+	n.Milestone.Title = githubv4.String(want)
+
+	got := mapIssueQueryNode(n)
+
+	if got.milestone != want {
+		t.Fatalf("mapIssueQueryNode().milestone = %q, want %q", got.milestone, want)
+	}
+}
+
+// TestMapIssueQueryNode_NoMilestone_MapsToEmptyString asserts an issue with
+// no milestone assigned (the zero-value Milestone.Title) maps to an empty
+// string, not some placeholder -- the "(none)" fallback text is a
+// view-layer concern (composeDetailMarkdown), not the provider's.
+func TestMapIssueQueryNode_NoMilestone_MapsToEmptyString(t *testing.T) {
+	var n issueQueryNode
+
+	got := mapIssueQueryNode(n)
+
+	if got.milestone != "" {
+		t.Fatalf("mapIssueQueryNode().milestone = %q, want empty string when issue has no milestone", got.milestone)
+	}
+}
+
 func TestMapIssuesQuery_MapsOuterPageInfo(t *testing.T) {
 	var q issuesQuery
 	q.Repository.Issues.Nodes = []issueQueryNode{{Number: githubv4.Int(1)}, {Number: githubv4.Int(2)}}

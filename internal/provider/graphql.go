@@ -60,6 +60,7 @@ type issueNode struct {
 	labels    []Label
 	assignees []Assignee
 	linkedPRs []LinkedPR
+	milestone string
 	createdAt time.Time
 
 	hasMoreClosingPRs  bool
@@ -77,6 +78,7 @@ type issueNode struct {
 //	        body
 //	        url
 //	        createdAt
+//	        milestone { title }
 //	        labels(first: 50) { nodes { name color } }
 //	        assignees(first: 20) { nodes { login } }
 //	        closedByPullRequestsReferences(first: 100) {
@@ -118,7 +120,10 @@ type issueQueryNode struct {
 	Body      githubv4.String
 	URL       githubv4.String
 	CreatedAt githubv4.DateTime
-	Labels    struct {
+	Milestone struct {
+		Title githubv4.String
+	}
+	Labels struct {
 		Nodes []labelQueryNode
 	} `graphql:"labels(first: 50)"`
 	Assignees struct {
@@ -434,6 +439,7 @@ func mapIssueQueryNode(n issueQueryNode) issueNode {
 		labels:             labels,
 		assignees:          assignees,
 		linkedPRs:          mergeLinkedPRs(mapLinkedPRs(n.ClosedByPullRequestsReferences.Nodes), mapMentionedPRs(n.TimelineItems.Nodes)),
+		milestone:          string(n.Milestone.Title),
 		createdAt:          n.CreatedAt.Time,
 		hasMoreClosingPRs:  bool(n.ClosedByPullRequestsReferences.PageInfo.HasNextPage),
 		closingPREndCursor: string(n.ClosedByPullRequestsReferences.PageInfo.EndCursor),

@@ -78,8 +78,12 @@ func NewFakeProvider() *FakeProvider {
 			{
 				Title: "Refined",
 				Cards: []Card{
-					{Number: 4, Title: "User auth", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(4)},
-					{Number: 5, Title: "API routes", Labels: []Label{{Name: "backend"}}, CreatedAt: fakeCreatedAt(5)},
+					// Cards #4 and #5 deliberately share the "v1.0" milestone, and
+					// card #6 is deliberately left without one, so the milestone
+					// filter dedup logic (#462) has both a shared value and an
+					// empty case to exercise.
+					{Number: 4, Title: "User auth", Labels: []Label{{Name: "feature"}}, Milestone: "v1.0", CreatedAt: fakeCreatedAt(4)},
+					{Number: 5, Title: "API routes", Labels: []Label{{Name: "backend"}}, Milestone: "v1.0", CreatedAt: fakeCreatedAt(5)},
 					{Number: 6, Title: "Error types", Labels: []Label{{Name: "backend"}}, CreatedAt: fakeCreatedAt(6)},
 					{Number: 7, Title: "DB migrate", Labels: []Label{{Name: "infra"}}, CreatedAt: fakeCreatedAt(7)},
 				},
