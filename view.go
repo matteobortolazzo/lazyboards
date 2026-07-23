@@ -861,7 +861,7 @@ func composeDetailMarkdown(card Card) string {
 
 	sb.WriteString("---")
 	if card.Body != "" {
-		sb.WriteString("\n\n" + card.Body)
+		sb.WriteString("\n\n" + annotateBodyRefs(card.Body))
 	}
 	return sb.String()
 }
