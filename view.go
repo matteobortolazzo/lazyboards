@@ -102,7 +102,7 @@ func (b Board) View() string {
 	}
 	if b.mode == closeConfirmMode {
 		card := b.closeConfirm.card
-		helpBar = fmt.Sprintf("Close #%d %q? (y/n)", card.Number, card.Title)
+		helpBar = fmt.Sprintf("Close #%d %q? (y/n)", card.Number, sanitizeControlSequences(card.Title))
 	}
 
 	// Assemble inner content.
@@ -836,7 +836,7 @@ func escapeMarkdown(s string) string {
 // A "labels:" field is always shown: label names when present, "(none)" when empty.
 // A "milestone:" field is always shown: the milestone title when present, "(none)" when empty.
 // A "created:" field is always shown: the creation date, or "(unknown)" when CreatedAt is zero.
-// Title, label names, milestone, and body are all untrusted GitHub content:
+// Title, label names, milestone, assignees, and body are all untrusted GitHub content:
 // each is sanitized (see sanitizeControlSequences) to strip terminal control
 // sequences before it is escaped/joined into markdown. The body is appended
 // after the horizontal rule with cross-reference annotations.
@@ -860,7 +860,7 @@ func composeDetailMarkdown(card Card) string {
 	if len(card.Assignees) > 0 {
 		logins := make([]string, len(card.Assignees))
 		for i, a := range card.Assignees {
-			logins[i] = a.Login
+			logins[i] = sanitizeControlSequences(a.Login)
 		}
 		sb.WriteString("assignees: " + strings.Join(logins, ", ") + "\n\n")
 	} else {
@@ -1020,7 +1020,7 @@ func (b Board) viewCreateModal() string {
 
 		var assigneeLine string
 		if len(b.create.assigneeOptions) > 1 {
-			assigneeDisplay := "< " + b.create.assigneeOptions[b.create.assigneeIndex] + " >"
+			assigneeDisplay := "< " + sanitizeControlSequences(b.create.assigneeOptions[b.create.assigneeIndex]) + " >"
 			assigneeLine = "\n\nAssignee:\n" + assigneeDisplay
 		}
 
@@ -1393,11 +1393,11 @@ func (b Board) viewDeleteModal() string {
 	var hints StatusBar
 	switch b.delete.step {
 	case deleteStepConfirm:
-		prompt = fmt.Sprintf("Type %d to permanently delete #%d %q (Esc to cancel):", card.Number, card.Number, card.Title)
+		prompt = fmt.Sprintf("Type %d to permanently delete #%d %q (Esc to cancel):", card.Number, card.Number, sanitizeControlSequences(card.Title))
 		activeInputView = b.delete.confirmInput.View()
 		hints = NewStatusBar(deleteConfirmHints)
 	default:
-		prompt = fmt.Sprintf("Delete #%d %q — optional comment (Enter to continue, Esc to cancel):", card.Number, card.Title)
+		prompt = fmt.Sprintf("Delete #%d %q — optional comment (Enter to continue, Esc to cancel):", card.Number, sanitizeControlSequences(card.Title))
 		activeInputView = b.delete.commentInput.View()
 		hints = NewStatusBar(deleteCommentHints)
 	}
@@ -1447,7 +1447,7 @@ func (b Board) viewAssignModal() string {
 		if item.isAssigned {
 			prefix = "* "
 		}
-		display := prefix + item.login
+		display := prefix + sanitizeControlSequences(item.login)
 		display = selectedRowStyle(display, i == b.assign.cursor)
 		lines = append(lines, display)
 	}

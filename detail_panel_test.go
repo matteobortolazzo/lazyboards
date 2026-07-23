@@ -1487,3 +1487,42 @@ func TestComposeDetailMarkdown_SanitizesControlSequencesInTitleLabelsAndMileston
 		t.Errorf("composeDetailMarkdown() = %q, want visible milestone text %q retained", md, "RED milestone")
 	}
 }
+
+// TestComposeDetailMarkdown_SanitizesControlSequencesInAssigneeLogins covers
+// the same GitHub-sourced-untrusted-content gap for card.Assignees[].Login --
+// composeDetailMarkdown joins assignee logins into the "assignees:"
+// frontmatter line without sanitization. A malicious login must not leak raw
+// ESC/BEL/C1 control bytes into the rendered markdown, while still keeping
+// the visible username text.
+func TestComposeDetailMarkdown_SanitizesControlSequencesInAssigneeLogins(t *testing.T) {
+	card := Card{
+		Number: 1,
+		Title:  "clean title",
+		Assignees: []Assignee{
+			{Login: "\x1b[31mRED\x1b[0m"},
+			{Login: "bel\x07user"},
+			{Login: "\x9buser"},
+		},
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if strings.ContainsRune(md, '\x1b') {
+		t.Errorf("composeDetailMarkdown() = %q, want no ESC (0x1b) byte", md)
+	}
+	if strings.ContainsRune(md, '\x07') {
+		t.Errorf("composeDetailMarkdown() = %q, want no BEL (0x07) byte", md)
+	}
+	if strings.ContainsRune(md, '\x9b') {
+		t.Errorf("composeDetailMarkdown() = %q, want no C1 control byte 0x9b", md)
+	}
+	if !strings.Contains(md, "RED") {
+		t.Errorf("composeDetailMarkdown() = %q, want visible assignee text %q retained", md, "RED")
+	}
+	if !strings.Contains(md, "beluser") {
+		t.Errorf("composeDetailMarkdown() = %q, want visible assignee text %q retained", md, "beluser")
+	}
+	if !strings.Contains(md, "user") {
+		t.Errorf("composeDetailMarkdown() = %q, want visible assignee text %q retained", md, "user")
+	}
+}

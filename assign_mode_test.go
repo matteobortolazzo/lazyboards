@@ -435,6 +435,46 @@ func TestAssignMode_View_ContainsHints(t *testing.T) {
 	}
 }
 
+// TestAssignMode_View_SanitizesControlSequencesInLogin covers the same
+// GitHub-sourced-untrusted-content gap for assignItem.login -- viewAssignModal
+// renders "prefix + item.login" without sanitization. A malicious
+// collaborator login must not leak raw ESC/BEL/C1 control bytes into the
+// rendered picker, while still keeping the visible username text.
+func TestAssignMode_View_SanitizesControlSequencesInLogin(t *testing.T) {
+	b := newBoardWithCollaborators(t)
+	b = sendKey(t, b, keyMsg("a"))
+	if b.mode != assignMode {
+		t.Fatalf("expected assignMode after 'a', got %d", b.mode)
+	}
+
+	b.assign.items = []assignItem{
+		{login: "\x1b[31mRED\x1b[0m"},
+		{login: "bel\x07user"},
+		{login: "\x9buser"},
+	}
+
+	view := b.View()
+
+	if strings.ContainsRune(view, '\x1b') {
+		t.Errorf("View() = %q, want no ESC (0x1b) byte", view)
+	}
+	if strings.ContainsRune(view, '\x07') {
+		t.Errorf("View() = %q, want no BEL (0x07) byte", view)
+	}
+	if strings.ContainsRune(view, '\x9b') {
+		t.Errorf("View() = %q, want no C1 control byte 0x9b", view)
+	}
+	if !strings.Contains(view, "RED") {
+		t.Errorf("View() = %q, want visible login text %q retained", view, "RED")
+	}
+	if !strings.Contains(view, "beluser") {
+		t.Errorf("View() = %q, want visible login text %q retained", view, "beluser")
+	}
+	if !strings.Contains(view, "user") {
+		t.Errorf("View() = %q, want visible login text %q retained", view, "user")
+	}
+}
+
 // --- Global filter interaction ---
 
 func TestAssignMode_WithGlobalFilter_UsesSelectedCard(t *testing.T) {

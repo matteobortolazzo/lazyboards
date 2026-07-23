@@ -1037,6 +1037,54 @@ func TestDeleteMode_ViewShowsCardNumberAndStepPrompt(t *testing.T) {
 	}
 }
 
+// --- Sanitized rendering of untrusted card.Title ---
+
+// TestDeleteMode_ViewSanitizesControlSequencesInTitle covers the same
+// GitHub-sourced-untrusted-content gap for the deleteMode modal prompts
+// (both the comment step and the confirm/retype step): card.Title is
+// rendered via fmt.Sprintf's %q verb, which currently escapes control bytes
+// to visible literal text, but must still route through
+// sanitizeControlSequences for consistency with every other card.Title
+// render site (cardDisplayText, composeDetailMarkdown). A malicious title
+// must not leak raw ESC/BEL control bytes into either rendered prompt, while
+// the visible text is retained.
+func TestDeleteMode_ViewSanitizesControlSequencesInTitle(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "\x1b[31mRED\x1b[0m title\x07"
+
+	// Comment step (deleteStepComment).
+	b = sendKey(t, b, keyMsg("t"))
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+	view := b.View()
+	if strings.ContainsRune(view, '\x1b') {
+		t.Errorf("View() at deleteStepComment = %q, want no ESC (0x1b) byte", view)
+	}
+	if strings.ContainsRune(view, '\x07') {
+		t.Errorf("View() at deleteStepComment = %q, want no BEL (0x07) byte", view)
+	}
+	if !strings.Contains(view, "RED title") {
+		t.Errorf("View() at deleteStepComment = %q, want visible title text %q retained", view, "RED title")
+	}
+
+	// Confirm/retype step (deleteStepConfirm).
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+	view = b.View()
+	if strings.ContainsRune(view, '\x1b') {
+		t.Errorf("View() at deleteStepConfirm = %q, want no ESC (0x1b) byte", view)
+	}
+	if strings.ContainsRune(view, '\x07') {
+		t.Errorf("View() at deleteStepConfirm = %q, want no BEL (0x07) byte", view)
+	}
+	if !strings.Contains(view, "RED title") {
+		t.Errorf("View() at deleteStepConfirm = %q, want visible title text %q retained", view, "RED title")
+	}
+}
+
 // --- Keybinding hint registration (CLAUDE.md hard rule) ---
 
 func TestHelpSections_NormalMode_ContainsDeleteCardHint(t *testing.T) {

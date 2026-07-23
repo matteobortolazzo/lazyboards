@@ -10,6 +10,35 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
+// TestCreateMode_AssigneePicker_SanitizesControlSequencesInLogin covers the
+// same GitHub-sourced-untrusted-content gap for the create-mode assignee
+// picker -- viewCreateModal renders the selected collaborator option as
+// "< " + login + " >" without sanitization. A malicious collaborator login
+// must not leak raw ESC/BEL/C1 control bytes into the rendered picker, while
+// still keeping the visible username text.
+func TestCreateMode_AssigneePicker_SanitizesControlSequencesInLogin(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	b.collaborators = []Assignee{{Login: "\x1b[31mRED\x1b[0m"}}
+	b.authenticatedUser = "someone-else"
+
+	b = sendKey(t, b, keyMsg("n"))            // enter create mode
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))   // title -> label
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))   // label -> assignee
+	b = sendKey(t, b, arrowMsg(tea.KeyRight)) // (none) -> authenticated user (me)
+	b = sendKey(t, b, arrowMsg(tea.KeyRight)) // authenticated user (me) -> the malicious collaborator option
+
+	view := b.View()
+
+	if strings.ContainsRune(view, '\x1b') {
+		t.Errorf("View() = %q, want no ESC (0x1b) byte", view)
+	}
+	if !strings.Contains(view, "RED") {
+		t.Errorf("View() = %q, want visible login text %q retained", view, "RED")
+	}
+}
+
 func TestCreateMode_N_EntersCreateMode(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b = sendKey(t, b, keyMsg("n"))

@@ -133,6 +133,48 @@ func TestCloseMode_ViewShowsPromptWithCardNumberAndTitle(t *testing.T) {
 	}
 }
 
+// TestCloseMode_ViewSanitizesControlSequencesInTitle covers the same
+// GitHub-sourced-untrusted-content gap for the closeConfirmMode helpBar
+// prompt: card.Title is rendered via fmt.Sprintf's %q verb, which currently
+// escapes control bytes to visible literal text, but must still route
+// through sanitizeControlSequences for consistency with every other
+// card.Title render site (cardDisplayText, composeDetailMarkdown). A
+// malicious title must not leak raw ESC/BEL control bytes into the rendered
+// prompt, while the visible text is retained.
+func TestCloseMode_ViewSanitizesControlSequencesInTitle(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "\x1b[31mRED\x1b[0m title\x07"
+
+	m, _ := b.Update(keyMsg("x"))
+	b = m.(Board)
+	if b.mode != closeConfirmMode {
+		t.Fatalf("precondition: mode = %d, want closeConfirmMode", b.mode)
+	}
+
+	view := b.View()
+	promptLine := ""
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Close #") {
+			promptLine = line
+			break
+		}
+	}
+	if promptLine == "" {
+		t.Fatalf("View() in closeConfirmMode has no line containing the close prompt, got:\n%s", view)
+	}
+	if strings.ContainsRune(promptLine, '\x1b') {
+		t.Errorf("close prompt line = %q, want no ESC (0x1b) byte", promptLine)
+	}
+	if strings.ContainsRune(promptLine, '\x07') {
+		t.Errorf("close prompt line = %q, want no BEL (0x07) byte", promptLine)
+	}
+	if !strings.Contains(promptLine, "RED title") {
+		t.Errorf("close prompt line = %q, want visible title text %q retained", promptLine, "RED title")
+	}
+}
+
 // --- Key handling within closeConfirmMode ---
 
 func TestCloseMode_YKey_FiresCloseCardCmdAndReturnsToNormalMode(t *testing.T) {
