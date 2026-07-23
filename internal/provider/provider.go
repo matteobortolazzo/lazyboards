@@ -45,6 +45,7 @@ type Card struct {
 	URL       string
 	LinkedPRs []LinkedPR
 	Assignees []Assignee
+	Milestone string
 	CreatedAt time.Time
 }
 

@@ -1134,6 +1134,57 @@ func TestComposeDetailMarkdown_NoAssignees_ShowsNone(t *testing.T) {
 	}
 }
 
+// --- Milestone Display in Detail Panel ---
+
+func TestComposeDetailMarkdown_MilestoneField(t *testing.T) {
+	// composeDetailMarkdown should include a "milestone:" field with the
+	// card's milestone title, when present.
+	card := Card{
+		Number:    5,
+		Title:     "Card with milestone",
+		Milestone: "v1.0",
+		Body:      "Some body",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if !strings.Contains(md, "milestone: v1.0") {
+		t.Errorf("composeDetailMarkdown should contain 'milestone: v1.0', got:\n%s", md)
+	}
+}
+
+func TestComposeDetailMarkdown_NoMilestone_ShowsNone(t *testing.T) {
+	// A card with no milestone should produce a "milestone: (none)" line.
+	card := Card{
+		Number: 3,
+		Title:  "Card without milestone",
+		Body:   "Body text",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if !strings.Contains(md, "milestone: (none)") {
+		t.Errorf("composeDetailMarkdown should contain 'milestone: (none)' for cards without a milestone, got:\n%s", md)
+	}
+}
+
+func TestComposeDetailMarkdown_EscapesMilestoneMarkdownChars(t *testing.T) {
+	// A milestone title containing markdown-special characters must have
+	// them backslash-escaped, mirroring the title field's escaping, since a
+	// milestone title is the same kind of free-text GitHub input.
+	card := Card{
+		Number:    11,
+		Title:     "Card with special milestone",
+		Milestone: "v1.0 *beta*",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if !strings.Contains(md, `milestone: v1.0 \*beta\*`) {
+		t.Errorf("composeDetailMarkdown should escape markdown chars in milestone, got:\n%s", md)
+	}
+}
+
 // --- Created Date in Detail Panel ---
 
 func TestComposeDetailMarkdown_CreatedField(t *testing.T) {
