@@ -148,6 +148,13 @@ func (b Board) handleConfigModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A pending reference-navigation prompt consumes every key until it
+	// resolves or cancels -- checked first (ahead of pendingSeq and the
+	// detail-focused sub-state) so it covers both entry points identically.
+	if len(b.pendingRefs) > 0 {
+		return b.handlePendingRefKey(msg)
+	}
+
 	// A pending custom-action key sequence consumes every key until it
 	// resolves or cancels -- checked before the detail-focused sub-state so
 	// sequences behave identically in both focuses.
@@ -266,6 +273,8 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, cmd
 	case "o":
 		return b.handleTicketOpenKey()
+	case "m":
+		return b.handleReferenceNavKey()
 	case "l", "right":
 		b.detailFocused = true
 		b.rebuildDetailHints()

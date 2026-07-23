@@ -417,6 +417,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	// sequence's candidates and its hint bar (which the rebuilt hints below
 	// would clobber anyway) -- cancel it.
 	b.clearPendingSeq()
+	b.clearPendingRefs()
 
 	cols := make([]Column, len(msg.board.Columns))
 	for i, pc := range msg.board.Columns {
@@ -942,6 +943,7 @@ func (b Board) handleEditorFinished(msg editorFinishedMsg) (tea.Model, tea.Cmd) 
 // prevCards entry is unconditionally deleted regardless of guard outcome.
 func (b Board) handleCardDeleted(msg cardDeletedMsg) (tea.Model, tea.Cmd) {
 	b.clearPendingSeq()
+	b.clearPendingRefs()
 
 	cardNum := msg.card.Number
 	labelNames := make([]string, len(msg.card.Labels))
@@ -986,6 +988,7 @@ func (b Board) handleCardDeleted(msg cardDeletedMsg) (tea.Model, tea.Cmd) {
 // close always deletes, it never defers).
 func (b Board) handleCardClosed(msg cardClosedMsg) (tea.Model, tea.Cmd) {
 	b.clearPendingSeq()
+	b.clearPendingRefs()
 
 	cardNum := msg.card.Number
 	labelNames := make([]string, len(msg.card.Labels))
@@ -1208,6 +1211,8 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 	case "o":
 		return b.handleTicketOpenKey()
+	case "m":
+		return b.handleReferenceNavKey()
 	case "p":
 		if len(b.visibleCards()) == 0 {
 			return b, nil
@@ -1281,8 +1286,11 @@ func (b *Board) onCursorMoved() {
 	// events can move the cursor mid-sequence -- the selected card (and with
 	// it the pr-scope gating of the sequence's candidates) changed, and the
 	// hint reset below replaces the pending hint bar, so cancel the sequence
-	// to keep handler state and view in sync.
+	// to keep handler state and view in sync. The same applies to a pending
+	// reference-navigation prompt: the selected card (and its references)
+	// changed, so cancel that too.
 	b.clearPendingSeq()
+	b.clearPendingRefs()
 	b.detailScrollOffset = 0
 	b.clampScrollOffset()
 	b.rebuildNormalHints()

@@ -430,6 +430,7 @@ Press `?` at any time to open the in-app help popup.
 | `e` | Edit card |
 | `c` | Configuration |
 | `o` | Open ticket |
+| `m` | Go to referenced issue |
 | `r` | Refresh board |
 | `p` | Open PR |
 | `x` | Close card (with confirmation) |
@@ -461,6 +462,7 @@ Press `?` at any time to open the in-app help popup.
 | `h` / `←` / `Esc` | Back to card list |
 | `Tab` / `Shift+Tab` | Switch columns |
 | `o` | Open ticket |
+| `m` | Go to referenced issue |
 | `p` | Open PR |
 | `r` | Refresh |
 | `q` | Quit |

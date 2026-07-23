@@ -30,6 +30,7 @@ The main BubbleTea model is split by responsibility:
 | `view.go` | `View()` dispatcher + rendering helpers (card list, detail, modals) + display helpers (`cardDisplayText`, `cardLineCount`, `clampScrollOffset`), `viewDispatchModal` |
 | `commands.go` | Async `tea.Cmd` builders (`fetchBoardCmd`, `createCardCmd`, `runShellCmd`, `runCleanupCmds`, `saveConfigCmd`, `queryDispatchStatusCmd`, `toggleEnrollCmd`, `dispatchOnceCmd`) + `wrapTitle` |
 | `statusbar.go` | `StatusBar` component (hints, timed messages) |
+| `references.go` | `#N` reference parsing (`parseCardRefs`, `annotateBodyRefs`) and the `m` reference-navigation trigger (`handleReferenceNavKey`, `handlePendingRefKey`, `resolveReference`, `refIssueURL`) |
 | `main.go` | Entry point, config loading, provider setup |
 
 Tests are split by domain to mirror production code:
