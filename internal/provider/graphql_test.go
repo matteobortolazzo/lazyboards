@@ -701,6 +701,49 @@ func TestMergeLinkedPRs_UnionsAndDedupesAcrossSources(t *testing.T) {
 	}
 }
 
+// --- Sub-issue relationships (parent/child, #460) ---
+//
+// GitHub's native sub-issue relationship is requested inline on the issue
+// query via parent{number} (this issue's parent, if any) and
+// subIssuesSummary{total} (this issue's sub-issue count, if any) --
+// additive fields, no new query/pagination. mapIssueQueryNode must map them
+// onto issueNode.parentNumber/subIssueCount, mirroring every other field's
+// mapping in this function.
+
+// TestMapIssueQueryNode_MapsParentAndSubIssueCount asserts mapIssueQueryNode
+// maps the GraphQL parent{number} and subIssuesSummary{total} fields onto
+// issueNode's parentNumber/subIssueCount fields.
+func TestMapIssueQueryNode_MapsParentAndSubIssueCount(t *testing.T) {
+	var n issueQueryNode
+	n.Parent.Number = githubv4.Int(12)
+	n.SubIssuesSummary.Total = githubv4.Int(3)
+
+	got := mapIssueQueryNode(n)
+
+	if got.parentNumber != 12 {
+		t.Errorf("mapIssueQueryNode().parentNumber = %d, want 12", got.parentNumber)
+	}
+	if got.subIssueCount != 3 {
+		t.Errorf("mapIssueQueryNode().subIssueCount = %d, want 3", got.subIssueCount)
+	}
+}
+
+// TestMapIssueQueryNode_NoParentNoSubIssues_ZeroSentinels asserts an issue
+// with neither relationship maps to the zero-value "none" sentinel on both
+// fields (not some other default), matching the AC's "0 means none" contract.
+func TestMapIssueQueryNode_NoParentNoSubIssues_ZeroSentinels(t *testing.T) {
+	var n issueQueryNode // Parent.Number and SubIssuesSummary.Total left zero-valued
+
+	got := mapIssueQueryNode(n)
+
+	if got.parentNumber != 0 {
+		t.Errorf("mapIssueQueryNode().parentNumber = %d, want 0 (no parent)", got.parentNumber)
+	}
+	if got.subIssueCount != 0 {
+		t.Errorf("mapIssueQueryNode().subIssueCount = %d, want 0 (no sub-issues)", got.subIssueCount)
+	}
+}
+
 // TestMapIssueQueryNode_LinksBothClosingAndMentionedPRs reproduces the
 // exact real-world regression: a ticket referenced only via a non-closing
 // mention (e.g. "Related to #390") must still surface its PR, alongside any

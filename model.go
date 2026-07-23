@@ -54,8 +54,14 @@ var (
 	prBlockedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("215"))
 	prDraftStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	cardNumberStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	hintKeyStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-	hintDescStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	// subIssueStyle renders GitHub's native sub-issue relationship lines
+	// (#460) -- both the parent/has-children and child/is-sub-issue lines --
+	// in a single muted gray, deliberately distinct from PR purple (183) and
+	// the agent/action status hues so structural metadata isn't misread as
+	// status.
+	subIssueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	hintKeyStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	hintDescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	// Git status segment styles (status bar), lazygit-style but muted to match
 	// the rest of the palette: additions green, deletions red, push/pull
 	// (ahead/behind) share one gentle orange since they're both just "sync"
@@ -314,16 +320,22 @@ type Assignee struct {
 }
 
 // Card represents a single Kanban card (e.g., a GitHub issue).
+//
+// ParentNumber/SubIssueCount mirror provider.Card's sub-issue relationship
+// fields (#460): ParentNumber is this card's parent issue number (0 if
+// none), SubIssueCount is this card's sub-issue count (0 if none).
 type Card struct {
-	Number    int
-	Title     string
-	Labels    []Label
-	Body      string
-	URL       string
-	LinkedPRs []LinkedPR
-	Assignees []Assignee
-	Milestone string
-	CreatedAt time.Time
+	Number        int
+	Title         string
+	Labels        []Label
+	Body          string
+	URL           string
+	LinkedPRs     []LinkedPR
+	Assignees     []Assignee
+	Milestone     string
+	CreatedAt     time.Time
+	ParentNumber  int
+	SubIssueCount int
 }
 
 // refreshTickMsg is sent when the periodic refresh timer fires.
@@ -1376,15 +1388,17 @@ func mapAssignees(assignees []provider.Assignee) []Assignee {
 // mapProviderCard converts a provider.Card to a main-package Card.
 func mapProviderCard(c provider.Card) Card {
 	return Card{
-		Number:    c.Number,
-		Title:     c.Title,
-		Labels:    mapLabels(c.Labels),
-		Body:      c.Body,
-		URL:       c.URL,
-		LinkedPRs: mapLinkedPRs(c.LinkedPRs),
-		Assignees: mapAssignees(c.Assignees),
-		Milestone: c.Milestone,
-		CreatedAt: c.CreatedAt,
+		Number:        c.Number,
+		Title:         c.Title,
+		Labels:        mapLabels(c.Labels),
+		Body:          c.Body,
+		URL:           c.URL,
+		LinkedPRs:     mapLinkedPRs(c.LinkedPRs),
+		Assignees:     mapAssignees(c.Assignees),
+		Milestone:     c.Milestone,
+		CreatedAt:     c.CreatedAt,
+		ParentNumber:  c.ParentNumber,
+		SubIssueCount: c.SubIssueCount,
 	}
 }
 

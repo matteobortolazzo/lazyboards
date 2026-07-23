@@ -500,15 +500,32 @@ func cardDisplayText(card Card, columnNames []string, workingLabel string) (stri
 	return text, len([]rune(prefix))
 }
 
+// subIssueParentGlyph marks a card that has sub-issues (a parent), followed
+// by its sub-issue count -- e.g. "󰙅 3" (#460).
+const subIssueParentGlyph = "\U000F0645"
+
+// subIssueChildGlyph marks a card that has a parent issue (a child),
+// followed by "#<parentNumber>" -- e.g. "󱞩 #12" (#460).
+const subIssueChildGlyph = "\U000F17A9"
+
 // cardStatusLines returns the status lines rendered under a card's title:
-// one line per non-idle agent window joined to the card (agent lines first),
-// then one line per linked PR (PR lines last), each prefixed with indentWidth
-// spaces to align under the title text -- the same continuation indent
-// wrapTitle uses for the "#N " prefix. Idle/badge-less agent windows are
-// skipped entirely (no line, no vertical cost).
+// sub-issue relationship lines first (parent line, then child line -- #460,
+// structural context takes precedence per CLAUDE.md's state-struct
+// precedence rule), then one line per non-idle agent window joined to the
+// card (agent lines), then one line per linked PR (PR lines last), each
+// prefixed with indentWidth spaces to align under the title text -- the same
+// continuation indent wrapTitle uses for the "#N " prefix. Idle/badge-less
+// agent windows and a card with neither sub-issue relationship are skipped
+// entirely (no line, no vertical cost).
 func (b Board) cardStatusLines(card Card, indentWidth int) []string {
 	indent := strings.Repeat(" ", indentWidth)
 	var lines []string
+	if card.SubIssueCount > 0 {
+		lines = append(lines, indent+subIssueStyle.Render(fmt.Sprintf("%s %d", subIssueParentGlyph, card.SubIssueCount)))
+	}
+	if card.ParentNumber > 0 {
+		lines = append(lines, indent+subIssueStyle.Render(fmt.Sprintf("%s #%d", subIssueChildGlyph, card.ParentNumber)))
+	}
 	for _, w := range b.cardAgentWindows(card.Number) {
 		badge := agentBadgeText(w.Status, w.Agent)
 		if badge == "" {
