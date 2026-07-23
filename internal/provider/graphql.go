@@ -52,16 +52,22 @@ type issuePage struct {
 // issueNode is a single issue and its linked PRs, as mapped from a GraphQL
 // response. hasMoreClosingPRs/closingPREndCursor support a bounded per-issue
 // follow-up query for issues with more than 100 closing PRs.
+//
+// parentNumber/subIssueCount carry GitHub's native sub-issue relationship
+// (#460), mapped from the parent{number} and subIssuesSummary{total} GraphQL
+// fields; both default to 0 ("none") for issues without the relationship.
 type issueNode struct {
-	number    int
-	title     string
-	body      string
-	url       string
-	labels    []Label
-	assignees []Assignee
-	linkedPRs []LinkedPR
-	milestone string
-	createdAt time.Time
+	number        int
+	title         string
+	body          string
+	url           string
+	labels        []Label
+	assignees     []Assignee
+	linkedPRs     []LinkedPR
+	milestone     string
+	createdAt     time.Time
+	parentNumber  int
+	subIssueCount int
 
 	hasMoreClosingPRs  bool
 	closingPREndCursor string
@@ -94,6 +100,8 @@ type issueNode struct {
 //	            }
 //	          }
 //	        }
+//	        parent { number }
+//	        subIssuesSummary { total }
 //	      }
 //	      pageInfo { hasNextPage endCursor }
 //	    }
@@ -143,6 +151,15 @@ type issueQueryNode struct {
 	TimelineItems struct {
 		Nodes []timelineItemQueryNode
 	} `graphql:"timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT])"`
+	// Parent and SubIssuesSummary request GitHub's native sub-issue
+	// relationship (#460): Parent.Number is this issue's parent (0 if none),
+	// SubIssuesSummary.Total is this issue's sub-issue count (0 if none).
+	Parent struct {
+		Number githubv4.Int
+	} `graphql:"parent"`
+	SubIssuesSummary struct {
+		Total githubv4.Int
+	} `graphql:"subIssuesSummary"`
 }
 
 type labelQueryNode struct {
@@ -441,6 +458,8 @@ func mapIssueQueryNode(n issueQueryNode) issueNode {
 		linkedPRs:          mergeLinkedPRs(mapLinkedPRs(n.ClosedByPullRequestsReferences.Nodes), mapMentionedPRs(n.TimelineItems.Nodes)),
 		milestone:          string(n.Milestone.Title),
 		createdAt:          n.CreatedAt.Time,
+		parentNumber:       int(n.Parent.Number),
+		subIssueCount:      int(n.SubIssuesSummary.Total),
 		hasMoreClosingPRs:  bool(n.ClosedByPullRequestsReferences.PageInfo.HasNextPage),
 		closingPREndCursor: string(n.ClosedByPullRequestsReferences.PageInfo.EndCursor),
 	}

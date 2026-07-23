@@ -83,8 +83,12 @@ func NewFakeProvider() *FakeProvider {
 					// filter dedup logic (#462) has both a shared value and an
 					// empty case to exercise.
 					{Number: 4, Title: "User auth", Labels: []Label{{Name: "feature"}}, Milestone: "v1.0", CreatedAt: fakeCreatedAt(4)},
-					{Number: 5, Title: "API routes", Labels: []Label{{Name: "backend"}}, Milestone: "v1.0", CreatedAt: fakeCreatedAt(5)},
-					{Number: 6, Title: "Error types", Labels: []Label{{Name: "backend"}}, CreatedAt: fakeCreatedAt(6)},
+					// Card #5 is a parent (has sub-issues, #460): SubIssueCount > 0,
+					// no ParentNumber, exercising the parent-only sub-issue line.
+					{Number: 5, Title: "API routes", Labels: []Label{{Name: "backend"}}, Milestone: "v1.0", CreatedAt: fakeCreatedAt(5), SubIssueCount: 2},
+					// Card #6 is a child of #5 (#460): ParentNumber > 0, no
+					// SubIssueCount, exercising the child-only sub-issue line.
+					{Number: 6, Title: "Error types", Labels: []Label{{Name: "backend"}}, CreatedAt: fakeCreatedAt(6), ParentNumber: 5},
 					{Number: 7, Title: "DB migrate", Labels: []Label{{Name: "infra"}}, CreatedAt: fakeCreatedAt(7)},
 				},
 			},
@@ -94,7 +98,9 @@ func NewFakeProvider() *FakeProvider {
 					{Number: 8, Title: "Board view", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(8)},
 					{Number: 9, Title: "Key binds", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(9)},
 					{Number: 10, Title: "Col nav", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(10)},
-					{Number: 11, Title: "Lipgloss", Labels: []Label{{Name: "ui"}}, CreatedAt: fakeCreatedAt(11)},
+					// Card #11 is both a parent and a child (#460), exercising the
+					// combined-lines case, parent line before child line.
+					{Number: 11, Title: "Lipgloss", Labels: []Label{{Name: "ui"}}, CreatedAt: fakeCreatedAt(11), SubIssueCount: 1, ParentNumber: 8},
 					{Number: 12, Title: "Config", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(12)},
 				},
 			},

@@ -1143,6 +1143,66 @@ func (f *closingPRErrorFakeClient) fetchIssueClosingPRPage(_ context.Context, _,
 	return closingPRPage{}, f.closingPRErr
 }
 
+// --- Sub-issue relationships (parent/child, #460) ---
+
+// TestGitHubFetchBoard_SubIssueRelationshipsPopulated asserts FetchBoard
+// carries an issueNode's parentNumber/subIssueCount through to
+// Card.ParentNumber/Card.SubIssueCount, mirroring the identical
+// LinkedPRs/Assignees passthrough pattern already pinned above.
+func TestGitHubFetchBoard_SubIssueRelationshipsPopulated(t *testing.T) {
+	columns := []string{"Todo"}
+	wantParentNumber := 12
+	wantSubIssueCount := 3
+	issue := buildIssueNode(1, "Parent and child issue", "Todo")
+	issue.parentNumber = wantParentNumber
+	issue.subIssueCount = wantSubIssueCount
+
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if card.ParentNumber != wantParentNumber {
+		t.Errorf("card.ParentNumber = %d, want %d", card.ParentNumber, wantParentNumber)
+	}
+	if card.SubIssueCount != wantSubIssueCount {
+		t.Errorf("card.SubIssueCount = %d, want %d", card.SubIssueCount, wantSubIssueCount)
+	}
+}
+
+// TestGitHubFetchBoard_NoParentNoSubIssues_ZeroSentinels asserts an issue
+// with neither relationship (buildIssueNode leaves parentNumber/subIssueCount
+// at their zero value) yields a Card with both fields at 0, the "none"
+// sentinel the AC requires.
+func TestGitHubFetchBoard_NoParentNoSubIssues_ZeroSentinels(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := buildIssueNode(2, "Plain issue", "Todo")
+
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	card := board.Columns[0].Cards[0]
+	if card.ParentNumber != 0 {
+		t.Errorf("card.ParentNumber = %d, want 0 (no parent)", card.ParentNumber)
+	}
+	if card.SubIssueCount != 0 {
+		t.Errorf("card.SubIssueCount = %d, want 0 (no sub-issues)", card.SubIssueCount)
+	}
+}
+
 func TestFetchBoard_GraphQL_ClosingPRFollowupError_FailsFetchBoard(t *testing.T) {
 	columns := []string{"Backlog"}
 	const issueNumber = 88

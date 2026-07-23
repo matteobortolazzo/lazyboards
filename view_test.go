@@ -1421,6 +1421,185 @@ func TestCardStatusLines_UnknownPRLine_StillGetsPurpleGlyphPrefix(t *testing.T) 
 	}
 }
 
+// --- Sub-issue relationships (parent/child, #460) ---
+//
+// A card surfaces GitHub's native sub-issue relationship as dedicated status
+// lines under its title, reusing cardStatusLines' established per-card
+// status-line pattern (#439). A parent card (SubIssueCount > 0) renders
+// "<glyph> <count>"; a child card (ParentNumber > 0) renders
+// "<glyph> #<parentNumber>". A card that is both renders both lines, parent
+// first (structural context precedes the card's own parent reference, per
+// the plan). A card with neither renders no extra line and incurs no
+// vertical cost -- all four states must be covered (CLAUDE.md's
+// state-struct-precedence rule), not just the happy path.
+//
+// Glyph codepoints and the muted-gray color are pinned here directly from
+// the plan's Design Direction section (not copied from a not-yet-written
+// production constant): parent/has-children glyph U+F0645 (nf-md-file_tree),
+// child/is-sub-issue glyph U+F17A9, both styled gray 245 -- deliberately
+// distinct from the PR purple (183) and the agent status hues so structural
+// metadata can't be misread as action-needed state.
+
+const (
+	wantSubIssueParentGlyph = "\U000F0645"
+	wantSubIssueChildGlyph  = "\U000F17A9"
+)
+
+// wantSubIssueStyle mirrors the plan's mandated muted gray 245.
+var wantSubIssueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+
+// TestCardStatusLines_ParentOnly_ShowsGlyphAndSubIssueCount verifies a
+// parent card (SubIssueCount > 0, no ParentNumber) renders exactly one
+// status line: the parent glyph followed by the sub-issue count.
+func TestCardStatusLines_ParentOnly_ShowsGlyphAndSubIssueCount(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newTestBoard(t)
+	card := Card{Number: 1, Title: "Parent issue", SubIssueCount: 3}
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 1 {
+		t.Fatalf("cardStatusLines() = %d lines, want 1 (parent-only card); got %v", len(lines), lines)
+	}
+	want := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 3")
+	if !strings.Contains(lines[0], want) {
+		t.Errorf("parent status line %q missing expected content %q", lines[0], want)
+	}
+}
+
+// TestCardStatusLines_ChildOnly_ShowsGlyphAndParentNumber verifies a child
+// card (ParentNumber > 0, no SubIssueCount) renders exactly one status line:
+// the child glyph followed by "#<parentNumber>".
+func TestCardStatusLines_ChildOnly_ShowsGlyphAndParentNumber(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newTestBoard(t)
+	card := Card{Number: 2, Title: "Child issue", ParentNumber: 12}
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 1 {
+		t.Fatalf("cardStatusLines() = %d lines, want 1 (child-only card); got %v", len(lines), lines)
+	}
+	want := wantSubIssueStyle.Render(wantSubIssueChildGlyph + " #12")
+	if !strings.Contains(lines[0], want) {
+		t.Errorf("child status line %q missing expected content %q", lines[0], want)
+	}
+}
+
+// TestCardStatusLines_ParentAndChild_ShowsBothLinesParentFirst verifies a
+// card that is both a parent and a child renders both lines, with the
+// parent line preceding the child line (per the plan's ordering).
+func TestCardStatusLines_ParentAndChild_ShowsBothLinesParentFirst(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newTestBoard(t)
+	card := Card{Number: 3, Title: "Both parent and child", ParentNumber: 12, SubIssueCount: 2}
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 2 {
+		t.Fatalf("cardStatusLines() = %d lines, want 2 (card is both parent and child); got %v", len(lines), lines)
+	}
+	wantParent := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 2")
+	wantChild := wantSubIssueStyle.Render(wantSubIssueChildGlyph + " #12")
+	if !strings.Contains(lines[0], wantParent) {
+		t.Errorf("first line %q should be the parent line %q (parent precedes child, per plan)", lines[0], wantParent)
+	}
+	if !strings.Contains(lines[1], wantChild) {
+		t.Errorf("second line %q should be the child line %q (parent precedes child, per plan)", lines[1], wantChild)
+	}
+}
+
+// TestCardStatusLines_NoParentNoChild_ReturnsNoSubIssueLines verifies the
+// common-case card (no parent, no sub-issues) costs zero status lines.
+func TestCardStatusLines_NoParentNoChild_ReturnsNoSubIssueLines(t *testing.T) {
+	b := newTestBoard(t)
+	card := Card{Number: 4, Title: "Plain issue"}
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 0 {
+		t.Errorf("cardStatusLines() = %v, want no lines for a card with no parent and no sub-issues", lines)
+	}
+}
+
+// TestCardStatusLines_SubIssueLinesPrecedeAgentAndPRLines verifies the full
+// ordering precedence (CLAUDE.md's state-struct-precedence rule): sub-issue
+// lines are structural context and must render first, ahead of the
+// established agent-then-PR ordering (#439) -- not appended after them.
+func TestCardStatusLines_SubIssueLinesPrecedeAgentAndPRLines(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newTestBoard(t)
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
+			{WindowName: "7", Status: "running", Agent: "claude"},
+		},
+	}
+	card := Card{
+		Number:        7,
+		Title:         "Parent, child, agent, and PR",
+		ParentNumber:  12,
+		SubIssueCount: 2,
+		LinkedPRs: []LinkedPR{
+			{Number: 11, Title: "feat: PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		},
+	}
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 4 {
+		t.Fatalf("cardStatusLines() = %d lines, want 4 (parent + child + agent + PR); got %v", len(lines), lines)
+	}
+	wantParent := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 2")
+	wantChild := wantSubIssueStyle.Render(wantSubIssueChildGlyph + " #12")
+	wantAgent := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
+	wantPR := prStatusPrefix("mergeable") + "#11"
+	if !strings.Contains(lines[0], wantParent) {
+		t.Errorf("line 0 %q should be the parent line %q (sub-issue lines render first)", lines[0], wantParent)
+	}
+	if !strings.Contains(lines[1], wantChild) {
+		t.Errorf("line 1 %q should be the child line %q (sub-issue lines render first)", lines[1], wantChild)
+	}
+	if !strings.Contains(lines[2], wantAgent) {
+		t.Errorf("line 2 %q should be the agent line %q (agent lines follow sub-issue lines, precede PR lines)", lines[2], wantAgent)
+	}
+	if !strings.Contains(lines[3], wantPR) {
+		t.Errorf("line 3 %q should be the PR line %q (PR lines render last)", lines[3], wantPR)
+	}
+}
+
+// TestCardLineCount_IncludesSubIssueStatusLines verifies cardLineCount's
+// count includes sub-issue status lines, not just the title -- the same
+// single-source-of-truth invariant #439 established for agent/PR lines
+// (docs/list-cursor-invariants.md): clampScrollOffset, viewCardList, and
+// handleCardClick all derive height from cardLineCount, so a card that is
+// both a parent and a child must report 3 lines (1 title + 2 sub-issue),
+// not just 1.
+func TestCardLineCount_IncludesSubIssueStatusLines(t *testing.T) {
+	b := newTestBoard(t)
+	card := Card{Number: 1, Title: "Card with parent and children", ParentNumber: 12, SubIssueCount: 2}
+	columnNames := []string{"Column A"}
+
+	// A wide contentWidth keeps the title on a single line, isolating the
+	// count to title(1) + parent(1) + child(1).
+	got := b.cardLineCount(card, 80, columnNames)
+	want := 3
+	if got != want {
+		t.Errorf("cardLineCount() = %d, want %d (1 title line + 1 parent status line + 1 child status line)", got, want)
+	}
+}
+
 // --- cardLineCount (Board method, #439) ---
 //
 // cardLineCount becomes a Board method so it can call b.cardStatusLines
