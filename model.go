@@ -827,8 +827,15 @@ type Board struct {
 	// handlePendingSeqKey. pendingSeqAlt records whether Alt was held on any
 	// key of the sequence, so Alt+prefix triggers comment mode exactly like
 	// Alt on a single-key action.
-	pendingSeq         string
-	pendingSeqAlt      bool
+	pendingSeq    string
+	pendingSeqAlt bool
+	// pendingRefs holds the #N references parsed from the selected card's
+	// body while the "m" reference-navigation which-key prompt is active
+	// (see handleReferenceNavKey/handlePendingRefKey in references.go). It
+	// is a dedicated state, not a reuse of pendingSeq: pendingSeq's
+	// continuation keys are gated to uppercase via config.IsSequenceKey,
+	// but reference labels are lowercase ('a'-'z').
+	pendingRefs        []cardRef
 	refreshing         bool
 	refreshInterval    time.Duration
 	actionRefreshDelay time.Duration

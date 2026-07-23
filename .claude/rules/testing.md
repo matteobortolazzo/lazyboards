@@ -22,6 +22,9 @@ Test real flows end-to-end through the application stack.
 - NEVER copy expected values from implementation — for values that cross a service/process boundary (socket, API, IPC), assert against a real observed sample of the producer's output, not a value you also hardcode in the fixture. Otherwise producer and consumer can share the same wrong constant and both stay green.
 - NEVER discard a BubbleTea `Update()` call's return values with `_` — a discarded `model`/`cmd` makes the test a no-op that passes regardless of implementation. Always capture and assert on both, and set every message field the handler depends on (don't rely on zero values).
 
+## Explicit Risk Coverage
+When a plan's `### Risks` section names a specific mitigation (e.g., "empty-URL guard mirroring `handleTicketOpenKey`'s 'URL not available' path"), write a test case that exercises it before marking implementation done. Happy-path coverage alone will not expose missing edge-case guards. Without explicit coverage, implementation will pass Phase 4 verification and only surface during external review, costing a fix cycle.
+
 ## When a Test Forces an Implausible Production Shape
 If making a test pass requires production code to do something the plan/spec doesn't call for — a duplicated side-effecting call, an unreachable branch, a magic constant — stop and fix the test, don't bend production to it. A "guard against a race" comment justifying two concurrent `tea.Batch` Cmds is a red flag: batched Cmds run concurrently and cannot order a write-then-read.
 
