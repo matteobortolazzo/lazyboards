@@ -1390,3 +1390,100 @@ func TestDetailFocus_JKey_ReachesHardwrappedTailAtMaxScroll(t *testing.T) {
 			"scroll bound that j/k can never reach", b.detailScrollOffset, downArrow)
 	}
 }
+
+// --- Sanitize Untrusted Terminal Control Sequences (#469) ---
+//
+// card.Body is untrusted GitHub content. composeDetailMarkdown must sanitize
+// it before glamour ever sees it, so both the successful-render path and the
+// error/fallback path (which returns composeDetailMarkdown's output
+// verbatim) are free of ANSI/OSC/CSI escape sequences and lone control
+// bytes. Ordering matters: annotateBodyRefs injects its own "\[a\]" labels
+// after sanitization runs, so those labels must survive untouched.
+
+func TestComposeDetailMarkdown_SanitizesControlSequencesBeforeAnnotatingRefs(t *testing.T) {
+	card := Card{
+		Number: 1,
+		Title:  "Card with malicious body",
+		Body:   "see #12 \x1b[31mRED\x1b[0m",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if strings.ContainsRune(md, '\x1b') {
+		t.Errorf("composeDetailMarkdown() = %q, want no ESC (0x1b) byte", md)
+	}
+	if strings.ContainsRune(md, '\x07') {
+		t.Errorf("composeDetailMarkdown() = %q, want no BEL (0x07) byte", md)
+	}
+	if !strings.Contains(md, "RED") {
+		t.Errorf("composeDetailMarkdown() = %q, want visible text %q retained", md, "RED")
+	}
+	// annotateBodyRefs must still have run on the sanitized body: the #12
+	// reference should carry its persistent "\[a\]" label.
+	if !strings.Contains(md, `#12 \[a\]`) {
+		t.Errorf("composeDetailMarkdown() = %q, want #12 reference annotated with %q label", md, `\[a\]`)
+	}
+}
+
+func TestRenderBody_FallbackPath_SanitizesMaliciousBody(t *testing.T) {
+	// Force the fallback (raw-return) branch of renderBody by clearing the
+	// cached glamour renderer, which is otherwise lazily (re-)initialized by
+	// renderDetailLines during normal View() calls.
+	original := cachedGlamourRenderer
+	cachedGlamourRenderer = nil
+	t.Cleanup(func() { cachedGlamourRenderer = original })
+
+	card := Card{
+		Number: 1,
+		Title:  "Card with malicious body",
+		Body:   "see #12 \x1b[31mRED\x1b[0m raw bell \x07 end",
+	}
+
+	out := renderBody(composeDetailMarkdown(card))
+
+	if strings.ContainsRune(out, '\x1b') {
+		t.Errorf("renderBody() fallback output = %q, want no ESC (0x1b) byte", out)
+	}
+	if strings.ContainsRune(out, '\x07') {
+		t.Errorf("renderBody() fallback output = %q, want no BEL (0x07) byte", out)
+	}
+	if !strings.Contains(out, "RED") {
+		t.Errorf("renderBody() fallback output = %q, want visible text %q retained", out, "RED")
+	}
+}
+
+// TestComposeDetailMarkdown_SanitizesControlSequencesInTitleLabelsAndMilestone
+// covers the same GitHub-sourced-untrusted-content gap for card.Title, label
+// names, and card.Milestone -- composeDetailMarkdown already sanitized
+// card.Body (above), but title/labels/milestone were only markdown-escaped
+// (or not escaped at all for labels), which does not strip terminal control
+// bytes. A malicious title/label/milestone must not leak raw ESC/BEL bytes
+// into the rendered markdown, while still keeping the visible text.
+func TestComposeDetailMarkdown_SanitizesControlSequencesInTitleLabelsAndMilestone(t *testing.T) {
+	card := Card{
+		Number: 1,
+		Title:  "\x1b[31mRED\x1b[0m title",
+		Labels: []Label{
+			{Name: "\x1b[31mRED\x1b[0m-label"},
+		},
+		Milestone: "\x1b[31mRED\x1b[0m milestone",
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if strings.ContainsRune(md, '\x1b') {
+		t.Errorf("composeDetailMarkdown() = %q, want no ESC (0x1b) byte", md)
+	}
+	if strings.ContainsRune(md, '\x07') {
+		t.Errorf("composeDetailMarkdown() = %q, want no BEL (0x07) byte", md)
+	}
+	if !strings.Contains(md, "RED title") {
+		t.Errorf("composeDetailMarkdown() = %q, want visible title text %q retained", md, "RED title")
+	}
+	if !strings.Contains(md, "RED-label") {
+		t.Errorf("composeDetailMarkdown() = %q, want visible label text %q retained", md, "RED-label")
+	}
+	if !strings.Contains(md, "RED milestone") {
+		t.Errorf("composeDetailMarkdown() = %q, want visible milestone text %q retained", md, "RED milestone")
+	}
+}
