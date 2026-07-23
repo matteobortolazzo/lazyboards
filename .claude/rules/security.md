@@ -15,3 +15,6 @@
 - No sensitive data in logs
 - No PII in error responses
 - Audit logging for sensitive operations
+
+## Untrusted Data Rendering
+- When fixing untrusted-data rendering (sanitizing control bytes, escaping markdown metacharacters, etc.), don't verify only the stated call site — grep for all render sites of the *same data types* (e.g., if fixing `card.Body` rendering in one place, find every place that renders `card.Title`, label names, milestone, PR titles, assignee identifiers, etc.). A fix limited to one render path while siblings remain unsanitized creates false confidence and leaves exploitable gaps.

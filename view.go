@@ -484,7 +484,7 @@ func prStatusPrefix(status string) string {
 // workingLabel is the configured label name that triggers the spinner icon.
 func cardDisplayText(card Card, columnNames []string, workingLabel string) (string, int) {
 	prefix := fmt.Sprintf("#%d ", card.Number)
-	text := prefix + card.Title
+	text := prefix + sanitizeControlSequences(card.Title)
 	// Spinner icon uses case-insensitive match against the configured working label.
 	for _, label := range card.Labels {
 		if workingLabel != "" && strings.EqualFold(label.Name, workingLabel) {
@@ -836,18 +836,21 @@ func escapeMarkdown(s string) string {
 // A "labels:" field is always shown: label names when present, "(none)" when empty.
 // A "milestone:" field is always shown: the milestone title when present, "(none)" when empty.
 // A "created:" field is always shown: the creation date, or "(unknown)" when CreatedAt is zero.
-// If the card has a body, it is appended after the horizontal rule.
+// Title, label names, milestone, and body are all untrusted GitHub content:
+// each is sanitized (see sanitizeControlSequences) to strip terminal control
+// sequences before it is escaped/joined into markdown. The body is appended
+// after the horizontal rule with cross-reference annotations.
 func composeDetailMarkdown(card Card) string {
 	var sb strings.Builder
 
 	// Escape markdown chars in title. No YAML quoting — title is displayed as-is.
-	safeTitle := escapeMarkdown(card.Title)
+	safeTitle := escapeMarkdown(sanitizeControlSequences(card.Title))
 	fmt.Fprintf(&sb, "title: #%d %s\n\n", card.Number, safeTitle)
 
 	if len(card.Labels) > 0 {
 		labelNames := make([]string, len(card.Labels))
 		for i, l := range card.Labels {
-			labelNames[i] = l.Name
+			labelNames[i] = sanitizeControlSequences(l.Name)
 		}
 		sb.WriteString("labels: " + strings.Join(labelNames, ", ") + "\n\n")
 	} else {
@@ -865,7 +868,7 @@ func composeDetailMarkdown(card Card) string {
 	}
 
 	if card.Milestone != "" {
-		sb.WriteString("milestone: " + escapeMarkdown(card.Milestone) + "\n\n")
+		sb.WriteString("milestone: " + escapeMarkdown(sanitizeControlSequences(card.Milestone)) + "\n\n")
 	} else {
 		sb.WriteString("milestone: (none)\n\n")
 	}
@@ -878,7 +881,7 @@ func composeDetailMarkdown(card Card) string {
 
 	sb.WriteString("---")
 	if card.Body != "" {
-		sb.WriteString("\n\n" + annotateBodyRefs(card.Body))
+		sb.WriteString("\n\n" + annotateBodyRefs(sanitizeControlSequences(card.Body)))
 	}
 	return sb.String()
 }
@@ -1068,7 +1071,7 @@ func (b Board) viewPRPickerModal() string {
 		prPrefix = prStatusStyle(status).Render(symbol) + " "
 	}
 	// Picker shows only the currently browsed PR — always selected, no cursor to compare.
-	prText := selectedRowStyle(fmt.Sprintf("#%d %s", pr.Number, pr.Title), true)
+	prText := selectedRowStyle(fmt.Sprintf("#%d %s", pr.Number, sanitizeControlSequences(pr.Title)), true)
 	prDisplay := prPrefix + "\u25c0 " + prText + " \u25b6"
 
 	pickerHints := NewStatusBar(prPickerHints)
@@ -1419,7 +1422,7 @@ func (b Board) viewFilterModal() string {
 			lines = append(lines, helpStyle.Render(item.value))
 			continue
 		}
-		display := "  " + item.value
+		display := "  " + sanitizeControlSequences(item.value)
 		display = selectedRowStyle(display, i == b.filterCursor)
 		lines = append(lines, display)
 	}
@@ -1541,7 +1544,7 @@ func (b Board) viewPRListModal() string {
 		}
 		for i := start; i < end; i++ {
 			entry := b.prList.entries[i]
-			title := truncateOutput(entry.pr.Title, 32)
+			title := truncateOutput(sanitizeControlSequences(entry.pr.Title), 32)
 			status := prStatus(entry.pr)
 			prefix := prStatusPrefix(status)
 			display := fmt.Sprintf("%s  #%d  %s", prefix, entry.pr.Number, title)

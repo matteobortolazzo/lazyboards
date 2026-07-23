@@ -1139,6 +1139,30 @@ func TestFilterMode_ViewHighlightsSelectedItem(t *testing.T) {
 	}
 }
 
+// TestFilterMode_View_SanitizesControlSequencesInFilterItemValue covers the
+// filter picker modal render path (#469): filterItem.value holds untrusted
+// GitHub content (a label or milestone name), so a malicious value containing
+// raw terminal control sequences must not leak ESC/BEL bytes into the modal
+// while the visible text is retained.
+func TestFilterMode_View_SanitizesControlSequencesInFilterItemValue(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+
+	b = sendKey(t, b, keyMsg("f"))
+	b.filterItems[b.filterCursor].value = "\x1b[31mRED\x1b[0m"
+
+	view := b.View()
+
+	if strings.ContainsRune(view, '\x1b') {
+		t.Errorf("View() = %q, want no ESC (0x1b) byte", view)
+	}
+	if strings.ContainsRune(view, '\x07') {
+		t.Errorf("View() = %q, want no BEL (0x07) byte", view)
+	}
+	if !strings.Contains(view, "RED") {
+		t.Errorf("View() should still contain visible filter item text %q", "RED")
+	}
+}
+
 // --- Status bar hints tests ---
 
 func TestFilterMode_ShowsFilterModeHints(t *testing.T) {

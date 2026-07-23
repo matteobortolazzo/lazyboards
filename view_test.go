@@ -544,6 +544,31 @@ func TestView_CardList_NoPRIndicator_WhenNoPRs(t *testing.T) {
 	}
 }
 
+// TestCardDisplayText_SanitizesControlSequencesInTitle covers the
+// board-list title rendering path (#469): unlike composeDetailMarkdown
+// (which only runs when a card's detail panel is opened), cardDisplayText
+// renders unconditionally on every board load, so a malicious card.Title
+// containing raw terminal control sequences is the most exposed of the
+// untrusted-content paths. It must not leak ESC/BEL bytes into the output.
+func TestCardDisplayText_SanitizesControlSequencesInTitle(t *testing.T) {
+	card := Card{
+		Number: 1,
+		Title:  "\x1b[31mRED\x1b[0m raw bell \x07 end",
+	}
+
+	text, _ := cardDisplayText(card, nil, "")
+
+	if strings.ContainsRune(text, '\x1b') {
+		t.Errorf("cardDisplayText() = %q, want no ESC (0x1b) byte", text)
+	}
+	if strings.ContainsRune(text, '\x07') {
+		t.Errorf("cardDisplayText() = %q, want no BEL (0x07) byte", text)
+	}
+	if !strings.Contains(text, "RED") {
+		t.Errorf("cardDisplayText() = %q, want visible text %q retained", text, "RED")
+	}
+}
+
 // --- Working Indicator Tests ---
 
 func TestView_CardList_ShowsWorkingIndicator(t *testing.T) {

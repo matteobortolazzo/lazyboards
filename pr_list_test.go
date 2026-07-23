@@ -451,6 +451,32 @@ func TestPRList_View_UnlinkedPRsCarryNoCardRef(t *testing.T) {
 	}
 }
 
+// TestPRList_View_SanitizesControlSequencesInPRTitle covers the global PR
+// list modal render path (#469): entry.pr.Title is untrusted (any GitHub
+// user can open a PR against a tracked repo), so a malicious title
+// containing raw terminal control sequences must not leak ESC/BEL bytes
+// into the modal while the visible text is retained. truncateOutput alone
+// does not strip control bytes, so this must go through sanitization first.
+func TestPRList_View_SanitizesControlSequencesInPRTitle(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
+		{Number: 40, Title: "\x1b[31mRED\x1b[0m", URL: "https://github.com/owner/repo/pull/40"},
+	}})
+
+	view := b.viewPRListModal()
+
+	if strings.ContainsRune(view, '\x1b') {
+		t.Errorf("viewPRListModal() = %q, want no ESC (0x1b) byte", view)
+	}
+	if strings.ContainsRune(view, '\x07') {
+		t.Errorf("viewPRListModal() = %q, want no BEL (0x07) byte", view)
+	}
+	if !strings.Contains(view, "RED") {
+		t.Errorf("viewPRListModal() should still contain visible PR title text %q", "RED")
+	}
+}
+
 func TestPRList_View_TitleFitsModalWidth(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 	b = sendKey(t, b, keyMsg("v"))

@@ -325,6 +325,35 @@ func TestPRPicker_ViewShowsModal(t *testing.T) {
 	}
 }
 
+// TestPRPicker_View_SanitizesControlSequencesInPRTitle covers the PR picker
+// modal render path (#469): pr.Title is untrusted (any GitHub user can open
+// a PR against a tracked repo), so a malicious title containing raw
+// terminal control sequences must not leak ESC/BEL bytes into the modal
+// while the visible text is retained.
+func TestPRPicker_View_SanitizesControlSequencesInPRTitle(t *testing.T) {
+	b := newBoardWithPRs(t)
+
+	// Navigate to card 2 (index 2, "Two PRs") and enter picker.
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("p"))
+
+	col := b.Columns[b.ActiveTab]
+	col.Cards[col.Cursor].LinkedPRs[0].Title = "\x1b[31mRED\x1b[0m"
+
+	view := b.View()
+
+	if strings.ContainsRune(view, '\x1b') {
+		t.Errorf("View() = %q, want no ESC (0x1b) byte", view)
+	}
+	if strings.ContainsRune(view, '\x07') {
+		t.Errorf("View() = %q, want no BEL (0x07) byte", view)
+	}
+	if !strings.Contains(view, "RED") {
+		t.Errorf("View() should still contain visible PR title text %q", "RED")
+	}
+}
+
 func TestPRPicker_BlocksNavigation(t *testing.T) {
 	b := newBoardWithPRs(t)
 
