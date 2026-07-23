@@ -4,6 +4,9 @@
 # Ephemeral plan files (session-specific)
 .plans/
 
+# Ephemeral cenci pipeline state (per-ticket stage tracking + lock files)
+.cenci/pipeline/
+
 # Binaries
 *.exe
 *.exe~
