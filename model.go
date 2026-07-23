@@ -282,6 +282,7 @@ const (
 	filterTypeNone filterType = iota
 	filterByLabel
 	filterByAssignee
+	filterByMilestone
 )
 
 // filterItem represents a single entry in the filter picker list.
@@ -1468,6 +1469,11 @@ func (b *Board) matchesGlobalFilter(card Card) bool {
 			}
 		}
 		return false
+	case filterByMilestone:
+		if card.Milestone == "" {
+			return false
+		}
+		return strings.EqualFold(card.Milestone, b.activeFilterValue)
 	default:
 		return true
 	}
@@ -1580,8 +1586,8 @@ func (b *Board) clearSearch() {
 	col.ScrollOffset = 0
 }
 
-// collectFilterItems scans all columns for unique labels and assignees,
-// returning a list of filterItems with section headers.
+// collectFilterItems scans all columns for unique labels, assignees, and
+// milestones, returning a list of filterItems with section headers.
 func (b *Board) collectFilterItems() []filterItem {
 	// Build a set of column titles for exclusion (case-insensitive).
 	columnNames := make(map[string]bool, len(b.Columns))
@@ -1622,7 +1628,23 @@ func (b *Board) collectFilterItems() []filterItem {
 		}
 	}
 
-	if len(labels) == 0 && len(assignees) == 0 {
+	// Collect unique milestones (case-insensitive dedup), skipping empty values.
+	milestoneSeen := make(map[string]bool)
+	var milestones []string
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			if card.Milestone == "" {
+				continue
+			}
+			lower := strings.ToLower(card.Milestone)
+			if !milestoneSeen[lower] {
+				milestoneSeen[lower] = true
+				milestones = append(milestones, card.Milestone)
+			}
+		}
+	}
+
+	if len(labels) == 0 && len(assignees) == 0 && len(milestones) == 0 {
 		return nil
 	}
 
@@ -1639,6 +1661,13 @@ func (b *Board) collectFilterItems() []filterItem {
 		items = append(items, filterItem{isHeader: true, value: "Assignees"})
 		for _, login := range assignees {
 			items = append(items, filterItem{itemType: filterByAssignee, value: login})
+		}
+	}
+
+	if len(milestones) > 0 {
+		items = append(items, filterItem{isHeader: true, value: "Milestones"})
+		for _, name := range milestones {
+			items = append(items, filterItem{itemType: filterByMilestone, value: name})
 		}
 	}
 

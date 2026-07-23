@@ -115,6 +115,98 @@ func newBoardWithNoLabelsOrAssignees(t *testing.T) Board {
 	return board
 }
 
+// newBoardWithMilestones creates a board with 2 columns, cards carrying
+// labels, assignees, AND milestones, for testing the "Milestones" filter
+// picker section (#462). Deliberately not built on top of
+// newBoardWithLabelsAndAssignees per lessons-learned: that fixture's cards
+// intentionally have empty milestones and other tests rely on its counts
+// being unaffected.
+//
+// Column "To Do":
+//   - Card 1: labels ["bug"], assignees ["alice"], milestone "v1.0"
+//   - Card 2: labels ["feature"], assignees ["bob"], milestone "V1.0" (case-dup of v1.0)
+//
+// Column "Done":
+//   - Card 3: labels ["docs"], assignees ["alice"], milestone "To Do" (same text as the "To Do" column title)
+//   - Card 4: labels [], assignees [], milestone "" (empty — must never appear as a filter item)
+//
+// This provides:
+//   - Duplicate milestones: "v1.0"/"V1.0" (case-insensitive dedup)
+//   - A milestone whose value equals a column title ("To Do") — milestones are
+//     a distinct namespace from board columns and must NOT be excluded like labels are.
+//   - An empty milestone that must be skipped entirely.
+func newBoardWithMilestones(t *testing.T) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "To Do", Cards: []provider.Card{
+				{
+					Number:    1,
+					Title:     "Card One",
+					Labels:    []provider.Label{{Name: "bug"}},
+					Assignees: []provider.Assignee{{Login: "alice"}},
+					Milestone: "v1.0",
+				},
+				{
+					Number:    2,
+					Title:     "Card Two",
+					Labels:    []provider.Label{{Name: "feature"}},
+					Assignees: []provider.Assignee{{Login: "bob"}},
+					Milestone: "V1.0",
+				},
+			}},
+			{Title: "Done", Cards: []provider.Card{
+				{
+					Number:    3,
+					Title:     "Card Three",
+					Labels:    []provider.Label{{Name: "docs"}},
+					Assignees: []provider.Assignee{{Login: "alice"}},
+					Milestone: "To Do",
+				},
+				{
+					Number:    4,
+					Title:     "Card Four",
+					Milestone: "",
+				},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
+// newBoardWithMilestonesOnly creates a board where cards have a milestone but
+// no labels or assignees, to verify collectFilterItems' early-return guard
+// accounts for milestones (not just labels/assignees).
+func newBoardWithMilestonesOnly(t *testing.T) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Column A", Cards: []provider.Card{
+				{
+					Number:    1,
+					Title:     "Card One",
+					Milestone: "v1.0",
+				},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
 // --- collectFilterItems tests ---
 
 func TestFilterMode_CollectFilterItems_LabelsAndAssignees(t *testing.T) {
@@ -229,6 +321,121 @@ func TestFilterMode_CollectFilterItems_NoLabelsOrAssignees_EmptyList(t *testing.
 
 	if len(items) != 0 {
 		t.Errorf("collectFilterItems with no labels or assignees = %d items, want 0", len(items))
+	}
+}
+
+func TestFilterMode_CollectFilterItems_MilestonesSectionAfterAssignees(t *testing.T) {
+	b := newBoardWithMilestones(t)
+	items := b.collectFilterItems()
+
+	assigneesIdx := -1
+	milestonesIdx := -1
+	for i, item := range items {
+		if item.isHeader && item.value == "Assignees" {
+			assigneesIdx = i
+		}
+		if item.isHeader && item.value == "Milestones" {
+			milestonesIdx = i
+		}
+	}
+	if assigneesIdx == -1 {
+		t.Fatal("expected an Assignees header in items, but not found")
+	}
+	if milestonesIdx == -1 {
+		t.Fatal("expected a Milestones header in items, but not found")
+	}
+	if milestonesIdx < assigneesIdx {
+		t.Errorf("Milestones header at index %d, want after Assignees header at index %d", milestonesIdx, assigneesIdx)
+	}
+
+	milestoneCount := 0
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByMilestone {
+			milestoneCount++
+		}
+	}
+	if milestoneCount != 2 {
+		t.Errorf("milestone items = %d, want 2 (v1.0, To Do deduplicated case-insensitively)", milestoneCount)
+	}
+}
+
+func TestFilterMode_CollectFilterItems_MilestonesDeduplicatedCaseInsensitively(t *testing.T) {
+	b := newBoardWithMilestones(t)
+	items := b.collectFilterItems()
+
+	// "v1.0" and "V1.0" should appear only once.
+	v1Count := 0
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByMilestone && strings.EqualFold(item.value, "v1.0") {
+			v1Count++
+		}
+	}
+	if v1Count != 1 {
+		t.Errorf("v1.0 milestone count = %d, want 1 (should be deduplicated case-insensitively)", v1Count)
+	}
+}
+
+func TestFilterMode_CollectFilterItems_MilestoneEqualsColumnName_NotExcluded(t *testing.T) {
+	b := newBoardWithMilestones(t)
+	items := b.collectFilterItems()
+
+	// Milestone "To Do" matches the "To Do" column title, but milestones are a
+	// distinct namespace from board columns (unlike labels) and must still appear.
+	found := false
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByMilestone && strings.EqualFold(item.value, "To Do") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected milestone \"To Do\" in items even though it matches a column title; milestones must not be excluded like labels")
+	}
+}
+
+func TestFilterMode_CollectFilterItems_EmptyMilestoneSkipped(t *testing.T) {
+	b := newBoardWithMilestones(t)
+	items := b.collectFilterItems()
+
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByMilestone && item.value == "" {
+			t.Error("collectFilterItems should never produce an empty-string milestone item")
+		}
+	}
+}
+
+func TestFilterMode_CollectFilterItems_NoMilestones_NoMilestonesHeader(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	items := b.collectFilterItems()
+
+	for _, item := range items {
+		if item.isHeader && item.value == "Milestones" {
+			t.Error("expected no Milestones header when no card has a milestone")
+		}
+		if item.itemType == filterByMilestone {
+			t.Error("expected no milestone items when no card has a milestone")
+		}
+	}
+}
+
+func TestFilterMode_CollectFilterItems_MilestonesOnly_GuardIncludesItems(t *testing.T) {
+	b := newBoardWithMilestonesOnly(t)
+	items := b.collectFilterItems()
+
+	// The early-return guard must account for milestones, not just labels/assignees.
+	if len(items) == 0 {
+		t.Fatal("collectFilterItems returned empty list, expected milestone items (guard should not ignore milestones)")
+	}
+
+	hasMilestonesHeader := false
+	for _, item := range items {
+		if item.isHeader && item.value == "Milestones" {
+			hasMilestonesHeader = true
+			break
+		}
+	}
+	if !hasMilestonesHeader {
+		t.Error("expected a Milestones header when the board has milestones but no labels or assignees")
 	}
 }
 
@@ -450,6 +657,21 @@ func TestFilterMode_NavigationSkipsAssigneesHeader(t *testing.T) {
 	b = sendKey(t, b, keyMsg("f"))
 
 	// Navigate through all items. At no point should cursor be on a header.
+	for i := 0; i < len(b.filterItems); i++ {
+		if b.filterItems[b.filterCursor].isHeader {
+			t.Errorf("cursor at index %d is on a header item, should skip headers", b.filterCursor)
+		}
+		b = sendKey(t, b, keyMsg("j"))
+	}
+}
+
+func TestFilterMode_NavigationSkipsMilestonesHeader(t *testing.T) {
+	b := newBoardWithMilestones(t)
+
+	b = sendKey(t, b, keyMsg("f"))
+
+	// Navigate through all items. At no point should cursor be on a header,
+	// including the new "Milestones" header.
 	for i := 0; i < len(b.filterItems); i++ {
 		if b.filterItems[b.filterCursor].isHeader {
 			t.Errorf("cursor at index %d is on a header item, should skip headers", b.filterCursor)
@@ -703,7 +925,106 @@ func TestFilterMode_SelectAssignee_SetsFilterByAssignee(t *testing.T) {
 	}
 }
 
+func TestFilterMode_SelectMilestone_SetsFilterByMilestone(t *testing.T) {
+	b := newBoardWithMilestones(t)
+
+	b = sendKey(t, b, keyMsg("f"))
+
+	// Navigate past all labels and assignees to reach a milestone item.
+	for b.filterItems[b.filterCursor].itemType != filterByMilestone {
+		b = sendKey(t, b, keyMsg("j"))
+		if b.filterCursor >= len(b.filterItems)-1 {
+			t.Fatal("could not reach a milestone item")
+		}
+	}
+
+	selectedItem := b.filterItems[b.filterCursor]
+	expectedValue := selectedItem.value
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	if b.activeFilterType != filterByMilestone {
+		t.Errorf("activeFilterType = %d, want filterByMilestone", b.activeFilterType)
+	}
+	if b.activeFilterValue != expectedValue {
+		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, expectedValue)
+	}
+}
+
+func TestFilterMode_SelectMilestone_ClearsPriorLabelFilter(t *testing.T) {
+	b := newBoardWithMilestones(t)
+
+	// Simulate a pre-existing label filter, as if the user had previously
+	// selected a label before opening the picker again.
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+
+	b.filterItems = b.collectFilterItems()
+	b.mode = filterMode
+
+	// Move the filter cursor to a milestone item.
+	milestoneCursor := -1
+	for i, item := range b.filterItems {
+		if !item.isHeader && item.itemType == filterByMilestone {
+			milestoneCursor = i
+			break
+		}
+	}
+	if milestoneCursor == -1 {
+		t.Fatal("precondition: could not find a milestone item in filterItems")
+	}
+	b.filterCursor = milestoneCursor
+	expectedValue := b.filterItems[milestoneCursor].value
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	// Selecting a filter item in filterMode is a synchronous state change with
+	// no side effect to report, so Enter returns a nil cmd.
+	if cmd != nil {
+		t.Errorf("cmd after selecting a milestone filter item = %v, want nil", cmd)
+	}
+
+	if board.activeFilterType != filterByMilestone {
+		t.Errorf("activeFilterType = %d, want filterByMilestone (selecting a milestone should overwrite the prior label filter)", board.activeFilterType)
+	}
+	if board.activeFilterValue != expectedValue {
+		t.Errorf("activeFilterValue = %q, want %q", board.activeFilterValue, expectedValue)
+	}
+}
+
 // --- Clear filter tests ---
+
+func TestFilterMode_FToggleClearsActiveMilestoneFilter(t *testing.T) {
+	b := newBoardWithMilestones(t)
+
+	// Set an active milestone filter.
+	b.activeFilterType = filterByMilestone
+	b.activeFilterValue = "v1.0"
+
+	m, cmd := b.Update(keyMsg("f"))
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if cmd == nil {
+		t.Error("after 'f' with active milestone filter: expected non-nil cmd for timed message")
+	}
+	if board.activeFilterValue != "" {
+		t.Errorf("after 'f' with active milestone filter: activeFilterValue = %q, want empty", board.activeFilterValue)
+	}
+	if board.activeFilterType != filterTypeNone {
+		t.Errorf("after 'f' with active milestone filter: activeFilterType = %d, want filterTypeNone", board.activeFilterType)
+	}
+	if board.statusBar.message == "" {
+		t.Error("after 'f' with active milestone filter: expected a status bar message about filter cleared")
+	}
+	if !strings.Contains(board.statusBar.message, "Filter cleared") {
+		t.Errorf("statusBar.message = %q, want to contain %q", board.statusBar.message, "Filter cleared")
+	}
+}
 
 func TestFilterMode_FToggleClearsActiveFilter(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
