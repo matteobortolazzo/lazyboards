@@ -1146,16 +1146,19 @@ func (f *closingPRErrorFakeClient) fetchIssueClosingPRPage(_ context.Context, _,
 // --- Sub-issue relationships (parent/child, #460) ---
 
 // TestGitHubFetchBoard_SubIssueRelationshipsPopulated asserts FetchBoard
-// carries an issueNode's parentNumber/subIssueCount through to
-// Card.ParentNumber/Card.SubIssueCount, mirroring the identical
-// LinkedPRs/Assignees passthrough pattern already pinned above.
+// carries an issueNode's parentNumber/subIssueCount/subIssueCompleted
+// through to Card.ParentNumber/Card.SubIssueCount/Card.SubIssueCompleted,
+// mirroring the identical LinkedPRs/Assignees passthrough pattern already
+// pinned above (#475: completed threaded alongside total).
 func TestGitHubFetchBoard_SubIssueRelationshipsPopulated(t *testing.T) {
 	columns := []string{"Todo"}
 	wantParentNumber := 12
 	wantSubIssueCount := 3
+	wantSubIssueCompleted := 2
 	issue := buildIssueNode(1, "Parent and child issue", "Todo")
 	issue.parentNumber = wantParentNumber
 	issue.subIssueCount = wantSubIssueCount
+	issue.subIssueCompleted = wantSubIssueCompleted
 
 	gql := singlePageGQL(issue)
 	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
@@ -1176,12 +1179,15 @@ func TestGitHubFetchBoard_SubIssueRelationshipsPopulated(t *testing.T) {
 	if card.SubIssueCount != wantSubIssueCount {
 		t.Errorf("card.SubIssueCount = %d, want %d", card.SubIssueCount, wantSubIssueCount)
 	}
+	if card.SubIssueCompleted != wantSubIssueCompleted {
+		t.Errorf("card.SubIssueCompleted = %d, want %d", card.SubIssueCompleted, wantSubIssueCompleted)
+	}
 }
 
 // TestGitHubFetchBoard_NoParentNoSubIssues_ZeroSentinels asserts an issue
-// with neither relationship (buildIssueNode leaves parentNumber/subIssueCount
-// at their zero value) yields a Card with both fields at 0, the "none"
-// sentinel the AC requires.
+// with neither relationship (buildIssueNode leaves
+// parentNumber/subIssueCount/subIssueCompleted at their zero value) yields a
+// Card with all three fields at 0, the "none" sentinel the AC requires.
 func TestGitHubFetchBoard_NoParentNoSubIssues_ZeroSentinels(t *testing.T) {
 	columns := []string{"Todo"}
 	issue := buildIssueNode(2, "Plain issue", "Todo")
@@ -1200,6 +1206,9 @@ func TestGitHubFetchBoard_NoParentNoSubIssues_ZeroSentinels(t *testing.T) {
 	}
 	if card.SubIssueCount != 0 {
 		t.Errorf("card.SubIssueCount = %d, want 0 (no sub-issues)", card.SubIssueCount)
+	}
+	if card.SubIssueCompleted != 0 {
+		t.Errorf("card.SubIssueCompleted = %d, want 0 (no sub-issues)", card.SubIssueCompleted)
 	}
 }
 

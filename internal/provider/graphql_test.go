@@ -711,12 +711,14 @@ func TestMergeLinkedPRs_UnionsAndDedupesAcrossSources(t *testing.T) {
 // mapping in this function.
 
 // TestMapIssueQueryNode_MapsParentAndSubIssueCount asserts mapIssueQueryNode
-// maps the GraphQL parent{number} and subIssuesSummary{total} fields onto
-// issueNode's parentNumber/subIssueCount fields.
+// maps the GraphQL parent{number} and subIssuesSummary{total,completed}
+// fields onto issueNode's parentNumber/subIssueCount/subIssueCompleted
+// fields (#475: completed threaded alongside total).
 func TestMapIssueQueryNode_MapsParentAndSubIssueCount(t *testing.T) {
 	var n issueQueryNode
 	n.Parent.Number = githubv4.Int(12)
 	n.SubIssuesSummary.Total = githubv4.Int(3)
+	n.SubIssuesSummary.Completed = githubv4.Int(2)
 
 	got := mapIssueQueryNode(n)
 
@@ -726,13 +728,17 @@ func TestMapIssueQueryNode_MapsParentAndSubIssueCount(t *testing.T) {
 	if got.subIssueCount != 3 {
 		t.Errorf("mapIssueQueryNode().subIssueCount = %d, want 3", got.subIssueCount)
 	}
+	if got.subIssueCompleted != 2 {
+		t.Errorf("mapIssueQueryNode().subIssueCompleted = %d, want 2", got.subIssueCompleted)
+	}
 }
 
 // TestMapIssueQueryNode_NoParentNoSubIssues_ZeroSentinels asserts an issue
-// with neither relationship maps to the zero-value "none" sentinel on both
-// fields (not some other default), matching the AC's "0 means none" contract.
+// with neither relationship maps to the zero-value "none" sentinel on all
+// three fields (not some other default), matching the AC's "0 means none"
+// contract.
 func TestMapIssueQueryNode_NoParentNoSubIssues_ZeroSentinels(t *testing.T) {
-	var n issueQueryNode // Parent.Number and SubIssuesSummary.Total left zero-valued
+	var n issueQueryNode // Parent.Number and SubIssuesSummary.Total/Completed left zero-valued
 
 	got := mapIssueQueryNode(n)
 
@@ -741,6 +747,9 @@ func TestMapIssueQueryNode_NoParentNoSubIssues_ZeroSentinels(t *testing.T) {
 	}
 	if got.subIssueCount != 0 {
 		t.Errorf("mapIssueQueryNode().subIssueCount = %d, want 0 (no sub-issues)", got.subIssueCount)
+	}
+	if got.subIssueCompleted != 0 {
+		t.Errorf("mapIssueQueryNode().subIssueCompleted = %d, want 0 (no sub-issues)", got.subIssueCompleted)
 	}
 }
 

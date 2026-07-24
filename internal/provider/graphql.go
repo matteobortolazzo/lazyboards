@@ -53,21 +53,23 @@ type issuePage struct {
 // response. hasMoreClosingPRs/closingPREndCursor support a bounded per-issue
 // follow-up query for issues with more than 100 closing PRs.
 //
-// parentNumber/subIssueCount carry GitHub's native sub-issue relationship
-// (#460), mapped from the parent{number} and subIssuesSummary{total} GraphQL
-// fields; both default to 0 ("none") for issues without the relationship.
+// parentNumber/subIssueCount/subIssueCompleted carry GitHub's native
+// sub-issue relationship (#460, #475), mapped from the parent{number} and
+// subIssuesSummary{total completed} GraphQL fields; all default to 0
+// ("none") for issues without the relationship.
 type issueNode struct {
-	number        int
-	title         string
-	body          string
-	url           string
-	labels        []Label
-	assignees     []Assignee
-	linkedPRs     []LinkedPR
-	milestone     string
-	createdAt     time.Time
-	parentNumber  int
-	subIssueCount int
+	number            int
+	title             string
+	body              string
+	url               string
+	labels            []Label
+	assignees         []Assignee
+	linkedPRs         []LinkedPR
+	milestone         string
+	createdAt         time.Time
+	parentNumber      int
+	subIssueCount     int
+	subIssueCompleted int
 
 	hasMoreClosingPRs  bool
 	closingPREndCursor string
@@ -101,7 +103,7 @@ type issueNode struct {
 //	          }
 //	        }
 //	        parent { number }
-//	        subIssuesSummary { total }
+//	        subIssuesSummary { total completed }
 //	      }
 //	      pageInfo { hasNextPage endCursor }
 //	    }
@@ -152,13 +154,16 @@ type issueQueryNode struct {
 		Nodes []timelineItemQueryNode
 	} `graphql:"timelineItems(first: 100, itemTypes: [CROSS_REFERENCED_EVENT])"`
 	// Parent and SubIssuesSummary request GitHub's native sub-issue
-	// relationship (#460): Parent.Number is this issue's parent (0 if none),
-	// SubIssuesSummary.Total is this issue's sub-issue count (0 if none).
+	// relationship (#460, #475): Parent.Number is this issue's parent (0 if
+	// none), SubIssuesSummary.Total is this issue's sub-issue count (0 if
+	// none), and SubIssuesSummary.Completed is how many of those sub-issues
+	// are closed (0 if none).
 	Parent struct {
 		Number githubv4.Int
 	} `graphql:"parent"`
 	SubIssuesSummary struct {
-		Total githubv4.Int
+		Total     githubv4.Int
+		Completed githubv4.Int
 	} `graphql:"subIssuesSummary"`
 }
 
@@ -460,6 +465,7 @@ func mapIssueQueryNode(n issueQueryNode) issueNode {
 		createdAt:          n.CreatedAt.Time,
 		parentNumber:       int(n.Parent.Number),
 		subIssueCount:      int(n.SubIssuesSummary.Total),
+		subIssueCompleted:  int(n.SubIssuesSummary.Completed),
 		hasMoreClosingPRs:  bool(n.ClosedByPullRequestsReferences.PageInfo.HasNextPage),
 		closingPREndCursor: string(n.ClosedByPullRequestsReferences.PageInfo.EndCursor),
 	}
