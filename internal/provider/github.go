@@ -114,17 +114,18 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 			}
 
 			card := Card{
-				Number:        issue.number,
-				Title:         issue.title,
-				Body:          issue.body,
-				URL:           issue.url,
-				Labels:        issue.labels,
-				Assignees:     issue.assignees,
-				LinkedPRs:     linkedPRs,
-				Milestone:     issue.milestone,
-				CreatedAt:     issue.createdAt,
-				ParentNumber:  issue.parentNumber,
-				SubIssueCount: issue.subIssueCount,
+				Number:            issue.number,
+				Title:             issue.title,
+				Body:              issue.body,
+				URL:               issue.url,
+				Labels:            issue.labels,
+				Assignees:         issue.assignees,
+				LinkedPRs:         linkedPRs,
+				Milestone:         issue.milestone,
+				CreatedAt:         issue.createdAt,
+				ParentNumber:      issue.parentNumber,
+				SubIssueCount:     issue.subIssueCount,
+				SubIssueCompleted: issue.subIssueCompleted,
 			}
 			columns[bestIdx].Cards = append(columns[bestIdx].Cards, card)
 		}

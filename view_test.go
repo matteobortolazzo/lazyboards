@@ -1475,23 +1475,69 @@ var wantSubIssueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
 // TestCardStatusLines_ParentOnly_ShowsGlyphAndSubIssueCount verifies a
 // parent card (SubIssueCount > 0, no ParentNumber) renders exactly one
-// status line: the parent glyph followed by the sub-issue count.
+// status line: the parent glyph followed by "<completed>/<total>" (#475:
+// the parent line now shows completion progress, not a bare count).
 func TestCardStatusLines_ParentOnly_ShowsGlyphAndSubIssueCount(t *testing.T) {
 	original := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
 
 	b := newTestBoard(t)
-	card := Card{Number: 1, Title: "Parent issue", SubIssueCount: 3}
+	card := Card{Number: 1, Title: "Parent issue", SubIssueCount: 3, SubIssueCompleted: 2}
 	indentWidth := cardTitlePrefixWidth(card)
 
 	lines := b.cardStatusLines(card, indentWidth)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (parent-only card); got %v", len(lines), lines)
 	}
-	want := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 3")
+	want := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 2/3")
 	if !strings.Contains(lines[0], want) {
 		t.Errorf("parent status line %q missing expected content %q", lines[0], want)
+	}
+}
+
+// TestCardStatusLines_ParentOnly_FullyComplete verifies a parent card whose
+// sub-issues are all completed renders "<glyph> <total>/<total>" in the
+// same plain muted-gray style -- no color change, no progress bar (#475 AC:
+// "A fully-complete parent renders 3/3 in plain muted gray").
+func TestCardStatusLines_ParentOnly_FullyComplete(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newTestBoard(t)
+	card := Card{Number: 8, Title: "Fully complete parent", SubIssueCount: 3, SubIssueCompleted: 3}
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 1 {
+		t.Fatalf("cardStatusLines() = %d lines, want 1 (parent-only card); got %v", len(lines), lines)
+	}
+	want := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 3/3")
+	if !strings.Contains(lines[0], want) {
+		t.Errorf("fully-complete parent status line %q missing expected content %q", lines[0], want)
+	}
+}
+
+// TestCardStatusLines_ParentOnly_ZeroCompleted verifies a parent card with
+// no completed sub-issues renders "<glyph> 0/<total>" (#475 AC: "A parent
+// with zero completed renders 0/3").
+func TestCardStatusLines_ParentOnly_ZeroCompleted(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newTestBoard(t)
+	card := Card{Number: 9, Title: "Zero completed parent", SubIssueCount: 3, SubIssueCompleted: 0}
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth)
+	if len(lines) != 1 {
+		t.Fatalf("cardStatusLines() = %d lines, want 1 (parent-only card); got %v", len(lines), lines)
+	}
+	want := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 0/3")
+	if !strings.Contains(lines[0], want) {
+		t.Errorf("zero-completed parent status line %q missing expected content %q", lines[0], want)
 	}
 }
 
@@ -1526,14 +1572,14 @@ func TestCardStatusLines_ParentAndChild_ShowsBothLinesParentFirst(t *testing.T) 
 	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
 
 	b := newTestBoard(t)
-	card := Card{Number: 3, Title: "Both parent and child", ParentNumber: 12, SubIssueCount: 2}
+	card := Card{Number: 3, Title: "Both parent and child", ParentNumber: 12, SubIssueCount: 2, SubIssueCompleted: 1}
 	indentWidth := cardTitlePrefixWidth(card)
 
 	lines := b.cardStatusLines(card, indentWidth)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2 (card is both parent and child); got %v", len(lines), lines)
 	}
-	wantParent := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 2")
+	wantParent := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 1/2")
 	wantChild := wantSubIssueStyle.Render(wantSubIssueChildGlyph + " #12")
 	if !strings.Contains(lines[0], wantParent) {
 		t.Errorf("first line %q should be the parent line %q (parent precedes child, per plan)", lines[0], wantParent)
@@ -1572,10 +1618,11 @@ func TestCardStatusLines_SubIssueLinesPrecedeAgentAndPRLines(t *testing.T) {
 		},
 	}
 	card := Card{
-		Number:        7,
-		Title:         "Parent, child, agent, and PR",
-		ParentNumber:  12,
-		SubIssueCount: 2,
+		Number:            7,
+		Title:             "Parent, child, agent, and PR",
+		ParentNumber:      12,
+		SubIssueCount:     2,
+		SubIssueCompleted: 1,
 		LinkedPRs: []LinkedPR{
 			{Number: 11, Title: "feat: PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
 		},
@@ -1586,7 +1633,7 @@ func TestCardStatusLines_SubIssueLinesPrecedeAgentAndPRLines(t *testing.T) {
 	if len(lines) != 4 {
 		t.Fatalf("cardStatusLines() = %d lines, want 4 (parent + child + agent + PR); got %v", len(lines), lines)
 	}
-	wantParent := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 2")
+	wantParent := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 1/2")
 	wantChild := wantSubIssueStyle.Render(wantSubIssueChildGlyph + " #12")
 	wantAgent := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
 	wantPR := prStatusPrefix("mergeable") + "#11"

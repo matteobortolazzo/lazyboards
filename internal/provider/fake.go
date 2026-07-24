@@ -85,7 +85,9 @@ func NewFakeProvider() *FakeProvider {
 					{Number: 4, Title: "User auth", Labels: []Label{{Name: "feature"}}, Milestone: "v1.0", CreatedAt: fakeCreatedAt(4)},
 					// Card #5 is a parent (has sub-issues, #460): SubIssueCount > 0,
 					// no ParentNumber, exercising the parent-only sub-issue line.
-					{Number: 5, Title: "API routes", Labels: []Label{{Name: "backend"}}, Milestone: "v1.0", CreatedAt: fakeCreatedAt(5), SubIssueCount: 2},
+					// SubIssueCompleted: 1 of its 2 sub-issues are closed (#475),
+					// rendering "1/2".
+					{Number: 5, Title: "API routes", Labels: []Label{{Name: "backend"}}, Milestone: "v1.0", CreatedAt: fakeCreatedAt(5), SubIssueCount: 2, SubIssueCompleted: 1},
 					// Card #6 is a child of #5 (#460): ParentNumber > 0, no
 					// SubIssueCount, exercising the child-only sub-issue line.
 					{Number: 6, Title: "Error types", Labels: []Label{{Name: "backend"}}, CreatedAt: fakeCreatedAt(6), ParentNumber: 5},
@@ -100,7 +102,9 @@ func NewFakeProvider() *FakeProvider {
 					{Number: 10, Title: "Col nav", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(10)},
 					// Card #11 is both a parent and a child (#460), exercising the
 					// combined-lines case, parent line before child line.
-					{Number: 11, Title: "Lipgloss", Labels: []Label{{Name: "ui"}}, CreatedAt: fakeCreatedAt(11), SubIssueCount: 1, ParentNumber: 8},
+					// SubIssueCompleted: 1 of its 1 sub-issue is closed (#475),
+					// rendering "1/1".
+					{Number: 11, Title: "Lipgloss", Labels: []Label{{Name: "ui"}}, CreatedAt: fakeCreatedAt(11), SubIssueCount: 1, SubIssueCompleted: 1, ParentNumber: 8},
 					{Number: 12, Title: "Config", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(12)},
 				},
 			},

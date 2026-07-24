@@ -501,7 +501,7 @@ func cardDisplayText(card Card, columnNames []string, workingLabel string) (stri
 }
 
 // subIssueParentGlyph marks a card that has sub-issues (a parent), followed
-// by its sub-issue count -- e.g. "󰙅 3" (#460).
+// by its completed/total sub-issue count -- e.g. "󰙅 2/3" (#460, #475).
 const subIssueParentGlyph = "\U000F0645"
 
 // subIssueChildGlyph marks a card that has a parent issue (a child),
@@ -521,7 +521,7 @@ func (b Board) cardStatusLines(card Card, indentWidth int) []string {
 	indent := strings.Repeat(" ", indentWidth)
 	var lines []string
 	if card.SubIssueCount > 0 {
-		lines = append(lines, indent+subIssueStyle.Render(fmt.Sprintf("%s %d", subIssueParentGlyph, card.SubIssueCount)))
+		lines = append(lines, indent+subIssueStyle.Render(fmt.Sprintf("%s %d/%d", subIssueParentGlyph, card.SubIssueCompleted, card.SubIssueCount)))
 	}
 	if card.ParentNumber > 0 {
 		lines = append(lines, indent+subIssueStyle.Render(fmt.Sprintf("%s #%d", subIssueChildGlyph, card.ParentNumber)))

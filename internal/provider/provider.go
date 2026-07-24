@@ -38,26 +38,28 @@ type Assignee struct {
 
 // Card represents a single Kanban card (e.g., a GitHub issue).
 //
-// ParentNumber/SubIssueCount carry GitHub's native sub-issue relationship
-// (#460): ParentNumber is the issue number of this card's parent (0 if it
-// has none), and SubIssueCount is the number of sub-issues this card has (0
-// if it has none). Both are read-only, additive fields -- lazyboards never
-// creates/links/unlinks/reparents sub-issues, it only displays the
-// relationship GitHub already has. The Azure DevOps provider has no
-// equivalent concept, so its cards leave both fields at the zero-value
-// "none" sentinel.
+// ParentNumber/SubIssueCount/SubIssueCompleted carry GitHub's native
+// sub-issue relationship (#460, #475): ParentNumber is the issue number of
+// this card's parent (0 if it has none), SubIssueCount is the number of
+// sub-issues this card has (0 if it has none), and SubIssueCompleted is how
+// many of those sub-issues are closed (0 if it has none). All are
+// read-only, additive fields -- lazyboards never creates/links/unlinks/
+// reparents sub-issues, it only displays the relationship GitHub already
+// has. The Azure DevOps provider has no equivalent concept, so its cards
+// leave all three fields at the zero-value "none" sentinel.
 type Card struct {
-	Number        int
-	Title         string
-	Labels        []Label
-	Body          string
-	URL           string
-	LinkedPRs     []LinkedPR
-	Assignees     []Assignee
-	Milestone     string
-	CreatedAt     time.Time
-	ParentNumber  int
-	SubIssueCount int
+	Number            int
+	Title             string
+	Labels            []Label
+	Body              string
+	URL               string
+	LinkedPRs         []LinkedPR
+	Assignees         []Assignee
+	Milestone         string
+	CreatedAt         time.Time
+	ParentNumber      int
+	SubIssueCount     int
+	SubIssueCompleted int
 }
 
 // Column represents a Kanban column containing cards.

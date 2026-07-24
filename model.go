@@ -322,21 +322,24 @@ type Assignee struct {
 
 // Card represents a single Kanban card (e.g., a GitHub issue).
 //
-// ParentNumber/SubIssueCount mirror provider.Card's sub-issue relationship
-// fields (#460): ParentNumber is this card's parent issue number (0 if
-// none), SubIssueCount is this card's sub-issue count (0 if none).
+// ParentNumber/SubIssueCount/SubIssueCompleted mirror provider.Card's
+// sub-issue relationship fields (#460, #475): ParentNumber is this card's
+// parent issue number (0 if none), SubIssueCount is this card's sub-issue
+// count (0 if none), and SubIssueCompleted is how many of those sub-issues
+// are closed (0 if none).
 type Card struct {
-	Number        int
-	Title         string
-	Labels        []Label
-	Body          string
-	URL           string
-	LinkedPRs     []LinkedPR
-	Assignees     []Assignee
-	Milestone     string
-	CreatedAt     time.Time
-	ParentNumber  int
-	SubIssueCount int
+	Number            int
+	Title             string
+	Labels            []Label
+	Body              string
+	URL               string
+	LinkedPRs         []LinkedPR
+	Assignees         []Assignee
+	Milestone         string
+	CreatedAt         time.Time
+	ParentNumber      int
+	SubIssueCount     int
+	SubIssueCompleted int
 }
 
 // refreshTickMsg is sent when the periodic refresh timer fires.
@@ -1396,17 +1399,18 @@ func mapAssignees(assignees []provider.Assignee) []Assignee {
 // mapProviderCard converts a provider.Card to a main-package Card.
 func mapProviderCard(c provider.Card) Card {
 	return Card{
-		Number:        c.Number,
-		Title:         c.Title,
-		Labels:        mapLabels(c.Labels),
-		Body:          c.Body,
-		URL:           c.URL,
-		LinkedPRs:     mapLinkedPRs(c.LinkedPRs),
-		Assignees:     mapAssignees(c.Assignees),
-		Milestone:     c.Milestone,
-		CreatedAt:     c.CreatedAt,
-		ParentNumber:  c.ParentNumber,
-		SubIssueCount: c.SubIssueCount,
+		Number:            c.Number,
+		Title:             c.Title,
+		Labels:            mapLabels(c.Labels),
+		Body:              c.Body,
+		URL:               c.URL,
+		LinkedPRs:         mapLinkedPRs(c.LinkedPRs),
+		Assignees:         mapAssignees(c.Assignees),
+		Milestone:         c.Milestone,
+		CreatedAt:         c.CreatedAt,
+		ParentNumber:      c.ParentNumber,
+		SubIssueCount:     c.SubIssueCount,
+		SubIssueCompleted: c.SubIssueCompleted,
 	}
 }
 
