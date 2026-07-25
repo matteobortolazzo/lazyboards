@@ -687,6 +687,22 @@ func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// closePRPickerNoPRs exits the PR picker back to normalMode when the
+// selected card no longer has any linked PRs to show (e.g. an async board
+// refresh cleared LinkedPRs while the picker was open). Shared by the
+// keyboard (handlePRPickerModeKey) and wheel (handlePRPickerWheel) handlers
+// so both apply the exact same cleanup: clear pendingPRAction and restore
+// the hint set matching where the picker was opened from.
+func (b *Board) closePRPickerNoPRs() {
+	b.mode = normalMode
+	b.pendingPRAction = nil
+	if b.detailFocused {
+		b.rebuildDetailHints()
+	} else {
+		b.statusBar.SetActionHints(b.normalHints)
+	}
+}
+
 func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	card := b.selectedCard()
 	prCount := len(card.LinkedPRs)
@@ -716,9 +732,7 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// exists at all, so bail out with the same cleanup as the Escape path
 	// instead of clamping to a nonexistent element.
 	if prCount == 0 {
-		b.mode = normalMode
-		b.pendingPRAction = nil
-		restoreHints()
+		b.closePRPickerNoPRs()
 		return b, nil
 	}
 

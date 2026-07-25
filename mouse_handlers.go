@@ -10,12 +10,94 @@ import (
 func (b Board) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch msg.Button {
 	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
-		return b.handleMouseScroll(msg)
+		return b.handleMouseWheel(msg)
 	case tea.MouseButtonLeft:
-		if msg.Action == tea.MouseActionPress {
+		// Left-click stays gated to normalMode -- clicks never leak into
+		// modals, unlike wheel scrolling which is extended to all of them.
+		if msg.Action == tea.MouseActionPress && b.mode == normalMode {
 			return b.handleMouseClick(msg)
 		}
 	}
+	return b, nil
+}
+
+// handleMouseWheel routes a wheel event by mode, mirroring each surface's
+// keyboard navigation model: normalMode scrolls the card list/detail panel,
+// the list modals move their row cursor (clamped, not wrapped, unlike their
+// j/k handlers), filterMode skips header rows while clamping, helpMode
+// scrolls its viewport, and every other mode (no scrollable content) is a
+// no-op.
+func (b Board) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	switch b.mode {
+	case normalMode:
+		return b.handleMouseScroll(msg)
+	case helpMode:
+		return b.handleHelpWheel(msg)
+	case prListMode:
+		return b.handlePRListWheel(msg)
+	case agentListMode:
+		return b.handleAgentListWheel(msg)
+	case assignMode:
+		return b.handleAssignWheel(msg)
+	case gitPanelMode:
+		return b.handleGitPanelWheel(msg)
+	case prPickerMode:
+		return b.handlePRPickerWheel(msg)
+	case filterMode:
+		b.filterMoveClamp(msg.Button == tea.MouseButtonWheelDown)
+		return b, nil
+	}
+	return b, nil
+}
+
+func (b Board) handleHelpWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Button == tea.MouseButtonWheelDown {
+		maxOffset := b.helpMaxScrollOffset()
+		if b.helpScrollOffset < maxOffset {
+			b.helpScrollOffset++
+		}
+	} else if b.helpScrollOffset > 0 {
+		b.helpScrollOffset--
+	}
+	return b, nil
+}
+
+func (b Board) handlePRListWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	b.prList.cursor = clampCursor(b.prList.cursor, len(b.prList.entries), msg.Button == tea.MouseButtonWheelDown)
+	return b, nil
+}
+
+func (b Board) handleAgentListWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Recompute live rather than using a cached length: agentListEntries()
+	// reflects the current tmux/cenci state, which can change between
+	// renders (see docs/list-cursor-invariants.md).
+	entries := b.agentListEntries()
+	b.agentList.cursor = clampCursor(b.agentList.cursor, len(entries), msg.Button == tea.MouseButtonWheelDown)
+	return b, nil
+}
+
+func (b Board) handleAssignWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	b.assign.cursor = clampCursor(b.assign.cursor, len(b.assign.items), msg.Button == tea.MouseButtonWheelDown)
+	return b, nil
+}
+
+func (b Board) handleGitPanelWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	b.gitPanel.cursor = clampCursor(b.gitPanel.cursor, len(b.gitPanel.items), msg.Button == tea.MouseButtonWheelDown)
+	return b, nil
+}
+
+func (b Board) handlePRPickerWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// Read LinkedPRs live rather than a cached count: an async board refresh
+	// can shrink the selected card's PRs while the picker is open, mirroring
+	// the defensive clamp in handlePRPickerModeKey (mode_handlers.go).
+	prCount := len(b.selectedCard().LinkedPRs)
+	// prCount == 0 mirrors handlePRPickerModeKey: no valid index exists at
+	// all, so close the picker instead of clamping to a nonexistent element.
+	if prCount == 0 {
+		b.closePRPickerNoPRs()
+		return b, nil
+	}
+	b.prPickerIndex = clampCursor(b.prPickerIndex, prCount, msg.Button == tea.MouseButtonWheelDown)
 	return b, nil
 }
 
