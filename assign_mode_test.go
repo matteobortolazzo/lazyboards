@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -230,6 +231,58 @@ func TestAssignMode_MeEntryPinnedAtTop(t *testing.T) {
 	}
 	if firstItem.login != "fake-user" {
 		t.Errorf("first item login = %q, want %q (authenticated user)", firstItem.login, "fake-user")
+	}
+}
+
+// TestAssignMode_MePinnedFirst_TailSortedAlphabeticallyCaseInsensitive
+// covers #477: the authenticated user ("me") must stay pinned at index 0,
+// and every other collaborator must appear below it in case-insensitive
+// alphabetical order, using deliberately out-of-order mixed-case logins.
+func TestAssignMode_MePinnedFirst_TailSortedAlphabeticallyCaseInsensitive(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	b.collaborators = []Assignee{
+		{Login: "zack"},
+		{Login: "Amy"},
+		{Login: "bob"},
+	}
+	b.authenticatedUser = "fake-user"
+
+	b = sendKey(t, b, keyMsg("a"))
+	if b.mode != assignMode {
+		t.Fatalf("expected assignMode after 'a', got %d", b.mode)
+	}
+
+	if len(b.assign.items) == 0 {
+		t.Fatal("assign.items is empty")
+	}
+	if !b.assign.items[0].isMe {
+		t.Errorf("assign.items[0].isMe = false, want true (me pinned first)")
+	}
+	if b.assign.items[0].login != b.authenticatedUser {
+		t.Errorf("assign.items[0].login = %q, want %q (authenticated user)", b.assign.items[0].login, b.authenticatedUser)
+	}
+
+	var tail []string
+	for _, item := range b.assign.items[1:] {
+		tail = append(tail, item.login)
+	}
+	if len(tail) == 0 {
+		t.Fatal("precondition: expected non-me collaborators in assign.items tail")
+	}
+
+	want := make([]string, len(tail))
+	copy(want, tail)
+	sort.SliceStable(want, func(i, j int) bool {
+		return strings.ToLower(want[i]) < strings.ToLower(want[j])
+	})
+
+	for i := range tail {
+		if tail[i] != want[i] {
+			t.Errorf("assign.items tail logins = %v, want case-insensitive alphabetical order %v", tail, want)
+			break
+		}
 	}
 }
 

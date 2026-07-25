@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
@@ -207,6 +208,163 @@ func newBoardWithMilestonesOnly(t *testing.T) Board {
 	board.Width = 120
 	board.Height = 40
 	return board
+}
+
+// newBoardWithMixedCaseFilterItems creates a board whose labels, assignees,
+// and milestones are deliberately encountered out of alphabetical order and
+// in mixed case, to verify collectFilterItems sorts each section
+// case-insensitively (#477) while section header order (Labels -> Assignees
+// -> Milestones) and existing dedup/column-exclusion/empty-milestone-skip
+// behavior remain unchanged.
+//
+// Column "To Do":
+//   - Card 1: labels ["zebra", "Apple"], assignees ["zack", "Amy"], milestone "Zeta"
+//   - Card 2: labels ["mango"],          assignees ["bob"],        milestone "alpha"
+func newBoardWithMixedCaseFilterItems(t *testing.T) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "To Do", Cards: []provider.Card{
+				{
+					Number: 1,
+					Title:  "Card One",
+					Labels: []provider.Label{{Name: "zebra"}, {Name: "Apple"}},
+					Assignees: []provider.Assignee{
+						{Login: "zack"},
+						{Login: "Amy"},
+					},
+					Milestone: "Zeta",
+				},
+				{
+					Number:    2,
+					Title:     "Card Two",
+					Labels:    []provider.Label{{Name: "mango"}},
+					Assignees: []provider.Assignee{{Login: "bob"}},
+					Milestone: "alpha",
+				},
+			}},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board := m.(Board)
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
+// sortFoldExpected sorts a copy of in using the same case-insensitive,
+// stable fold collation the production code is expected to apply, so tests
+// derive their expected order from the fixture's own data rather than a
+// hand-typed literal copied from the implementation.
+func sortFoldExpected(in []string) []string {
+	want := make([]string, len(in))
+	copy(want, in)
+	sort.SliceStable(want, func(i, j int) bool {
+		return strings.ToLower(want[i]) < strings.ToLower(want[j])
+	})
+	return want
+}
+
+func TestFilterMode_CollectFilterItems_LabelsSortedAlphabeticallyCaseInsensitive(t *testing.T) {
+	b := newBoardWithMixedCaseFilterItems(t)
+	items := b.collectFilterItems()
+
+	var labels []string
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByLabel {
+			labels = append(labels, item.value)
+		}
+	}
+	if len(labels) == 0 {
+		t.Fatal("precondition: expected label items in fixture")
+	}
+
+	want := sortFoldExpected(labels)
+	for i := range labels {
+		if labels[i] != want[i] {
+			t.Errorf("label items = %v, want case-insensitive alphabetical order %v", labels, want)
+			break
+		}
+	}
+}
+
+func TestFilterMode_CollectFilterItems_AssigneesSortedAlphabeticallyCaseInsensitive(t *testing.T) {
+	b := newBoardWithMixedCaseFilterItems(t)
+	items := b.collectFilterItems()
+
+	var assignees []string
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByAssignee {
+			assignees = append(assignees, item.value)
+		}
+	}
+	if len(assignees) == 0 {
+		t.Fatal("precondition: expected assignee items in fixture")
+	}
+
+	want := sortFoldExpected(assignees)
+	for i := range assignees {
+		if assignees[i] != want[i] {
+			t.Errorf("assignee items = %v, want case-insensitive alphabetical order %v", assignees, want)
+			break
+		}
+	}
+}
+
+func TestFilterMode_CollectFilterItems_MilestonesSortedAlphabeticallyCaseInsensitive(t *testing.T) {
+	b := newBoardWithMixedCaseFilterItems(t)
+	items := b.collectFilterItems()
+
+	var milestones []string
+	for _, item := range items {
+		if !item.isHeader && item.itemType == filterByMilestone {
+			milestones = append(milestones, item.value)
+		}
+	}
+	if len(milestones) == 0 {
+		t.Fatal("precondition: expected milestone items in fixture")
+	}
+
+	want := sortFoldExpected(milestones)
+	for i := range milestones {
+		if milestones[i] != want[i] {
+			t.Errorf("milestone items = %v, want case-insensitive alphabetical order %v", milestones, want)
+			break
+		}
+	}
+}
+
+// TestFilterMode_CollectFilterItems_MixedCaseFixture_SectionOrderUnchanged
+// asserts that sorting within sections does not disturb the section header
+// order (Labels -> Assignees -> Milestones), using the same mixed-case
+// fixture exercised by the per-section sort assertions above.
+func TestFilterMode_CollectFilterItems_MixedCaseFixture_SectionOrderUnchanged(t *testing.T) {
+	b := newBoardWithMixedCaseFilterItems(t)
+	items := b.collectFilterItems()
+
+	labelsIdx, assigneesIdx, milestonesIdx := -1, -1, -1
+	for i, item := range items {
+		if !item.isHeader {
+			continue
+		}
+		switch item.value {
+		case "Labels":
+			labelsIdx = i
+		case "Assignees":
+			assigneesIdx = i
+		case "Milestones":
+			milestonesIdx = i
+		}
+	}
+	if labelsIdx == -1 || assigneesIdx == -1 || milestonesIdx == -1 {
+		t.Fatalf("expected Labels, Assignees, and Milestones headers, got items=%v", items)
+	}
+	if !(labelsIdx < assigneesIdx && assigneesIdx < milestonesIdx) {
+		t.Errorf("section header order = Labels@%d, Assignees@%d, Milestones@%d; want Labels < Assignees < Milestones", labelsIdx, assigneesIdx, milestonesIdx)
+	}
 }
 
 // --- collectFilterItems tests ---

@@ -877,20 +877,18 @@ func composeDetailMarkdown(card Card) string {
 	fmt.Fprintf(&sb, "title: #%d %s\n\n", card.Number, safeTitle)
 
 	if len(card.Labels) > 0 {
-		labelNames := make([]string, len(card.Labels))
-		for i, l := range card.Labels {
-			labelNames[i] = sanitizeControlSequences(l.Name)
-		}
+		labelNames := mapSlice(card.Labels, func(l Label) string { return l.Name })
+		sortFoldStrings(labelNames)
+		labelNames = mapSlice(labelNames, sanitizeControlSequences)
 		sb.WriteString("labels: " + strings.Join(labelNames, ", ") + "\n\n")
 	} else {
 		sb.WriteString("labels: (none)\n\n")
 	}
 
 	if len(card.Assignees) > 0 {
-		logins := make([]string, len(card.Assignees))
-		for i, a := range card.Assignees {
-			logins[i] = sanitizeControlSequences(a.Login)
-		}
+		logins := mapSlice(card.Assignees, func(a Assignee) string { return a.Login })
+		sortFoldStrings(logins)
+		logins = mapSlice(logins, sanitizeControlSequences)
 		sb.WriteString("assignees: " + strings.Join(logins, ", ") + "\n\n")
 	} else {
 		sb.WriteString("assignees: (none)\n\n")

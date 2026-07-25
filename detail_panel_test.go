@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -937,14 +938,19 @@ func TestComposeDetailMarkdown_LabelsUseCommaSeparatedFormat(t *testing.T) {
 	// Note: comma-containing labels are a known limitation of the comma-separated
 	// format (they would split into multiple labels on round-trip), so this test
 	// uses labels without commas but with other special characters.
+	//
+	// composeDetailMarkdown sorts labels case-insensitively alphabetically
+	// (#477), so the expected order below is derived from the fixture's own
+	// names via the same fold sort, not hardcoded to input/encounter order.
+	rawLabels := []string{`label"with"quotes`, `label\with\backslash`, "label]breaks-array", "*important*"}
 	card := Card{
 		Number: 7,
 		Title:  "Test card",
 		Labels: []Label{
-			{Name: `label"with"quotes`},
-			{Name: `label\with\backslash`},
-			{Name: "label]breaks-array"},
-			{Name: "*important*"},
+			{Name: rawLabels[0]},
+			{Name: rawLabels[1]},
+			{Name: rawLabels[2]},
+			{Name: rawLabels[3]},
 		},
 	}
 
@@ -963,8 +969,14 @@ func TestComposeDetailMarkdown_LabelsUseCommaSeparatedFormat(t *testing.T) {
 		t.Fatal("composeDetailMarkdown output missing 'labels:' line")
 	}
 
-	// Labels should appear as-is in comma-separated format (no escaping).
-	expectedLine := `labels: label"with"quotes, label\with\backslash, label]breaks-array, *important*`
+	wantLabels := make([]string, len(rawLabels))
+	copy(wantLabels, rawLabels)
+	sort.SliceStable(wantLabels, func(i, j int) bool {
+		return strings.ToLower(wantLabels[i]) < strings.ToLower(wantLabels[j])
+	})
+
+	// Labels should appear sorted, in comma-separated format (no escaping).
+	expectedLine := "labels: " + strings.Join(wantLabels, ", ")
 	if labelsLine != expectedLine {
 		t.Errorf("labels line = %q, want %q", labelsLine, expectedLine)
 	}
@@ -994,14 +1006,13 @@ func TestComposeDetailMarkdown_LabelsUseCommaSeparatedFormat(t *testing.T) {
 		t.Fatalf("parseFrontmatter returned error: %v\nfrontmatter:\n%s", err, frontmatter)
 	}
 
-	expectedLabels := []string{`label"with"quotes`, `label\with\backslash`, "label]breaks-array", "*important*"}
-	if len(parsedLabels) != len(expectedLabels) {
+	if len(parsedLabels) != len(wantLabels) {
 		t.Fatalf("parseFrontmatter returned %d labels %v, want %d labels %v",
-			len(parsedLabels), parsedLabels, len(expectedLabels), expectedLabels)
+			len(parsedLabels), parsedLabels, len(wantLabels), wantLabels)
 	}
 	for i, got := range parsedLabels {
-		if got != expectedLabels[i] {
-			t.Errorf("round-trip label[%d] = %q, want %q", i, got, expectedLabels[i])
+		if got != wantLabels[i] {
+			t.Errorf("round-trip label[%d] = %q, want %q", i, got, wantLabels[i])
 		}
 	}
 }
@@ -1524,5 +1535,80 @@ func TestComposeDetailMarkdown_SanitizesControlSequencesInAssigneeLogins(t *test
 	}
 	if !strings.Contains(md, "user") {
 		t.Errorf("composeDetailMarkdown() = %q, want visible assignee text %q retained", md, "user")
+	}
+}
+
+// extractFrontmatterLine returns the trimmed line in md starting with prefix
+// (e.g. "labels:" or "assignees:"), or fails the test if no such line exists.
+func extractFrontmatterLine(t *testing.T, md, prefix string) string {
+	t.Helper()
+	for _, line := range strings.Split(md, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, prefix) {
+			return trimmed
+		}
+	}
+	t.Fatalf("composeDetailMarkdown output missing %q line, got:\n%s", prefix, md)
+	return ""
+}
+
+// TestComposeDetailMarkdown_LabelsAndAssigneesSortedAlphabeticallyCaseInsensitive
+// covers #477: the "labels:" and "assignees:" detail-panel fields must list
+// entries in case-insensitive alphabetical order (no pins apply here), while
+// remaining sanitized (mirrors the malicious-content coverage above -- this
+// fixture reuses that same control-sequence payload to prove sorting doesn't
+// regress sanitization).
+func TestComposeDetailMarkdown_LabelsAndAssigneesSortedAlphabeticallyCaseInsensitive(t *testing.T) {
+	rawLabels := []string{"zebra", "\x1b[31mApple\x1b[0m", "mango"}
+	rawLogins := []string{"zack", "\x1b[31mAmy\x1b[0m", "bob"}
+
+	card := Card{
+		Number: 1,
+		Title:  "Card with mixed-case labels and assignees",
+		Labels: []Label{
+			{Name: rawLabels[0]}, {Name: rawLabels[1]}, {Name: rawLabels[2]},
+		},
+		Assignees: []Assignee{
+			{Login: rawLogins[0]}, {Login: rawLogins[1]}, {Login: rawLogins[2]},
+		},
+	}
+
+	md := composeDetailMarkdown(card)
+
+	if strings.ContainsRune(md, '\x1b') {
+		t.Errorf("composeDetailMarkdown() = %q, want no ESC (0x1b) byte (sorting must not bypass sanitization)", md)
+	}
+
+	// Derive the expected order from the raw (pre-sanitize) fixture values,
+	// then sanitize each entry the same way composeDetailMarkdown does, per
+	// the documented "sort raw names, sanitize per entry after" order.
+	wantLabels := make([]string, len(rawLabels))
+	copy(wantLabels, rawLabels)
+	sort.SliceStable(wantLabels, func(i, j int) bool {
+		return strings.ToLower(wantLabels[i]) < strings.ToLower(wantLabels[j])
+	})
+	for i, l := range wantLabels {
+		wantLabels[i] = sanitizeControlSequences(l)
+	}
+	wantLabelsLine := "labels: " + strings.Join(wantLabels, ", ")
+
+	wantLogins := make([]string, len(rawLogins))
+	copy(wantLogins, rawLogins)
+	sort.SliceStable(wantLogins, func(i, j int) bool {
+		return strings.ToLower(wantLogins[i]) < strings.ToLower(wantLogins[j])
+	})
+	for i, l := range wantLogins {
+		wantLogins[i] = sanitizeControlSequences(l)
+	}
+	wantAssigneesLine := "assignees: " + strings.Join(wantLogins, ", ")
+
+	labelsLine := extractFrontmatterLine(t, md, "labels:")
+	assigneesLine := extractFrontmatterLine(t, md, "assignees:")
+
+	if labelsLine != wantLabelsLine {
+		t.Errorf("labels line = %q, want %q", labelsLine, wantLabelsLine)
+	}
+	if assigneesLine != wantAssigneesLine {
+		t.Errorf("assignees line = %q, want %q", assigneesLine, wantAssigneesLine)
 	}
 }

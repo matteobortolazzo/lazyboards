@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 
@@ -36,6 +37,57 @@ func TestCreateMode_AssigneePicker_SanitizesControlSequencesInLogin(t *testing.T
 	}
 	if !strings.Contains(view, "RED") {
 		t.Errorf("View() = %q, want visible login text %q retained", view, "RED")
+	}
+}
+
+// TestCreateMode_AssigneeOptions_PinsNoneAndMeSortsRestAlphabetically covers
+// #477: the create-mode assignee dropdown must keep "(none)" first and
+// "<user> (me)" second (both pins), with the remaining collaborators sorted
+// case-insensitively alphabetically below them.
+func TestCreateMode_AssigneeOptions_PinsNoneAndMeSortsRestAlphabetically(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	b.collaborators = []Assignee{
+		{Login: "zack"},
+		{Login: "Amy"},
+		{Login: "bob"},
+	}
+	b.authenticatedUser = "fake-user"
+
+	b = sendKey(t, b, keyMsg("n"))
+	if b.mode != createMode {
+		t.Fatalf("expected createMode after 'n', got %d", b.mode)
+	}
+
+	options := b.create.assigneeOptions
+	if len(options) < 2 {
+		t.Fatalf("assigneeOptions = %v, want at least 2 entries ((none) and me pins)", options)
+	}
+	if options[0] != noneAssignee {
+		t.Errorf("assigneeOptions[0] = %q, want %q", options[0], noneAssignee)
+	}
+	wantMe := b.authenticatedUser + " (me)"
+	if options[1] != wantMe {
+		t.Errorf("assigneeOptions[1] = %q, want %q", options[1], wantMe)
+	}
+
+	tail := append([]string(nil), options[2:]...)
+	if len(tail) == 0 {
+		t.Fatal("precondition: expected non-pinned collaborators in assigneeOptions tail")
+	}
+
+	want := make([]string, len(tail))
+	copy(want, tail)
+	sort.SliceStable(want, func(i, j int) bool {
+		return strings.ToLower(want[i]) < strings.ToLower(want[j])
+	})
+
+	for i := range tail {
+		if tail[i] != want[i] {
+			t.Errorf("assigneeOptions tail = %v, want case-insensitive alphabetical order %v", tail, want)
+			break
+		}
 	}
 }
 
