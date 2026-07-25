@@ -6,9 +6,11 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/muesli/termenv"
 )
 
 // newAgentListBoard builds a loaded board (one column "Column A" with cards
@@ -324,6 +326,56 @@ func TestAgentList_View_KeepsSelectedRowVisibleWithinTerminal(t *testing.T) {
 	if !strings.Contains(view, "▲") {
 		t.Errorf("view missing the ▲ scroll indicator")
 	}
+}
+
+// --- Mute non-selected rows to gray (#478) ---
+
+// TestAgentList_View_NonSelectedRowGray_SelectedRowBoldWhite asserts the
+// agents list's selected row (including its status symbol, which is plain
+// text here -- not a pre-colored glyph like the PR list's) stays bold-white
+// while a non-selected row mutes to gray instead of rendering as bare
+// unstyled text. Escape-sequence counts are compared against the modal's
+// title line (never passed through selectedRowStyle) as a border-only
+// baseline, isolating row-content styling without hardcoding the display
+// formatting (session prefix, agent kind, card ref) or any specific style's
+// raw ANSI bytes.
+func TestAgentList_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	fe := &action.FakeExecutor{}
+	b := newAgentListBoard(t, fe, threeWindows())
+	b = sendKey(t, b, keyMsg("w"))
+	if b.agentList.cursor != 0 {
+		t.Fatalf("test setup: expected cursor 0, got %d", b.agentList.cursor)
+	}
+
+	entries := b.agentListEntries()
+	if len(entries) < 2 {
+		t.Fatal("fixture needs at least two agent list entries")
+	}
+	selectedName := entries[0].window.WindowName
+	nonSelectedName := entries[1].window.WindowName
+
+	view := b.viewAgentListModal()
+	var titleLine, selectedLine, nonSelectedLine string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Agents") {
+			titleLine = line
+		}
+		if strings.Contains(line, selectedName) {
+			selectedLine = line
+		}
+		if strings.Contains(line, nonSelectedName) {
+			nonSelectedLine = line
+		}
+	}
+	if titleLine == "" || selectedLine == "" || nonSelectedLine == "" {
+		t.Fatalf("view missing expected agent rows; got:\n%s", view)
+	}
+
+	assertMutedRowStyle(t, "agent", titleLine, selectedLine, nonSelectedLine)
 }
 
 // --- Navigation ---

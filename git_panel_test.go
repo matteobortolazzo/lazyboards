@@ -5,10 +5,12 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/muesli/termenv"
 )
 
 // gitPanelKeyOrder is the fixed display/dispatch order of the git menu's
@@ -462,6 +464,49 @@ func TestGitPanel_Enter_SuccessfulAction_RefreshesGitStatusViaExistingWiring(t *
 	if !found {
 		t.Error("a successful git panel action should trigger a git status refresh via the existing actionResultMsg wiring")
 	}
+}
+
+// --- Mute non-selected rows to gray (#478) ---
+
+// TestGitPanel_View_NonSelectedRowGray_SelectedRowBoldWhite asserts the git
+// menu's selected row stays bold-white while a non-selected row mutes to
+// gray instead of rendering as bare unstyled text.
+func TestGitPanel_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b, _ := newGitPanelTestBoard(t, nil, nil)
+	b = sendKey(t, b, keyMsg("g"))
+	if b.mode != gitPanelMode {
+		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+	}
+	if len(b.gitPanel.items) < 2 {
+		t.Fatal("fixture needs at least two git panel items")
+	}
+
+	selectedItem := b.gitPanel.items[b.gitPanel.cursor]
+	otherIdx := (b.gitPanel.cursor + 1) % len(b.gitPanel.items)
+	otherItem := b.gitPanel.items[otherIdx]
+
+	view := b.viewGitPanelModal()
+	var titleLine, selectedLine, nonSelectedLine string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Git Menu") {
+			titleLine = line
+		}
+		if strings.Contains(line, selectedItem.name) {
+			selectedLine = line
+		}
+		if strings.Contains(line, otherItem.name) {
+			nonSelectedLine = line
+		}
+	}
+	if titleLine == "" || selectedLine == "" || nonSelectedLine == "" {
+		t.Fatalf("view missing expected git panel rows; got:\n%s", view)
+	}
+
+	assertMutedRowStyle(t, "git panel", titleLine, selectedLine, nonSelectedLine)
 }
 
 // --- View rendering ---

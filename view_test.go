@@ -612,7 +612,7 @@ func TestView_CardList_BothPRAndWorkingIndicators(t *testing.T) {
 	if !strings.Contains(view, "\uf110") {
 		t.Error("View() should contain Working indicator \uf110 for card with 'Working' label")
 	}
-	wantPRLine := prStatusPrefix("unknown") + "#20"
+	wantPRLine := prStatusPrefix("unknown", false) + "#20"
 	if !strings.Contains(view, wantPRLine) {
 		t.Errorf("View() should contain PR status line %q for card's linked PR; got:\n%s", wantPRLine, view)
 	}
@@ -1065,7 +1065,7 @@ func TestViewCardList_PRStatusLine_ConflictingStyled(t *testing.T) {
 	}, 120, 40)
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
-	want := prStatusPrefix("conflicting") + "#10"
+	want := prStatusPrefix("conflicting", false) + "#10"
 	if !strings.Contains(out, want) {
 		t.Errorf("rendered card list missing conflicting PR status line %q; got:\n%s", want, out)
 	}
@@ -1098,8 +1098,8 @@ func TestViewCardList_PRStatusLine_MultiplePRs_EachShowsOwnStatus(t *testing.T) 
 	}, 120, 40)
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
-	wantDraft := prStatusPrefix("draft") + "#10"
-	wantBlocked := prStatusPrefix("blocked") + "#11"
+	wantDraft := prStatusPrefix("draft", false) + "#10"
+	wantBlocked := prStatusPrefix("blocked", false) + "#11"
 	if !strings.Contains(out, wantDraft) {
 		t.Errorf("rendered card list missing draft PR status line %q (per-PR status must not be dropped in favor of the worse one); got:\n%s", wantDraft, out)
 	}
@@ -1125,7 +1125,7 @@ func TestViewCardList_PRStatusLine_UnknownKeepsNeutralColor(t *testing.T) {
 	}, 120, 40)
 
 	out := b.viewCardList(b.Columns[0], 20, 60, leftPanelStyle)
-	want := prStatusPrefix("unknown") + "#10"
+	want := prStatusPrefix("unknown", false) + "#10"
 	if !strings.Contains(out, want) {
 		t.Errorf("rendered card list should keep the neutral prIndicatorStyle status line %q; got:\n%s", want, out)
 	}
@@ -1158,7 +1158,7 @@ func TestCardStatusLines_AgentOnly_SkipsIdleRendersRunning(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (one running agent window, no linked PRs); got %v", len(lines), lines)
 	}
@@ -1182,7 +1182,7 @@ func TestCardStatusLines_IdleWindow_SkippedEntirely(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 0 {
 		t.Errorf("cardStatusLines() = %v, want no lines for an idle-only agent window", lines)
 	}
@@ -1205,7 +1205,7 @@ func TestCardStatusLines_MultipleAgentWindows_OneLineEach(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2 (one per non-idle window); got %v", len(lines), lines)
 	}
@@ -1231,11 +1231,11 @@ func TestCardStatusLines_PROnly_ShowsNumberAndStatus(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (one linked PR, no agent windows); got %v", len(lines), lines)
 	}
-	want := prStatusPrefix("mergeable") + "#11"
+	want := prStatusPrefix("mergeable", false) + "#11"
 	if !strings.Contains(lines[0], want) {
 		t.Errorf("PR status line %q missing expected content %q", lines[0], want)
 	}
@@ -1255,12 +1255,12 @@ func TestCardStatusLines_MultiplePRs_EachShowsOwnStatus_NotWorst(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2 (one per linked PR); got %v", len(lines), lines)
 	}
-	wantDraft := prStatusPrefix("draft") + "#10"
-	wantBlocked := prStatusPrefix("blocked") + "#11"
+	wantDraft := prStatusPrefix("draft", false) + "#10"
+	wantBlocked := prStatusPrefix("blocked", false) + "#11"
 	if !strings.Contains(lines[0], wantDraft) {
 		t.Errorf("first PR line %q missing draft content %q (per-PR status, not worst-of-all)", lines[0], wantDraft)
 	}
@@ -1286,12 +1286,12 @@ func TestCardStatusLines_AgentThenPR_AgentLinesBeforePRLines(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2 (1 agent + 1 PR); got %v", len(lines), lines)
 	}
 	wantAgent := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
-	wantPR := prStatusPrefix("mergeable") + "#11"
+	wantPR := prStatusPrefix("mergeable", false) + "#11"
 	if !strings.Contains(lines[0], wantAgent) {
 		t.Errorf("first line %q should be the agent line %q (agent lines precede PR lines)", lines[0], wantAgent)
 	}
@@ -1309,7 +1309,7 @@ func TestCardStatusLines_NoAgentNoPR_ReturnsNoLines(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 0 {
 		t.Errorf("cardStatusLines() = %v, want no lines for a card with no agent windows and no linked PRs", lines)
 	}
@@ -1338,7 +1338,7 @@ func TestCardStatusLines_Indentation_MatchesGivenIndentWidth(t *testing.T) {
 		t.Fatalf("test setup: indentWidth = %d, want 4 for card #42", indentWidth)
 	}
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2; got %v", len(lines), lines)
 	}
@@ -1377,7 +1377,7 @@ func TestCardStatusLines_UnstablePR_ShowsDotGlyphNotExclamation(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1; got %v", len(lines), lines)
 	}
@@ -1409,7 +1409,7 @@ func TestCardStatusLines_PRLine_PrefixedWithPurpleLinkedPRGlyph(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1; got %v", len(lines), lines)
 	}
@@ -1436,7 +1436,7 @@ func TestCardStatusLines_UnknownPRLine_StillGetsPurpleGlyphPrefix(t *testing.T) 
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1; got %v", len(lines), lines)
 	}
@@ -1486,7 +1486,7 @@ func TestCardStatusLines_ParentOnly_ShowsGlyphAndSubIssueCount(t *testing.T) {
 	card := Card{Number: 1, Title: "Parent issue", SubIssueCount: 3, SubIssueCompleted: 2}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (parent-only card); got %v", len(lines), lines)
 	}
@@ -1509,7 +1509,7 @@ func TestCardStatusLines_ParentOnly_FullyComplete(t *testing.T) {
 	card := Card{Number: 8, Title: "Fully complete parent", SubIssueCount: 3, SubIssueCompleted: 3}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (parent-only card); got %v", len(lines), lines)
 	}
@@ -1531,7 +1531,7 @@ func TestCardStatusLines_ParentOnly_ZeroCompleted(t *testing.T) {
 	card := Card{Number: 9, Title: "Zero completed parent", SubIssueCount: 3, SubIssueCompleted: 0}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (parent-only card); got %v", len(lines), lines)
 	}
@@ -1553,7 +1553,7 @@ func TestCardStatusLines_ChildOnly_ShowsGlyphAndParentNumber(t *testing.T) {
 	card := Card{Number: 2, Title: "Child issue", ParentNumber: 12}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (child-only card); got %v", len(lines), lines)
 	}
@@ -1575,7 +1575,7 @@ func TestCardStatusLines_ParentAndChild_ShowsBothLinesParentFirst(t *testing.T) 
 	card := Card{Number: 3, Title: "Both parent and child", ParentNumber: 12, SubIssueCount: 2, SubIssueCompleted: 1}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2 (card is both parent and child); got %v", len(lines), lines)
 	}
@@ -1596,7 +1596,7 @@ func TestCardStatusLines_NoParentNoChild_ReturnsNoSubIssueLines(t *testing.T) {
 	card := Card{Number: 4, Title: "Plain issue"}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 0 {
 		t.Errorf("cardStatusLines() = %v, want no lines for a card with no parent and no sub-issues", lines)
 	}
@@ -1629,14 +1629,14 @@ func TestCardStatusLines_SubIssueLinesPrecedeAgentAndPRLines(t *testing.T) {
 	}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, false)
 	if len(lines) != 4 {
 		t.Fatalf("cardStatusLines() = %d lines, want 4 (parent + child + agent + PR); got %v", len(lines), lines)
 	}
 	wantParent := wantSubIssueStyle.Render(wantSubIssueParentGlyph + " 1/2")
 	wantChild := wantSubIssueStyle.Render(wantSubIssueChildGlyph + " #12")
 	wantAgent := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
-	wantPR := prStatusPrefix("mergeable") + "#11"
+	wantPR := prStatusPrefix("mergeable", false) + "#11"
 	if !strings.Contains(lines[0], wantParent) {
 		t.Errorf("line 0 %q should be the parent line %q (sub-issue lines render first)", lines[0], wantParent)
 	}
@@ -1829,5 +1829,185 @@ func TestScroll_TallMultiPRCard_ScrollOffsetAccountsForStatusLines(t *testing.T)
 	}
 	if col.ScrollOffset <= 0 {
 		t.Errorf("ScrollOffset = %d after scrolling past the tall multi-PR card, want > 0 (its 3 PR status lines must count toward scroll math)", col.ScrollOffset)
+	}
+}
+
+// --- Mute non-selected rows to gray (#478) ---
+//
+// selectedRowStyle is the single choke point shared by every list-like
+// surface (card list, PR list, filter/assign/git-menu/agent-list modals, PR
+// picker): selected rows stay bold white, non-selected rows mute to gray
+// (color 245). Pre-colored glyphs (PR status glyph, agent badge, sub-issue
+// marker) do not gray automatically from an outer wrap -- they must be
+// muted at their construction site (prStatusPrefix, cardStatusLines).
+
+// TestSelectedRowStyle_NonSelectedMutesToGray is the pure unit test on the
+// choke point itself: selected must stay the existing bold-white rendering,
+// and non-selected must no longer be the bare, unstyled input text -- it
+// must carry some (muted) styling, and the two must render distinctly.
+func TestSelectedRowStyle_NonSelectedMutesToGray(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	const text = "row text"
+	selected := selectedRowStyle(text, true)
+	nonSelected := selectedRowStyle(text, false)
+
+	wantSelected := selectedCardStyle.Render(text)
+	if selected != wantSelected {
+		t.Errorf("selectedRowStyle(%q, true) = %q, want bold-white selectedCardStyle rendering %q", text, selected, wantSelected)
+	}
+	if nonSelected == text {
+		t.Errorf("selectedRowStyle(%q, false) = %q, want a muted-gray-styled rendering, not the bare unstyled input", text, nonSelected)
+	}
+	if selected == nonSelected {
+		t.Fatalf("selectedRowStyle(true) and selectedRowStyle(false) render identically (%q); want the selected and non-selected conventions to be observably distinct", selected)
+	}
+}
+
+// TestCardStatusLines_Muted_RendersGrayAgentAndPRGlyphs is the unit-level
+// guard against the ANSI-override gotcha: wrapping an already-colored badge
+// in an outer gray style does NOT recolor it, so cardStatusLines must
+// render the agent badge and PR status glyph via the muted style at their
+// own construction site when muted=true. Line count must stay identical
+// between the muted and colored renderings -- muting is color-only and must
+// never change clampScrollOffset/cardLineCount's shared line-count math
+// (docs/list-cursor-invariants.md).
+func TestCardStatusLines_Muted_RendersGrayAgentAndPRGlyphs(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 7, Title: "Has agent and PR", LinkedPRs: []provider.LinkedPR{
+			{Number: 11, Title: "feat: PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		}},
+	}, 120, 40)
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
+			{WindowName: "7", Status: "running", Agent: "claude"},
+		},
+	}
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	coloredLines := b.cardStatusLines(card, indentWidth, false)
+	mutedLines := b.cardStatusLines(card, indentWidth, true)
+
+	if len(mutedLines) != len(coloredLines) {
+		t.Fatalf("muted lines = %d, colored lines = %d, want equal (muting is color-only)", len(mutedLines), len(coloredLines))
+	}
+
+	coloredAgentBadge := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
+	coloredPRGlyph := prStatusPrefix("mergeable", false)
+
+	foundColoredAgent, foundColoredPR := false, false
+	for _, line := range coloredLines {
+		if strings.Contains(line, coloredAgentBadge) {
+			foundColoredAgent = true
+		}
+		if strings.Contains(line, coloredPRGlyph) {
+			foundColoredPR = true
+		}
+	}
+	if !foundColoredAgent {
+		t.Fatalf("test setup: unmuted cardStatusLines(muted=false) should contain the colored agent badge; got %v", coloredLines)
+	}
+	if !foundColoredPR {
+		t.Fatalf("test setup: unmuted cardStatusLines(muted=false) should contain the colored PR glyph; got %v", coloredLines)
+	}
+
+	for i, line := range mutedLines {
+		if strings.Contains(line, coloredAgentBadge) {
+			t.Errorf("muted line %d = %q, still contains the colored agent badge %q, want it muted to gray at source", i, line, coloredAgentBadge)
+		}
+		if strings.Contains(line, coloredPRGlyph) {
+			t.Errorf("muted line %d = %q, still contains the colored PR glyph %q, want it muted to gray at source", i, line, coloredPRGlyph)
+		}
+	}
+}
+
+// TestViewCardList_NonFocusedCard_MutesGlyphsKeepsLabelDotColored is the
+// board integration test: a non-focused card's title, PR status glyph,
+// agent badge, and sub-issue marker must all mute to gray, while its
+// per-label color dot -- the one deliberate exception -- keeps its
+// labelColor(). The focused card keeps its bold-white title and colored
+// glyphs unchanged.
+func TestViewCardList_NonFocusedCard_MutesGlyphsKeepsLabelDotColored(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	// focusedCard carries the same kind of PR/agent glyphs as mutedCard so the
+	// "focused card keeps colored glyphs (unchanged behavior)" assertions
+	// below have real, focused-row content to check -- mutedCard's glyphs
+	// are the ones expected to mute, so they can't also serve as the
+	// colored-focused-card evidence.
+	focusedCard := provider.Card{
+		Number: 1,
+		Title:  "Focused card",
+		LinkedPRs: []provider.LinkedPR{
+			{Number: 31, Title: "feat: focused PR", URL: "https://github.com/o/r/pull/31", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		},
+	}
+	mutedLabel := provider.Label{Name: "bug"}
+	mutedCard := provider.Card{
+		Number:            2,
+		Title:             "Muted card",
+		Labels:            []provider.Label{mutedLabel},
+		SubIssueCount:     2,
+		SubIssueCompleted: 1,
+		LinkedPRs: []provider.LinkedPR{
+			{Number: 21, Title: "feat: muted PR", URL: "https://github.com/o/r/pull/21", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		},
+	}
+	b := newBoardWithInlineCards(t, []provider.Card{focusedCard, mutedCard}, 120, 40)
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
+			{WindowName: "1", Status: "running", Agent: "claude"},
+			{WindowName: "2", Status: "running", Agent: "claude"},
+		},
+	}
+	b.Columns[0].Cursor = 0 // card 1 (index 0) is focused; card 2 (index 1) is not.
+
+	out := b.viewCardList(b.Columns[0], 40, 60, leftPanelStyle)
+
+	// Focused card: bold-white title, colored glyphs (unchanged behavior).
+	focusedText, _ := cardDisplayText(Card{Number: focusedCard.Number, Title: focusedCard.Title}, []string{"Column A"}, b.workingLabel)
+	wantFocusedTitle := selectedRowStyle(focusedText, true)
+	if !strings.Contains(out, wantFocusedTitle) {
+		t.Errorf("focused card title missing bold-white rendering %q; got:\n%s", wantFocusedTitle, out)
+	}
+
+	coloredPRGlyph := prStatusPrefix("mergeable", false)
+	coloredAgentBadge := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
+	if !strings.Contains(out, coloredPRGlyph) {
+		t.Errorf("rendered card list missing the focused/colored PR glyph %q; got:\n%s", coloredPRGlyph, out)
+	}
+	if !strings.Contains(out, coloredAgentBadge) {
+		t.Errorf("rendered card list missing the focused/colored agent badge %q; got:\n%s", coloredAgentBadge, out)
+	}
+
+	// Non-focused card's label dot keeps its label color -- the deliberate exception.
+	wantDot := lipgloss.NewStyle().Foreground(labelColor(Label{Name: mutedLabel.Name})).Render("●")
+	if !strings.Contains(out, wantDot) {
+		t.Errorf("non-focused card's label dot lost its label color; want %q present; got:\n%s", wantDot, out)
+	}
+
+	// Non-focused card's PR glyph and agent badge must be muted to gray, not
+	// colored -- the outer wrap alone cannot gray them, so a naive
+	// wrap-only implementation would still show these colored substrings
+	// even though the row "looks" wrapped.
+	mutedLines := b.cardStatusLines(Card{
+		Number:            mutedCard.Number,
+		SubIssueCount:     mutedCard.SubIssueCount,
+		SubIssueCompleted: mutedCard.SubIssueCompleted,
+		LinkedPRs:         []LinkedPR{{Number: 21, Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"}},
+	}, cardTitlePrefixWidth(Card{Number: mutedCard.Number}), true)
+	for _, line := range mutedLines {
+		if strings.Contains(line, coloredPRGlyph) {
+			t.Errorf("non-focused card status line %q still contains the colored PR glyph %q, want muted", line, coloredPRGlyph)
+		}
 	}
 }
