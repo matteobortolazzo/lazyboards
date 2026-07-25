@@ -550,6 +550,35 @@ func TestPRPicker_View_StylesSelectedPRTextWithSelectedRowStyle(t *testing.T) {
 	}
 }
 
+// TestPRPicker_View_AlwaysSelectedRow_NoRegressionAfterMutedRowExtension is
+// the #478 guard test: the PR picker has no cursor and always renders its
+// single row with selected=true (view.go:1074), so extending
+// selectedRowStyle to mute non-selected rows must not change the picker's
+// rendering at all -- there is no non-selected branch here.
+func TestPRPicker_View_AlwaysSelectedRow_NoRegressionAfterMutedRowExtension(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "Two PRs", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: first", URL: "https://github.com/o/r/pull/10"},
+			{Number: 11, Title: "feat: second", URL: "https://github.com/o/r/pull/11"},
+		}},
+	}, 120, 40)
+	b = sendKey(t, b, keyMsg("p"))
+	if b.mode != prPickerMode {
+		t.Fatalf("test setup: expected prPickerMode, got %d", b.mode)
+	}
+
+	pr := b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].LinkedPRs[b.prPickerIndex]
+	view := b.viewPRPickerModal()
+	want := selectedRowStyle(fmt.Sprintf("#%d %s", pr.Number, pr.Title), true)
+	if !strings.Contains(view, want) {
+		t.Errorf("PR picker view = %q, want it to still render its single row through selectedRowStyle(text, true) unchanged", view)
+	}
+}
+
 func TestPRPicker_Escape_ClearsPendingPRAction(t *testing.T) {
 	actions := map[string]config.Action{
 		"W": {Name: "Serve branch", Type: "shell", Scope: "pr", Command: "cd {pr_branch}"},

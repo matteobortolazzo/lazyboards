@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/muesli/termenv"
 )
 
 // newBoardWithLabelsAndAssignees creates a board with 2 columns, cards with
@@ -1440,6 +1442,53 @@ func TestFilterMode_CollectFilterItems_AllLabelsAreColumnNames_OmitsLabelSection
 	if !hasAssigneesHeader {
 		t.Error("expected 'Assignees' header even when all labels are excluded")
 	}
+}
+
+// --- Mute non-selected rows to gray (#478) ---
+
+// TestFilterMode_View_NonSelectedRowGray_SelectedRowBoldWhite asserts the
+// filter picker's selected row stays bold-white (selectedCardStyle, the
+// existing convention) while a non-selected row mutes to gray instead of
+// rendering as bare unstyled text.
+func TestFilterMode_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newBoardWithLabelsAndAssignees(t)
+	b = sendKey(t, b, keyMsg("f"))
+
+	selectedItem := b.filterItems[b.filterCursor]
+	otherIdx := -1
+	for i, item := range b.filterItems {
+		if !item.isHeader && i != b.filterCursor {
+			otherIdx = i
+			break
+		}
+	}
+	if otherIdx == -1 {
+		t.Fatal("fixture needs at least two selectable filter items")
+	}
+	otherItem := b.filterItems[otherIdx]
+
+	view := b.viewFilterModal()
+	var titleLine, selectedLine, nonSelectedLine string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Filter") {
+			titleLine = line
+		}
+		if strings.Contains(line, selectedItem.value) {
+			selectedLine = line
+		}
+		if strings.Contains(line, otherItem.value) {
+			nonSelectedLine = line
+		}
+	}
+	if titleLine == "" || selectedLine == "" || nonSelectedLine == "" {
+		t.Fatalf("view missing expected filter rows; got:\n%s", view)
+	}
+
+	assertMutedRowStyle(t, "filter", titleLine, selectedLine, nonSelectedLine)
 }
 
 func TestFilterMode_CollectFilterItems_AssigneesUnaffectedByColumnExclusion(t *testing.T) {

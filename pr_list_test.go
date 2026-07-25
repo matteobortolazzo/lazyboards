@@ -816,6 +816,63 @@ func TestPRList_View_UnknownStatusRow_StillPrefixedWithPurpleLinkedPRGlyph(t *te
 	}
 }
 
+// --- Mute non-selected rows to gray (#478) ---
+
+// TestPRList_View_NonSelectedRowStatusGlyphIsGray asserts the PR list's
+// pre-colored status glyph (built by prStatusPrefix) mutes to gray on a
+// non-selected row instead of keeping its status color -- an outer
+// selectedRowStyle wrap alone cannot recolor an already-rendered ANSI glyph
+// (docs/terminal-rendering.md), so prStatusPrefix must itself render the
+// muted variant when the row isn't selected. The selected row keeps the
+// colored glyph and its bold-white row styling.
+func TestPRList_View_NonSelectedRowStatusGlyphIsGray(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	fe := &action.FakeExecutor{}
+	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{
+		{Number: 1, Title: "Mergeable PRs card", LinkedPRs: []provider.LinkedPR{
+			{Number: 10, Title: "feat: first", URL: "https://github.com/o/r/pull/10", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+			{Number: 11, Title: "feat: second", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+		}},
+	}, fe)
+	b = sendKey(t, b, keyMsg("v"))
+	if b.prList.cursor != 0 {
+		t.Fatalf("test setup: expected cursor 0 (entry #10 selected), got %d", b.prList.cursor)
+	}
+
+	view := b.viewPRListModal()
+	var selectedRow, nonSelectedRow string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "#10") {
+			selectedRow = line
+		}
+		if strings.Contains(line, "#11") {
+			nonSelectedRow = line
+		}
+	}
+	if selectedRow == "" || nonSelectedRow == "" {
+		t.Fatalf("view missing expected PR rows; got:\n%s", view)
+	}
+
+	mutedGlyph := prStatusPrefix("mergeable", true)
+	coloredGlyph := prStatusPrefix("mergeable", false)
+	if mutedGlyph == coloredGlyph {
+		t.Fatal("test setup: muted and colored glyph renderings must differ (color profile not forced?)")
+	}
+
+	if !strings.Contains(selectedRow, coloredGlyph) {
+		t.Errorf("selected PR row %q missing colored status glyph %q", selectedRow, coloredGlyph)
+	}
+	if !strings.Contains(nonSelectedRow, mutedGlyph) {
+		t.Errorf("non-selected PR row %q missing muted status glyph %q, want it grayed at source", nonSelectedRow, mutedGlyph)
+	}
+	if strings.Contains(nonSelectedRow, coloredGlyph) {
+		t.Errorf("non-selected PR row %q still contains the colored status glyph %q, want it muted", nonSelectedRow, coloredGlyph)
+	}
+}
+
 func TestPRList_ActionHints_AreSortedByKey(t *testing.T) {
 	b, _ := prListActionFixture(t, map[string]config.Action{
 		"Z": {Name: "Last", Scope: "pr"},

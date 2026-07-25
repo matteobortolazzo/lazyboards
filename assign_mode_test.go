@@ -8,7 +8,9 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/muesli/termenv"
 )
 
 // newBoardWithCollaborators creates a Board loaded with collaborators and
@@ -473,6 +475,49 @@ func TestAssignMode_View_SanitizesControlSequencesInLogin(t *testing.T) {
 	if !strings.Contains(view, "user") {
 		t.Errorf("View() = %q, want visible login text %q retained", view, "user")
 	}
+}
+
+// --- Mute non-selected rows to gray (#478) ---
+
+// TestAssignMode_View_NonSelectedRowGray_SelectedRowBoldWhite asserts the
+// assignee picker's selected row stays bold-white while a non-selected row
+// mutes to gray instead of rendering as bare unstyled text.
+func TestAssignMode_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newBoardWithCollaborators(t)
+	b = sendKey(t, b, keyMsg("a"))
+	if b.mode != assignMode {
+		t.Fatalf("expected assignMode after 'a', got %d", b.mode)
+	}
+	if len(b.assign.items) < 2 {
+		t.Fatal("fixture needs at least two assign items")
+	}
+
+	selectedItem := b.assign.items[b.assign.cursor]
+	otherIdx := (b.assign.cursor + 1) % len(b.assign.items)
+	otherItem := b.assign.items[otherIdx]
+
+	view := b.viewAssignModal()
+	var titleLine, selectedLine, nonSelectedLine string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "Assign") {
+			titleLine = line
+		}
+		if strings.Contains(line, selectedItem.login) {
+			selectedLine = line
+		}
+		if strings.Contains(line, otherItem.login) {
+			nonSelectedLine = line
+		}
+	}
+	if titleLine == "" || selectedLine == "" || nonSelectedLine == "" {
+		t.Fatalf("view missing expected assign rows; got:\n%s", view)
+	}
+
+	assertMutedRowStyle(t, "assign", titleLine, selectedLine, nonSelectedLine)
 }
 
 // --- Global filter interaction ---

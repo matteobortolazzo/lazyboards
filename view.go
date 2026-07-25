@@ -465,14 +465,25 @@ const prStatusSymbolWidth = 1
 // This is the single choke point used by both viewPRListModal and
 // cardStatusLines, so the purple marker prefixes every PR row/line for all
 // statuses, including "unknown".
-func prStatusPrefix(status string) string {
+//
+// muted, when true, renders both the linked-PR glyph and the status symbol
+// via mutedRowStyle instead of their normal colored styles (#478) -- an
+// outer lipgloss wrap cannot override the ANSI color already baked into
+// these Render() calls, so muting must happen here, at construction.
+func prStatusPrefix(status string, muted bool) string {
 	symbol := prStatusSymbol(status)
 	pad := prStatusSymbolWidth - lipgloss.Width(symbol)
 	if pad < 0 {
 		pad = 0
 	}
-	statusColumn := strings.Repeat(" ", pad) + prStatusStyle(status).Render(symbol) + " "
-	return prIndicatorStyle.Render(linkedPRGlyph) + " " + statusColumn
+	glyphStyle := prIndicatorStyle
+	symbolStyle := prStatusStyle(status)
+	if muted {
+		glyphStyle = mutedRowStyle
+		symbolStyle = mutedRowStyle
+	}
+	statusColumn := strings.Repeat(" ", pad) + symbolStyle.Render(symbol) + " "
+	return glyphStyle.Render(linkedPRGlyph) + " " + statusColumn
 }
 
 // cardDisplayText builds the raw display text for a card's title line:
@@ -517,25 +528,38 @@ const subIssueChildGlyph = "\U000F17A9"
 // continuation indent wrapTitle uses for the "#N " prefix. Idle/badge-less
 // agent windows and a card with neither sub-issue relationship are skipped
 // entirely (no line, no vertical cost).
-func (b Board) cardStatusLines(card Card, indentWidth int) []string {
+//
+// muted, when true, renders sub-issue lines, agent badges, and the PR-glyph
+// prefix via mutedRowStyle instead of their normal colored styles (#478) --
+// an outer lipgloss wrap cannot override the ANSI color already baked into
+// these Render() calls, so muting must happen here, at construction.
+func (b Board) cardStatusLines(card Card, indentWidth int, muted bool) []string {
 	indent := strings.Repeat(" ", indentWidth)
+	subStyle := subIssueStyle
+	if muted {
+		subStyle = mutedRowStyle
+	}
 	var lines []string
 	if card.SubIssueCount > 0 {
-		lines = append(lines, indent+subIssueStyle.Render(fmt.Sprintf("%s %d/%d", subIssueParentGlyph, card.SubIssueCompleted, card.SubIssueCount)))
+		lines = append(lines, indent+subStyle.Render(fmt.Sprintf("%s %d/%d", subIssueParentGlyph, card.SubIssueCompleted, card.SubIssueCount)))
 	}
 	if card.ParentNumber > 0 {
-		lines = append(lines, indent+subIssueStyle.Render(fmt.Sprintf("%s #%d", subIssueChildGlyph, card.ParentNumber)))
+		lines = append(lines, indent+subStyle.Render(fmt.Sprintf("%s #%d", subIssueChildGlyph, card.ParentNumber)))
 	}
 	for _, w := range b.cardAgentWindows(card.Number) {
 		badge := agentBadgeText(w.Status, w.Agent)
 		if badge == "" {
 			continue
 		}
-		lines = append(lines, indent+agentBadgeStyle(w.Status).Render(badge))
+		badgeStyle := agentBadgeStyle(w.Status)
+		if muted {
+			badgeStyle = mutedRowStyle
+		}
+		lines = append(lines, indent+badgeStyle.Render(badge))
 	}
 	for _, pr := range card.LinkedPRs {
 		status := prStatus(pr)
-		lines = append(lines, indent+prStatusPrefix(status)+fmt.Sprintf("#%d", pr.Number))
+		lines = append(lines, indent+prStatusPrefix(status, muted)+fmt.Sprintf("#%d", pr.Number))
 	}
 	return lines
 }
@@ -548,7 +572,7 @@ func (b Board) cardStatusLines(card Card, indentWidth int) []string {
 // card's rendered height.
 func (b Board) cardLineCount(card Card, contentWidth int, columnNames []string) int {
 	text, prefixLen := cardDisplayText(card, columnNames, b.workingLabel)
-	return len(wrapTitle(text, contentWidth, prefixLen)) + len(b.cardStatusLines(card, prefixLen))
+	return len(wrapTitle(text, contentWidth, prefixLen)) + len(b.cardStatusLines(card, prefixLen, false))
 }
 
 func (b *Board) clampScrollOffset() {
@@ -649,16 +673,20 @@ func (b *Board) clampScrollOffset() {
 	}
 }
 
-// selectedRowStyle renders text with selectedCardStyle when selected is true,
-// or returns it unstyled otherwise. This is the single choke point for the
-// selected-row highlight convention shared by every list-like UI element
-// (card list, PR list, filter picker, assignee picker, git menu, agents
-// list, PR picker).
+// selectedRowStyle renders text with selectedCardStyle when selected is
+// true, or mutes it to gray via mutedRowStyle otherwise (#478). This is the
+// single choke point for the selected-row highlight convention shared by
+// every list-like UI element (card list, PR list, filter picker, assignee
+// picker, git menu, agents list, PR picker) -- a future list surface
+// inherits the muted-gray treatment by default. Note: an outer wrap here
+// only recolors plain text -- pre-colored glyphs (prStatusPrefix, agent
+// badges, sub-issue markers) must be muted at their own construction site
+// (see docs/terminal-rendering.md).
 func selectedRowStyle(text string, selected bool) string {
 	if selected {
 		return selectedCardStyle.Render(text)
 	}
-	return text
+	return mutedRowStyle.Render(text)
 }
 
 func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lipgloss.Style) string {
@@ -730,7 +758,8 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 			prefix := fmt.Sprintf("#%d ", card.Number)
 			lines[0] = strings.Replace(lines[0], prefix, cardNumberStyle.Render(prefix), 1)
 		}
-		lines = append(lines, b.cardStatusLines(card, prefixLen)...)
+		muted := j != col.Cursor
+		lines = append(lines, b.cardStatusLines(card, prefixLen, muted)...)
 		allCards = append(allCards, wrappedCard{lines: lines, selected: j == col.Cursor})
 	}
 
@@ -1546,7 +1575,7 @@ func (b Board) viewPRListModal() string {
 			entry := b.prList.entries[i]
 			title := truncateOutput(sanitizeControlSequences(entry.pr.Title), 32)
 			status := prStatus(entry.pr)
-			prefix := prStatusPrefix(status)
+			prefix := prStatusPrefix(status, i != b.prList.cursor)
 			display := fmt.Sprintf("%s  #%d  %s", prefix, entry.pr.Number, title)
 			if entry.cardNumber != 0 {
 				display += fmt.Sprintf("  —  %s #%d", entry.columnTitle, entry.cardNumber)

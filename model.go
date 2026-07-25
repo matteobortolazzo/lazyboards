@@ -32,12 +32,16 @@ var (
 	activeBorderTitleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("6"))
 	inactiveBorderTitleStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	selectedCardStyle        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-	leftPanelStyle           = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("15"))
-	rightPanelStyle          = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
-	outerStyle               = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
-	helpStyle                = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	prIndicatorStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("183"))
-	workingIndicatorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("215"))
+	// mutedRowStyle renders non-selected rows across every list-like surface
+	// (#478) -- the counterpart to selectedCardStyle in the selectedRowStyle
+	// choke point. Reuses gray 245, matching cardNumberStyle/subIssueStyle.
+	mutedRowStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	leftPanelStyle        = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("15"))
+	rightPanelStyle       = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
+	outerStyle            = lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("240"))
+	helpStyle             = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	prIndicatorStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("183"))
+	workingIndicatorStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("215"))
 	// Agent status badge styles (cenci card badges). All statuses render
 	// as a single mark in plain foreground color -- no reverse/background --
 	// so the badges read as one consistent family.

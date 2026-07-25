@@ -105,6 +105,37 @@ func execCmds(cmd tea.Cmd) {
 	}
 }
 
+// ansiEscapeCount returns the number of ANSI escape-sequence introducers
+// (ESC, 0x1b) in a rendered line. Used by the #478 muted-row modal tests to
+// detect whether a row's own content was styled, independent of the
+// modal's surrounding border/Place() padding (which contributes a fixed
+// number of escape sequences to every row regardless of that row's
+// content) -- comparing against a known-bare reference line (e.g. the
+// modal's title, which is never passed through selectedRowStyle) isolates
+// exactly the row-content styling under test without hardcoding any
+// specific style's raw ANSI bytes.
+func ansiEscapeCount(line string) int {
+	return strings.Count(line, "\x1b")
+}
+
+// assertMutedRowStyle asserts, for a list-like modal, that both its
+// selected and non-selected row lines carry more ANSI styling than a
+// border-only baseline line (e.g. the modal's title, which is never passed
+// through selectedRowStyle) -- the selected row via selectedCardStyle
+// (bold-white), the non-selected row via mutedRowStyle (gray), rather than
+// rendering as bare unstyled text (#478). kind names the modal in failure
+// messages (e.g. "agent", "assign", "filter", "git panel").
+func assertMutedRowStyle(t *testing.T, kind, titleLine, selectedLine, nonSelectedLine string) {
+	t.Helper()
+	baseline := ansiEscapeCount(titleLine)
+	if got := ansiEscapeCount(selectedLine); got <= baseline {
+		t.Errorf("selected %s row escape count = %d, want > baseline %d (bold-white styling missing)", kind, got, baseline)
+	}
+	if got := ansiEscapeCount(nonSelectedLine); got <= baseline {
+		t.Errorf("non-selected %s row escape count = %d, want > baseline %d (row content must mute to gray, not render as bare unstyled text)", kind, got, baseline)
+	}
+}
+
 // requireColumns fails the test immediately if the board has no columns,
 // preventing panics from index-out-of-range on the stub implementation.
 func requireColumns(t *testing.T, b Board) {
