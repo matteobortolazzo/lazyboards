@@ -749,7 +749,7 @@ func TestMilestoneList_View_RowShowsTitleBarPercentCountsAndDueDate(t *testing.T
 	pctIdx := strings.Index(row, wantPct)
 	countsIdx := strings.Index(row, wantCounts)
 	dueIdx := strings.Index(row, wantDue)
-	if !(titleIdx < pctIdx && pctIdx < countsIdx && countsIdx < dueIdx) {
+	if titleIdx >= pctIdx || pctIdx >= countsIdx || countsIdx >= dueIdx {
 		t.Errorf("column order wrong: title=%d pct=%d counts=%d due=%d, want strictly increasing; row = %q",
 			titleIdx, pctIdx, countsIdx, dueIdx, row)
 	}
