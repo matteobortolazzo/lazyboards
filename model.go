@@ -236,6 +236,7 @@ const (
 	gitPanelMode
 	dispatchMode
 	prListMode
+	milestoneListMode
 	agentListMode
 )
 
@@ -316,6 +317,22 @@ type LinkedPR struct {
 	Mergeable        string
 	MergeStateStatus string
 	State            string
+}
+
+// Milestone represents a repository-wide GitHub milestone shown in the
+// Milestones modal (i), independent of any board card. Distinct from
+// Card.Milestone (a plain string naming the milestone a card belongs to,
+// used for filter matching) -- this type carries the full aggregate data
+// (progress, counts, due date, URL) for the repo-wide modal. Mirrors
+// provider.Milestone field-for-field via mapMilestones, matching the
+// LinkedPR/mapLinkedPRs convention.
+type Milestone struct {
+	Title              string
+	URL                string
+	DueOn              *time.Time
+	OpenIssueCount     int
+	ClosedIssueCount   int
+	ProgressPercentage float64
 }
 
 // Label represents a card label with an optional hex color.
@@ -672,6 +689,38 @@ func (b Board) prListActionHints() []Hint {
 	return hints
 }
 
+// milestoneListState groups fields related to the Milestones modal.
+//
+// Rendering/handling precedence: loading -> err -> loaded. Unlike
+// prListState, there is no card-linked fallback: entries stays empty (nil)
+// in both the loading and err states, and is only populated on a successful
+// fetch -- this is one fast repo-wide query with no board-derived substitute
+// (a board-derived row would have no counts, no progress and no URL).
+type milestoneListState struct {
+	entries    []Milestone
+	cursor     int
+	loading    bool
+	err        string
+	generation uint64
+}
+
+// milestonesFetchedMsg is sent when fetchMilestonesCmd finishes listing the
+// repository's open milestones for the Milestones modal.
+type milestonesFetchedMsg struct {
+	milestones []provider.Milestone
+	err        error
+	generation uint64
+}
+
+// milestoneListModeHints are the status bar hints shown in the Milestones
+// modal.
+var milestoneListModeHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+	{Key: "j/k", Desc: "Navigate"},
+	{Key: "enter", Desc: "Filter board"},
+	{Key: "o", Desc: "Open in browser"},
+}
+
 // agentListEntry is one row in the agents list modal: a cenci-watch window
 // together with the board card it joins to. cardNumber is 0 when the window
 // name doesn't join to any visible card (same join rule as
@@ -886,12 +935,13 @@ type Board struct {
 	// resolved once at startup (empty when not inside tmux). The agents list is
 	// scoped to it so an instance surfaces only the agents in its own session
 	// (#410); empty means "not in tmux", which disables the scoping.
-	tmuxSession string
-	gitReader   gitdetect.Reader
-	gitPanel    gitPanelState
-	prList      prListState
-	agentList   agentListState
-	dispatch    dispatchState
+	tmuxSession   string
+	gitReader     gitdetect.Reader
+	gitPanel      gitPanelState
+	prList        prListState
+	milestoneList milestoneListState
+	agentList     agentListState
+	dispatch      dispatchState
 	// openPRCount is the repo-wide open-PR total shown by the status-bar PR
 	// indicator, updated by every successful ListOpenPRs result (board fetch
 	// cycles and the v modal's fetch). -1 is the "never fetched" sentinel:
@@ -1085,6 +1135,18 @@ func (b *Board) enterPRList() {
 	b.prList = prListState{entries: entries, cursor: 0, loading: true, generation: generation}
 	b.mode = prListMode
 	b.statusBar.SetActionHints(b.prListActionHints())
+}
+
+// enterMilestoneList opens the repo-wide Milestones modal (i). Unlike
+// enterPRList there is no card-linked fallback to seed: entries starts nil
+// and stays that way until fetchMilestonesCmd's result lands (see
+// milestoneListState's doc comment). It always opens, even before any
+// milestones are known, so the modal can render its loading state.
+func (b *Board) enterMilestoneList() {
+	generation := b.milestoneList.generation + 1
+	b.milestoneList = milestoneListState{entries: nil, cursor: 0, loading: true, generation: generation}
+	b.mode = milestoneListMode
+	b.statusBar.SetActionHints(milestoneListModeHints)
 }
 
 // enterAgentList opens the global agents list modal. Rows are derived live
@@ -1403,6 +1465,21 @@ func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
 			Mergeable:        pr.Mergeable,
 			MergeStateStatus: pr.MergeStateStatus,
 			State:            pr.State,
+		}
+	})
+}
+
+// mapMilestones converts provider-layer milestones to app-layer Milestone
+// values, mirroring the LinkedPR/mapLinkedPRs convention.
+func mapMilestones(milestones []provider.Milestone) []Milestone {
+	return mapSlice(milestones, func(m provider.Milestone) Milestone {
+		return Milestone{
+			Title:              m.Title,
+			URL:                m.URL,
+			DueOn:              m.DueOn,
+			OpenIssueCount:     m.OpenIssueCount,
+			ClosedIssueCount:   m.ClosedIssueCount,
+			ProgressPercentage: m.ProgressPercentage,
 		}
 	})
 }

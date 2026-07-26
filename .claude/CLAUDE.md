@@ -68,6 +68,7 @@ Tests are split by domain to mirror production code:
 | `help_test.go` | Help modal (open/close from normal & detail-focused states) |
 | `label_confirm_test.go` | Frontmatter compose/parse round-trip for labels |
 | `map_slice_test.go` | `mapSlice` generic helper |
+| `milestone_list_test.go` | Milestones list modal (fetch/sort/interaction/view state precedence) |
 | `mouse_test.go` | Mouse wheel scroll/cursor movement |
 | `pr_count_test.go` | PR count aggregation and status bar indicator |
 | `pr_list_test.go` | Global PR list modal navigation and selection |

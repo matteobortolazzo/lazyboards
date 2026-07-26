@@ -171,6 +171,19 @@ func fetchOpenPRsCmd(p provider.BoardProvider, generation uint64) tea.Cmd {
 	}
 }
 
+// fetchMilestonesCmd returns a tea.Cmd that lists the repository's open
+// milestones via the provider, delivering milestonesFetchedMsg for the
+// Milestones modal.
+func fetchMilestonesCmd(p provider.BoardProvider, generation uint64) tea.Cmd {
+	return func() tea.Msg {
+		milestones, err := p.ListMilestones(context.Background())
+		if err != nil {
+			return milestonesFetchedMsg{err: err, generation: generation}
+		}
+		return milestonesFetchedMsg{milestones: milestones, generation: generation}
+	}
+}
+
 // fetchGitStatusCmd returns a tea.Cmd that reads live git status from dir via
 // reader, delivering gitStatusMsg with either the parsed Status or the read
 // error. Exported behavior (not name) is reusable by future git-panel work

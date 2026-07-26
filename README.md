@@ -15,6 +15,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Assign and unassign collaborators to cards
 - Search cards by title and filter by label, assignee, or milestone
 - PR linking with picker modal
+- Milestones modal: every open milestone in the repository with progress bar, counts, and due date, `Enter` to filter the board by milestone (`i`)
 - Custom actions: open URLs or run shell commands bound to Shift+key or multi-key sequences (neovim-style prefix keys), with column cleanup on departure
 - Mouse support: scroll, click tabs, click cards
 - Auto-detection of provider and repo from git remote
@@ -436,6 +437,7 @@ Press `?` at any time to open the in-app help popup.
 | `x` | Close card (with confirmation) |
 | `t` | Delete card permanently (with two-step confirmation) |
 | `v` | Open PRs (all open PRs in the repo) |
+| `i` | Milestones (all open milestones in the repo) |
 | `w` | (cenci) Agents (cenci-watch windows in this instance's tmux session, labeled `session:index`; `Enter` jumps to the tmux window) |
 | `s` | (cenci) Go to agent (jumps straight to the selected card's agent window in this session when there's exactly one; opens a picker when there are several) |
 | `/` | Search |
@@ -525,6 +527,25 @@ available inside the modal.
 | `Enter` | Open selected PR |
 | `A-Z` | Custom action (`scope: pr`) on selected PR |
 | `Esc` | Cancel |
+
+### Milestones
+
+Opened with `i` from normal mode. Lists every **open milestone in the
+repository** on one line each: title, a block progress bar, percentage,
+`closed/total` issue counts, and its due date (or `no due date` when unset).
+Three states: `Loading milestones...` while the fetch is in flight, the list
+on success, and `Couldn't load milestones` (no rows) on error.
+
+`Enter` sets the selected milestone as the active board filter and closes the
+modal, exactly like the filter picker; `f` clears it. `o` opens the
+milestone's GitHub URL in your browser without closing the modal.
+
+| Key | Action |
+|-----|--------|
+| `esc` | Cancel |
+| `j` / `k` | Navigate |
+| `enter` | Filter board |
+| `o` | Open in browser |
 
 ### Agents
 
@@ -672,7 +693,7 @@ mouse: false
 
 - **Scroll wheel** on card list: navigate up/down
 - **Scroll wheel** on detail panel: scroll body
-- **Scroll wheel** in modals (PR list, agents list, filter picker, assign picker, git menu, PR picker, help): move the row cursor up/down, clamped at the first/last item (does not wrap); the filter picker skips header rows, and the help modal scrolls its viewport instead
+- **Scroll wheel** in modals (PR list, milestones list, agents list, filter picker, assign picker, git menu, PR picker, help): move the row cursor up/down, clamped at the first/last item (does not wrap); the filter picker skips header rows, and the help modal scrolls its viewport instead
 - **Click** column tabs: switch columns
 - **Click** a card: select it
 

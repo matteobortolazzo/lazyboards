@@ -338,6 +338,7 @@ func TestHelpContent_AllSectionsPresent(t *testing.T) {
 		"Create Card",
 		"Configuration",
 		"PR Picker",
+		"Milestones",
 		"Comment",
 		"Filter",
 		"Search",

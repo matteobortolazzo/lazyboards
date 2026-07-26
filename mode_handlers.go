@@ -258,6 +258,9 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		b.enterPRList()
 		return b, fetchOpenPRsCmd(b.provider, b.prList.generation)
+	case "i":
+		b.enterMilestoneList()
+		return b, fetchMilestonesCmd(b.provider, b.milestoneList.generation)
 	case "w":
 		b.enterAgentList()
 		return b, nil
@@ -800,6 +803,67 @@ func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// the comment-action flow is normal-mode-only.
 	if !msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
 		return b.handlePRListActionKey(msg.String())
+	}
+	return b, nil
+}
+
+// milestoneStatusTitleMaxLen bounds a milestone title before it reaches a
+// timed status-bar message: unlike the modal's row text (which the terminal
+// width already bounds), timed messages render untruncated
+// (statusbar.go), so an untrusted GitHub title must be capped here too.
+const milestoneStatusTitleMaxLen = 60
+
+// handleMilestoneListModeKey handles key presses while the Milestones modal
+// (i) is open. Enter closes the modal and, mirroring handlePRListModeKey's
+// "close first, then guard" shape, applies the selected milestone as the
+// board filter (applyFilter) only when entries is non-empty and cursor is in
+// range -- the modal always closes on Enter, but no filter or status message
+// is applied when there is nothing to select. Esc cancels without applying
+// anything. o opens the selected milestone's URL and leaves the modal open,
+// mirroring handleTicketOpenKey's empty-URL guard ("URL not available",
+// StatusWarning).
+func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case tea.KeyEnter:
+		b.mode = normalMode
+		b.statusBar.SetActionHints(b.normalHints)
+		if len(b.milestoneList.entries) == 0 || b.milestoneList.cursor >= len(b.milestoneList.entries) {
+			return b, nil
+		}
+		m := b.milestoneList.entries[b.milestoneList.cursor]
+		b.applyFilter(filterByMilestone, m.Title)
+		title := truncateOutput(flattenToSingleLine(sanitizeControlSequences(m.Title)), milestoneStatusTitleMaxLen)
+		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Filtered by milestone: %s", title), StatusSuccess, statusMessageDuration)
+		return b, cmd
+	}
+
+	switch msg.String() {
+	case "j", "down":
+		b.milestoneList.cursor = moveCursor(b.milestoneList.cursor, len(b.milestoneList.entries), true)
+		return b, nil
+	case "k", "up":
+		b.milestoneList.cursor = moveCursor(b.milestoneList.cursor, len(b.milestoneList.entries), false)
+		return b, nil
+	case "o":
+		if len(b.milestoneList.entries) == 0 || b.milestoneList.cursor >= len(b.milestoneList.entries) {
+			return b, nil
+		}
+		m := b.milestoneList.entries[b.milestoneList.cursor]
+		title := truncateOutput(flattenToSingleLine(sanitizeControlSequences(m.Title)), milestoneStatusTitleMaxLen)
+		if m.URL == "" {
+			cmd := b.statusBar.SetTimedMessage("URL not available", StatusWarning, statusMessageDuration)
+			return b, cmd
+		}
+		if err := b.executor.OpenURL(m.URL); err != nil {
+			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+			return b, cmd
+		}
+		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened milestone %s", title), StatusSuccess, statusMessageDuration)
+		return b, cmd
 	}
 	return b, nil
 }

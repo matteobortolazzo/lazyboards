@@ -45,3 +45,15 @@ func sanitizeControlSequences(s string) string {
 		return r
 	}, stripped)
 }
+
+// flattenToSingleLine collapses \n, \r, and \t into a single space. Unlike
+// sanitizeControlSequences (which deliberately preserves \n/\t for
+// multi-line card.Body rendering), callers that render untrusted text into a
+// single-line field -- e.g. a fixed-cell row grid or a one-line status
+// message -- must flatten it first, or an embedded newline/tab can visually
+// spoof an extra row or break the field's layout. Apply this AFTER
+// sanitizeControlSequences (so ANSI escapes are stripped first) and BEFORE
+// any length truncation.
+func flattenToSingleLine(s string) string {
+	return strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
+}

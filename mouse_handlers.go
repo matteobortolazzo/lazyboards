@@ -35,6 +35,8 @@ func (b Board) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return b.handleHelpWheel(msg)
 	case prListMode:
 		return b.handlePRListWheel(msg)
+	case milestoneListMode:
+		return b.handleMilestoneListWheel(msg)
 	case agentListMode:
 		return b.handleAgentListWheel(msg)
 	case assignMode:
@@ -64,6 +66,11 @@ func (b Board) handleHelpWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 func (b Board) handlePRListWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	b.prList.cursor = clampCursor(b.prList.cursor, len(b.prList.entries), msg.Button == tea.MouseButtonWheelDown)
+	return b, nil
+}
+
+func (b Board) handleMilestoneListWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	b.milestoneList.cursor = clampCursor(b.milestoneList.cursor, len(b.milestoneList.entries), msg.Button == tea.MouseButtonWheelDown)
 	return b, nil
 }
 

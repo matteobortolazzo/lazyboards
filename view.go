@@ -145,6 +145,10 @@ func (b Board) View() string {
 		return b.viewPRListModal()
 	}
 
+	if b.mode == milestoneListMode {
+		return b.viewMilestoneListModal()
+	}
+
 	if b.mode == agentListMode {
 		return b.viewAgentListModal()
 	}
@@ -1157,6 +1161,7 @@ var helpSections = []helpSection{
 		{"x", "Close card"},
 		{"t", "Delete card"},
 		{"v", "Open PRs"},
+		{"i", "Milestones (repo-wide)"},
 		{"w", "Agents (cenci)"},
 		{"s", "Go to agent (cenci)"},
 		{"/", "Search"},
@@ -1210,6 +1215,13 @@ var helpSections = []helpSection{
 		{"j/k", "Navigate"},
 		{"enter", "Open PR"},
 		{"A-Z", "Custom action (scope: pr)"},
+		{"esc", "Cancel"},
+	}},
+	{"Milestones", [][2]string{
+		{"i", "Milestones (repo-wide)"},
+		{"j/k", "Navigate"},
+		{"enter", "Filter board by milestone"},
+		{"o", "Open in browser"},
 		{"esc", "Cancel"},
 	}},
 	{"Agents (cenci)", [][2]string{
@@ -1527,6 +1539,40 @@ func (b Board) viewGitPanelModal() string {
 	return b.renderModal(modalContent, modalWidth)
 }
 
+// scrollWindow computes the visible [start, end) row range for a
+// cursor-centered, height-limited list, plus whether to render the ▲/▼
+// scroll indicators. Shared by viewPRListModal, viewMilestoneListModal, and
+// viewAgentListModal so their windowing math can't drift apart: a list that
+// fits within maxRowLines renders in full with no indicators; a longer list
+// scrolls to keep cursor in view, and at very small heights (maxRowLines < 3)
+// only one directional indicator is shown so there's still room for the
+// selected row.
+func scrollWindow(cursor, total, maxRowLines int) (start, end int, showUp, showDown bool) {
+	start, end = 0, total
+	if total <= maxRowLines {
+		return start, end, false, false
+	}
+	entryLines := maxRowLines - 2
+	if entryLines < 1 {
+		entryLines = 1
+	}
+	start = cursor - entryLines/2
+	if start < 0 {
+		start = 0
+	}
+	end = start + entryLines
+	if end > total {
+		end = total
+		start = end - entryLines
+	}
+	showUp = start > 0
+	showDown = end < total
+	if maxRowLines < 3 && showUp && showDown {
+		showDown = false
+	}
+	return start, end, showUp, showDown
+}
+
 // viewPRListModal renders the global PR list: every open PR in the
 // repository in one navigable list. Each row shows the PR number and its
 // (truncated) title; rows linked to a board card also carry the owning
@@ -1561,30 +1607,7 @@ func (b Board) viewPRListModal() string {
 		if maxRowLines < 1 {
 			maxRowLines = 1
 		}
-		start, end := 0, len(b.prList.entries)
-		showUp, showDown := false, false
-		if len(b.prList.entries) > maxRowLines {
-			entryLines := maxRowLines - 2
-			if entryLines < 1 {
-				entryLines = 1
-			}
-			start = b.prList.cursor - entryLines/2
-			if start < 0 {
-				start = 0
-			}
-			end = start + entryLines
-			if end > len(b.prList.entries) {
-				end = len(b.prList.entries)
-				start = end - entryLines
-			}
-			showUp = start > 0
-			showDown = end < len(b.prList.entries)
-			// At very small terminal heights there is only room for the
-			// selected row and one directional indicator.
-			if maxRowLines < 3 && showUp && showDown {
-				showDown = false
-			}
-		}
+		start, end, showUp, showDown := scrollWindow(b.prList.cursor, len(b.prList.entries), maxRowLines)
 		if showUp {
 			lines = append(lines, helpStyle.Render("▲"))
 		}
@@ -1619,6 +1642,143 @@ func (b Board) viewPRListModal() string {
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
+}
+
+// milestoneModalWidth is the fixed total width of the Milestones modal
+// (view.go:1036's renderModal Padding(1, 2) subtracts 4 for content =
+// 72-cell content width). The plan deliberately does not clamp this to
+// narrow terminals (no narrow-terminal width clamping in scope).
+const milestoneModalWidth = 76
+
+// Fixed-width columns of a milestone row, in cells (see the plan's column
+// math: 30 + 12 + 4 + 7 + 11 + 4x2 separators = 72, the modal's content
+// width). The title column is the only elastic one, computed as whatever is
+// left after these fixed columns and separators.
+const (
+	milestoneBarWidth    = 12
+	milestonePctWidth    = 4
+	milestoneCountsWidth = 7
+	milestoneDueWidth    = 11
+	// milestoneColumnGap is the 2-space separator rendered between every pair
+	// of adjacent columns; there are 4 gaps (title|bar|pct|counts|due).
+	milestoneColumnGap = "  "
+)
+
+// milestoneTitleWidth returns the elastic title column width for the fixed
+// 72-cell content area (milestoneModalWidth minus renderModal's 4-cell
+// padding overhead).
+func milestoneTitleWidth() int {
+	contentWidth := milestoneModalWidth - 4
+	fixed := milestoneBarWidth + milestonePctWidth + milestoneCountsWidth + milestoneDueWidth + 4*len(milestoneColumnGap)
+	return contentWidth - fixed
+}
+
+// viewMilestoneListModal renders the repo-wide Milestones modal (i): every
+// open milestone in the repository, one per line (title, progress bar,
+// percentage, closed/total counts, due date). State precedence mirrors
+// milestoneListState's (loading -> err -> loaded); unlike viewPRListModal
+// there is no fallback list and no degraded-view note on error -- the error
+// state renders only the fixed "Couldn't load milestones" message, never the
+// raw/sanitized provider error text (see the plan's Resolved Decisions).
+func (b Board) viewMilestoneListModal() string {
+	modalWidth := milestoneModalWidth
+	titleWidth := milestoneTitleWidth()
+
+	var lines []string
+	lines = append(lines, "Milestones")
+	lines = append(lines, "")
+
+	switch {
+	case b.milestoneList.loading:
+		lines = append(lines, "Loading milestones...")
+	case b.milestoneList.err != "":
+		lines = append(lines, "Couldn't load milestones")
+	case len(b.milestoneList.entries) == 0:
+		lines = append(lines, "No open milestones")
+	default:
+		entries := b.milestoneList.entries
+		// b.Height <= 0 means the terminal size is not (yet) known -- rather
+		// than clamp to a nonsensical 1-row window, show every entry
+		// unwindowed. Real usage always has a positive Height by the time
+		// View() renders this modal (set by the initial tea.WindowSizeMsg).
+		maxRowLines := len(entries)
+		if b.Height > 0 {
+			maxRowLines = b.Height - 8
+			if maxRowLines < 1 {
+				maxRowLines = 1
+			}
+		}
+		start, end, showUp, showDown := scrollWindow(b.milestoneList.cursor, len(entries), maxRowLines)
+		if showUp {
+			lines = append(lines, helpStyle.Render("▲"))
+		}
+		for i := start; i < end; i++ {
+			m := entries[i]
+			selected := i == b.milestoneList.cursor
+
+			title := truncateOutput(flattenToSingleLine(sanitizeControlSequences(m.Title)), titleWidth-3)
+			titleCell := padCell(title, titleWidth)
+
+			bar := renderProgressBar(m.ProgressPercentage, milestoneBarWidth, !selected)
+
+			pct := int(math.Round(m.ProgressPercentage))
+			pctCell := padCell(fmt.Sprintf("%3d%%", pct), milestonePctWidth)
+
+			total := m.ClosedIssueCount + m.OpenIssueCount
+			countsCell := padCell(fmt.Sprintf("%d/%d", m.ClosedIssueCount, total), milestoneCountsWidth)
+
+			due := "no due date"
+			if m.DueOn != nil {
+				due = m.DueOn.UTC().Format("2006-01-02")
+			}
+			dueCell := padCell(due, milestoneDueWidth)
+
+			display := strings.Join([]string{titleCell, bar, pctCell, countsCell, dueCell}, milestoneColumnGap)
+			display = selectedRowStyle(display, selected)
+			lines = append(lines, display)
+		}
+		if showDown {
+			lines = append(lines, helpStyle.Render("▼"))
+		}
+	}
+
+	lines = append(lines, "")
+	milestoneHints := NewStatusBar(milestoneListModeHints)
+	lines = append(lines, milestoneHints.View(modalWidth, 0, 0))
+
+	modalContent := strings.Join(lines, "\n")
+	return b.renderModal(modalContent, modalWidth)
+}
+
+// padCell pads s with trailing spaces to exactly width terminal cells,
+// measured via lipgloss.Width (never len(), per docs/terminal-rendering.md),
+// or hard-clamps it to width cells when s is already wider. This protects
+// the Milestones modal's fixed column grid from wrapping onto a second
+// physical line: truncateOutput truncates by runes and can return more
+// cells than requested (its "..." suffix, or a wide CJK/emoji rune), and a
+// naive rune-count clamp can land mid-rune on a wide-rune boundary, which
+// this pads back up to the exact target width. Returns "" for a
+// non-positive width.
+func padCell(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	w := lipgloss.Width(s)
+	if w == width {
+		return s
+	}
+	if w < width {
+		return s + strings.Repeat(" ", width-w)
+	}
+	runes := []rune(s)
+	for len(runes) > 0 && lipgloss.Width(string(runes)) > width {
+		runes = runes[:len(runes)-1]
+	}
+	out := string(runes)
+	if got := lipgloss.Width(out); got < width {
+		out += strings.Repeat(" ", width-got)
+	}
+	return out
 }
 
 // viewAgentListModal renders the agents list modal. State precedence mirrors
@@ -1662,30 +1822,7 @@ func (b Board) viewAgentListModal() string {
 		if maxRowLines < 1 {
 			maxRowLines = 1
 		}
-		start, end := 0, len(entries)
-		showUp, showDown := false, false
-		if len(entries) > maxRowLines {
-			entryLines := maxRowLines - 2
-			if entryLines < 1 {
-				entryLines = 1
-			}
-			start = b.agentList.cursor - entryLines/2
-			if start < 0 {
-				start = 0
-			}
-			end = start + entryLines
-			if end > len(entries) {
-				end = len(entries)
-				start = end - entryLines
-			}
-			showUp = start > 0
-			showDown = end < len(entries)
-			// At very small terminal heights there is only room for the
-			// selected row and one directional indicator.
-			if maxRowLines < 3 && showUp && showDown {
-				showDown = false
-			}
-		}
+		start, end, showUp, showDown := scrollWindow(b.agentList.cursor, len(entries), maxRowLines)
 		if showUp {
 			lines = append(lines, helpStyle.Render("▲"))
 		}
