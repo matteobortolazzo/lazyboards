@@ -362,7 +362,7 @@ func TestFilterMode_CollectFilterItems_MixedCaseFixture_SectionOrderUnchanged(t 
 	if labelsIdx == -1 || assigneesIdx == -1 || milestonesIdx == -1 {
 		t.Fatalf("expected Labels, Assignees, and Milestones headers, got items=%v", items)
 	}
-	if !(labelsIdx < assigneesIdx && assigneesIdx < milestonesIdx) {
+	if labelsIdx >= assigneesIdx || assigneesIdx >= milestonesIdx {
 		t.Errorf("section header order = Labels@%d, Assignees@%d, Milestones@%d; want Labels < Assignees < Milestones", labelsIdx, assigneesIdx, milestonesIdx)
 	}
 }
