@@ -209,6 +209,29 @@ func (g *GitHubProvider) ListOpenPRs(ctx context.Context) ([]LinkedPR, error) {
 	return prs, nil
 }
 
+// ListMilestones pages through the repository's open milestones via
+// gql.fetchMilestonePage, preserving the connection's order (due date
+// ascending). Unlike ListOpenPRs, there is no cross-page dedup: milestones
+// have no closing-PR duplication problem, and Milestone carries no numeric
+// key to dedup on. Any page error fails the whole listing -- a silently
+// partial repo-wide list would defeat the overview's purpose.
+func (g *GitHubProvider) ListMilestones(ctx context.Context) ([]Milestone, error) {
+	var milestones []Milestone
+	cursor := ""
+	for {
+		page, err := g.gql.fetchMilestonePage(ctx, g.owner, g.repo, cursor)
+		if err != nil {
+			return nil, err
+		}
+		milestones = append(milestones, page.milestones...)
+		if !page.hasNextPage {
+			break
+		}
+		cursor = page.endCursor
+	}
+	return milestones, nil
+}
+
 // normalizeLabelColor strips the optional "#" prefix from a label color
 // value and validates 6-character hex format, returning an empty string if
 // the result is not valid hex. Shared by the REST (extractLabels) and

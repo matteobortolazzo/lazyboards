@@ -29,6 +29,7 @@ type FakeProvider struct {
 	GetAuthenticatedUserCalls int
 	ListLabelsCalls           int
 	ListOpenPRsCalls          int
+	ListMilestonesCalls       int
 }
 
 // fakeCreatedAtBase anchors the fixture cards' creation timestamps.
@@ -44,6 +45,15 @@ var fakeCreatedAtBase = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 // number n, decreasing with n.
 func fakeCreatedAt(n int) time.Time {
 	return fakeCreatedAtBase.AddDate(0, 0, -n)
+}
+
+// fakeMilestoneDue returns a pointer to a fixed absolute UTC due date for a
+// fixture milestone. Dates are absolute, never relative to time.Now(), so
+// fixture assertions stay deterministic -- same convention as
+// fakeCreatedAtBase above.
+func fakeMilestoneDue(year int, month time.Month, day int) *time.Time {
+	due := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	return &due
 }
 
 // NewFakeProvider returns a FakeProvider pre-populated with hardcoded Kanban data.
@@ -154,6 +164,33 @@ func (f *FakeProvider) ListOpenPRs(_ context.Context) ([]LinkedPR, error) {
 		{Number: 31, Title: "docs: improve README", URL: "https://github.com/owner/repo/pull/31", Mergeable: "MERGEABLE", MergeStateStatus: "BLOCKED", State: "OPEN"},
 		{Number: 30, Title: "docs: add README", URL: "https://github.com/owner/repo/pull/30", IsDraft: true, Mergeable: "MERGEABLE", MergeStateStatus: "DRAFT", State: "OPEN"},
 		{Number: 20, Title: "feat: add data model", URL: "https://github.com/owner/repo/pull/20", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN", State: "OPEN"},
+	}, nil
+}
+
+// ListMilestones returns the fake repository's open milestones, due-date
+// ascending with the undated one last (mirroring GitHub's DUE_DATE ASC null
+// placement -- cosmetic here only, the real GitHubProvider never sorts).
+// Each row exercises a distinct rendering branch:
+//   - "v0.9": 100%-complete; title matches no board card, so the
+//     repo-wide-vs-board distinction is exercisable.
+//   - "v1.0": the milestone cards #4/#5 carry (fake.go above) -- the only
+//     board-matching row, with partial (25%) progress.
+//   - "v1.1": deliberately non-derivable progress (37.5, not the 50 that
+//     2/(2+2)*100 would derive) -- the Q2b honesty guard so a consumer
+//     deriving progress from counts fails against this fixture instead of
+//     passing by coincidence.
+//   - "Icebox": empty (0 open / 0 closed) milestone/divide-by-zero branch;
+//     has a due date so "empty" and "no due date" stay separable.
+//   - "Backlog": DueOn == nil branch and the non-empty 0% branch; has open
+//     items so "no due date" and "empty" stay separable.
+func (f *FakeProvider) ListMilestones(_ context.Context) ([]Milestone, error) {
+	f.ListMilestonesCalls++
+	return []Milestone{
+		{Title: "v0.9", URL: "https://github.com/owner/repo/milestone/1", DueOn: fakeMilestoneDue(2024, time.February, 1), OpenIssueCount: 0, ClosedIssueCount: 8, ProgressPercentage: 100.0},
+		{Title: "v1.0", URL: "https://github.com/owner/repo/milestone/2", DueOn: fakeMilestoneDue(2024, time.March, 15), OpenIssueCount: 3, ClosedIssueCount: 1, ProgressPercentage: 25.0},
+		{Title: "v1.1", URL: "https://github.com/owner/repo/milestone/3", DueOn: fakeMilestoneDue(2024, time.June, 30), OpenIssueCount: 2, ClosedIssueCount: 2, ProgressPercentage: 37.5},
+		{Title: "Icebox", URL: "https://github.com/owner/repo/milestone/4", DueOn: fakeMilestoneDue(2024, time.December, 31), OpenIssueCount: 0, ClosedIssueCount: 0, ProgressPercentage: 0.0},
+		{Title: "Backlog", URL: "https://github.com/owner/repo/milestone/5", DueOn: nil, OpenIssueCount: 5, ClosedIssueCount: 0, ProgressPercentage: 0.0},
 	}, nil
 }
 

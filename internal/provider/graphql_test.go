@@ -37,6 +37,13 @@ type fakeGraphQLClient struct {
 
 	calledOpenPRCursors []string
 
+	// milestonePages scripts fetchMilestonePage results, keyed by the
+	// afterCursor that would request them, mirroring openPRPages/
+	// calledOpenPRCursors for the repo-wide milestones connection.
+	milestonePages map[string]milestonePage
+
+	calledMilestoneCursors []string
+
 	// deleteIssueErr scripts the error DeleteIssue returns, letting tests
 	// exercise GitHubProvider.DeleteCard's success / not-found / generic-error
 	// mapping without a real GraphQL round-trip.
@@ -78,6 +85,17 @@ func (f *fakeGraphQLClient) fetchOpenPRPage(_ context.Context, _, _, afterCursor
 		return openPRPage{}, f.err
 	}
 	return f.openPRPages[afterCursor], nil
+}
+
+// fetchMilestonePage returns the scripted milestonePage for the given
+// afterCursor, recording each call in calledMilestoneCursors so tests can
+// assert multi-page sequences, mirroring fetchOpenPRPage.
+func (f *fakeGraphQLClient) fetchMilestonePage(_ context.Context, _, _, afterCursor string) (milestonePage, error) {
+	f.calledMilestoneCursors = append(f.calledMilestoneCursors, afterCursor)
+	if f.err != nil {
+		return milestonePage{}, f.err
+	}
+	return f.milestonePages[afterCursor], nil
 }
 
 // deleteIssue returns the scripted deleteIssueErr, letting tests script
@@ -777,5 +795,164 @@ func TestMapIssueQueryNode_LinksBothClosingAndMentionedPRs(t *testing.T) {
 	}
 	if !byNumber[490] || !byNumber[509] {
 		t.Fatalf("mapIssueQueryNode().linkedPRs = %+v, want both PR #490 (closing) and #509 (mention-only) present", got.linkedPRs)
+	}
+}
+
+// --- Milestones (repo-wide, #485) ---
+//
+// Mirrors the openPRPage/openPRsQuery/mapOpenPRsQuery block above one-for-one
+// for the new repo-wide milestones connection.
+
+// TestMilestonesQuery_UsesOpenStateAndDueDateOrdering reflects on
+// milestonesQuery's nested Milestones field tag, pinning the exact
+// GraphQL connection text sent to GitHub -- mirrors
+// TestIssueQuery_UsesGitHubClosingPRConnection, the only cheap guard on the
+// real-network query text.
+func TestMilestonesQuery_UsesOpenStateAndDueDateOrdering(t *testing.T) {
+	repoField, ok := reflect.TypeOf(milestonesQuery{}).FieldByName("Repository")
+	if !ok {
+		t.Fatal("milestonesQuery is missing Repository")
+	}
+	field, ok := repoField.Type.FieldByName("Milestones")
+	if !ok {
+		t.Fatal("milestonesQuery.Repository is missing Milestones")
+	}
+	want := "milestones(states: [OPEN], first: 100, after: $milestoneCursor, orderBy: {field: DUE_DATE, direction: ASC})"
+	if got := field.Tag.Get("graphql"); got != want {
+		t.Fatalf("milestones GraphQL field = %q, want %q", got, want)
+	}
+}
+
+// TestMapMilestonesQuery_MapsNodesAndPageInfo pins the repo-wide milestones
+// query mapping: all six Milestone fields plus outer pageInfo carry through.
+func TestMapMilestonesQuery_MapsNodesAndPageInfo(t *testing.T) {
+	due := githubv4.DateTime{Time: time.Date(2024, 6, 30, 0, 0, 0, 0, time.UTC)}
+	var q milestonesQuery
+	q.Repository.Milestones.Nodes = []milestoneQueryNode{
+		{
+			Title:              githubv4.String("v1.1"),
+			URL:                githubv4.String("https://github.com/o/r/milestone/3"),
+			DueOn:              &due,
+			OpenIssueCount:     githubv4.Int(2),
+			ClosedIssueCount:   githubv4.Int(2),
+			ProgressPercentage: githubv4.Float(37.5),
+		},
+	}
+	q.Repository.Milestones.PageInfo = pageInfoFragment{HasNextPage: true, EndCursor: "ms-cursor-A"}
+
+	got := mapMilestonesQuery(q)
+
+	if len(got.milestones) != 1 {
+		t.Fatalf("mapMilestonesQuery().milestones has %d entries, want 1", len(got.milestones))
+	}
+	m := got.milestones[0]
+	if m.Title != "v1.1" || m.URL != "https://github.com/o/r/milestone/3" {
+		t.Fatalf("mapMilestonesQuery().milestones[0] = %+v, want Title=%q URL=%q", m, "v1.1", "https://github.com/o/r/milestone/3")
+	}
+	if m.OpenIssueCount != 2 || m.ClosedIssueCount != 2 {
+		t.Fatalf("mapMilestonesQuery().milestones[0] counts = open=%d closed=%d, want open=2 closed=2", m.OpenIssueCount, m.ClosedIssueCount)
+	}
+	if m.DueOn == nil || !m.DueOn.Equal(due.Time) {
+		t.Fatalf("mapMilestonesQuery().milestones[0].DueOn = %v, want %v", m.DueOn, due.Time)
+	}
+	if !got.hasNextPage || got.endCursor != "ms-cursor-A" {
+		t.Fatalf("mapMilestonesQuery() pagination = %+v, want hasNextPage=true endCursor=ms-cursor-A", got)
+	}
+}
+
+// TestMapMilestonesQuery_NullDueOnMapsToNil asserts a node with a nil DueOn
+// pointer maps to Milestone.DueOn == nil, not the zero time.Time -- a
+// non-pointer githubv4.DateTime would silently destroy this distinction.
+func TestMapMilestonesQuery_NullDueOnMapsToNil(t *testing.T) {
+	var q milestonesQuery
+	q.Repository.Milestones.Nodes = []milestoneQueryNode{
+		{Title: githubv4.String("Backlog"), DueOn: nil},
+	}
+
+	got := mapMilestonesQuery(q)
+
+	if len(got.milestones) != 1 {
+		t.Fatalf("mapMilestonesQuery().milestones has %d entries, want 1", len(got.milestones))
+	}
+	if got.milestones[0].DueOn != nil {
+		t.Fatalf("mapMilestonesQuery().milestones[0].DueOn = %v, want nil for a milestone with no due date", got.milestones[0].DueOn)
+	}
+}
+
+// TestMapMilestonesQuery_ProgressPercentageCarriedVerbatim pins "read the
+// field, never derive" at the mapping layer (Q2b honesty guard): a node
+// with Open 2 / Closed 2 / Progress 37.5 (which does NOT equal
+// 2/(2+2)*100 == 50) must map to 37.5 verbatim.
+func TestMapMilestonesQuery_ProgressPercentageCarriedVerbatim(t *testing.T) {
+	var q milestonesQuery
+	q.Repository.Milestones.Nodes = []milestoneQueryNode{
+		{
+			Title:              githubv4.String("v1.1"),
+			OpenIssueCount:     githubv4.Int(2),
+			ClosedIssueCount:   githubv4.Int(2),
+			ProgressPercentage: githubv4.Float(37.5),
+		},
+	}
+
+	got := mapMilestonesQuery(q)
+
+	if len(got.milestones) != 1 {
+		t.Fatalf("mapMilestonesQuery().milestones has %d entries, want 1", len(got.milestones))
+	}
+	if got.milestones[0].ProgressPercentage != 37.5 {
+		t.Fatalf("mapMilestonesQuery().milestones[0].ProgressPercentage = %v, want 37.5 (verbatim from GraphQL, not derived from counts)", got.milestones[0].ProgressPercentage)
+	}
+}
+
+// TestFakeGraphQLClient_FetchMilestonePage_ReturnsScriptedPageForCursor
+// mirrors TestFakeGraphQLClient_ReturnsScriptedPageForCursor's scaffolding
+// parity check for the milestones connection.
+func TestFakeGraphQLClient_FetchMilestonePage_ReturnsScriptedPageForCursor(t *testing.T) {
+	firstPage := milestonePage{
+		milestones:  []Milestone{{Title: "first page milestone"}},
+		hasNextPage: true,
+		endCursor:   "ms-cursor-A",
+	}
+	secondPage := milestonePage{
+		milestones:  []Milestone{{Title: "second page milestone"}},
+		hasNextPage: false,
+	}
+	fake := &fakeGraphQLClient{
+		milestonePages: map[string]milestonePage{
+			"":            firstPage,
+			"ms-cursor-A": secondPage,
+		},
+	}
+
+	got, err := fake.fetchMilestonePage(context.Background(), "owner", "repo", "")
+	if err != nil {
+		t.Fatalf("fetchMilestonePage(first page): unexpected error: %v", err)
+	}
+	if len(got.milestones) != 1 || got.milestones[0].Title != firstPage.milestones[0].Title {
+		t.Fatalf("fetchMilestonePage(first page) = %+v, want milestone title %q", got, firstPage.milestones[0].Title)
+	}
+	if !got.hasNextPage || got.endCursor != "ms-cursor-A" {
+		t.Fatalf("fetchMilestonePage(first page) pagination = %+v, want hasNextPage=true endCursor=ms-cursor-A", got)
+	}
+
+	got, err = fake.fetchMilestonePage(context.Background(), "owner", "repo", got.endCursor)
+	if err != nil {
+		t.Fatalf("fetchMilestonePage(second page): unexpected error: %v", err)
+	}
+	if len(got.milestones) != 1 || got.milestones[0].Title != secondPage.milestones[0].Title {
+		t.Fatalf("fetchMilestonePage(second page) = %+v, want milestone title %q", got, secondPage.milestones[0].Title)
+	}
+	if got.hasNextPage {
+		t.Fatalf("fetchMilestonePage(second page).hasNextPage = true, want false (last page)")
+	}
+
+	wantCursors := []string{"", "ms-cursor-A"}
+	if len(fake.calledMilestoneCursors) != len(wantCursors) {
+		t.Fatalf("calledMilestoneCursors = %v, want %v", fake.calledMilestoneCursors, wantCursors)
+	}
+	for i, c := range wantCursors {
+		if fake.calledMilestoneCursors[i] != c {
+			t.Fatalf("calledMilestoneCursors = %v, want %v", fake.calledMilestoneCursors, wantCursors)
+		}
 	}
 }

@@ -27,6 +27,10 @@ type graphQLBoardClient interface {
 	// requests (repo-wide, independent of any issue).
 	fetchOpenPRPage(ctx context.Context, owner, repo, afterCursor string) (openPRPage, error)
 
+	// fetchMilestonePage fetches one page of the repository's open
+	// milestones (repo-wide, independent of any issue).
+	fetchMilestonePage(ctx context.Context, owner, repo, afterCursor string) (milestonePage, error)
+
 	// deleteIssue permanently deletes the given issue via GraphQL's
 	// deleteIssue mutation (REST has no delete-issue endpoint). Number-based
 	// like the other seam methods; implementations resolve the issue's
@@ -287,6 +291,76 @@ func mapOpenPRsQuery(q openPRsQuery) openPRPage {
 	}
 }
 
+// milestonePage is one page of the repository's open milestones, decoupled
+// from any githubv4-specific types. Mirrors openPRPage's pagination shape
+// but for the repo-wide milestones connection.
+type milestonePage struct {
+	milestones  []Milestone
+	hasNextPage bool
+	endCursor   string
+}
+
+// milestonesQuery is the githubv4 struct-tag-based query DSL representation of:
+//
+//	query($owner: String!, $name: String!, $milestoneCursor: String) {
+//	  repository(owner: $owner, name: $name) {
+//	    milestones(states: [OPEN], first: 100, after: $milestoneCursor, orderBy: {field: DUE_DATE, direction: ASC}) {
+//	      nodes { title url dueOn openIssueCount closedIssueCount progressPercentage }
+//	      pageInfo { hasNextPage endCursor }
+//	    }
+//	  }
+//	}
+type milestonesQuery struct {
+	Repository struct {
+		Milestones struct {
+			Nodes    []milestoneQueryNode
+			PageInfo pageInfoFragment
+		} `graphql:"milestones(states: [OPEN], first: 100, after: $milestoneCursor, orderBy: {field: DUE_DATE, direction: ASC})"`
+	} `graphql:"repository(owner: $owner, name: $name)"`
+}
+
+// milestoneQueryNode is a single milestone as requested by milestonesQuery.
+// DueOn is a pointer because GraphQL's dueOn is nullable: a non-pointer
+// githubv4.DateTime would decode a null dueOn into the zero time.Time,
+// destroying the "no due date" distinction.
+type milestoneQueryNode struct {
+	Title              githubv4.String
+	URL                githubv4.String
+	DueOn              *githubv4.DateTime
+	OpenIssueCount     githubv4.Int
+	ClosedIssueCount   githubv4.Int
+	ProgressPercentage githubv4.Float
+}
+
+// mapMilestonesQuery converts a githubv4 milestonesQuery response into a
+// plain milestonePage, decoupled from any githubv4-specific types.
+// ProgressPercentage is carried through verbatim from GitHub's field, never
+// derived from the two counts (see the Milestone doc comment in provider.go).
+func mapMilestonesQuery(q milestonesQuery) milestonePage {
+	nodes := q.Repository.Milestones.Nodes
+	milestones := make([]Milestone, 0, len(nodes))
+	for _, n := range nodes {
+		var dueOn *time.Time
+		if n.DueOn != nil {
+			t := n.DueOn.Time
+			dueOn = &t
+		}
+		milestones = append(milestones, Milestone{
+			Title:              string(n.Title),
+			URL:                string(n.URL),
+			DueOn:              dueOn,
+			OpenIssueCount:     int(n.OpenIssueCount),
+			ClosedIssueCount:   int(n.ClosedIssueCount),
+			ProgressPercentage: float64(n.ProgressPercentage),
+		})
+	}
+	return milestonePage{
+		milestones:  milestones,
+		hasNextPage: bool(q.Repository.Milestones.PageInfo.HasNextPage),
+		endCursor:   string(q.Repository.Milestones.PageInfo.EndCursor),
+	}
+}
+
 // mapIssueClosingPRQuery converts a githubv4 issueClosingPRQuery response into
 // a plain closingPRPage, decoupled from any githubv4-specific types. It
 // reuses mapLinkedPRs for the same dedup semantics as the outer query.
@@ -370,6 +444,25 @@ func (a *GitHubV4Adapter) fetchOpenPRPage(ctx context.Context, owner, repo, afte
 	}
 
 	return mapOpenPRsQuery(q), nil
+}
+
+func (a *GitHubV4Adapter) fetchMilestonePage(ctx context.Context, owner, repo, afterCursor string) (milestonePage, error) {
+	variables := map[string]interface{}{
+		"owner":           githubv4.String(owner),
+		"name":            githubv4.String(repo),
+		"milestoneCursor": (*githubv4.String)(nil),
+	}
+	if afterCursor != "" {
+		cursor := githubv4.String(afterCursor)
+		variables["milestoneCursor"] = &cursor
+	}
+
+	var q milestonesQuery
+	if err := a.client.Query(ctx, &q, variables); err != nil {
+		return milestonePage{}, err
+	}
+
+	return mapMilestonesQuery(q), nil
 }
 
 // issueLookupQuery resolves an issue's GraphQL global node ID by number.
