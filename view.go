@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -479,6 +480,35 @@ func prStatusPrefix(status string) string {
 	}
 	statusColumn := strings.Repeat(" ", pad) + prStatusStyle(status).Render(symbol) + " "
 	return prIndicatorStyle.Render(linkedPRGlyph) + " " + statusColumn
+}
+
+// renderProgressBar renders a `▓▓▓░░` style progress bar of the given cell
+// width for the given percentage. A complete (100%), non-muted bar renders
+// in success green (progressCompleteStyle); every other case renders in the
+// existing muted gray (mutedRowStyle), matching prStatusPrefix's convention
+// of baking color in at construction time rather than via an outer wrap.
+// Returns "" for a non-positive width.
+func renderProgressBar(percentage float64, width int, muted bool) string {
+	if width <= 0 {
+		return ""
+	}
+	if percentage < 0 {
+		percentage = 0
+	} else if percentage > 100 {
+		percentage = 100
+	}
+	fill := int(math.Round(percentage / 100 * float64(width)))
+	if fill < 0 {
+		fill = 0
+	} else if fill > width {
+		fill = width
+	}
+	bar := strings.Repeat("▓", fill) + strings.Repeat("░", width-fill)
+	style := mutedRowStyle
+	if !muted && percentage == 100 {
+		style = progressCompleteStyle
+	}
+	return style.Render(bar)
 }
 
 // cardDisplayText builds the raw display text for a card's title line:
