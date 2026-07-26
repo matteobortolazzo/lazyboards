@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -112,6 +113,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case openPRsMsg:
 		return b.handleOpenPRsFetched(msg)
+
+	case milestonesFetchedMsg:
+		return b.handleMilestonesFetched(msg)
 
 	case boardFetchErrorMsg:
 		if b.refreshing {
@@ -358,6 +362,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleGitPanelKey(msg)
 		case prListMode:
 			return b.handlePRListModeKey(msg)
+		case milestoneListMode:
+			return b.handleMilestoneListModeKey(msg)
 		case agentListMode:
 			return b.handleAgentListModeKey(msg)
 		case dispatchMode:
@@ -857,12 +863,45 @@ func (b Board) handleOpenPRsFetched(msg openPRsMsg) (tea.Model, tea.Cmd) {
 		})
 	}
 	b.prList.entries = entries
-	if b.prList.cursor >= len(entries) {
-		b.prList.cursor = len(entries) - 1
-		if b.prList.cursor < 0 {
-			b.prList.cursor = 0
-		}
+	b.prList.cursor = clampCursorToLength(b.prList.cursor, len(entries))
+	return b, nil
+}
+
+// handleMilestonesFetched applies the repo-wide milestone fetch result to the
+// Milestones modal, following milestoneListState's precedence (loading ->
+// err -> loaded). Results are scoped to a modal generation, and dropped
+// outright if the modal isn't open, so a response that lands after the user
+// closes or reopens the modal cannot overwrite the current request --
+// mirroring handleOpenPRsFetched's guard. On success entries are sorted due
+// date ascending (nil due date last), ties broken case-insensitively by
+// title via sortFold, and the cursor is clamped to the new length; on error
+// entries stay empty and err records the sanitized failure -- there is no
+// fallback to keep, unlike prListState (see milestoneListState's doc
+// comment).
+func (b Board) handleMilestonesFetched(msg milestonesFetchedMsg) (tea.Model, tea.Cmd) {
+	if b.mode != milestoneListMode || msg.generation != b.milestoneList.generation {
+		return b, nil
 	}
+	b.milestoneList.loading = false
+	if msg.err != nil {
+		b.milestoneList.err = provider.SanitizeError(msg.err)
+		return b, nil
+	}
+
+	entries := mapMilestones(msg.milestones)
+	sortFold(entries, func(m Milestone) string { return m.Title })
+	sort.SliceStable(entries, func(i, j int) bool {
+		di, dj := entries[i].DueOn, entries[j].DueOn
+		if di == nil {
+			return false
+		}
+		if dj == nil {
+			return true
+		}
+		return di.Before(*dj)
+	})
+	b.milestoneList.entries = entries
+	b.milestoneList.cursor = clampCursorToLength(b.milestoneList.cursor, len(entries))
 	return b, nil
 }
 
@@ -1106,6 +1145,21 @@ func moveCursor(cursor, length int, down bool) int {
 	return (cursor - 1 + length) % length
 }
 
+// clampCursorToLength renormalizes cursor into [0, length-1], snapping an
+// out-of-range cursor to the nearest valid index (length-1 above the range,
+// 0 below it). Shared by clampCursor's renormalization step and by fetch
+// handlers that replace a list with a possibly-shorter one (e.g.
+// handleOpenPRsFetched, handleMilestonesFetched).
+func clampCursorToLength(cursor, length int) int {
+	if cursor >= length {
+		cursor = length - 1
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	return cursor
+}
+
 // clampCursor returns cursor moved one step within [0, length-1], STOPPING at
 // the ends instead of wrapping: down from the last item stays at the last
 // item, up from the first item stays at the first item. This is the
@@ -1120,12 +1174,7 @@ func clampCursor(cursor, length int, down bool) int {
 	// this, an out-of-range cursor at the tail (cursor == length, moving
 	// down) never gets corrected because the one-step logic only handles
 	// in-range cursors.
-	if cursor >= length {
-		cursor = length - 1
-	}
-	if cursor < 0 {
-		cursor = 0
-	}
+	cursor = clampCursorToLength(cursor, length)
 	if length <= 1 {
 		return cursor
 	}
