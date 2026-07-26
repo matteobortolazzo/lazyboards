@@ -625,7 +625,7 @@ func TestBoard_AgentBadgeFor_AppearsAsSeparateStatusLine(t *testing.T) {
 	}
 
 	// The badge appears instead as a line from cardStatusLines.
-	lines := b.cardStatusLines(card, indentWidth, false)
+	lines := b.cardStatusLines(card, indentWidth)
 	found := false
 	for _, line := range lines {
 		if strings.Contains(line, badge) {

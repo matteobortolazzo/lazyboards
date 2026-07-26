@@ -466,24 +466,19 @@ const prStatusSymbolWidth = 1
 // cardStatusLines, so the purple marker prefixes every PR row/line for all
 // statuses, including "unknown".
 //
-// muted, when true, renders both the linked-PR glyph and the status symbol
-// via mutedRowStyle instead of their normal colored styles (#478) -- an
-// outer lipgloss wrap cannot override the ANSI color already baked into
-// these Render() calls, so muting must happen here, at construction.
-func prStatusPrefix(status string, muted bool) string {
+// The prefix keeps its purple marker and status color on every row,
+// selected or not (#493): the glyph is the at-a-glance signal
+// for "this ticket has a linked PR, in this state", so it is deliberately
+// exempt from the non-selected muting convention that grays plain row text
+// (see selectedRowStyle).
+func prStatusPrefix(status string) string {
 	symbol := prStatusSymbol(status)
 	pad := prStatusSymbolWidth - lipgloss.Width(symbol)
 	if pad < 0 {
 		pad = 0
 	}
-	glyphStyle := prIndicatorStyle
-	symbolStyle := prStatusStyle(status)
-	if muted {
-		glyphStyle = mutedRowStyle
-		symbolStyle = mutedRowStyle
-	}
-	statusColumn := strings.Repeat(" ", pad) + symbolStyle.Render(symbol) + " "
-	return glyphStyle.Render(linkedPRGlyph) + " " + statusColumn
+	statusColumn := strings.Repeat(" ", pad) + prStatusStyle(status).Render(symbol) + " "
+	return prIndicatorStyle.Render(linkedPRGlyph) + " " + statusColumn
 }
 
 // cardDisplayText builds the raw display text for a card's title line:
@@ -529,37 +524,31 @@ const subIssueChildGlyph = "\U000F17A9"
 // agent windows and a card with neither sub-issue relationship are skipped
 // entirely (no line, no vertical cost).
 //
-// muted, when true, renders sub-issue lines, agent badges, and the PR-glyph
-// prefix via mutedRowStyle instead of their normal colored styles (#478) --
-// an outer lipgloss wrap cannot override the ANSI color already baked into
-// these Render() calls, so muting must happen here, at construction.
-func (b Board) cardStatusLines(card Card, indentWidth int, muted bool) []string {
+// Status lines keep their own colors on every card, focused or not
+// (#493): agent badges and PR glyphs are what make "this
+// ticket has an agent / a linked PR" readable at a glance across the whole
+// board, so they are deliberately exempt from the non-selected muting
+// convention that grays plain row text (see selectedRowStyle). Sub-issue
+// lines render in their own muted gray on every card, as they always have.
+func (b Board) cardStatusLines(card Card, indentWidth int) []string {
 	indent := strings.Repeat(" ", indentWidth)
-	subStyle := subIssueStyle
-	if muted {
-		subStyle = mutedRowStyle
-	}
 	var lines []string
 	if card.SubIssueCount > 0 {
-		lines = append(lines, indent+subStyle.Render(fmt.Sprintf("%s %d/%d", subIssueParentGlyph, card.SubIssueCompleted, card.SubIssueCount)))
+		lines = append(lines, indent+subIssueStyle.Render(fmt.Sprintf("%s %d/%d", subIssueParentGlyph, card.SubIssueCompleted, card.SubIssueCount)))
 	}
 	if card.ParentNumber > 0 {
-		lines = append(lines, indent+subStyle.Render(fmt.Sprintf("%s #%d", subIssueChildGlyph, card.ParentNumber)))
+		lines = append(lines, indent+subIssueStyle.Render(fmt.Sprintf("%s #%d", subIssueChildGlyph, card.ParentNumber)))
 	}
 	for _, w := range b.cardAgentWindows(card.Number) {
 		badge := agentBadgeText(w.Status, w.Agent)
 		if badge == "" {
 			continue
 		}
-		badgeStyle := agentBadgeStyle(w.Status)
-		if muted {
-			badgeStyle = mutedRowStyle
-		}
-		lines = append(lines, indent+badgeStyle.Render(badge))
+		lines = append(lines, indent+agentBadgeStyle(w.Status).Render(badge))
 	}
 	for _, pr := range card.LinkedPRs {
 		status := prStatus(pr)
-		lines = append(lines, indent+prStatusPrefix(status, muted)+fmt.Sprintf("#%d", pr.Number))
+		lines = append(lines, indent+prStatusPrefix(status)+fmt.Sprintf("#%d", pr.Number))
 	}
 	return lines
 }
@@ -572,7 +561,7 @@ func (b Board) cardStatusLines(card Card, indentWidth int, muted bool) []string 
 // card's rendered height.
 func (b Board) cardLineCount(card Card, contentWidth int, columnNames []string) int {
 	text, prefixLen := cardDisplayText(card, columnNames, b.workingLabel)
-	return len(wrapTitle(text, contentWidth, prefixLen)) + len(b.cardStatusLines(card, prefixLen, false))
+	return len(wrapTitle(text, contentWidth, prefixLen)) + len(b.cardStatusLines(card, prefixLen))
 }
 
 func (b *Board) clampScrollOffset() {
@@ -679,9 +668,10 @@ func (b *Board) clampScrollOffset() {
 // every list-like UI element (card list, PR list, filter picker, assignee
 // picker, git menu, agents list, PR picker) -- a future list surface
 // inherits the muted-gray treatment by default. Note: an outer wrap here
-// only recolors plain text -- pre-colored glyphs (prStatusPrefix, agent
-// badges, sub-issue markers) must be muted at their own construction site
-// (see docs/terminal-rendering.md).
+// only recolors plain text -- pre-colored status glyphs (prStatusPrefix,
+// agent badges, sub-issue markers) keep the color baked in at their own
+// construction site and stay colored on non-selected rows by design
+// (#493, see docs/terminal-rendering.md).
 func selectedRowStyle(text string, selected bool) string {
 	if selected {
 		return selectedCardStyle.Render(text)
@@ -758,8 +748,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 			prefix := fmt.Sprintf("#%d ", card.Number)
 			lines[0] = strings.Replace(lines[0], prefix, cardNumberStyle.Render(prefix), 1)
 		}
-		muted := j != col.Cursor
-		lines = append(lines, b.cardStatusLines(card, prefixLen, muted)...)
+		lines = append(lines, b.cardStatusLines(card, prefixLen)...)
 		allCards = append(allCards, wrappedCard{lines: lines, selected: j == col.Cursor})
 	}
 
@@ -1573,7 +1562,7 @@ func (b Board) viewPRListModal() string {
 			entry := b.prList.entries[i]
 			title := truncateOutput(sanitizeControlSequences(entry.pr.Title), 32)
 			status := prStatus(entry.pr)
-			prefix := prStatusPrefix(status, i != b.prList.cursor)
+			prefix := prStatusPrefix(status)
 			display := fmt.Sprintf("%s  #%d  %s", prefix, entry.pr.Number, title)
 			if entry.cardNumber != 0 {
 				display += fmt.Sprintf("  —  %s #%d", entry.columnTitle, entry.cardNumber)

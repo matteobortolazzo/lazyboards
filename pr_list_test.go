@@ -816,16 +816,14 @@ func TestPRList_View_UnknownStatusRow_StillPrefixedWithPurpleLinkedPRGlyph(t *te
 	}
 }
 
-// --- Mute non-selected rows to gray (#478) ---
+// --- Mute non-selected rows to gray (#478, scoped to text-only by #493) ---
 
-// TestPRList_View_NonSelectedRowStatusGlyphIsGray asserts the PR list's
-// pre-colored status glyph (built by prStatusPrefix) mutes to gray on a
-// non-selected row instead of keeping its status color -- an outer
-// selectedRowStyle wrap alone cannot recolor an already-rendered ANSI glyph
-// (docs/terminal-rendering.md), so prStatusPrefix must itself render the
-// muted variant when the row isn't selected. The selected row keeps the
-// colored glyph and its bold-white row styling.
-func TestPRList_View_NonSelectedRowStatusGlyphIsGray(t *testing.T) {
+// TestPRList_View_NonSelectedRowKeepsColoredStatusGlyph asserts the PR
+// list's status glyph (built by prStatusPrefix) keeps its status color on
+// every row, selected or not (#493) -- the row's plain text
+// still mutes via the selectedRowStyle wrap, but the glyph is the
+// at-a-glance status signal and must stay readable across the whole list.
+func TestPRList_View_NonSelectedRowKeepsColoredStatusGlyph(t *testing.T) {
 	original := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.ANSI256)
 	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
@@ -856,20 +854,16 @@ func TestPRList_View_NonSelectedRowStatusGlyphIsGray(t *testing.T) {
 		t.Fatalf("view missing expected PR rows; got:\n%s", view)
 	}
 
-	mutedGlyph := prStatusPrefix("mergeable", true)
-	coloredGlyph := prStatusPrefix("mergeable", false)
-	if mutedGlyph == coloredGlyph {
-		t.Fatal("test setup: muted and colored glyph renderings must differ (color profile not forced?)")
+	coloredGlyph := prStatusPrefix("mergeable")
+	if coloredGlyph == mutedRowStyle.Render(prStatusSymbol("mergeable")) {
+		t.Fatal("test setup: the colored glyph and a muted rendering must differ (color profile not forced?)")
 	}
 
 	if !strings.Contains(selectedRow, coloredGlyph) {
 		t.Errorf("selected PR row %q missing colored status glyph %q", selectedRow, coloredGlyph)
 	}
-	if !strings.Contains(nonSelectedRow, mutedGlyph) {
-		t.Errorf("non-selected PR row %q missing muted status glyph %q, want it grayed at source", nonSelectedRow, mutedGlyph)
-	}
-	if strings.Contains(nonSelectedRow, coloredGlyph) {
-		t.Errorf("non-selected PR row %q still contains the colored status glyph %q, want it muted", nonSelectedRow, coloredGlyph)
+	if !strings.Contains(nonSelectedRow, coloredGlyph) {
+		t.Errorf("non-selected PR row %q missing colored status glyph %q, want status color kept on every row", nonSelectedRow, coloredGlyph)
 	}
 }
 
