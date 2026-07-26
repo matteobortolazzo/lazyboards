@@ -742,6 +742,55 @@ func TestFilter_FilterPersistsAcrossTabSwitch(t *testing.T) {
 	}
 }
 
+// --- applyFilter() guards against empty/out-of-range Columns (#486) ---
+
+// TestFilter_ApplyFilter_EmptyColumns_DoesNotPanic asserts applyFilter still
+// sets the active filter fields even when the board has no columns yet (e.g.
+// before the first successful fetch) -- handleFilterModeKey's inlined block
+// never needed this guard because it's only reachable once filterItems has
+// been populated from a fetched board, but applyFilter is a shared building
+// block for future callers (e.g. the milestones view) that may invoke it
+// before Columns is populated.
+func TestFilter_ApplyFilter_EmptyColumns_DoesNotPanic(t *testing.T) {
+	b := Board{Columns: nil}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("applyFilter panicked with empty Columns: %v", r)
+		}
+	}()
+	b.applyFilter(filterByMilestone, "v1.0")
+
+	if b.activeFilterType != filterByMilestone {
+		t.Errorf("activeFilterType = %d, want %d (filterByMilestone)", b.activeFilterType, filterByMilestone)
+	}
+	if b.activeFilterValue != "v1.0" {
+		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, "v1.0")
+	}
+}
+
+// TestFilter_ApplyFilter_ActiveTabOutOfRange_DoesNotPanic asserts applyFilter
+// does not index b.Columns[b.ActiveTab] when ActiveTab is out of range for a
+// non-empty Columns slice.
+func TestFilter_ApplyFilter_ActiveTabOutOfRange_DoesNotPanic(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b.ActiveTab = len(b.Columns) // one past the end
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("applyFilter panicked with out-of-range ActiveTab: %v", r)
+		}
+	}()
+	b.applyFilter(filterByLabel, "bug")
+
+	if b.activeFilterType != filterByLabel {
+		t.Errorf("activeFilterType = %d, want %d (filterByLabel)", b.activeFilterType, filterByLabel)
+	}
+	if b.activeFilterValue != "bug" {
+		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, "bug")
+	}
+}
+
 // --- selectedCard() respects filter ---
 
 func TestFilter_SelectedCard_ReturnsFilteredCard(t *testing.T) {

@@ -64,8 +64,13 @@ var (
 	// the agent/action status hues so structural metadata isn't misread as
 	// status.
 	subIssueStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-	hintKeyStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
-	hintDescStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	// progressCompleteStyle marks a fully-complete progress bar (e.g.
+	// milestone/sub-issue completion), reusing the same success green (114)
+	// as agentDoneStyle/prMergeableStyle/gitAddedStyle/statusSuccessStyle,
+	// deliberately distinct from PR purple (183) and the other status hues.
+	progressCompleteStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
+	hintKeyStyle          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
+	hintDescStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	// Git status segment styles (status bar), lazygit-style but muted to match
 	// the rest of the palette: additions green, deletions red, push/pull
 	// (ahead/behind) share one gentle orange since they're both just "sync"
@@ -1569,6 +1574,28 @@ func (b *Board) filteredCardsForColumn(colIdx int) int {
 		}
 	}
 	return count
+}
+
+// applyFilter is the single choke point for applying a global filter
+// (per docs/list-cursor-invariants.md): it sets the active filter fields and
+// clamps the active column's cursor/scroll to the newly filtered card count.
+// The active-tab guard exists for future repo-derived callers that may
+// invoke this on a board with no columns yet (e.g. before the first fetch).
+func (b *Board) applyFilter(itemType filterType, value string) {
+	b.activeFilterType = itemType
+	b.activeFilterValue = value
+	if len(b.Columns) == 0 || b.ActiveTab < 0 || b.ActiveTab >= len(b.Columns) {
+		return
+	}
+	filtered := b.filteredCards()
+	col := &b.Columns[b.ActiveTab]
+	if len(filtered) == 0 {
+		col.Cursor = 0
+	} else if col.Cursor >= len(filtered) {
+		col.Cursor = len(filtered) - 1
+	}
+	col.ScrollOffset = 0
+	b.clampScrollOffset()
 }
 
 // clearFilter resets the global filter state and clamps cursor/scroll for the active column.

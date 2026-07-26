@@ -457,18 +457,7 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		if b.filterCursor < len(b.filterItems) && !b.filterItems[b.filterCursor].isHeader {
 			item := b.filterItems[b.filterCursor]
-			b.activeFilterType = item.itemType
-			b.activeFilterValue = item.value
-			// Clamp cursor to filtered card count.
-			filtered := b.filteredCards()
-			col := &b.Columns[b.ActiveTab]
-			if len(filtered) == 0 {
-				col.Cursor = 0
-			} else if col.Cursor >= len(filtered) {
-				col.Cursor = len(filtered) - 1
-			}
-			col.ScrollOffset = 0
-			b.clampScrollOffset()
+			b.applyFilter(item.itemType, item.value)
 		}
 		b.mode = normalMode
 		b.statusBar.SetActionHints(b.normalHints)
