@@ -611,3 +611,179 @@ func TestFakeProvider_ListOpenPRs_IncludesLinkedAndUnlinkedPRs(t *testing.T) {
 		t.Error("ListOpenPRs returned only card-linked PRs; want at least one unlinked PR to exercise the overview's unlinked rows")
 	}
 }
+
+// --- ListMilestones Tests ---
+
+// TestFakeProvider_ListMilestones_CoversRenderingBranches asserts the
+// fixture set covers every rendering branch the milestone view needs:
+// 100% complete, 0% complete with open items remaining, no due date, the
+// empty (0 open / 0 closed) milestone, and at least one milestone whose
+// title matches no board card (so the repo-wide-vs-board distinction and
+// the empty-filter-result path are both exercisable in dev mode). Asserted
+// as properties of the returned set rather than hardcoded indices, so
+// fixture reordering doesn't break this test.
+func TestFakeProvider_ListMilestones_CoversRenderingBranches(t *testing.T) {
+	fp := NewFakeProvider()
+
+	milestones, err := fp.ListMilestones(context.Background())
+	if err != nil {
+		t.Fatalf("ListMilestones returned error: %v", err)
+	}
+
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	cardMilestones := make(map[string]bool)
+	for _, col := range board.Columns {
+		for _, card := range col.Cards {
+			if card.Milestone != "" {
+				cardMilestones[card.Milestone] = true
+			}
+		}
+	}
+
+	var (
+		hasHundredPercent  bool
+		hasZeroPercentOpen bool
+		hasNoDueDate       bool
+		hasEmpty           bool
+		hasNoCardMatch     bool
+	)
+	for _, m := range milestones {
+		if m.ProgressPercentage == 100 {
+			hasHundredPercent = true
+		}
+		if m.ProgressPercentage == 0 && m.OpenIssueCount > 0 {
+			hasZeroPercentOpen = true
+		}
+		if m.DueOn == nil {
+			hasNoDueDate = true
+		}
+		if m.OpenIssueCount == 0 && m.ClosedIssueCount == 0 {
+			hasEmpty = true
+		}
+		if !cardMilestones[m.Title] {
+			hasNoCardMatch = true
+		}
+	}
+
+	if !hasHundredPercent {
+		t.Error("ListMilestones fixture missing a 100 percent complete milestone")
+	}
+	if !hasZeroPercentOpen {
+		t.Error("ListMilestones fixture missing a 0 percent complete milestone with open items remaining")
+	}
+	if !hasNoDueDate {
+		t.Error("ListMilestones fixture missing a milestone with DueOn == nil")
+	}
+	if !hasEmpty {
+		t.Error("ListMilestones fixture missing an empty (0 open / 0 closed) milestone")
+	}
+	if !hasNoCardMatch {
+		t.Error("ListMilestones fixture missing a milestone whose title matches no board card")
+	}
+}
+
+// TestFakeProvider_ListMilestones_IncludesBoardCardMilestone asserts every
+// non-empty Card.Milestone on the fake board appears in ListMilestones, and
+// that entry's progress is strictly between 0 and 100 (partial progress),
+// mirroring TestFakeProvider_ListOpenPRs_IncludesLinkedAndUnlinkedPRs's
+// board cross-check.
+func TestFakeProvider_ListMilestones_IncludesBoardCardMilestone(t *testing.T) {
+	fp := NewFakeProvider()
+
+	board, err := fp.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+	cardMilestones := make(map[string]bool)
+	for _, col := range board.Columns {
+		for _, card := range col.Cards {
+			if card.Milestone != "" {
+				cardMilestones[card.Milestone] = true
+			}
+		}
+	}
+	if len(cardMilestones) == 0 {
+		t.Fatal("fake board has no card with a milestone; fixture cannot exercise the board cross-check")
+	}
+
+	milestones, err := fp.ListMilestones(context.Background())
+	if err != nil {
+		t.Fatalf("ListMilestones returned error: %v", err)
+	}
+	byTitle := make(map[string]Milestone, len(milestones))
+	for _, m := range milestones {
+		byTitle[m.Title] = m
+	}
+
+	for title := range cardMilestones {
+		m, ok := byTitle[title]
+		if !ok {
+			t.Errorf("ListMilestones missing board-card milestone %q", title)
+			continue
+		}
+		if m.ProgressPercentage <= 0 || m.ProgressPercentage >= 100 {
+			t.Errorf("ListMilestones milestone %q ProgressPercentage = %v, want strictly between 0 and 100 (partial progress)", title, m.ProgressPercentage)
+		}
+	}
+}
+
+// TestFakeProvider_ListMilestones_ProgressNotDerivableFromCounts is the
+// Q2b honesty guard: the fixture must include at least one row where
+// ProgressPercentage != closed/(open+closed)*100, so a consumer that
+// derives the percentage from counts instead of reading GitHub's field
+// fails against this fixture instead of passing by coincidence.
+func TestFakeProvider_ListMilestones_ProgressNotDerivableFromCounts(t *testing.T) {
+	fp := NewFakeProvider()
+
+	milestones, err := fp.ListMilestones(context.Background())
+	if err != nil {
+		t.Fatalf("ListMilestones returned error: %v", err)
+	}
+
+	foundDivergent := false
+	for _, m := range milestones {
+		total := m.OpenIssueCount + m.ClosedIssueCount
+		if total == 0 {
+			continue
+		}
+		derived := float64(m.ClosedIssueCount) / float64(total) * 100
+		if derived != m.ProgressPercentage {
+			foundDivergent = true
+			break
+		}
+	}
+	if !foundDivergent {
+		t.Fatal("ListMilestones fixture has no milestone where ProgressPercentage diverges from closed/(open+closed)*100; a consumer deriving progress from counts would pass undetected")
+	}
+}
+
+// TestFakeProvider_ListMilestones_CountsCalls asserts ListMilestonesCalls
+// goes 0 -> 1 -> 2 across two calls. This is an assertion on the fixture's
+// own instrumentation (which later tickets gate TTL/refresh behavior on),
+// not on production call counts -- the testing rule's call-count
+// prohibition targets asserting how many times *production code* invokes a
+// dependency, not this counter's own arithmetic correctness.
+func TestFakeProvider_ListMilestones_CountsCalls(t *testing.T) {
+	fp := NewFakeProvider()
+
+	if fp.ListMilestonesCalls != 0 {
+		t.Fatalf("ListMilestonesCalls = %d before any call, want 0", fp.ListMilestonesCalls)
+	}
+
+	if _, err := fp.ListMilestones(context.Background()); err != nil {
+		t.Fatalf("ListMilestones returned error: %v", err)
+	}
+	if fp.ListMilestonesCalls != 1 {
+		t.Fatalf("ListMilestonesCalls = %d after 1 call, want 1", fp.ListMilestonesCalls)
+	}
+
+	if _, err := fp.ListMilestones(context.Background()); err != nil {
+		t.Fatalf("ListMilestones returned error: %v", err)
+	}
+	if fp.ListMilestonesCalls != 2 {
+		t.Fatalf("ListMilestonesCalls = %d after 2 calls, want 2", fp.ListMilestonesCalls)
+	}
+}

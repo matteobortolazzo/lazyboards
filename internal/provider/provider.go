@@ -62,6 +62,27 @@ type Card struct {
 	SubIssueCompleted int
 }
 
+// Milestone represents a repository-wide GitHub milestone, independent of
+// any board card.
+//
+// ProgressPercentage carries GitHub's progressPercentage GraphQL field
+// through verbatim (a 0-100 scale, e.g. 40.0, never a 0-1 fraction) --
+// per this package's raw-values-verbatim convention (see the LinkedPR doc
+// comment above), it is never derived from OpenIssueCount/ClosedIssueCount
+// here; any presentation (bar rendering, color) lives in view.go.
+// OpenIssueCount/ClosedIssueCount/ProgressPercentage count all items GitHub
+// assigns to the milestone, including pull requests, matching GitHub's own
+// web UI -- deliberately not reconciled against this app's issue-only board
+// view. DueOn is nil when the milestone has no due date set.
+type Milestone struct {
+	Title              string
+	URL                string
+	DueOn              *time.Time
+	OpenIssueCount     int
+	ClosedIssueCount   int
+	ProgressPercentage float64
+}
+
 // Column represents a Kanban column containing cards.
 type Column struct {
 	Title string
@@ -81,6 +102,11 @@ type BoardProvider interface {
 	// shape (number/title/URL/branch); "linked" in the type name refers to
 	// its original card-scoped use, not a constraint on this list.
 	ListOpenPRs(ctx context.Context) ([]LinkedPR, error)
+	// ListMilestones returns every open milestone in the repository,
+	// independent of any board card. Rows carry GitHub's counts/progress
+	// verbatim (see the Milestone doc comment above); no cross-page dedup
+	// (Milestone carries no numeric key to dedup on).
+	ListMilestones(ctx context.Context) ([]Milestone, error)
 	CreateCard(ctx context.Context, title string, label string) (Card, error)
 	UpdateCard(ctx context.Context, number int, title string, body string, labels []string) (Card, error)
 	CreateLabel(ctx context.Context, name string) error
