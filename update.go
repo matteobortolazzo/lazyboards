@@ -304,7 +304,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, cmd
 
 	case tea.MouseMsg:
-		if !b.mouseEnabled || b.mode != normalMode {
+		if !b.mouseEnabled {
 			return b, nil
 		}
 		return b.handleMouseMsg(msg)
@@ -1104,6 +1104,65 @@ func moveCursor(cursor, length int, down bool) int {
 		return (cursor + 1) % length
 	}
 	return (cursor - 1 + length) % length
+}
+
+// clampCursor returns cursor moved one step within [0, length-1], STOPPING at
+// the ends instead of wrapping: down from the last item stays at the last
+// item, up from the first item stays at the first item. This is the
+// mouse-wheel sibling of moveCursor -- wheel-driven cursor movement must not
+// wrap, unlike keyboard j/k. Do not change this to wrap; that would
+// reintroduce the exact behavior wheel scrolling is meant to avoid. Lists
+// with 0 or 1 items are a no-op.
+func clampCursor(cursor, length int, down bool) int {
+	// Renormalize an already out-of-range cursor first (e.g. a live refresh
+	// shrank the underlying list while it was out of view): snap it into
+	// [0, length-1] before applying the one-step wheel move below. Without
+	// this, an out-of-range cursor at the tail (cursor == length, moving
+	// down) never gets corrected because the one-step logic only handles
+	// in-range cursors.
+	if cursor >= length {
+		cursor = length - 1
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if length <= 1 {
+		return cursor
+	}
+	if down {
+		if cursor < length-1 {
+			return cursor + 1
+		}
+		return cursor
+	}
+	if cursor > 0 {
+		return cursor - 1
+	}
+	return cursor
+}
+
+// filterMoveClamp steps the filter cursor one position in the wheel
+// direction, skipping header rows like filterMove, but STOPPING at the
+// first/last selectable item instead of wrapping around. A list with no
+// selectable items in that direction is a no-op.
+func (b *Board) filterMoveClamp(down bool) {
+	if len(b.filterItems) == 0 {
+		return
+	}
+	cursor := b.filterCursor
+	for {
+		next := clampCursor(cursor, len(b.filterItems), down)
+		if next == cursor {
+			// Hit the bound without finding a selectable item in that
+			// direction; leave the cursor where it started.
+			return
+		}
+		cursor = next
+		if !b.filterItems[cursor].isHeader {
+			b.filterCursor = cursor
+			return
+		}
+	}
 }
 
 // dispatchGitMenuKey closes the git menu and runs the built-in action bound to

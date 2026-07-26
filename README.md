@@ -672,6 +672,7 @@ mouse: false
 
 - **Scroll wheel** on card list: navigate up/down
 - **Scroll wheel** on detail panel: scroll body
+- **Scroll wheel** in modals (PR list, agents list, filter picker, assign picker, git menu, PR picker, help): move the row cursor up/down, clamped at the first/last item (does not wrap); the filter picker skips header rows, and the help modal scrolls its viewport instead
 - **Click** column tabs: switch columns
 - **Click** a card: select it
 
