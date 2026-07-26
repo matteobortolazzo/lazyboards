@@ -181,11 +181,14 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if b.authenticatedUser != "" {
 				options = append(options, b.authenticatedUser+" (me)")
 			}
+			var tail []string
 			for _, c := range b.collaborators {
 				if !strings.EqualFold(c.Login, b.authenticatedUser) {
-					options = append(options, c.Login)
+					tail = append(tail, c.Login)
 				}
 			}
+			sortFoldStrings(tail)
+			options = append(options, tail...)
 			b.create.assigneeOptions = options
 		} else {
 			b.create.assigneeOptions = nil
@@ -306,12 +309,14 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		var items []assignItem
+		start := 0
 		if b.authenticatedUser != "" {
 			items = append(items, assignItem{
 				login:      b.authenticatedUser,
 				isAssigned: assignedSet[strings.ToLower(b.authenticatedUser)],
 				isMe:       true,
 			})
+			start = 1
 		}
 		for _, c := range b.collaborators {
 			if strings.EqualFold(c.Login, b.authenticatedUser) {
@@ -322,6 +327,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				isAssigned: assignedSet[strings.ToLower(c.Login)],
 			})
 		}
+		sortFold(items[start:], func(it assignItem) string { return it.login })
 
 		b.assign = assignState{items: items, cursor: 0}
 		b.mode = assignMode

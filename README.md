@@ -455,6 +455,8 @@ Press `?` at any time to open the in-app help popup.
 
 ### Detail Panel
 
+Labels and assignees display alphabetically (case-insensitive).
+
 | Key | Action |
 |-----|--------|
 | `e` | Edit card |
@@ -472,6 +474,9 @@ Press `?` at any time to open the in-app help popup.
 | `Alt+Shift+key` | Comment action |
 
 ### Create Mode
+
+The assignee field cycles through `(none)`, then you (`<user> (me)`), then the
+remaining collaborators sorted alphabetically (case-insensitive).
 
 | Key | Action |
 |-----|--------|
@@ -588,6 +593,7 @@ time; once every unknown label is resolved, the edit is applied.
 
 The picker lists Labels, Assignees, and Milestones sections (only sections with
 at least one value are shown), built from the cards currently on the board.
+Entries within each section are sorted alphabetically (case-insensitive).
 
 | Key | Action |
 |-----|--------|
@@ -608,6 +614,9 @@ at least one value are shown), built from the cards currently on the board.
 All letters and digits type into the query (queries match titles, labels, and card numbers).
 
 ### Assign
+
+You stay pinned first in the list; the remaining collaborators are sorted
+alphabetically (case-insensitive) below.
 
 | Key | Action |
 |-----|--------|

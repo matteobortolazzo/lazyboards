@@ -1373,6 +1373,20 @@ func mapSlice[T, U any](in []T, f func(T) U) []U {
 	return result
 }
 
+// sortFold stably sorts s in place by the case-folded (strings.ToLower) key
+// returned by key, so entries differing only by case keep their original
+// relative order (deterministic display ordering, see #477).
+func sortFold[T any](s []T, key func(T) string) {
+	sort.SliceStable(s, func(i, j int) bool {
+		return strings.ToLower(key(s[i])) < strings.ToLower(key(s[j]))
+	})
+}
+
+// sortFoldStrings stably sorts a []string case-insensitively in place.
+func sortFoldStrings(s []string) {
+	sortFold(s, func(v string) string { return v })
+}
+
 func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
 	return mapSlice(prs, func(pr provider.LinkedPR) LinkedPR {
 		return LinkedPR{
@@ -1662,6 +1676,10 @@ func (b *Board) collectFilterItems() []filterItem {
 	if len(labels) == 0 && len(assignees) == 0 && len(milestones) == 0 {
 		return nil
 	}
+
+	sortFoldStrings(labels)
+	sortFoldStrings(assignees)
+	sortFoldStrings(milestones)
 
 	var items []filterItem
 
