@@ -468,18 +468,18 @@ func TestBuildBorderTitle_SanitizesColumnTitles(t *testing.T) {
 		},
 		{
 			name:  "bidi override",
-			title: "New‮EVIL",
+			title: "New\u202eEVIL",
 			check: func(t *testing.T, title string) {
-				if strings.ContainsRune(title, '‮') {
+				if strings.ContainsRune(title, '\u202e') {
 					t.Errorf("buildBorderTitle() title contains bidi override rune: %q", title)
 				}
 			},
 		},
 		{
 			name:  "bare C1 byte",
-			title: "NewX",
+			title: "New\u0090X",
 			check: func(t *testing.T, title string) {
-				if strings.ContainsRune(title, '') {
+				if strings.ContainsRune(title, '\u0090') {
 					t.Errorf("buildBorderTitle() title contains bare C1 byte: %q", title)
 				}
 			},
