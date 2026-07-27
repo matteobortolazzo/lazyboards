@@ -48,25 +48,23 @@ func (cc ColumnConfig) CleanupValue() string {
 // (cenci/watch internal/run/slug.go).
 const DefaultSessionMaxLength = 40
 const DefaultRefreshInterval = 5
-const DefaultActionRefreshDelay = 5
 const DefaultWorkingLabel = "Working"
 
 // Config holds the application configuration.
 type Config struct {
-	Provider           string            `yaml:"provider"`
-	Repo               string            `yaml:"repo"`
-	Project            string            `yaml:"project"`
-	Actions            map[string]Action `yaml:"actions"`
-	Columns            []ColumnConfig    `yaml:"columns"`
-	SessionMaxLength   int               `yaml:"session_max_length"`
-	RefreshInterval    int               `yaml:"refresh_interval"`
-	ActionRefreshDelay *int              `yaml:"action_refresh_delay,omitempty"`
-	WorkingLabel       *string           `yaml:"working_label,omitempty"`
-	Mouse              *bool             `yaml:"mouse,omitempty"`
-	Cenci              *bool             `yaml:"cenci,omitempty"`
-	Cleanup            *string           `yaml:"cleanup,omitempty"`
-	UpdateCheck        *bool             `yaml:"update_check,omitempty"`
-	SortOrder          *string           `yaml:"sort_order,omitempty"`
+	Provider         string            `yaml:"provider"`
+	Repo             string            `yaml:"repo"`
+	Project          string            `yaml:"project"`
+	Actions          map[string]Action `yaml:"actions"`
+	Columns          []ColumnConfig    `yaml:"columns"`
+	SessionMaxLength int               `yaml:"session_max_length"`
+	RefreshInterval  int               `yaml:"refresh_interval"`
+	WorkingLabel     *string           `yaml:"working_label,omitempty"`
+	Mouse            *bool             `yaml:"mouse,omitempty"`
+	Cenci            *bool             `yaml:"cenci,omitempty"`
+	Cleanup          *string           `yaml:"cleanup,omitempty"`
+	UpdateCheck      *bool             `yaml:"update_check,omitempty"`
+	SortOrder        *string           `yaml:"sort_order,omitempty"`
 }
 
 // Card sort directions accepted by the sort_order config field.
@@ -131,18 +129,6 @@ func (c Config) CleanupValue() string {
 		return ""
 	}
 	return *c.Cleanup
-}
-
-// ActionRefreshDelayValue returns the configured action refresh delay in seconds,
-// or DefaultActionRefreshDelay if not set. Negative values are clamped to 0.
-func (c Config) ActionRefreshDelayValue() int {
-	if c.ActionRefreshDelay == nil {
-		return DefaultActionRefreshDelay
-	}
-	if *c.ActionRefreshDelay < 0 {
-		return 0
-	}
-	return *c.ActionRefreshDelay
 }
 
 // DefaultScope returns "card" when s is empty, otherwise s unchanged. This is

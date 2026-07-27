@@ -260,7 +260,32 @@ func TestDetailFocus_ScrollOffsetResetsOnCardChange(t *testing.T) {
 	}
 }
 
-func TestDetailFocus_ScrollOffsetResetsOnRefresh(t *testing.T) {
+func TestDetailFocus_ScrollOffsetPreservedOnRefresh_SameCardSelected(t *testing.T) {
+	b := newBoardWithLongBody(t, 50)
+
+	// Enter detail focus, scroll down.
+	b = sendKey(t, b, keyMsg("l"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+
+	offsetBeforeRefresh := b.detailScrollOffset
+	if offsetBeforeRefresh == 0 {
+		t.Fatal("precondition: detailScrollOffset should be > 0 after scrolling")
+	}
+
+	// Exit detail focus and refresh, returning the same card (#1) unchanged.
+	b = sendKey(t, b, keyMsg("h"))
+	b = sendKey(t, b, keyMsg("r"))
+	b = simulateRefreshWithCards(t, b, longBodyRefreshColumns())
+
+	// A refresh that leaves the selected card unchanged must not yank a
+	// reader back to the top of the card they were reading.
+	if b.detailScrollOffset != offsetBeforeRefresh {
+		t.Errorf("detailScrollOffset = %d after board refresh with same card selected, want %d (preserved)", b.detailScrollOffset, offsetBeforeRefresh)
+	}
+}
+
+func TestDetailFocus_ScrollOffsetResetsOnRefresh_SelectedCardChanged(t *testing.T) {
 	b := newBoardWithLongBody(t, 50)
 
 	// Enter detail focus, scroll down.
@@ -272,15 +297,33 @@ func TestDetailFocus_ScrollOffsetResetsOnRefresh(t *testing.T) {
 		t.Fatal("precondition: detailScrollOffset should be > 0 after scrolling")
 	}
 
-	// Exit detail focus and refresh.
+	// Exit detail focus and refresh with card #1 (the one being read) gone.
 	b = sendKey(t, b, keyMsg("h"))
 	b = sendKey(t, b, keyMsg("r"))
-
-	// Simulate the board being fetched again.
-	b = simulateRefresh(t, b)
+	b = simulateRefreshWithCards(t, b, []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{
+			{Number: 2, Title: "Card Two", Labels: []provider.Label{{Name: "feature"}}, Body: "Other body"},
+		}},
+	})
 
 	if b.detailScrollOffset != 0 {
-		t.Errorf("detailScrollOffset = %d after board refresh, want 0 (should reset)", b.detailScrollOffset)
+		t.Errorf("detailScrollOffset = %d after refresh dropped the selected card, want 0 (should reset)", b.detailScrollOffset)
+	}
+}
+
+// longBodyRefreshColumns mirrors the card data newBoardWithLongBody(50) builds,
+// for simulating a refresh that returns the same cards unchanged.
+func longBodyRefreshColumns() []provider.Column {
+	var lines []string
+	for i := 1; i <= 50; i++ {
+		lines = append(lines, fmt.Sprintf("scroll line %d", i))
+	}
+	longBody := strings.Join(lines, "\n\n")
+	return []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{
+			{Number: 1, Title: "Card One", Labels: []provider.Label{{Name: "bug"}}, Body: longBody},
+			{Number: 2, Title: "Card Two", Labels: []provider.Label{{Name: "feature"}}, Body: "Other body"},
+		}},
 	}
 }
 

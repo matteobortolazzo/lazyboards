@@ -931,7 +931,7 @@ func TestView_CardList_HidesColumnNameLabelDot(t *testing.T) {
 	// When a card has a label matching its column name, that label's dot
 	// should be hidden. Only non-column-name labels get dots.
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -1005,7 +1005,7 @@ func TestView_CardList_MixedHiddenLabels(t *testing.T) {
 	// Column "To Do" with a card that has labels ["Working", "To Do", "bug", "urgent"].
 	// "Working" and "To Do" (column name) should be hidden; only "bug" and "urgent" get dots.
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -1037,7 +1037,7 @@ func TestView_DetailPanel_StillShowsHiddenLabels(t *testing.T) {
 	// The detail panel must display ALL labels including "Working" and column-name
 	// labels, even though they are hidden from the card list dots.
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -1065,7 +1065,7 @@ func TestView_DetailPanel_RendersWithGitHubLabelColors(t *testing.T) {
 	// Per-label lipgloss colors are no longer used in the detail panel;
 	// labels appear in the YAML code block rendered through glamour.
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -1822,7 +1822,7 @@ func TestCardLineCount_NoAgentNoPR_IsJustTitleLines(t *testing.T) {
 // a click on the row just past its last status line selects the next card.
 func TestHandleCardClick_TallMultiPRCard_ClickTargetsAccountForStatusLines(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", true, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -1877,7 +1877,7 @@ func TestHandleCardClick_TallMultiPRCard_ClickTargetsAccountForStatusLines(t *te
 // wrong.
 func TestScroll_TallMultiPRCard_ScrollOffsetAccountsForStatusLines(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	cards := []provider.Card{
 		{Number: 1, Title: "First"},

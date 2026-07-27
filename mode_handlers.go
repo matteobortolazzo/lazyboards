@@ -211,7 +211,6 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.refreshing {
 			return b, nil
 		}
-		b.pendingAutoRefresh = false
 		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 	case "p":

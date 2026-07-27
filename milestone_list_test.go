@@ -68,7 +68,7 @@ func openMilestoneListWithResult(t *testing.T, b Board, milestones []provider.Mi
 func newMouseEnabledMilestoneBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", true, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
 	return loadFromFakeProvider(t, b, p)
 }
 
@@ -76,7 +76,7 @@ func newMouseEnabledMilestoneBoard(t *testing.T) Board {
 
 func TestNormalMode_I_OpensMilestoneListModal_EmptyBoard_NoPanic(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: nil}})
 	b = m.(Board)
 	b.Width = 120
@@ -455,7 +455,7 @@ func TestMilestoneList_Enter_StatusMessagePreservesTailAfterCollapsingNewlines(t
 
 func TestMilestoneList_Enter_SafeWithZeroColumns(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: nil}})
 	b = m.(Board)
 	b.Width = 120
@@ -558,7 +558,7 @@ func TestMilestoneList_Enter_NoMatchingCard_LeavesZeroVisibleCards(t *testing.T)
 func TestMilestoneList_O_OpensSelectedMilestoneURL(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	b = loadFromFakeProvider(t, b, p)
 
 	fixture := []provider.Milestone{{Title: "v1.0", URL: "https://github.com/owner/repo/milestone/2"}}
@@ -585,7 +585,7 @@ func TestMilestoneList_O_OpensSelectedMilestoneURL(t *testing.T) {
 func TestMilestoneList_O_SanitizesControlSequencesInStatusMessage(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	b = loadFromFakeProvider(t, b, p)
 
 	fixture := []provider.Milestone{{Title: "\x1b[31mRED\x1b[0m\x07", URL: "https://github.com/owner/repo/milestone/2"}}
@@ -609,7 +609,7 @@ func TestMilestoneList_O_SanitizesControlSequencesInStatusMessage(t *testing.T) 
 func TestMilestoneList_O_EmptyURL_WarnsAndModalStaysOpen(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	b = loadFromFakeProvider(t, b, p)
 
 	fixture := []provider.Milestone{{Title: "v1.0", URL: ""}}
@@ -637,7 +637,7 @@ func TestMilestoneList_O_ExecutorError_ShowsErrorAndModalStaysOpen(t *testing.T)
 	openErr := errors.New("xdg-open: command not found")
 	fe := &action.FakeExecutor{OpenURLErr: openErr}
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	b = loadFromFakeProvider(t, b, p)
 
 	fixture := []provider.Milestone{{Title: "v1.0", URL: "https://github.com/owner/repo/milestone/2"}}
@@ -661,7 +661,7 @@ func TestMilestoneList_O_ExecutorError_ShowsErrorAndModalStaysOpen(t *testing.T)
 func TestMilestoneList_O_EmptyList_NoOp(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	b = loadFromFakeProvider(t, b, p)
 	b = openMilestoneListWithResult(t, b, nil)
 
