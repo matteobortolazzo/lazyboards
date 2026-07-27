@@ -178,7 +178,9 @@ func (b Board) handleTabClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			fc := b.filteredCardsForColumn(i)
 			countStr = fmt.Sprintf("(%d/%d) ●", fc, len(col.Cards))
 		}
-		labelText := fmt.Sprintf("[%d] %s %s", i+1, col.Title, countStr)
+		// Mirror buildBorderTitle's rung-1 label shape ("[N] Title (C)") so hit zones
+		// match the sanitized render.
+		labelText := fmt.Sprintf("[%d] %s %s", i+1, sanitizeSingleLine(col.Title), countStr)
 		labelWidth := lipgloss.Width(labelText)
 
 		if x >= pos && x < pos+labelWidth {

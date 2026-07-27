@@ -389,6 +389,167 @@ func TestBuildBorderTitle_AlwaysWithinTotalWidth(t *testing.T) {
 	}
 }
 
+// TestBuildBorderTitle_WideCharTitles_TruncatesInsteadOfNumbersOnly is the
+// primary red test for #501: at a width where CJK/emoji titles must be
+// truncated (rung 2), today's len([]rune(...)) prefix/suffix math
+// under-truncates and the resulting label set still overflows, so the ladder
+// falls through to rung 3 (numbers-only) and drops every title. A "rendered
+// width never exceeds totalWidth" assertion alone cannot distinguish rung 2
+// from rung 3 (see the secondary guard test below) -- this test asserts the
+// *rung reached* by checking each title's leading grapheme survived.
+func TestBuildBorderTitle_WideCharTitles_TruncatesInsteadOfNumbersOnly(t *testing.T) {
+	columns := []Column{
+		{Title: "新規タスク"},
+		{Title: "実装中のもの"},
+		{Title: "🚀 リリース"},
+		{Title: "完了済み"},
+	}
+	const totalWidth = 70
+	title := buildBorderTitle(columns, 0, totalWidth)
+	titleWidth := lipgloss.Width(title)
+
+	if titleWidth > totalWidth {
+		t.Errorf("buildBorderTitle() width = %d, want <= %d", titleWidth, totalWidth)
+	}
+
+	leadingGraphemes := []string{"新", "実", "🚀", "完"}
+	for i, g := range leadingGraphemes {
+		if !strings.Contains(title, g) {
+			t.Errorf("buildBorderTitle() missing leading grapheme %q for column %d %q at width %d (fell back to numbers-only rung instead of truncating): got %q", g, i, columns[i].Title, totalWidth, title)
+		}
+	}
+
+	if !strings.Contains(title, "…") {
+		t.Errorf("buildBorderTitle() at width %d does not contain an ellipsis; expected truncated titles, got %q", totalWidth, title)
+	}
+}
+
+// TestBuildBorderTitle_SanitizesColumnTitles asserts AC-1: buildBorderTitle
+// sanitizes each col.Title in both title-bearing rungs (full and truncated)
+// before rendering, mirroring sanitizeSingleLine's contract.
+func TestBuildBorderTitle_SanitizesColumnTitles(t *testing.T) {
+	type widthCase struct {
+		name  string
+		width int
+	}
+	widths := []widthCase{
+		{"rung1_full", 160},
+		{"rung2_truncated", 135},
+	}
+
+	cases := []struct {
+		name  string
+		title string
+		check func(t *testing.T, title string)
+	}{
+		{
+			name:  "embedded newline",
+			title: "Alpha\nBeta",
+			check: func(t *testing.T, title string) {
+				if strings.Contains(title, "\n") {
+					t.Errorf("buildBorderTitle() title contains raw newline: %q", title)
+				}
+				if !strings.Contains(title, "Alpha Beta") {
+					t.Errorf("buildBorderTitle() expected flattened %q, got %q", "Alpha Beta", title)
+				}
+			},
+		},
+		{
+			name:  "ANSI SGR",
+			title: "\x1b[31mNew",
+			check: func(t *testing.T, title string) {
+				if strings.Contains(title, "\x1b[31m") {
+					t.Errorf("buildBorderTitle() title contains raw ANSI escape: %q", title)
+				}
+				if !strings.Contains(title, "New") {
+					t.Errorf("buildBorderTitle() expected visible text %q to survive, got %q", "New", title)
+				}
+			},
+		},
+		{
+			name:  "bidi override",
+			title: "New‮EVIL",
+			check: func(t *testing.T, title string) {
+				if strings.ContainsRune(title, '‮') {
+					t.Errorf("buildBorderTitle() title contains bidi override rune: %q", title)
+				}
+			},
+		},
+		{
+			name:  "bare C1 byte",
+			title: "NewX",
+			check: func(t *testing.T, title string) {
+				if strings.ContainsRune(title, '') {
+					t.Errorf("buildBorderTitle() title contains bare C1 byte: %q", title)
+				}
+			},
+		},
+		{
+			name:  "sanitizes to empty",
+			title: "\n\t \x1b[31m",
+			check: func(t *testing.T, title string) {
+				if strings.ContainsAny(title, "\n\t") {
+					t.Errorf("buildBorderTitle() title contains raw control bytes: %q", title)
+				}
+				if strings.Contains(title, "\x1b[31m") {
+					t.Errorf("buildBorderTitle() title contains raw ANSI escape: %q", title)
+				}
+				// Q4: spacing around an empty-sanitized title is explicitly
+				// out of scope -- do not assert it here.
+			},
+		},
+	}
+
+	for _, wc := range widths {
+		for _, c := range cases {
+			t.Run(wc.name+"/"+c.name, func(t *testing.T) {
+				// Fixed comparison titles are long (~30 chars) so that, combined
+				// with rung2_truncated's width, the uniform per-label budget
+				// split genuinely forces truncation on every column for every
+				// case in this table -- including the shortest ("sanitizes to
+				// empty") -- while still leaving a generous (~22-cell) budget
+				// per label, comfortably larger than any title0 case here
+				// (10 cells for "Alpha Beta" at most) so title0 itself always
+				// survives truncation intact.
+				columns := []Column{
+					{Title: c.title},
+					{Title: "Refined Items Awaiting Triage"},
+					{Title: "Implementing Long Feature Work"},
+					{Title: "Implemented And Fully Verified"},
+				}
+				title := buildBorderTitle(columns, 0, wc.width)
+				titleWidth := lipgloss.Width(title)
+				if titleWidth > wc.width {
+					t.Errorf("buildBorderTitle() width = %d, want <= %d", titleWidth, wc.width)
+				}
+				c.check(t, title)
+			})
+		}
+	}
+}
+
+// TestBuildBorderTitle_WideCharTitles_AlwaysWithinTotalWidth is a secondary,
+// non-vacuous regression guard: it sweeps a wide range of widths and asserts
+// the rendered title never exceeds totalWidth. This passes today (the
+// existing rung-4 "drop labels entirely" guard already prevents overflow) --
+// it exists to catch a future change that removes that guard, not to detect
+// the rung-degradation bug (see the primary test above, which does).
+func TestBuildBorderTitle_WideCharTitles_AlwaysWithinTotalWidth(t *testing.T) {
+	columns := []Column{
+		{Title: "新規タスク"},
+		{Title: "実装中のもの"},
+		{Title: "🚀 リリース"},
+		{Title: "完了済み"},
+	}
+	for width := 15; width <= 150; width++ {
+		title := buildBorderTitle(columns, 0, width)
+		titleWidth := lipgloss.Width(title)
+		if titleWidth > width {
+			t.Errorf("buildBorderTitle() at totalWidth=%d: rendered width = %d, exceeds limit", width, titleWidth)
+		}
+	}
+}
+
 func TestBuildBorderTitle_WideTerm_ShowsCardCounts(t *testing.T) {
 	columns := []Column{
 		{Title: "New", Cards: []Card{{Number: 1, Title: "A"}, {Number: 2, Title: "B"}, {Number: 3, Title: "C"}}},

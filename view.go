@@ -252,26 +252,21 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCount
 			sepWidth = lipgloss.Width(borderStyle.Render(" ─ ")) * (len(columns) - 1)
 		}
 		perLabel := (availableForLabels - sepWidth) / len(columns)
-		// Each label has "[N] " prefix overhead (4 chars for single-digit, 5 for double-digit).
-		// Find max title chars after subtracting prefix overhead.
+		// Each label has "[N] " prefix overhead (4 cells for single-digit, 5 for double-digit).
+		// Find max title cells after subtracting prefix overhead.
 		truncTexts := make([]string, len(columns))
 		canTruncate := true
 		for i, col := range columns {
 			numPrefix := fmt.Sprintf("[%d] ", i+1)
-			prefixLen := len([]rune(numPrefix))
+			prefixCells := lipgloss.Width(numPrefix)
 			cntSuffix := " " + countSuffix(i, len(col.Cards))
-			countLen := len([]rune(cntSuffix))
-			maxTitleChars := perLabel - prefixLen - countLen
-			if maxTitleChars < 1 {
+			suffixCells := lipgloss.Width(cntSuffix)
+			maxTitleCells := perLabel - prefixCells - suffixCells
+			if maxTitleCells < 1 {
 				canTruncate = false
 				break
 			}
-			titleRunes := []rune(sanitizedTitles[i])
-			if len(titleRunes) > maxTitleChars {
-				truncTexts[i] = numPrefix + string(titleRunes[:maxTitleChars-1]) + "\u2026" + cntSuffix
-			} else {
-				truncTexts[i] = numPrefix + sanitizedTitles[i] + cntSuffix
-			}
+			truncTexts[i] = numPrefix + ansi.Truncate(sanitizedTitles[i], maxTitleCells, "\u2026") + cntSuffix
 		}
 
 		if canTruncate {
