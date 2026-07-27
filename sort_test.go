@@ -39,9 +39,9 @@ func assertCardOrder(t *testing.T, got []Card, want []int) {
 	}
 }
 
-// --- Default sort order on load (#412) ---
+// --- Default sort order on load (#412, default flipped in #503) ---
 
-func TestSortColumns_DefaultNewestFirstOnLoad(t *testing.T) {
+func TestSortColumns_DefaultOldestFirstOnLoad(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "Oldest", CreatedAt: sortTestOlder},
 		{Number: 2, Title: "Newest", CreatedAt: sortTestNewest},
@@ -49,14 +49,14 @@ func TestSortColumns_DefaultNewestFirstOnLoad(t *testing.T) {
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
 
-	assertCardOrder(t, b.Columns[0].Cards, []int{2, 3, 1})
+	assertCardOrder(t, b.Columns[0].Cards, []int{1, 3, 2})
 }
 
-func TestSortColumns_DefaultsSortNewestFirstTrue(t *testing.T) {
+func TestSortColumns_DefaultsSortNewestFirstFalse(t *testing.T) {
 	b := newTestBoard(t)
 
-	if !b.sortNewestFirst {
-		t.Error("NewBoard() should default sortNewestFirst = true (newest-created-first is the default order, #412)")
+	if b.sortNewestFirst {
+		t.Error("NewBoard() should default sortNewestFirst = false (oldest-created-first is the default order, #503)")
 	}
 }
 
@@ -93,12 +93,12 @@ func TestSortColumns_TogglingFieldFlipsOrder(t *testing.T) {
 		{Number: 2, Title: "Newest", CreatedAt: sortTestNewest},
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
-	assertCardOrder(t, b.Columns[0].Cards, []int{2, 1})
+	assertCardOrder(t, b.Columns[0].Cards, []int{1, 2})
 
-	b.sortNewestFirst = false
+	b.sortNewestFirst = true
 	b.sortColumns()
 
-	assertCardOrder(t, b.Columns[0].Cards, []int{1, 2})
+	assertCardOrder(t, b.Columns[0].Cards, []int{2, 1})
 }
 
 // --- 'u' toggle (#412) ---
@@ -123,7 +123,7 @@ func TestNormalMode_U_TogglesSortOrder_FlipsOrder(t *testing.T) {
 		{Number: 3, Title: "Middle", CreatedAt: sortTestNewer},
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
-	assertCardOrder(t, b.Columns[0].Cards, []int{2, 3, 1}) // precondition: newest-first
+	assertCardOrder(t, b.Columns[0].Cards, []int{1, 3, 2}) // precondition: oldest-first
 
 	m, cmd := b.Update(keyMsg("u"))
 	updated, ok := m.(Board)
@@ -134,14 +134,14 @@ func TestNormalMode_U_TogglesSortOrder_FlipsOrder(t *testing.T) {
 		t.Error("'u' toggle should return a nil cmd (synchronous in-memory re-sort, no async work)")
 	}
 
-	assertCardOrder(t, updated.Columns[0].Cards, []int{1, 3, 2}) // oldest-first
+	assertCardOrder(t, updated.Columns[0].Cards, []int{2, 3, 1}) // newest-first
 
 	if idx := hintIndex(updated.normalHints, "u"); idx != -1 {
 		t.Errorf("normalHints should not contain a %q hint after toggle (#443), got: %+v", "u", updated.normalHints)
 	}
 }
 
-func TestNormalMode_U_TogglingTwiceRestoresNewestFirst(t *testing.T) {
+func TestNormalMode_U_TogglingTwiceRestoresOldestFirst(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "Oldest", CreatedAt: sortTestOlder},
 		{Number: 2, Title: "Newest", CreatedAt: sortTestNewest},
@@ -151,7 +151,7 @@ func TestNormalMode_U_TogglingTwiceRestoresNewestFirst(t *testing.T) {
 	b = sendKey(t, b, keyMsg("u"))
 	b = sendKey(t, b, keyMsg("u"))
 
-	assertCardOrder(t, b.Columns[0].Cards, []int{2, 1})
+	assertCardOrder(t, b.Columns[0].Cards, []int{1, 2})
 	if idx := hintIndex(b.normalHints, "u"); idx != -1 {
 		t.Errorf("after toggling twice, normalHints should still not contain a %q hint (#443), got: %+v", "u", b.normalHints)
 	}
@@ -164,11 +164,11 @@ func TestNormalMode_U_PreservesCursorIdentity_Unfiltered(t *testing.T) {
 		{Number: 3, Title: "Middle", CreatedAt: sortTestNewer},
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
-	// Default order: [2, 3, 1]. Move cursor to card #1 (last row).
+	// Default order: [1, 3, 2]. Move cursor to card #2 (last row).
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("j"))
-	if b.Columns[0].Cards[b.Columns[0].Cursor].Number != 1 {
-		t.Fatalf("precondition: cursor card = %d, want 1", b.Columns[0].Cards[b.Columns[0].Cursor].Number)
+	if b.Columns[0].Cards[b.Columns[0].Cursor].Number != 2 {
+		t.Fatalf("precondition: cursor card = %d, want 2", b.Columns[0].Cards[b.Columns[0].Cursor].Number)
 	}
 
 	m, cmd := b.Update(keyMsg("u"))
@@ -181,8 +181,8 @@ func TestNormalMode_U_PreservesCursorIdentity_Unfiltered(t *testing.T) {
 	}
 
 	col := updated.Columns[updated.ActiveTab]
-	if col.Cards[col.Cursor].Number != 1 {
-		t.Errorf("cursor card = %d after 'u' toggle, want 1 (cursor should follow the same card by identity)", col.Cards[col.Cursor].Number)
+	if col.Cards[col.Cursor].Number != 2 {
+		t.Errorf("cursor card = %d after 'u' toggle, want 2 (cursor should follow the same card by identity)", col.Cards[col.Cursor].Number)
 	}
 }
 
@@ -195,11 +195,11 @@ func TestNormalMode_U_PreservesCursorIdentity_Filtered(t *testing.T) {
 	b := newBoardWithInlineCards(t, cards, 120, 40)
 	b.activeFilterType = filterByLabel
 	b.activeFilterValue = "bug"
-	// Filtered, newest-first: [#3, #1]. Move cursor to filtered index 1 (card #1).
+	// Filtered, oldest-first: [#1, #3]. Move cursor to filtered index 1 (card #3).
 	b = sendKey(t, b, keyMsg("j"))
 	visible := b.visibleCards()
-	if len(visible) != 2 || visible[b.Columns[0].Cursor].Number != 1 {
-		t.Fatalf("precondition: filtered visible cards = %+v, cursor = %d, want cursor on card #1", visible, b.Columns[0].Cursor)
+	if len(visible) != 2 || visible[b.Columns[0].Cursor].Number != 3 {
+		t.Fatalf("precondition: filtered visible cards = %+v, cursor = %d, want cursor on card #3", visible, b.Columns[0].Cursor)
 	}
 
 	m, cmd := b.Update(keyMsg("u"))
@@ -213,8 +213,8 @@ func TestNormalMode_U_PreservesCursorIdentity_Filtered(t *testing.T) {
 
 	col := updated.Columns[updated.ActiveTab]
 	newVisible := updated.visibleCards()
-	if col.Cursor >= len(newVisible) || newVisible[col.Cursor].Number != 1 {
-		t.Errorf("filtered visible cards after 'u' toggle = %+v, cursor = %d, want cursor on card #1 (identity preserved under active filter)", newVisible, col.Cursor)
+	if col.Cursor >= len(newVisible) || newVisible[col.Cursor].Number != 3 {
+		t.Errorf("filtered visible cards after 'u' toggle = %+v, cursor = %d, want cursor on card #3 (identity preserved under active filter)", newVisible, col.Cursor)
 	}
 }
 
@@ -227,11 +227,11 @@ func TestBackgroundRefresh_WithSort_PreservesCursorIdentity(t *testing.T) {
 		{Number: 3, Title: "Middle", CreatedAt: sortTestNewer},
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
-	// Default order: [2, 3, 1]. Move cursor to card #1.
+	// Default order: [1, 3, 2]. Move cursor to card #2.
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("j"))
-	if b.Columns[0].Cards[b.Columns[0].Cursor].Number != 1 {
-		t.Fatalf("precondition: cursor card = %d, want 1", b.Columns[0].Cards[b.Columns[0].Cursor].Number)
+	if b.Columns[0].Cards[b.Columns[0].Cursor].Number != 2 {
+		t.Fatalf("precondition: cursor card = %d, want 2", b.Columns[0].Cards[b.Columns[0].Cursor].Number)
 	}
 
 	m, _ := b.Update(keyMsg("r"))
@@ -247,10 +247,10 @@ func TestBackgroundRefresh_WithSort_PreservesCursorIdentity(t *testing.T) {
 	m, _ = b.Update(fetchMsg)
 	b = m.(Board)
 
-	assertCardOrder(t, b.Columns[0].Cards, []int{2, 3, 1})
+	assertCardOrder(t, b.Columns[0].Cards, []int{1, 3, 2})
 	col := b.Columns[b.ActiveTab]
-	if col.Cards[col.Cursor].Number != 1 {
-		t.Errorf("cursor card = %d after refresh with sort active, want 1 (identity preserved through re-sort)", col.Cards[col.Cursor].Number)
+	if col.Cards[col.Cursor].Number != 2 {
+		t.Errorf("cursor card = %d after refresh with sort active, want 2 (identity preserved through re-sort)", col.Cards[col.Cursor].Number)
 	}
 }
 

@@ -949,9 +949,9 @@ type Board struct {
 	// successful listing, mirroring prListState's fallback precedence.
 	openPRCount int
 	// sortNewestFirst controls the board-wide card sort order applied by
-	// sortColumns: true sorts every column newest-created-first (the
-	// default), false oldest-first. Runtime-only, toggled by the 'u' key
-	// (#412); resets to true on every launch, never persisted to config.
+	// sortColumns: true sorts every column newest-created-first, false
+	// oldest-first (the default, #503). Toggled at runtime by the 'u' key
+	// (#412) and seeded at startup from config.Config.SortNewestFirstValue().
 	sortNewestFirst bool
 	// updateCheckEnabled mirrors config.Config.UpdateCheckValue(): whether
 	// Init() should kick off the startup version-update check (#444).
@@ -1026,7 +1026,6 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		cenciWatcher:       watcher,
 		gitReader:          gitReader,
 		openPRCount:        -1,
-		sortNewestFirst:    true,
 		updateCheckEnabled: updateCheckEnabled,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},

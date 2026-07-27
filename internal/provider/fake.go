@@ -34,17 +34,17 @@ type FakeProvider struct {
 
 // fakeCreatedAtBase anchors the fixture cards' creation timestamps.
 // fakeCreatedAt gives each fixture card a distinct value (one day apart,
-// decreasing as the card number increases) so the board's newest-created-
-// first default sort (#412) has an observable effect on the fake/dev-mode
+// increasing as the card number increases) so the board's oldest-created-
+// first default sort (#503) has an observable effect on the fake/dev-mode
 // data while preserving the fixture's original by-number display order
-// within each column (lower-numbered cards were "created" more recently,
-// so they continue to sort first under the newest-first default).
+// within each column (lower-numbered cards were "created" earlier, so they
+// continue to sort first under the oldest-first default).
 var fakeCreatedAtBase = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // fakeCreatedAt returns a distinct creation timestamp for fixture card
-// number n, decreasing with n.
+// number n, increasing with n.
 func fakeCreatedAt(n int) time.Time {
-	return fakeCreatedAtBase.AddDate(0, 0, -n)
+	return fakeCreatedAtBase.AddDate(0, 0, n)
 }
 
 // fakeMilestoneDue returns a pointer to a fixed absolute UTC due date for a

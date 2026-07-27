@@ -66,6 +66,27 @@ type Config struct {
 	Cenci              *bool             `yaml:"cenci,omitempty"`
 	Cleanup            *string           `yaml:"cleanup,omitempty"`
 	UpdateCheck        *bool             `yaml:"update_check,omitempty"`
+	SortOrder          *string           `yaml:"sort_order,omitempty"`
+}
+
+// Card sort directions accepted by the sort_order config field.
+const (
+	SortOrderOldest = "oldest"
+	SortOrderNewest = "newest"
+)
+
+// DefaultSortOrder is the built-in card sort direction used when sort_order
+// is not configured: oldest-created-first (#503).
+const DefaultSortOrder = SortOrderOldest
+
+// SortNewestFirstValue reports whether cards should sort newest-created-first.
+// Defaults to false (oldest-first) when sort_order is not set. Load()
+// validates the value, so anything reaching here is one of the two constants.
+func (c Config) SortNewestFirstValue() bool {
+	if c.SortOrder == nil {
+		return DefaultSortOrder == SortOrderNewest
+	}
+	return *c.SortOrder == SortOrderNewest
 }
 
 // WorkingLabelValue returns the configured working label, or DefaultWorkingLabel if not set.
@@ -282,6 +303,10 @@ func Load(globalPath, localPath string) (Config, error) {
 	// Merge per-column cleanup: for each local column, inherit the matching
 	// global column's cleanup if the local column didn't set its own.
 	mergeColumnCleanup(cfg.Columns, globalColumns)
+
+	if err := validateSortOrder(cfg.SortOrder); err != nil {
+		return Config{}, err
+	}
 
 	if err := validateColumns(&cfg); err != nil {
 		return Config{}, err
@@ -505,6 +530,20 @@ func applyDefaultCleanup(columns []ColumnConfig, defaultCleanup string) {
 			columns[i].Cleanup = &defaultCleanup
 		}
 	}
+}
+
+// validateSortOrder rejects any sort_order value other than the two accepted
+// directions. A present-but-unrecognized value (including an empty one) is a
+// typo rather than a request for the default, so it fails loudly instead of
+// silently falling back.
+func validateSortOrder(order *string) error {
+	if order == nil {
+		return nil
+	}
+	if *order != SortOrderOldest && *order != SortOrderNewest {
+		return fmt.Errorf("sort_order must be %q or %q, got %q", SortOrderOldest, SortOrderNewest, *order)
+	}
+	return nil
 }
 
 // validateColumns checks that columns are valid and applies defaults if empty.
