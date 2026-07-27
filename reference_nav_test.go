@@ -483,7 +483,7 @@ func TestReferenceNav_AsyncCardRemovalCancelsPending(t *testing.T) {
 func newMouseEnabledRefNavBoard(t *testing.T, columns []provider.Column) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", true, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
 
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
 	loaded, ok := m.(Board)

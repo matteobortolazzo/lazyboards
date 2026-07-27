@@ -120,7 +120,6 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case boardFetchErrorMsg:
 		if b.refreshing {
 			b.refreshing = false
-			b.pendingAutoRefresh = false
 			cmd := b.statusBar.SetTimedMessage("Refresh failed: "+provider.SanitizeError(msg.err), StatusError, statusMessageDuration)
 			if tickCmd := b.scheduleRefreshTick(); tickCmd != nil {
 				cmd = tea.Batch(cmd, tickCmd)
@@ -177,26 +176,12 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			level = StatusError
 		}
 		cmd := b.statusBar.SetTimedMessage(msg.message, level, statusMessageDuration)
-		if msg.success && b.actionRefreshDelay > 0 {
-			b.pendingAutoRefresh = true
-			cmd = tea.Batch(cmd, tea.Tick(b.actionRefreshDelay, func(time.Time) tea.Msg {
-				return autoRefreshMsg{}
-			}))
-		}
 		// Broad refresh (per plan Q2): re-read git status after every successful
 		// action, not just actions tagged as git-related.
 		if msg.success && b.gitReader != nil {
 			cmd = tea.Batch(cmd, fetchGitStatusCmd(b.gitReader, "."))
 		}
 		return b, cmd
-
-	case autoRefreshMsg:
-		if !b.pendingAutoRefresh || b.refreshing {
-			return b, nil
-		}
-		b.pendingAutoRefresh = false
-		b.refreshing = true
-		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, b.metadataDue()))
 
 	case cleanupResultMsg:
 		if msg.count == 0 {
@@ -478,8 +463,6 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		b.openPRCount = len(msg.openPRs)
 	}
 
-	b.pendingAutoRefresh = false
-
 	if b.refreshing {
 		// Preserve ActiveTab and cursor position by card Number (only used when no filter active).
 		savedTab := b.ActiveTab
@@ -494,7 +477,6 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		b.Columns = cols
 		b.sortColumns()
 		b.refreshing = false
-		b.detailScrollOffset = 0
 
 		// Rebuild filter items from refreshed data (labels/assignees may have changed).
 		b.filterItems = b.collectFilterItems()
@@ -507,6 +489,11 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// A refresh mid-read must not reset the detail panel's scroll
+		// position unless the selected card actually changed underneath it
+		// -- otherwise every periodic/manual refresh yanks a reader back to
+		// the top of the card they're in the middle of reading.
+		sameCardSelected := false
 		if b.activeFilterType != filterTypeNone {
 			// When filter is active, reset cursor and scroll to top for all columns.
 			for i := range b.Columns {
@@ -527,6 +514,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 						}
 					}
 				}
+				sameCardSelected = found
 				if !found {
 					// Clamp cursor to valid range.
 					if col.Cursor >= len(col.Cards) {
@@ -537,6 +525,9 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+		}
+		if !sameCardSelected {
+			b.detailScrollOffset = 0
 		}
 
 		b.clampScrollOffset()
@@ -1326,7 +1317,6 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if b.refreshing {
 			return b, nil
 		}
-		b.pendingAutoRefresh = false
 		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 	case "o":

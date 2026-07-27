@@ -168,7 +168,6 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `provider` | string | *(auto-detected)* | `github` (local config only) |
 | `repo` | string | *(auto-detected)* | `owner/repo` (local config only) |
 | `refresh_interval` | int | `5` | Minutes between auto-refresh (`0` to disable) |
-| `action_refresh_delay` | int | `5` | Seconds before refresh after a shell action (`0` to disable) |
 | `session_max_length` | int | `40` | Max characters for the `{session}` template variable |
 | `working_label` | string | `"Working"` | Label that shows a working indicator on cards |
 | `mouse` | bool | `true` | Enable mouse support |
@@ -410,14 +409,6 @@ The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug
 Agent-status matching (the live ▶/✓/… badges) does **not** rely on this name. Cards join cenci windows by **ticket-number prefix**: a card matches a window whose name is exactly the card number or starts with `<number>-` (cenci names dispatched windows `<number>-<skill>`, e.g. `230-refine`). The `-` boundary keeps card #23 from matching `230-…`, and the scheme is backward-compatible with cenci's older `<number>-<title-slug>` names.
 
 Use `{window}` (not `{session}`) when an action or `cleanup` command needs to target that live cenci window by name — for example `tmux kill-window -t {window}` to reap it. `{session}` still generates the reconstructed name above and is the right choice for actions that create a window before cenci has dispatched one.
-
-### Action Refresh Delay
-
-After a shell action completes, the board automatically refreshes after a delay. Configure in seconds:
-
-```yaml
-action_refresh_delay: 10  # default: 5, set to 0 to disable
-```
 
 ## Keybindings
 

@@ -377,9 +377,6 @@ type actionResultMsg struct {
 	message string
 }
 
-// autoRefreshMsg is sent when the auto-refresh delay timer fires.
-type autoRefreshMsg struct{}
-
 // agentSnapshotMsg is sent when the cenci-watch watcher delivers a new state snapshot.
 type agentSnapshotMsg struct {
 	snapshot *cenciwatch.StateSnapshot
@@ -903,14 +900,12 @@ type Board struct {
 	// is a dedicated state, not a reuse of pendingSeq: pendingSeq's
 	// continuation keys are gated to uppercase via config.IsSequenceKey,
 	// but reference labels are lowercase ('a'-'z').
-	pendingRefs        []cardRef
-	refreshing         bool
-	refreshInterval    time.Duration
-	actionRefreshDelay time.Duration
-	lastMetadataFetch  time.Time
-	metadataTTL        time.Duration
-	pendingAutoRefresh bool
-	prevCards          map[int]prevCardInfo
+	pendingRefs       []cardRef
+	refreshing        bool
+	refreshInterval   time.Duration
+	lastMetadataFetch time.Time
+	metadataTTL       time.Duration
+	prevCards         map[int]prevCardInfo
 	// cleanupBreakerWarning holds a status-bar warning set by
 	// detectDepartures when the cleanup circuit breaker trips. It's a
 	// transient hand-off: handleBoardFetched applies it as the timed status
@@ -971,7 +966,7 @@ type Board struct {
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, actionRefreshDelay time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher cenciwatch.Watcher, gitReader gitdetect.Reader, updateCheckEnabled bool) Board {
+func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher cenciwatch.Watcher, gitReader gitdetect.Reader, updateCheckEnabled bool) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 0
@@ -1029,7 +1024,6 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		providerName:       providerName,
 		sessionMaxLen:      sessionMaxLen,
 		refreshInterval:    refreshInterval,
-		actionRefreshDelay: actionRefreshDelay,
 		metadataTTL:        metadataTTL,
 		workingLabel:       workingLabel,
 		mouseEnabled:       mouseEnabled,
