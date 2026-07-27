@@ -310,6 +310,9 @@ func main() {
 	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader, cfg.UpdateCheckValue())
 	// Scope the agents list to this instance's own tmux session (#410).
 	board.tmuxSession = resolveTmuxSession(action.DefaultExecutor{})
+	// Seed the board-wide card sort direction from config (#503). Cards are
+	// fetched asynchronously, so no sort can run before this assignment.
+	board.sortNewestFirst = cfg.SortNewestFirstValue()
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.MouseValue() {
