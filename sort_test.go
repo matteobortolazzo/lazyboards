@@ -131,7 +131,7 @@ func TestNormalMode_U_TogglesSortOrder_FlipsOrder(t *testing.T) {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if cmd != nil {
-		t.Error("'u' toggle should return a nil cmd (synchronous in-memory re-sort, no async work)")
+		t.Error("'u' toggle should return a nil cmd when no state path is configured (the re-sort is synchronous; only persistence is async, #503)")
 	}
 
 	assertCardOrder(t, updated.Columns[0].Cards, []int{2, 3, 1}) // newest-first
@@ -177,7 +177,7 @@ func TestNormalMode_U_PreservesCursorIdentity_Unfiltered(t *testing.T) {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if cmd != nil {
-		t.Error("'u' toggle should return a nil cmd (synchronous in-memory re-sort, no async work)")
+		t.Error("'u' toggle should return a nil cmd when no state path is configured (the re-sort is synchronous; only persistence is async, #503)")
 	}
 
 	col := updated.Columns[updated.ActiveTab]
@@ -208,7 +208,7 @@ func TestNormalMode_U_PreservesCursorIdentity_Filtered(t *testing.T) {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if cmd != nil {
-		t.Error("'u' toggle should return a nil cmd (synchronous in-memory re-sort, no async work)")
+		t.Error("'u' toggle should return a nil cmd when no state path is configured (the re-sort is synchronous; only persistence is async, #503)")
 	}
 
 	col := updated.Columns[updated.ActiveTab]

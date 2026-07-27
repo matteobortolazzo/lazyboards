@@ -310,9 +310,26 @@ func main() {
 	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, time.Duration(cfg.ActionRefreshDelayValue())*time.Second, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader, cfg.UpdateCheckValue())
 	// Scope the agents list to this instance's own tmux session (#410).
 	board.tmuxSession = resolveTmuxSession(action.DefaultExecutor{})
-	// Seed the board-wide card sort direction from config (#503). Cards are
+	// Seed the board-wide card sort direction: a previously toggled direction
+	// (runtime state) wins over the configured default (#503). Cards are
 	// fetched asynchronously, so no sort can run before this assignment.
-	board.sortNewestFirst = cfg.SortNewestFirstValue()
+	// A missing home dir or an unreadable/corrupt state file must not block
+	// startup — log it and fall back to the configured default.
+	statePath, err := config.DefaultStatePath()
+	if err != nil {
+		debuglog.Log(fmt.Sprintf("state: no state path available, sort order will not persist: %v", err))
+	} else {
+		board.statePath = statePath
+	}
+	var state config.State
+	if board.statePath != "" {
+		state, err = config.LoadState(board.statePath)
+		if err != nil {
+			debuglog.Log(fmt.Sprintf("state: ignoring unreadable state file: %v", err))
+			state = config.State{}
+		}
+	}
+	board.sortNewestFirst = config.ResolveSortNewestFirst(cfg, state)
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.MouseValue() {

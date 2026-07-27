@@ -408,6 +408,13 @@ type configSavedMsg struct{}
 // configSaveErrorMsg is sent when saving a config file fails.
 type configSaveErrorMsg struct{ err error }
 
+// sortOrderSavedMsg is sent when the sort direction has been persisted to the
+// runtime-state file successfully.
+type sortOrderSavedMsg struct{}
+
+// sortOrderSaveErrorMsg is sent when persisting the sort direction fails.
+type sortOrderSaveErrorMsg struct{ err error }
+
 // prevCardInfo stores a card's column position and metadata for departure detection.
 type prevCardInfo struct {
 	colIdx int
@@ -951,8 +958,12 @@ type Board struct {
 	// sortNewestFirst controls the board-wide card sort order applied by
 	// sortColumns: true sorts every column newest-created-first, false
 	// oldest-first (the default, #503). Toggled at runtime by the 'u' key
-	// (#412) and seeded at startup from config.Config.SortNewestFirstValue().
+	// (#412) and seeded at startup by config.ResolveSortNewestFirst.
 	sortNewestFirst bool
+	// statePath is the runtime-state file the 'u' toggle persists the sort
+	// direction to (config.DefaultStatePath, #503). Empty means "nowhere to
+	// save": toggling still works, it just won't survive a restart.
+	statePath string
 	// updateCheckEnabled mirrors config.Config.UpdateCheckValue(): whether
 	// Init() should kick off the startup version-update check (#444).
 	updateCheckEnabled bool

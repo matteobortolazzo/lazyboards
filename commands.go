@@ -301,6 +301,20 @@ func saveConfigCmd(path, provider, repo string) tea.Cmd {
 	}
 }
 
+// saveSortOrderCmd returns a tea.Cmd that persists the board's sort direction
+// to the runtime-state file at path, so the 'u' toggle survives a restart
+// (#503). Only lazyboards writes this file — the user's config is never
+// rewritten.
+func saveSortOrderCmd(path string, newestFirst bool) tea.Cmd {
+	return func() tea.Msg {
+		st := config.State{SortOrder: config.SortOrderFor(newestFirst)}
+		if err := config.SaveState(path, st); err != nil {
+			return sortOrderSaveErrorMsg{err: err}
+		}
+		return sortOrderSavedMsg{}
+	}
+}
+
 // cleanupResultMsg is sent when cleanup commands finish executing.
 type cleanupResultMsg struct {
 	count int

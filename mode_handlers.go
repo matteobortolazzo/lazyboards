@@ -410,7 +410,13 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.clampScrollOffset()
 		b.rebuildNormalHints()
 		b.statusBar.SetActionHints(b.normalHints)
-		return b, nil
+		// The re-sort itself is synchronous; only remembering the choice for
+		// the next launch is async (#503). With no state path there is
+		// nowhere to save, so the toggle stays session-only.
+		if b.statePath == "" {
+			return b, nil
+		}
+		return b, saveSortOrderCmd(b.statePath, b.sortNewestFirst)
 	default:
 		// Check for number key navigation (1-9).
 		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
