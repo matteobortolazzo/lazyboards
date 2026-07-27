@@ -159,6 +159,18 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.mode = configMode
 		return b, nil
 
+	case sortOrderSavedMsg:
+		// Persisting the sort direction is background bookkeeping — success
+		// is silent, so 'u' doesn't post a status message on every press.
+		return b, nil
+
+	case sortOrderSaveErrorMsg:
+		// The board is already re-sorted; only the "remember this" half
+		// failed, so say exactly that rather than implying the sort broke.
+		return b, b.statusBar.SetTimedMessage(
+			fmt.Sprintf("Could not save sort order: %s", provider.SanitizeError(msg.err)),
+			StatusError, statusMessageDuration)
+
 	case actionResultMsg:
 		level := StatusSuccess
 		if !msg.success {

@@ -174,10 +174,12 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `mouse` | bool | `true` | Enable mouse support |
 | `cenci` | bool | `true` | Enable live agent status badges + status-bar counts (requires the cenci-watch daemon; silently off when absent) |
 | `update_check` | bool | `true` | Check for newer lazyboards releases on startup and show a sticky notice when one is available |
-| `sort_order` | string | `oldest` | Card sort direction by creation date: `oldest` or `newest` created first (board-wide; `u` toggles it for the session) |
+| `sort_order` | string | `oldest` | Card sort direction by creation date: `oldest` or `newest` created first (board-wide; sets the starting direction, and `u` toggles it) |
 | `cleanup` | string | — | Default cleanup command applied to every column that doesn't set its own (see [Column Cleanup](#column-cleanup)) |
 | `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, actions, cleanup) |
 | `actions` | map | — | Global custom actions (see [Custom Actions](#custom-actions)) |
+
+**Note on remembered state:** pressing `u` to flip the sort order writes your choice to `~/.config/lazyboards/state.yml`, so it survives a restart. That file is written by lazyboards alone — your config files are never rewritten — and a remembered direction takes precedence over `sort_order`. Delete it to go back to the configured default.
 
 ## Editing Cards
 
@@ -445,7 +447,7 @@ Press `?` at any time to open the in-app help popup.
 | `a` | Assign collaborator |
 | `g` | Git menu |
 | `d` | (cenci) Dispatch |
-| `u` | Toggle sort order (oldest/newest created first; board-wide, applies to all columns) |
+| `u` | Toggle sort order (oldest/newest created first; board-wide, applies to all columns; remembered across restarts) |
 | `f` | Filter (toggle) |
 | `l` / `→` | Detail panel |
 | `j` / `↓` | Next card |
