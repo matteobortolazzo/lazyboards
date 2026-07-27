@@ -50,10 +50,25 @@ func NewStatusBar(hints []Hint) StatusBar {
 	return StatusBar{hints: hints}
 }
 
-// SetTimedMessage sets a temporary message that overrides hints.
+// SetTimedMessage sets a temporary message that overrides hints. msg is
+// sanitized via sanitizeSingleLine (#499) before being stored, so untrusted
+// text that ends up here (e.g. subprocess stderr, a tmux window label) can
+// never break the status bar onto multiple physical lines or smuggle
+// bidi/zero-width control runes. This deliberately does NOT extend to
+// SetGitStatus/SetDispatchStatus: both receive pre-formatted segments built
+// by formatGitSegment/formatDispatchSegment that legitimately carry
+// ANSI/SGR color styling, which a blanket sanitize here would strip. The
+// dispatch segment is fully app-controlled (fixed literals + state-driven
+// styling only) and needs no sanitization. The git segment's Branch field is
+// untrusted (from `git branch --show-current`) but is already sanitized with
+// sanitizeSingleLine at its source, inside formatGitSegment, before being
+// composed into the styled segment -- that's why SetGitStatus itself doesn't
+// need to sanitize again. A whitespace-only msg sanitizes to "", which View()
+// already treats as "no timed message set" (falls through to the sticky
+// message or hints).
 // It returns a tea.Cmd that will send a clearStatusMsg after the duration.
 func (s *StatusBar) SetTimedMessage(msg string, level StatusLevel, duration time.Duration) tea.Cmd {
-	s.message = msg
+	s.message = sanitizeSingleLine(msg)
 	s.level = level
 	return tea.Tick(duration, func(time.Time) tea.Msg {
 		return clearStatusMsg{}
@@ -71,8 +86,17 @@ func (s *StatusBar) ClearMessage() {
 // SetTimedMessage, it does not auto-clear and is not affected by
 // ClearMessage(). A timed message, while active, still takes precedence over
 // the sticky message.
+//
+// Like SetTimedMessage, msg is sanitized via sanitizeSingleLine (#499) before
+// being stored -- see that method's doc comment for why SetGitStatus/
+// SetDispatchStatus are deliberately excluded from this sink (they carry
+// pre-rendered ANSI/lipgloss styling that a blanket sanitize would strip, and
+// the git segment's only untrusted field, Branch, is already sanitized at
+// its source in formatGitSegment). A whitespace-only msg sanitizes to "", so
+// HasStickyMessage() returns false and View() falls through to hints, the
+// same as if SetStickyMessage had never been called.
 func (s *StatusBar) SetStickyMessage(msg string, level StatusLevel) {
-	s.stickyMessage = msg
+	s.stickyMessage = sanitizeSingleLine(msg)
 	s.stickyLevel = level
 }
 
@@ -94,6 +118,11 @@ func (s *StatusBar) SetActionHints(hints []Hint) {
 
 // SetGitStatus sets the pre-formatted git status segment shown right-aligned
 // in the status bar. Pass "" to hide the segment (e.g. on a read failure).
+// Unlike SetTimedMessage/SetStickyMessage, this does not sanitize segment
+// itself: it's pre-formatted by formatGitSegment, which already sanitizes
+// its only untrusted input (status.Branch) at the point of concatenation,
+// before the segment's legitimate ANSI/SGR styling is applied -- sanitizing
+// again here would strip that styling.
 func (s *StatusBar) SetGitStatus(segment string) {
 	s.gitStatus = segment
 }
@@ -111,8 +140,16 @@ func (s *StatusBar) SetDispatchStatus(segment string) {
 // behind (pull) both in the same gentle orange since they're sync state
 // rather than a warning. The ahead/behind portion is omitted entirely when
 // HasUpstream is false.
+//
+// status.Branch comes from `git branch --show-current` (internal/git) and is
+// NOT app-controlled: a ref name checked out from an untrusted fork/repo can
+// contain arbitrary non-ASCII bytes, including UTF-8-encoded C1 controls or
+// bidi overrides. It is sanitized with sanitizeSingleLine (#499) right here,
+// at the point it's concatenated, so the composed segment can still safely
+// carry the ANSI/SGR styling applied below (which SetGitStatus/View() must
+// not strip).
 func formatGitSegment(status gitdetect.Status) string {
-	segment := status.Branch + " " +
+	segment := sanitizeSingleLine(status.Branch) + " " +
 		gitAddedStyle.Render("+"+strconv.Itoa(status.Insertions)) +
 		gitDeletedStyle.Render("~"+strconv.Itoa(status.Deletions))
 	if status.HasUpstream {
