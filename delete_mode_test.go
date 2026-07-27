@@ -157,6 +157,48 @@ func TestDeleteMode_TKey_EntersDeleteModeWithCommentStep(t *testing.T) {
 	}
 }
 
+// TestDeleteMode_CommentStepPrompt_FlattensEmbeddedNewlineInTitle covers the
+// delete modal's comment-step prompt (#500). Like the close-confirm helpBar,
+// the prompt renders card.Title through fmt.Sprintf's %q verb, which already
+// escapes a raw newline to the two-character `\n` literal -- so the
+// meaningful assertion is the *flattened* form ("line one line two"), not
+// merely "one physical line" (which %q already guarantees on its own).
+func TestDeleteMode_CommentStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "line one\nline two"
+
+	m, _ := b.Update(keyMsg("t"))
+	b = m.(Board)
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+
+	view := b.viewDeleteModal()
+	if !strings.Contains(view, "line one line two") {
+		t.Errorf("viewDeleteModal() = %q, want the comment-step prompt to render the flattened title \"line one line two\", not the %%q-escaped \\n literal", view)
+	}
+}
+
+// TestDeleteMode_ConfirmStepPrompt_FlattensEmbeddedNewlineInTitle covers the
+// same %q prompt gap for the retype-to-confirm step.
+func TestDeleteMode_ConfirmStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "line one\nline two"
+
+	m, _ := b.Update(keyMsg("t"))
+	b = m.(Board)
+	m, _ = b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+
+	view := b.viewDeleteModal()
+	if !strings.Contains(view, "line one line two") {
+		t.Errorf("viewDeleteModal() = %q, want the confirm-step prompt to render the flattened title \"line one line two\", not the %%q-escaped \\n literal", view)
+	}
+}
+
 func TestDeleteMode_TKey_NoColumns_DoesNothing(t *testing.T) {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)

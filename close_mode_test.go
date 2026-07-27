@@ -175,6 +175,33 @@ func TestCloseMode_ViewSanitizesControlSequencesInTitle(t *testing.T) {
 	}
 }
 
+// TestCloseMode_ViewFlattensEmbeddedNewlineInTitle covers the same
+// close-confirm helpBar prompt for an embedded newline in card.Title
+// (#500). The prompt renders the title through fmt.Sprintf's %q verb, which
+// already escapes a raw newline byte to the two-character literal `\n` --
+// so a bare "renders on one physical line" assertion would pass both before
+// and after the fix, since %q never lets an actual line break through. The
+// meaningful assertion is that the rendered text is the *flattened* form
+// ("line one line two", a single space where the newline was), not the
+// %q-escaped backslash-n literal.
+func TestCloseMode_ViewFlattensEmbeddedNewlineInTitle(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "line one\nline two"
+
+	m, _ := b.Update(keyMsg("x"))
+	b = m.(Board)
+	if b.mode != closeConfirmMode {
+		t.Fatalf("precondition: mode = %d, want closeConfirmMode", b.mode)
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "line one line two") {
+		t.Errorf("View() = %q, want the close prompt to render the flattened title \"line one line two\" (embedded newline collapsed to a space), not the %%q-escaped \\n literal", view)
+	}
+}
+
 // --- Key handling within closeConfirmMode ---
 
 func TestCloseMode_YKey_FiresCloseCardCmdAndReturnsToNormalMode(t *testing.T) {

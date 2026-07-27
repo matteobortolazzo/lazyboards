@@ -46,18 +46,6 @@ func sanitizeControlSequences(s string) string {
 	}, stripped)
 }
 
-// flattenToSingleLine collapses \n, \r, and \t into a single space. Unlike
-// sanitizeControlSequences (which deliberately preserves \n/\t for
-// multi-line card.Body rendering), callers that render untrusted text into a
-// single-line field -- e.g. a fixed-cell row grid or a one-line status
-// message -- must flatten it first, or an embedded newline/tab can visually
-// spoof an extra row or break the field's layout. Apply this AFTER
-// sanitizeControlSequences (so ANSI escapes are stripped first) and BEFORE
-// any length truncation.
-func flattenToSingleLine(s string) string {
-	return strings.NewReplacer("\n", " ", "\r", " ", "\t", " ").Replace(s)
-}
-
 // sanitizeSingleLine sanitizes untrusted text destined for a field that must
 // render as exactly one physical terminal line (e.g. a status-bar message).
 // It runs in four passes:
@@ -86,9 +74,14 @@ func flattenToSingleLine(s string) string {
 //     single space, and trims leading/trailing whitespace.
 //
 // Ordering contract: callers must sanitize with this function BEFORE any
-// length truncation, mirroring flattenToSingleLine's contract, so truncation
-// operates on the final flattened text rather than being able to cut in the
-// middle of content that sanitization would otherwise have collapsed.
+// length truncation, so truncation operates on the final flattened text
+// rather than being able to cut in the middle of content that sanitization
+// would otherwise have collapsed. Unlike sanitizeControlSequences (which
+// deliberately preserves \n/\t for multi-line card.Body rendering), this is
+// the sanitizer for any field that must render as exactly one physical
+// terminal line -- e.g. a fixed-cell row grid or a one-line status message --
+// since an embedded newline/tab can otherwise visually spoof an extra row or
+// break the field's layout.
 //
 // sanitizeSingleLine is idempotent: re-sanitizing an already-sanitized string
 // is a no-op, since none of the four passes can produce output that a

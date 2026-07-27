@@ -265,6 +265,22 @@ func TestCreateAssignee_NoChainWithoutPendingAssignee(t *testing.T) {
 	}
 }
 
+// TestCreateAssignee_View_NewlineInCollaboratorLogin_RendersOneRow covers
+// the create-modal assignee line render path (#500): a collaborator login
+// is untrusted GitHub content, so an embedded newline must not spill the
+// "< login >" display line onto a second physical row.
+func TestCreateAssignee_View_NewlineInCollaboratorLogin_RendersOneRow(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.collaborators = []Assignee{{Login: "line one\nline two"}}
+	b.Width = 120
+	b.Height = 40
+	b = enterCreateAndFocusAssignee(t, b)
+	b = sendKey(t, b, arrowMsg(tea.KeyRight)) // move off "(none)" onto the collaborator
+
+	view := b.View()
+	assertOneRow(t, view, "line one", "line two")
+}
+
 func TestCreateAssignee_AssigneeResetOnReenter(t *testing.T) {
 	b := newCreateTestBoardWithCollaborators(t)
 

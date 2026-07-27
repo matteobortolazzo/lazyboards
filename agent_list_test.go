@@ -245,6 +245,26 @@ func TestAgentList_View_ShowsWindowsWithCardRefs(t *testing.T) {
 	}
 }
 
+// TestAgentList_View_NewlineInWindowFields_RendersOneRowWithAllFragments
+// covers the agents modal row render path (#500): WindowName, agentWindowRef
+// (composed from Session/WindowIndex), and Agent are all untrusted
+// daemon-reported fields, and the row's "— <column> #N" card-link suffix
+// carries the same untrusted column title as the PR list. An embedded
+// newline in any of them must not spill the single agent row onto multiple
+// physical lines.
+func TestAgentList_View_NewlineInWindowFields_RendersOneRowWithAllFragments(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	windows := []cenciwatch.WindowState{
+		{Session: "sOne\nsTwo", WindowIndex: "3", WindowName: "42-wOne\nwTwo", Status: agentStatusRunning, Agent: "aO\naT"},
+	}
+	b := newAgentListBoard(t, fe, windows)
+	b.Columns[0].Title = "cOne\ncTwo"
+	b = sendKey(t, b, keyMsg("w"))
+
+	view := b.View()
+	assertOneRow(t, view, "sOne", "sTwo", "wOne", "wTwo", "aO", "aT", "cOne", "cTwo")
+}
+
 // TestAgentList_View_StatePrecedence locks the full cenciwatch state
 // precedence: watcher disabled -> daemon not connected -> no windows ->
 // list (with a stale note once the error threshold that clears the

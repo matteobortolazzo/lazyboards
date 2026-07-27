@@ -288,6 +288,19 @@ func TestBuildBorderTitle_WideTerm_ShowsFullTitles(t *testing.T) {
 	}
 }
 
+// TestBuildBorderTitle_NewlineInColumnTitle_RendersOneRowWithSuffix covers
+// the border/tab title render path for an embedded newline in col.Title
+// (#500): col.Title comes from the repo-local, untrusted .lazyboards.yml
+// config, so a malicious column name must not spill the tab border onto
+// multiple physical lines.
+func TestBuildBorderTitle_NewlineInColumnTitle_RendersOneRowWithSuffix(t *testing.T) {
+	columns := []Column{
+		{Title: "line one\nline two"},
+	}
+	title := buildBorderTitle(columns, 0, 120)
+	assertOneRow(t, title, "line one", "line two")
+}
+
 func TestBuildBorderTitle_NarrowTerm_TruncatesTitles(t *testing.T) {
 	columns := []Column{
 		{Title: "New"},
@@ -566,6 +579,80 @@ func TestCardDisplayText_SanitizesControlSequencesInTitle(t *testing.T) {
 	}
 	if !strings.Contains(text, "RED") {
 		t.Errorf("cardDisplayText() = %q, want visible text %q retained", text, "RED")
+	}
+}
+
+// TestCardLineCount_MatchesViewCardList_TitleWithEmbeddedNewline is the
+// list-cursor-invariants row-count desync check (#500): wrapTitle returns
+// the title text verbatim (no split) when it already fits within
+// contentWidth, so an embedded "\n" in card.Title is not counted as an extra
+// wrapped line by cardLineCount, yet the terminal renders it as an extra
+// physical row once the joined leftContent is split on "\n". cardLineCount
+// is the single source of truth clampScrollOffset/viewCardList/
+// handleCardClick all share (docs/list-cursor-invariants.md), so it must
+// report the same row count viewCardList actually renders.
+func TestCardLineCount_MatchesViewCardList_TitleWithEmbeddedNewline(t *testing.T) {
+	board := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "line one\nline two", Labels: []provider.Label{{Name: "test"}}},
+	}, 120, 40)
+	card := board.Columns[0].Cards[0]
+	columnNames := []string{board.Columns[0].Title}
+	contentWidth := 60
+
+	view := board.viewCardList(board.Columns[0], 20, contentWidth, leftPanelStyle)
+	assertOneRow(t, view, "line one", "line two")
+
+	actualRows := 0
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "line one") || strings.Contains(line, "line two") {
+			actualRows++
+		}
+	}
+
+	gotLines := board.cardLineCount(card, contentWidth, columnNames)
+	if gotLines != actualRows {
+		t.Errorf("cardLineCount() = %d, want %d to match the card's actual physical row count in viewCardList (list-cursor-invariants desync)", gotLines, actualRows)
+	}
+}
+
+// TestCardStatusLine_AgentNameWithNewline_BadgeRendersOnePhysicalLine covers
+// the same desync for a card joined to a live cenci agent window whose Agent
+// name carries an embedded newline: agentBadgeText strips (rather than
+// collapses to a space) embedded whitespace/control runs before building the
+// fixed-width badge, so the "\n" never reaches cardStatusLines and the
+// status line stays on one physical row, matching what cardLineCount
+// already counts.
+func TestCardStatusLine_AgentNameWithNewline_BadgeRendersOnePhysicalLine(t *testing.T) {
+	board := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 7, Title: "Newline agent card"},
+	}, 120, 40)
+	board.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{
+			{WindowName: "7", Status: "running", Agent: "cla\nude"},
+		},
+	}
+	card := board.Columns[0].Cards[0]
+	columnNames := []string{board.Columns[0].Title}
+	contentWidth := 60
+
+	view := board.viewCardList(board.Columns[0], 20, contentWidth, leftPanelStyle)
+	assertOneRow(t, view, "cla", "ude")
+
+	titleRows := 0
+	badgeRows := 0
+	for _, line := range strings.Split(view, "\n") {
+		switch {
+		case strings.Contains(line, "Newline agent card"):
+			titleRows++
+		case strings.Contains(line, "cla") || strings.Contains(line, "ude"):
+			badgeRows++
+		}
+	}
+	actualRows := titleRows + badgeRows
+
+	gotLines := board.cardLineCount(card, contentWidth, columnNames)
+	if gotLines != actualRows {
+		t.Errorf("cardLineCount() = %d, want %d to match the card's actual physical rows (title=%d + badge=%d) in viewCardList", gotLines, actualRows, titleRows, badgeRows)
 	}
 }
 

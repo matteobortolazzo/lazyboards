@@ -1649,6 +1649,20 @@ func TestFilterMode_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
 	assertMutedRowStyle(t, "filter", titleLine, selectedLine, nonSelectedLine)
 }
 
+// TestFilterMode_View_NewlineInItemValue_RendersOneRow covers the filter
+// picker's row render path (#500): a label/assignee/milestone value is
+// untrusted GitHub content, so an embedded newline must not spill the row
+// onto a second physical line.
+func TestFilterMode_View_NewlineInItemValue_RendersOneRow(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.filterItems = []filterItem{
+		{itemType: filterByLabel, value: "line one\nline two"},
+	}
+
+	view := b.viewFilterModal()
+	assertOneRow(t, view, "line one", "line two")
+}
+
 func TestFilterMode_CollectFilterItems_AssigneesUnaffectedByColumnExclusion(t *testing.T) {
 	b := newBoardWithColumnNameLabels(t)
 	items := b.collectFilterItems()

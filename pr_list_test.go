@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -474,6 +475,31 @@ func TestPRList_View_SanitizesControlSequencesInPRTitle(t *testing.T) {
 	}
 	if !strings.Contains(view, "RED") {
 		t.Errorf("viewPRListModal() should still contain visible PR title text %q", "RED")
+	}
+}
+
+// TestPRList_View_NewlineInTitleAndColumnTitle_RendersOneRowWithSuffix
+// covers the same PR list row render path for embedded newlines in both
+// entry.pr.Title and its "— <column> #N" card-link suffix (#500): both
+// fields are untrusted (pr.Title from GitHub, columnTitle from the user's
+// configured board), so a malicious title or column name must not spill a
+// single PR row onto multiple physical lines.
+func TestPRList_View_NewlineInTitleAndColumnTitle_RendersOneRowWithSuffix(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	if len(b.prList.entries) == 0 {
+		t.Fatal("test precondition: prList.entries must be non-empty (card-linked fallback)")
+	}
+
+	b.prList.entries[0].pr.Title = "line one\nline two"
+	b.prList.entries[0].columnTitle = "col one\ncol two"
+
+	view := b.viewPRListModal()
+	row := assertOneRow(t, view, "line one", "line two", "col one", "col two")
+
+	wantSuffix := fmt.Sprintf("#%d", b.prList.entries[0].cardNumber)
+	if !strings.Contains(row, wantSuffix) {
+		t.Errorf("row = %q, want it to contain the card-number suffix %q", row, wantSuffix)
 	}
 }
 
