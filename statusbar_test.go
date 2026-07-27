@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
+	"github.com/muesli/termenv"
 )
 
 // --- StatusBar: Basic Rendering ---
@@ -1349,5 +1350,176 @@ func TestFormatDispatchSegment_DaemonNotRunningRendersDistinctly(t *testing.T) {
 	wantSegment := statusErrorStyle.Render("⟳ dispatch")
 	if daemonDownSegment != wantSegment {
 		t.Errorf("formatDispatchSegment(Enabled && !DaemonRunning) = %q, want it to reuse statusErrorStyle like the LastError case: %q", daemonDownSegment, wantSegment)
+	}
+}
+
+// --- StatusBar: message sanitization sink (#499) ---
+//
+// SetTimedMessage/SetStickyMessage sanitize their message via
+// sanitizeSingleLine before storing it, so untrusted text that ends up in a
+// status message (subprocess stderr, a tmux "Switched to <window>" label)
+// can never break the status bar onto multiple physical lines. This is a
+// sink-only fix -- no call site changes -- so it transitively covers every
+// existing producer of a timed/sticky message. SetGitStatus/SetDispatchStatus
+// are explicitly NOT part of this sink: they only ever receive pre-formatted,
+// app-controlled segments (formatGitSegment/formatDispatchSegment) that
+// legitimately carry ANSI styling, which sanitization would strip.
+
+// TestStatusBar_SetTimedMessage_SanitizesNewlineBearingStderr feeds
+// SetTimedMessage a message built the same way the real subprocess-stderr
+// producer builds it (commands.go: "Error: " + truncateOutput(stderr,
+// maxErrorOutputLen)) with newline-bearing stderr, and asserts the rendered
+// view is a single physical line.
+func TestStatusBar_SetTimedMessage_SanitizesNewlineBearingStderr(t *testing.T) {
+	stderr := "fatal: unable to access repo\nremote: Permission denied\nfatal: Could not read from remote"
+	msg := "Error: " + truncateOutput(stderr, maxErrorOutputLen)
+
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetTimedMessage(msg, StatusError, 3*time.Second)
+	view := sb.View(200)
+
+	if strings.Count(view, "\n") != 0 {
+		t.Errorf("View() = %q, want a single physical line (0 embedded newlines), got %d", view, strings.Count(view, "\n"))
+	}
+	if !strings.Contains(view, "Error:") {
+		t.Errorf("View() = %q, want it to contain %q", view, "Error:")
+	}
+	if !strings.Contains(view, "Permission denied") {
+		t.Errorf("View() = %q, want it to contain %q", view, "Permission denied")
+	}
+}
+
+// TestStatusBar_SetStickyMessage_SanitizesNewlineBearingStderr mirrors the
+// timed-message sink test above for SetStickyMessage.
+func TestStatusBar_SetStickyMessage_SanitizesNewlineBearingStderr(t *testing.T) {
+	stderr := "fatal: unable to access repo\nremote: Permission denied\nfatal: Could not read from remote"
+	msg := "Error: " + truncateOutput(stderr, maxErrorOutputLen)
+
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetStickyMessage(msg, StatusError)
+	view := sb.View(200)
+
+	if strings.Count(view, "\n") != 0 {
+		t.Errorf("View() = %q, want a single physical line (0 embedded newlines), got %d", view, strings.Count(view, "\n"))
+	}
+	if !strings.Contains(view, "Error:") {
+		t.Errorf("View() = %q, want it to contain %q", view, "Error:")
+	}
+	if !strings.Contains(view, "Permission denied") {
+		t.Errorf("View() = %q, want it to contain %q", view, "Permission denied")
+	}
+}
+
+// TestStatusBar_SetStickyMessage_WhitespaceOnly_TreatedAsUnset verifies the
+// whitespace-only contract: a sticky message that sanitizes to the empty
+// string must not register as "set" -- HasStickyMessage() stays false and
+// hints render normally.
+func TestStatusBar_SetStickyMessage_WhitespaceOnly_TreatedAsUnset(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetStickyMessage("   ", StatusInfo)
+
+	if sb.HasStickyMessage() {
+		t.Error("HasStickyMessage() = true after SetStickyMessage(\"   \"), want false (whitespace-only sanitizes to empty)")
+	}
+	view := sb.View(200, 0, 0)
+	if !strings.Contains(view, "Quit") {
+		t.Errorf("View() = %q, want hints shown when the sticky message sanitizes to empty", view)
+	}
+}
+
+// TestStatusBar_SetTimedMessage_WhitespaceOnly_FallsThroughToHints verifies
+// the same whitespace-only contract for the timed message: once sanitized to
+// empty, View() must fall through past the (now-empty) timed message to
+// hints (mirroring the "message == \"\"" precedence already used elsewhere in
+// View()).
+func TestStatusBar_SetTimedMessage_WhitespaceOnly_FallsThroughToHints(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetTimedMessage("  \n ", StatusWarning, 3*time.Second)
+	view := sb.View(200, 0, 0)
+
+	if !strings.Contains(view, "Quit") {
+		t.Errorf("View() = %q, want hints shown when the timed message sanitizes to empty", view)
+	}
+}
+
+// TestStatusBar_GitAndDispatchSegments_PreserveANSIStyling is the required
+// regression coverage proving the new sanitization sink does NOT reach
+// SetGitStatus/SetDispatchStatus: both segments are built by the app's own
+// formatGitSegment/formatDispatchSegment (never untrusted input) and
+// legitimately carry ANSI SGR styling that a sanitizer would strip.
+func TestStatusBar_GitAndDispatchSegments_PreserveANSIStyling(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	gitSegment := formatGitSegment(gitdetect.Status{
+		Branch:      "main",
+		Insertions:  2,
+		Deletions:   1,
+		Ahead:       3,
+		Behind:      0,
+		HasUpstream: true,
+	})
+	dispatchSegment := formatDispatchSegment(&cenciwatch.DispatchState{Enabled: true, DaemonRunning: false})
+
+	if !strings.ContainsRune(gitSegment, '\x1b') || !strings.ContainsRune(dispatchSegment, '\x1b') {
+		t.Fatalf("formatGitSegment/formatDispatchSegment produced unstyled segments (test setup): git=%q dispatch=%q", gitSegment, dispatchSegment)
+	}
+
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetGitStatus(gitSegment)
+	sb.SetDispatchStatus(dispatchSegment)
+	view := sb.View(200)
+
+	if !strings.Contains(view, gitSegment) {
+		t.Errorf("View() = %q, want the git segment %q to survive verbatim", view, gitSegment)
+	}
+	if !strings.Contains(view, dispatchSegment) {
+		t.Errorf("View() = %q, want the dispatch segment %q to survive verbatim", view, dispatchSegment)
+	}
+	if !strings.ContainsRune(view, '\x1b') {
+		t.Errorf("View() = %q, want ANSI styling preserved", view)
+	}
+}
+
+// TestStatusBar_GitSegmentSanitizesUntrustedBranchName is the required
+// regression coverage for #499's git-segment fix: status.Branch comes from
+// `git branch --show-current` and is NOT app-controlled (unlike the rest of
+// formatGitSegment's inputs), so a ref name checked out from an untrusted
+// fork/repo could otherwise inject a bidi override or a C1 control sequence
+// into the status bar. formatGitSegment must sanitize Branch at its source
+// while still letting the segment's own gitAddedStyle/gitDeletedStyle ANSI
+// styling survive untouched.
+func TestStatusBar_GitSegmentSanitizesUntrustedBranchName(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	// U+202E is RIGHT-TO-LEFT OVERRIDE (bidi-spoofing); U+009B is the C1 CSI
+	// introducer -- both are legal bytes in a git ref name.
+	maliciousBranch := "main\u202E\u009Bevil"
+	gitSegment := formatGitSegment(gitdetect.Status{
+		Branch:      maliciousBranch,
+		Insertions:  2,
+		Deletions:   1,
+		HasUpstream: false,
+	})
+
+	if !strings.ContainsRune(gitSegment, '\x1b') {
+		t.Fatalf("formatGitSegment produced an unstyled segment (test setup): %q", gitSegment)
+	}
+	if strings.ContainsRune(gitSegment, '\u202E') || strings.ContainsRune(gitSegment, '\u009B') {
+		t.Fatalf("formatGitSegment(%q) = %q, want the injected bidi-override/CSI runes stripped", maliciousBranch, gitSegment)
+	}
+
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetGitStatus(gitSegment)
+	view := sb.View(200)
+
+	if strings.ContainsRune(view, '\u202E') || strings.ContainsRune(view, '\u009B') {
+		t.Errorf("View() = %q, want no raw bidi-override/CSI bytes from the untrusted branch name", view)
+	}
+	if !strings.ContainsRune(view, '\x1b') {
+		t.Errorf("View() = %q, want the segment's legitimate gitAddedStyle/gitDeletedStyle ANSI styling preserved", view)
 	}
 }
