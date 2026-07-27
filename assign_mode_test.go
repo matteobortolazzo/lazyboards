@@ -530,6 +530,23 @@ func TestAssignMode_View_SanitizesControlSequencesInLogin(t *testing.T) {
 	}
 }
 
+// TestAssignMode_View_NewlineInLogin_RendersOneRow covers the same
+// assignItem.login render path for an embedded newline (#500): a malicious
+// collaborator login must not spill the picker row onto a second physical
+// line.
+func TestAssignMode_View_NewlineInLogin_RendersOneRow(t *testing.T) {
+	b := newBoardWithCollaborators(t)
+	b = sendKey(t, b, keyMsg("a"))
+	if b.mode != assignMode {
+		t.Fatalf("expected assignMode after 'a', got %d", b.mode)
+	}
+
+	b.assign.items = []assignItem{{login: "line one\nline two"}}
+
+	view := b.View()
+	assertOneRow(t, view, "line one", "line two")
+}
+
 // --- Mute non-selected rows to gray (#478) ---
 
 // TestAssignMode_View_NonSelectedRowGray_SelectedRowBoldWhite asserts the

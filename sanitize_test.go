@@ -104,6 +104,15 @@ func TestSanitizeControlSequences_CleanTextUnchanged(t *testing.T) {
 // removes bidi-control and zero-width runes entirely (no residual space),
 // collapses runs of whitespace, and trims the result. It is idempotent:
 // re-sanitizing an already-sanitized string is a no-op.
+//
+// #500 deletes flattenToSingleLine (whose \n/\r/\t-only flattening was a
+// strict subset of the four passes above) and migrates every call site onto
+// sanitizeSingleLine. flattenToSingleLine never had dedicated unit tests of
+// its own -- its whitespace-flattening and idempotence behavior is already
+// covered here by TestSanitizeSingleLine_WhitespaceRunesFlattenToSpace and
+// TestSanitizeSingleLine_Idempotent, so no new unit test is added in this
+// file; the migrated call sites get their own regression coverage in
+// view_test.go, mode_handlers/milestone_list_test.go, and friends.
 
 // TestSanitizeSingleLine_WhitespaceRunesFlattenToSpace covers every rune the
 // ticket calls out as a line/paragraph/whitespace separator: \n, \r, \t,

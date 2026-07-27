@@ -103,7 +103,7 @@ func (b Board) View() string {
 	}
 	if b.mode == closeConfirmMode {
 		card := b.closeConfirm.card
-		helpBar = fmt.Sprintf("Close #%d %q? (y/n)", card.Number, sanitizeControlSequences(card.Title))
+		helpBar = fmt.Sprintf("Close #%d %q? (y/n)", card.Number, sanitizeSingleLine(card.Title))
 	}
 
 	// Assemble inner content.
@@ -231,9 +231,16 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCount
 	}
 
 	// Try 1: Full titles — "[N] Title (C)"
+	// col.Title comes from the repo-local, untrusted .lazyboards.yml config,
+	// so it is sanitized here (before composition/truncation) and reused
+	// below wherever the raw title would otherwise be rendered (#500).
+	sanitizedTitles := make([]string, len(columns))
+	for i, col := range columns {
+		sanitizedTitles[i] = sanitizeSingleLine(col.Title)
+	}
 	fullTexts := make([]string, len(columns))
 	for i, col := range columns {
-		fullTexts[i] = fmt.Sprintf("[%d] %s %s", i+1, col.Title, countSuffix(i, len(col.Cards)))
+		fullTexts[i] = fmt.Sprintf("[%d] %s %s", i+1, sanitizedTitles[i], countSuffix(i, len(col.Cards)))
 	}
 	joined, joinedWidth := renderLabels(fullTexts)
 
@@ -259,11 +266,11 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCount
 				canTruncate = false
 				break
 			}
-			titleRunes := []rune(col.Title)
+			titleRunes := []rune(sanitizedTitles[i])
 			if len(titleRunes) > maxTitleChars {
 				truncTexts[i] = numPrefix + string(titleRunes[:maxTitleChars-1]) + "\u2026" + cntSuffix
 			} else {
-				truncTexts[i] = numPrefix + col.Title + cntSuffix
+				truncTexts[i] = numPrefix + sanitizedTitles[i] + cntSuffix
 			}
 		}
 
@@ -338,11 +345,27 @@ func agentStatusSymbol(status string) string {
 // window status/agent, or "" when the status has no badge. When agent is empty
 // the symbol is returned alone. The kind is truncated/space-padded to a stable
 // rune width (content build-up, not layout measurement — []rune is correct here).
+//
+// Unlike sanitizeSingleLine (built for natural-language single-line fields,
+// where an embedded newline is replaced with a space to preserve word
+// boundaries), agent is a compact kind token (e.g. "claude", "codex") that
+// never legitimately contains internal whitespace, so embedded
+// whitespace/control runs are stripped entirely here rather than replaced
+// with a space -- otherwise the synthetic separator space would itself
+// consume one rune of the fixed agentBadgeKindWidth budget, truncating real
+// content that would otherwise fit.
 func agentBadgeText(status, agent string) string {
 	symbol := agentStatusSymbol(status)
 	if symbol == "" {
 		return ""
 	}
+	agent = strings.Join(strings.Fields(sanitizeControlSequences(agent)), "")
+	agent = strings.Map(func(r rune) rune {
+		if isBidiOrZeroWidthRune(r) {
+			return -1
+		}
+		return r
+	}, agent)
 	if agent == "" {
 		return symbol
 	}
@@ -524,7 +547,7 @@ func renderProgressBar(percentage float64, width int, muted bool) string {
 // workingLabel is the configured label name that triggers the spinner icon.
 func cardDisplayText(card Card, columnNames []string, workingLabel string) (string, int) {
 	prefix := fmt.Sprintf("#%d ", card.Number)
-	text := prefix + sanitizeControlSequences(card.Title)
+	text := prefix + sanitizeSingleLine(card.Title)
 	// Spinner icon uses case-insensitive match against the configured working label.
 	for _, label := range card.Labels {
 		if workingLabel != "" && strings.EqualFold(label.Name, workingLabel) {
@@ -1070,7 +1093,7 @@ func (b Board) viewCreateModal() string {
 
 		var assigneeLine string
 		if len(b.create.assigneeOptions) > 1 {
-			assigneeDisplay := "< " + sanitizeControlSequences(b.create.assigneeOptions[b.create.assigneeIndex]) + " >"
+			assigneeDisplay := "< " + sanitizeSingleLine(b.create.assigneeOptions[b.create.assigneeIndex]) + " >"
 			assigneeLine = "\n\nAssignee:\n" + assigneeDisplay
 		}
 
@@ -1121,7 +1144,7 @@ func (b Board) viewPRPickerModal() string {
 		prPrefix = prStatusStyle(status).Render(symbol) + " "
 	}
 	// Picker shows only the currently browsed PR — always selected, no cursor to compare.
-	prText := selectedRowStyle(fmt.Sprintf("#%d %s", pr.Number, sanitizeControlSequences(pr.Title)), true)
+	prText := selectedRowStyle(fmt.Sprintf("#%d %s", pr.Number, sanitizeSingleLine(pr.Title)), true)
 	prDisplay := prPrefix + "\u25c0 " + prText + " \u25b6"
 
 	pickerHints := NewStatusBar(prPickerHints)
@@ -1451,11 +1474,11 @@ func (b Board) viewDeleteModal() string {
 	var hints StatusBar
 	switch b.delete.step {
 	case deleteStepConfirm:
-		prompt = fmt.Sprintf("Type %d to permanently delete #%d %q (Esc to cancel):", card.Number, card.Number, sanitizeControlSequences(card.Title))
+		prompt = fmt.Sprintf("Type %d to permanently delete #%d %q (Esc to cancel):", card.Number, card.Number, sanitizeSingleLine(card.Title))
 		activeInputView = b.delete.confirmInput.View()
 		hints = NewStatusBar(deleteConfirmHints)
 	default:
-		prompt = fmt.Sprintf("Delete #%d %q — optional comment (Enter to continue, Esc to cancel):", card.Number, sanitizeControlSequences(card.Title))
+		prompt = fmt.Sprintf("Delete #%d %q — optional comment (Enter to continue, Esc to cancel):", card.Number, sanitizeSingleLine(card.Title))
 		activeInputView = b.delete.commentInput.View()
 		hints = NewStatusBar(deleteCommentHints)
 	}
@@ -1480,7 +1503,7 @@ func (b Board) viewFilterModal() string {
 			lines = append(lines, helpStyle.Render(item.value))
 			continue
 		}
-		display := "  " + sanitizeControlSequences(item.value)
+		display := "  " + sanitizeSingleLine(item.value)
 		display = selectedRowStyle(display, i == b.filterCursor)
 		lines = append(lines, display)
 	}
@@ -1505,7 +1528,7 @@ func (b Board) viewAssignModal() string {
 		if item.isAssigned {
 			prefix = "* "
 		}
-		display := prefix + sanitizeControlSequences(item.login)
+		display := prefix + sanitizeSingleLine(item.login)
 		display = selectedRowStyle(display, i == b.assign.cursor)
 		lines = append(lines, display)
 	}
@@ -1613,12 +1636,12 @@ func (b Board) viewPRListModal() string {
 		}
 		for i := start; i < end; i++ {
 			entry := b.prList.entries[i]
-			title := truncateOutput(sanitizeControlSequences(entry.pr.Title), 32)
+			title := truncateOutput(sanitizeSingleLine(entry.pr.Title), 32)
 			status := prStatus(entry.pr)
 			prefix := prStatusPrefix(status)
 			display := fmt.Sprintf("%s  #%d  %s", prefix, entry.pr.Number, title)
 			if entry.cardNumber != 0 {
-				display += fmt.Sprintf("  —  %s #%d", entry.columnTitle, entry.cardNumber)
+				display += fmt.Sprintf("  —  %s #%d", sanitizeSingleLine(entry.columnTitle), entry.cardNumber)
 			}
 			display = selectedRowStyle(display, i == b.prList.cursor)
 			lines = append(lines, display)
@@ -1716,7 +1739,7 @@ func (b Board) viewMilestoneListModal() string {
 			m := entries[i]
 			selected := i == b.milestoneList.cursor
 
-			title := truncateOutput(flattenToSingleLine(sanitizeControlSequences(m.Title)), titleWidth-3)
+			title := truncateOutput(sanitizeSingleLine(m.Title), titleWidth-3)
 			titleCell := padCell(title, titleWidth)
 
 			bar := renderProgressBar(m.ProgressPercentage, milestoneBarWidth, !selected)
@@ -1834,15 +1857,15 @@ func (b Board) viewAgentListModal() string {
 				// elsewhere) still gets a neutral marker to keep rows aligned.
 				symbol = "·"
 			}
-			display := fmt.Sprintf("  %s %s", symbol, truncateOutput(entry.window.WindowName, 24))
+			display := fmt.Sprintf("  %s %s", symbol, truncateOutput(sanitizeSingleLine(entry.window.WindowName), 24))
 			if ref := agentWindowRef(entry.window); ref != "" {
-				display = fmt.Sprintf("  %s %s  %s", symbol, truncateOutput(ref, 16), truncateOutput(entry.window.WindowName, 24))
+				display = fmt.Sprintf("  %s %s  %s", symbol, truncateOutput(sanitizeSingleLine(ref), 16), truncateOutput(sanitizeSingleLine(entry.window.WindowName), 24))
 			}
 			if entry.window.Agent != "" {
-				display += "  " + truncateOutput(entry.window.Agent, agentBadgeKindWidth)
+				display += "  " + truncateOutput(sanitizeSingleLine(entry.window.Agent), agentBadgeKindWidth)
 			}
 			if entry.cardNumber != 0 {
-				display += fmt.Sprintf("  —  %s #%d", entry.columnTitle, entry.cardNumber)
+				display += fmt.Sprintf("  —  %s #%d", sanitizeSingleLine(entry.columnTitle), entry.cardNumber)
 			}
 			display = selectedRowStyle(display, i == b.agentList.cursor)
 			lines = append(lines, display)

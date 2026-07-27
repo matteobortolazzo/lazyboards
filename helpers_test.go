@@ -136,6 +136,36 @@ func assertMutedRowStyle(t *testing.T, kind, titleLine, selectedLine, nonSelecte
 	}
 }
 
+// assertOneRow collects every physical line of view that contains at least
+// one of needles, fails unless exactly one such line exists (a single-line
+// render must not spill an embedded newline onto a second physical row --
+// #500), and returns that one line. It also fails if the matched line
+// doesn't carry every needle, since a genuinely single-row render must keep
+// all fragments co-located. Mirrors the row-spill pattern established by
+// TestMilestoneList_View_FlattensEmbeddedNewlineInTitle (#497).
+func assertOneRow(t *testing.T, view string, needles ...string) string {
+	t.Helper()
+	var matching []string
+	for _, line := range strings.Split(view, "\n") {
+		for _, needle := range needles {
+			if strings.Contains(line, needle) {
+				matching = append(matching, line)
+				break
+			}
+		}
+	}
+	if len(matching) != 1 {
+		t.Fatalf("needles %v matched %d physical lines, want exactly 1 (single-row render); view:\n%s", needles, len(matching), view)
+	}
+	row := matching[0]
+	for _, needle := range needles {
+		if !strings.Contains(row, needle) {
+			t.Fatalf("row = %q, want it to contain needle %q (all needles must co-occur on the single matched row)", row, needle)
+		}
+	}
+	return row
+}
+
 // requireColumns fails the test immediately if the board has no columns,
 // preventing panics from index-out-of-range on the stub implementation.
 func requireColumns(t *testing.T, b Board) {

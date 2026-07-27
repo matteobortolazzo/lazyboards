@@ -594,6 +594,25 @@ func TestAgentBadgeText_EmptyAgentSymbolOnly(t *testing.T) {
 	}
 }
 
+// TestAgentBadgeText_NewlineInAgentName_SanitizedToSingleLineFixedWidth
+// covers agentBadgeText's untrusted Agent field (#500): the daemon-reported
+// agent kind is not GitHub content, but it is still attacker-influenced
+// (arbitrary process/tmux window naming), so an embedded newline must not
+// leak into the badge text, and the badge must keep its stable fixed width
+// (agentBadgeKindWidth + 2: the kind cell, a separator space, and the
+// 1-cell status symbol) rather than growing or shrinking around the
+// sanitized newline.
+func TestAgentBadgeText_NewlineInAgentName_SanitizedToSingleLineFixedWidth(t *testing.T) {
+	got := agentBadgeText("running", "cla\nude")
+	if strings.ContainsRune(got, '\n') {
+		t.Errorf("agentBadgeText(running, %q) = %q, want no embedded newline", "cla\nude", got)
+	}
+	wantWidth := agentBadgeKindWidth + 2
+	if w := lipgloss.Width(got); w != wantWidth {
+		t.Errorf("agentBadgeText(running, %q) width = %d, want %d (agentBadgeKindWidth + 2, same fixed width as a clean agent name)", "cla\nude", w, wantWidth)
+	}
+}
+
 // TestBoard_AgentBadgeFor_AppearsAsSeparateStatusLine verifies a matching
 // non-idle window's badge renders as its own status line via
 // cardStatusLines (#439) -- it no longer appends to cardDisplayText's

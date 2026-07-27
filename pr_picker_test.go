@@ -354,6 +354,26 @@ func TestPRPicker_View_SanitizesControlSequencesInPRTitle(t *testing.T) {
 	}
 }
 
+// TestPRPicker_View_NewlineInPRTitle_RendersOneRow covers the PR picker
+// modal row render path (#500): pr.Title is untrusted GitHub content, so an
+// embedded newline must collapse to a single physical row (like
+// TestPRPicker_View_SanitizesControlSequencesInPRTitle does for raw control
+// bytes) rather than splitting the picker's single PR row onto two lines.
+func TestPRPicker_View_NewlineInPRTitle_RendersOneRow(t *testing.T) {
+	b := newBoardWithPRs(t)
+
+	// Navigate to card 2 (index 2, "Two PRs") and enter picker.
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("j"))
+	b = sendKey(t, b, keyMsg("p"))
+
+	col := b.Columns[b.ActiveTab]
+	col.Cards[col.Cursor].LinkedPRs[0].Title = "line one\nline two"
+
+	view := b.View()
+	assertOneRow(t, view, "line one", "line two")
+}
+
 func TestPRPicker_BlocksNavigation(t *testing.T) {
 	b := newBoardWithPRs(t)
 

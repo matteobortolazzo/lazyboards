@@ -424,6 +424,35 @@ func TestMilestoneList_Enter_AppliesFilterAndClosesToNormal(t *testing.T) {
 	}
 }
 
+// TestMilestoneList_Enter_StatusMessagePreservesTailAfterCollapsingNewlines
+// covers handleMilestoneListModeKey's Enter path (mode_handlers.go), which
+// composes the "Filtered by milestone: <title>" status message with
+// truncateOutput(flattenToSingleLine(sanitizeControlSequences(m.Title)),
+// milestoneStatusTitleMaxLen) today. flattenToSingleLine replaces each "\n"
+// with a single space (a 1:1 substitution, not a collapse), so a title with
+// many consecutive newlines inflates in length before truncation ever runs
+// and can lose real trailing content within the fixed
+// milestoneStatusTitleMaxLen budget. sanitizeSingleLine's
+// strings.Fields-based collapse (many whitespace runes -> exactly one
+// space) does not have this inflation problem, so migrating this call site
+// must retain the tail character that the old order-of-operations loses.
+func TestMilestoneList_Enter_StatusMessagePreservesTailAfterCollapsingNewlines(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	// "ZZZ" (not "b") avoids colliding with the surrounding "Filtered by
+	// milestone: " boilerplate text, which itself contains a "b" (in "by").
+	title := "a" + strings.Repeat("\n", 70) + "ZZZ"
+	fixture := []provider.Milestone{{Title: title}}
+	b = openMilestoneListWithResult(t, b, fixture)
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if !strings.Contains(b.statusBar.message, "ZZZ") {
+		t.Errorf("status message = %q, want it to retain the title's trailing %q after collapsing the embedded newlines (old truncate-after-flatten order loses it at milestoneStatusTitleMaxLen)", b.statusBar.message, "ZZZ")
+	}
+}
+
 func TestMilestoneList_Enter_SafeWithZeroColumns(t *testing.T) {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, 0, "Working", false, false, nil, nil, true)
@@ -903,6 +932,14 @@ func TestMilestoneList_View_SanitizesControlSequencesInTitle(t *testing.T) {
 	}
 }
 
+// TestMilestoneList_View_FlattensEmbeddedNewlineInTitle is the #497
+// regression guard for the milestone row's title cell: an embedded newline
+// in m.Title must render on a single physical row. #500 migrates the
+// production call site (view.go's viewMilestoneListModal) off the deleted
+// flattenToSingleLine helper onto sanitizeSingleLine -- this test's
+// assertions are unchanged (sanitizeSingleLine collapses the embedded
+// newline to a space, same observable outcome flattenToSingleLine produced
+// here), only the underlying implementation it exercises moves.
 func TestMilestoneList_View_FlattensEmbeddedNewlineInTitle(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	fixture := []provider.Milestone{{Title: "line one\nline two", URL: "https://github.com/owner/repo/milestone/9"}}
