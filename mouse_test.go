@@ -250,6 +250,71 @@ func TestMouseClickTab_SwitchesColumn(t *testing.T) {
 	}
 }
 
+// TestMouseClickTab_SanitizedTitleHitZones is a regression test for #501 Q2:
+// handleTabClick independently rebuilds the rung-1 tab label from the raw
+// (unsanitized) col.Title, which desyncs the click hit zones from the
+// sanitized label buildBorderTitle actually renders. Column 0's title
+// contains an embedded newline that sanitizeSingleLine flattens to a space,
+// shortening its rendered label -- so the stale (unsanitized) zone
+// boundaries are shifted right of where the sanitized render places them.
+func TestMouseClickTab_SanitizedTitleHitZones(t *testing.T) {
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
+
+	msg := boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Alpha\nBeta", Cards: nil},
+			{Title: "Second", Cards: nil},
+		},
+	}}
+	m, _ := b.Update(msg)
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = 120
+	board.Height = 40
+
+	if board.ActiveTab != 0 {
+		t.Fatalf("precondition: ActiveTab = %d, want 0", board.ActiveTab)
+	}
+
+	prefixWidth := 3
+	separatorWidth := 3
+	label1 := fmt.Sprintf("[1] %s (%d)", sanitizeSingleLine(board.Columns[0].Title), len(board.Columns[0].Cards))
+	label2 := fmt.Sprintf("[2] %s (%d)", sanitizeSingleLine(board.Columns[1].Title), len(board.Columns[1].Cards))
+
+	t.Run("click last cell of tab 2's sanitized zone switches to tab 2", func(t *testing.T) {
+		// The *first* cell of tab 2's sanitized zone would overlap the
+		// stale (too-far-left) zone computed from the raw title, making
+		// that case vacuous; the last cell is unambiguously past the
+		// stale zone's end today.
+		x := prefixWidth + lipgloss.Width(label1) + separatorWidth + lipgloss.Width(label2) - 1
+		got := sendKey(t, board, tea.MouseMsg{
+			X:      x,
+			Y:      0,
+			Button: tea.MouseButtonLeft,
+			Action: tea.MouseActionPress,
+		})
+		if got.ActiveTab != 1 {
+			t.Errorf("ActiveTab = %d after clicking last cell of tab 2's sanitized zone (X=%d), want 1", got.ActiveTab, x)
+		}
+	})
+
+	t.Run("click inside tab 1's sanitized zone stays on tab 1", func(t *testing.T) {
+		x := prefixWidth + lipgloss.Width(label1) - 1
+		got := sendKey(t, board, tea.MouseMsg{
+			X:      x,
+			Y:      0,
+			Button: tea.MouseButtonLeft,
+			Action: tea.MouseActionPress,
+		})
+		if got.ActiveTab != 0 {
+			t.Errorf("ActiveTab = %d after clicking inside tab 1's sanitized zone (X=%d), want 0", got.ActiveTab, x)
+		}
+	})
+}
+
 // --- Mouse click on cards ---
 
 func TestMouseClickCard_MovesCursor(t *testing.T) {
