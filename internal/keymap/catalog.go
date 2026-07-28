@@ -1,11 +1,14 @@
 package keymap
 
-// catalog is every catalogued Command for the normal-mode and detail-panel
-// surfaces (#507). #508 extends this same slice for the remaining modes --
-// keep this file to the two data literals (catalog, defaultModeTables) and
-// three accessors (Commands, FindCommand, Defaults) -- #508 adds data, not
-// more accessors.
-var catalog = []Command{
+// boardCommands holds the Command catalogue entries for the normal-mode and
+// detail-panel surfaces (#507). modalCommands (command_modal.go),
+// panelCommands (command_panel.go) and systemCommands (command_system.go)
+// hold the #508 PR 1 surfaces (the six navigable modals, the git panel, the
+// dispatch modal, help and errorMode); init (below) merges every group into
+// catalog. PR 2 will add its own confirm/text-input groups the same way --
+// a new mode group only needs a var here (or its own file) plus one line in
+// init, not a new accessor alongside Commands/FindCommand/Defaults.
+var boardCommands = []Command{
 	{CommandQuit, "Quit"},
 	{CommandHelp, "Help"},
 	{CommandConfig, "Configuration"},
@@ -46,12 +49,38 @@ var catalog = []Command{
 	{CommandDetailScrollUp, "Scroll body"},
 }
 
+var catalog []Command
+
 // defaultModeTables backs Defaults(): the normal/detail default Table
-// literals from defaults_board.go, keyed by the Mode they bind. #508 adds
-// entries for every remaining mode.
-var defaultModeTables = map[Mode]Table{
-	ModeNormal: normalDefaults,
-	ModeDetail: detailDefaults,
+// literals from defaults_board.go (#507), merged with modalDefaultTables
+// (defaults_modal.go), panelDefaultTables (defaults_panel.go) and
+// systemDefaultTables (defaults_system.go) for #508 PR 1, keyed by the Mode
+// each binds.
+var defaultModeTables map[Mode]Table
+
+// init populates catalog and defaultModeTables from the per-group vars
+// declared above and in the other command_*.go/defaults_*.go files -- a new
+// mode group only needs to add itself to the two append/assignment blocks
+// below, not touch any other part of this file.
+func init() {
+	catalog = append(catalog, boardCommands...)
+	catalog = append(catalog, modalCommands...)
+	catalog = append(catalog, panelCommands...)
+	catalog = append(catalog, systemCommands...)
+
+	defaultModeTables = map[Mode]Table{
+		ModeNormal: normalDefaults,
+		ModeDetail: detailDefaults,
+	}
+	for mode, table := range modalDefaultTables {
+		defaultModeTables[mode] = table
+	}
+	for mode, table := range panelDefaultTables {
+		defaultModeTables[mode] = table
+	}
+	for mode, table := range systemDefaultTables {
+		defaultModeTables[mode] = table
+	}
 }
 
 // Commands returns every catalogued Command, in declaration order. It

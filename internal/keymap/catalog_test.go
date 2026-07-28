@@ -28,6 +28,37 @@ func TestCommands_IDsAreUnique(t *testing.T) {
 	}
 }
 
+// TestDefaultModeTableGroups_NoModeCollisions guards catalog.go's init(),
+// which merges modalDefaultTables (defaults_modal.go), panelDefaultTables
+// (defaults_panel.go) and systemDefaultTables (defaults_system.go) into
+// defaultModeTables with plain map-assignment and no collision check -- if
+// two groups ever registered a Table for the same Mode, the later merge
+// would silently overwrite the earlier one with no panic/error/log. This
+// mirrors TestCommands_IDsAreUnique's guard on the parallel catalog slice
+// merge, for the map-merge side.
+func TestDefaultModeTableGroups_NoModeCollisions(t *testing.T) {
+	groups := map[string]map[Mode]Table{
+		"modalDefaultTables":  modalDefaultTables,
+		"panelDefaultTables":  panelDefaultTables,
+		"systemDefaultTables": systemDefaultTables,
+	}
+
+	seenIn := make(map[Mode]string)
+	for groupName, group := range groups {
+		for mode := range group {
+			if mode == ModeNormal || mode == ModeDetail {
+				t.Errorf("%s registers mode %q, which collides with the #507 board tables (normalDefaults/detailDefaults)", groupName, mode)
+				continue
+			}
+			if prevGroup, exists := seenIn[mode]; exists {
+				t.Errorf("mode %q is registered by both %s and %s -- catalog.go's init() would silently let one overwrite the other", mode, prevGroup, groupName)
+				continue
+			}
+			seenIn[mode] = groupName
+		}
+	}
+}
+
 // TestCommands_DescNonEmpty pins that every catalogued command carries a
 // human-readable description -- an empty Desc would render as a blank line
 // in help/which-key output.
@@ -70,14 +101,22 @@ func TestDefaults_EveryBoundCommandExistsInCatalogue(t *testing.T) {
 	}
 }
 
-// TestDefaults_OnlyNormalAndDetailModesPopulated pins this ticket's scope:
-// #507 delivers only the normal/detail default tables, so Defaults() must
-// not populate any other mode yet (that's #508).
-func TestDefaults_OnlyNormalAndDetailModesPopulated(t *testing.T) {
+// TestDefaults_OnlyBoardAndModalModesPopulated pins this ticket's scope:
+// #507 delivers the normal/detail default tables and #508 PR 1
+// (pr1Modes, catalog_pr1_test.go) adds the six navigable modals, the git
+// panel, the dispatch modal, help and errorMode -- Defaults() must not
+// populate any mode beyond that set yet (PR 2 adds the confirm/text-input
+// modes next).
+func TestDefaults_OnlyBoardAndModalModesPopulated(t *testing.T) {
+	populated := map[Mode]bool{ModeNormal: true, ModeDetail: true}
+	for _, mode := range pr1Modes {
+		populated[mode] = true
+	}
+
 	defaults := Defaults()
 	for mode := range defaults.Modes {
-		if mode != ModeNormal && mode != ModeDetail {
-			t.Errorf("Defaults().Modes contains mode %q, want only %q/%q for #507", mode, ModeNormal, ModeDetail)
+		if !populated[mode] {
+			t.Errorf("Defaults().Modes contains mode %q, want only the #507 board modes and #508 PR 1 modal modes", mode)
 		}
 	}
 }
