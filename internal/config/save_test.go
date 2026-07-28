@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -263,4 +264,184 @@ func TestLocalExists_ReturnsFalseForMissingFile(t *testing.T) {
 	if LocalExists(path) {
 		t.Error("LocalExists() = true, want false for missing file")
 	}
+}
+
+// --- Save() keymaps: round-trip preservation (#509) ---
+
+// TestSave_PreservesKeymapsBlock is the AC4 regression test: Save() must
+// preserve an existing keymaps: block through the unmarshal/re-marshal round
+// trip instead of dropping it.
+func TestSave_PreservesKeymapsBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	initialYAML := `provider: github
+repo: owner/repo
+keymaps:
+  normal:
+    n: card.create
+`
+	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	if err := Save(path, "ado", "new-owner/new-repo"); err != nil {
+		t.Fatalf("Save() returned unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved config: %v", err)
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("saved file is not valid YAML: %v", err)
+	}
+
+	if cfg.Keymaps == nil {
+		t.Fatal("Keymaps is nil after Save(), want the keymaps: block preserved")
+	}
+	binding, ok := cfg.Keymaps.Modes[keymap.ModeNormal]["n"]
+	if !ok {
+		t.Fatal("Keymaps.Modes[normal] missing key \"n\" after Save()")
+	}
+	if binding.Kind != keymap.BindingCommand || binding.Command != "card.create" {
+		t.Errorf("Keymaps.Modes[normal][n] = %+v, want the original command binding preserved", binding)
+	}
+}
+
+// TestSave_KeymapsKeyOrderSurvivesSave is the AC5 regression test: it walks
+// the written file as a raw yaml.Node tree (not the unmarshaled Config) so
+// the assertion is against the file's actual declared key order, which a
+// plain map re-marshal would otherwise randomize/alphabetize away.
+func TestSave_KeymapsKeyOrderSurvivesSave(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	initialYAML := `provider: github
+repo: owner/repo
+keymaps:
+  normal:
+    z: card.zebra
+    a: card.apple
+    m: card.mango
+`
+	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	if err := Save(path, "ado", "new-owner/new-repo"); err != nil {
+		t.Fatalf("Save() returned unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved config: %v", err)
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		t.Fatalf("saved file is not valid YAML: %v", err)
+	}
+	normalNode := findMappingValue(t, findMappingValue(t, root.Content[0], "keymaps"), "normal")
+
+	positions := make(map[string]int, len(normalNode.Content)/2)
+	for i := 0; i+1 < len(normalNode.Content); i += 2 {
+		positions[normalNode.Content[i].Value] = i
+	}
+	if positions["z"] >= positions["a"] {
+		t.Errorf("saved key position z=%d, a=%d, want z < a (declared order must survive Save())", positions["z"], positions["a"])
+	}
+	if positions["a"] >= positions["m"] {
+		t.Errorf("saved key position a=%d, m=%d, want a < m (declared order must survive Save())", positions["a"], positions["m"])
+	}
+}
+
+// TestSave_NoKeymapsBlock_ProducesNoKeymapsKeyOnSave is the back-compat case:
+// a config with no keymaps: block must not gain one on save.
+func TestSave_NoKeymapsBlock_ProducesNoKeymapsKeyOnSave(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	initialYAML := `provider: github
+repo: owner/repo
+`
+	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	if err := Save(path, "ado", "new-owner/new-repo"); err != nil {
+		t.Fatalf("Save() returned unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved config: %v", err)
+	}
+
+	if strings.Contains(string(data), "keymaps:") {
+		t.Errorf("saved file = %q, want no \"keymaps:\" key when no keymaps were configured", string(data))
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("saved file is not valid YAML: %v", err)
+	}
+	if cfg.Keymaps != nil {
+		t.Errorf("Keymaps = %+v, want nil after saving a config with no keymaps: block", cfg.Keymaps)
+	}
+}
+
+// TestSave_StructurallyInvalidKeymaps_RefusesAndPreservesFile is the
+// data-loss regression test: Save() must surface a structurally invalid
+// existing keymaps: block as an error instead of silently rewriting a
+// truncated file (today's `_ = yaml.Unmarshal(...)` swallows the error and
+// overwrites the file with a config that dropped the invalid block).
+func TestSave_StructurallyInvalidKeymaps_RefusesAndPreservesFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	initialYAML := `provider: github
+repo: owner/repo
+keymaps:
+  bogus_mode:
+    n: card.create
+`
+	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read initial config: %v", err)
+	}
+
+	err = Save(path, "ado", "new-owner/new-repo")
+	if err == nil {
+		t.Fatal("Save() returned nil error, want error for a structurally invalid existing keymaps: block")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read config after failed Save(): %v", err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("file was modified by a failed Save() call\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+// findMappingValue returns the value node for key within a YAML mapping
+// node, failing the test if key is not found or node is not a mapping.
+func findMappingValue(t *testing.T, node *yaml.Node, key string) *yaml.Node {
+	t.Helper()
+	if node == nil || node.Kind != yaml.MappingNode {
+		t.Fatalf("expected a mapping node while looking for key %q, got %v", key, node)
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
+	t.Fatalf("mapping node missing key %q", key)
+	return nil
 }
