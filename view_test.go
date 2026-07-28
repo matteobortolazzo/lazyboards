@@ -1709,13 +1709,16 @@ func TestCardStatusLines_UnknownPRLine_StillGetsPurpleGlyphPrefix(t *testing.T) 
 // Glyph codepoints and the muted-gray color are pinned here directly from
 // the plan's Design Direction section (not copied from a not-yet-written
 // production constant): parent/has-children glyph U+F0645 (nf-md-file_tree),
-// child/is-sub-issue glyph U+F17A9, both styled gray 245 -- deliberately
-// distinct from the PR purple (183) and the agent status hues so structural
-// metadata can't be misread as action-needed state.
+// child/is-sub-issue glyph U+F17AB (nf-md-arrow_right_top -- points up
+// toward the parent, mirroring nf-md-arrow_right_bottom which this replaced
+// because a downward arrow read as pointing away from the parent), both
+// styled gray 245 -- deliberately distinct from the PR purple (183) and the
+// agent status hues so structural metadata can't be misread as
+// action-needed state.
 
 const (
 	wantSubIssueParentGlyph = "\U000F0645"
-	wantSubIssueChildGlyph  = "\U000F17A9"
+	wantSubIssueChildGlyph  = "\U000F17AB"
 )
 
 // wantSubIssueStyle mirrors the plan's mandated muted gray 245.

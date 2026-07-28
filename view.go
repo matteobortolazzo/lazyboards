@@ -563,8 +563,10 @@ func cardDisplayText(card Card, columnNames []string, workingLabel string) (stri
 const subIssueParentGlyph = "\U000F0645"
 
 // subIssueChildGlyph marks a card that has a parent issue (a child),
-// followed by "#<parentNumber>" -- e.g. "󱞩 #12" (#460).
-const subIssueChildGlyph = "\U000F17A9"
+// followed by "#<parentNumber>" -- e.g. "󱞫 #12" (#460). Points up-right
+// (nf-md-arrow_right_top) toward the parent, rather than down, so the
+// direction reads as "this points to its parent" at a glance.
+const subIssueChildGlyph = "\U000F17AB"
 
 // cardStatusLines returns the status lines rendered under a card's title:
 // sub-issue relationship lines first (parent line, then child line -- #460,
