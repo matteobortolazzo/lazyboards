@@ -79,8 +79,9 @@ Tests are split by domain to mirror production code:
 | `key_sequence_test.go` | Custom-action key sequences (prefix keys, pending state, which-key hints, cancellation) |
 | `search_mode_test.go` | Search mode (enter/exit, query clearing) |
 | `version_test.go` | App version injection/fallback, `--version` flag handling |
+| `git_keymap_defaults_test.go` | Drift guard: `internal/keymap`'s git panel default `ActionBinding` entries vs. `config.DefaultGitActions()`/`gitPanelBuiltinOrder` |
 
-Internal packages: `internal/action`, `internal/auth`, `internal/cenciwatch`, `internal/config`, `internal/debuglog`, `internal/git`, `internal/provider`.
+Internal packages: `internal/action`, `internal/auth`, `internal/cenciwatch`, `internal/config`, `internal/debuglog`, `internal/git`, `internal/keymap`, `internal/provider`.
 
 ## Sandbox Image
 - `.cenci/Dockerfile` — committed, per-repo image tailored to this repo's stack; the whole team builds the same image
