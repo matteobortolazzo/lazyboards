@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"gopkg.in/yaml.v3"
 )
 
@@ -65,6 +66,7 @@ type Config struct {
 	Cleanup          *string           `yaml:"cleanup,omitempty"`
 	UpdateCheck      *bool             `yaml:"update_check,omitempty"`
 	SortOrder        *string           `yaml:"sort_order,omitempty"`
+	Keymaps          *Keymaps          `yaml:"keymaps,omitempty"`
 }
 
 // Card sort directions accepted by the sort_order config field.
@@ -211,7 +213,7 @@ func Load(globalPath, localPath string) (Config, error) {
 		if err := yaml.Unmarshal(globalData, &cfg); err != nil {
 			return Config{}, err
 		}
-		if _, err := assignActionOrder(globalData, cfg.Actions, cfg.Columns); err != nil {
+		if _, err := assignActionOrder(globalData, &cfg); err != nil {
 			return Config{}, err
 		}
 	}
@@ -237,6 +239,18 @@ func Load(globalPath, localPath string) (Config, error) {
 	globalActions := cfg.Actions
 	globalColumns := cfg.Columns
 
+	// Snapshot the global Keymaps by value and reset cfg.Keymaps to nil
+	// before the local unmarshal below. Keymaps has a custom UnmarshalYAML
+	// on a pointer field: if cfg.Keymaps were left non-nil here, a second
+	// yaml.Unmarshal into &cfg would reuse that same *Keymaps pointer
+	// (rather than allocating a fresh one) whenever the local document also
+	// declares a keymaps: block, aliasing global's parsed value. Resetting
+	// to nil forces a fresh allocation, and mergeKeymaps below explicitly
+	// recombines the two snapshots the same way mergeColumnActions does for
+	// per-column actions.
+	globalKeymaps := cfg.Keymaps
+	cfg.Keymaps = nil
+
 	// Read local config file, unmarshal into the same struct.
 	localData, err := os.ReadFile(localPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -247,7 +261,7 @@ func Load(globalPath, localPath string) (Config, error) {
 		if err := yaml.Unmarshal(localData, &cfg); err != nil {
 			return Config{}, err
 		}
-		keys, err := assignActionOrder(localData, cfg.Actions, cfg.Columns)
+		keys, err := assignActionOrder(localData, &cfg)
 		if err != nil {
 			return Config{}, err
 		}
@@ -290,6 +304,10 @@ func Load(globalPath, localPath string) (Config, error) {
 	// global column's cleanup if the local column didn't set its own.
 	mergeColumnCleanup(cfg.Columns, globalColumns)
 
+	// Merge keymaps: local per-mode/per-column tables win per key, with
+	// global-only keys preserved (see mergeKeymaps).
+	cfg.Keymaps = mergeKeymaps(cfg.Keymaps, globalKeymaps)
+
 	if err := validateSortOrder(cfg.SortOrder); err != nil {
 		return Config{}, err
 	}
@@ -328,22 +346,24 @@ func Load(globalPath, localPath string) (Config, error) {
 }
 
 // assignActionOrder parses data a second time as a yaml.Node tree and stamps
-// each entry in actions (and each column's own actions) with its 1-based
-// position in the raw document, so callers can render actions in the order
-// the user wrote them instead of Go's randomized map order. actions and
-// columns must be the already-unmarshaled values produced from this same
-// data, since map values holding structs aren't addressable and require a
-// read-modify-write. Columns are matched by index, not name: within one raw
-// document, columns is already in document order courtesy of normal yaml.v3
-// unmarshaling, so columnsNode.Content[i] lines up with columns[i]
-// positionally. Name-based matching across documents (global vs local) is a
-// separate, later concern handled by mergeColumnActions/columnsByNameLower.
+// each entry in cfg.Actions (and each column's own actions, and every
+// keymaps mode/column table) with its 1-based position in the raw document,
+// so callers can render entries in the order the user wrote them instead of
+// Go's randomized map order. cfg.Actions, cfg.Columns, and cfg.Keymaps must
+// already hold the values unmarshaled from this same data, since map values
+// holding structs aren't addressable and require a read-modify-write.
+// Columns are matched by index, not name: within one raw document, columns
+// is already in document order courtesy of normal yaml.v3 unmarshaling, so
+// columnsNode.Content[i] lines up with cfg.Columns[i] positionally.
+// Name-based matching across documents (global vs local) is a separate,
+// later concern handled by mergeColumnActions/columnsByNameLower (and, for
+// keymaps, mergeKeymaps).
 //
 // It returns the set of top-level action keys this document's own actions:
 // mapping declares (nil if the document has none), which Load() uses to tell
 // genuinely local keys apart from keys merely inherited unchanged from
 // another document (see the comment on globalActions in Load()).
-func assignActionOrder(data []byte, actions map[string]Action, columns []ColumnConfig) (declaredKeys map[string]bool, err error) {
+func assignActionOrder(data []byte, cfg *Config) (declaredKeys map[string]bool, err error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, err
@@ -356,7 +376,7 @@ func assignActionOrder(data []byte, actions map[string]Action, columns []ColumnC
 		return nil, nil
 	}
 
-	var actionsNode, columnsNode *yaml.Node
+	var actionsNode, columnsNode, keymapsNode *yaml.Node
 	for i := 0; i+1 < len(docNode.Content); i += 2 {
 		key := docNode.Content[i]
 		value := docNode.Content[i+1]
@@ -365,50 +385,114 @@ func assignActionOrder(data []byte, actions map[string]Action, columns []ColumnC
 			actionsNode = value
 		case "columns":
 			columnsNode = value
+		case "keymaps":
+			keymapsNode = value
 		}
 	}
 
 	if actionsNode != nil {
-		declaredKeys = stampActionOrder(actionsNode, actions)
+		declaredKeys = stampActionOrder(actionsNode, cfg.Actions)
 	}
 
 	if columnsNode != nil && columnsNode.Kind == yaml.SequenceNode {
 		for i, colNode := range columnsNode.Content {
-			if i >= len(columns) || colNode.Kind != yaml.MappingNode {
+			if i >= len(cfg.Columns) || colNode.Kind != yaml.MappingNode {
 				continue
 			}
 			for j := 0; j+1 < len(colNode.Content); j += 2 {
 				key := colNode.Content[j]
 				value := colNode.Content[j+1]
 				if key.Value == "actions" {
-					stampActionOrder(value, columns[i].Actions)
+					stampActionOrder(value, cfg.Columns[i].Actions)
 				}
 			}
 		}
 	}
 
+	if keymapsNode != nil && cfg.Keymaps != nil {
+		stampKeymapsOrder(keymapsNode, cfg.Keymaps)
+	}
+
 	return declaredKeys, nil
+}
+
+// nodeKeysInOrder returns node's top-level mapping keys in document order,
+// or nil if node is not a mapping. Shared by stampActionOrder and the
+// keymaps order stamper below so both walk mapping nodes the same way.
+func nodeKeysInOrder(node *yaml.Node) []string {
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	keys := make([]string, 0, len(node.Content)/2)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		keys = append(keys, node.Content[i].Value)
+	}
+	return keys
 }
 
 // stampActionOrder walks a YAML mapping node of action keys, assigns each
 // matching entry in actions its 1-based document position, and returns the
 // set of keys found in the node.
 func stampActionOrder(node *yaml.Node, actions map[string]Action) map[string]bool {
-	if node.Kind != yaml.MappingNode {
+	keys := nodeKeysInOrder(node)
+	if keys == nil {
 		return nil
 	}
-	keys := make(map[string]bool, len(node.Content)/2)
-	order := 1
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		key := node.Content[i].Value
-		keys[key] = true
+	declared := make(map[string]bool, len(keys))
+	for i, key := range keys {
+		declared[key] = true
 		if a, ok := actions[key]; ok {
-			a.Order = order
+			a.Order = i + 1
 			actions[key] = a
 		}
-		order++
 	}
-	return keys
+	return declared
+}
+
+// stampKeymapOrder walks a YAML mapping node of keymap keys and assigns
+// each matching entry in table its 1-based document position.
+func stampKeymapOrder(node *yaml.Node, table KeymapTable) {
+	for i, key := range nodeKeysInOrder(node) {
+		if b, ok := table[key]; ok {
+			b.Order = i + 1
+			table[key] = b
+		}
+	}
+}
+
+// stampKeymapsOrder walks the raw keymaps: mapping node and stamps document
+// position into every matching entry of keymaps.Modes and keymaps.Columns
+// (keyed the same way Keymaps.UnmarshalYAML parsed them from this same
+// node).
+func stampKeymapsOrder(node *yaml.Node, keymaps *Keymaps) {
+	if node.Kind != yaml.MappingNode {
+		return
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		modeName := node.Content[i].Value
+		modeValue := node.Content[i+1]
+
+		if modeName == string(keymap.ModeColumns) {
+			if modeValue.Kind != yaml.MappingNode {
+				continue
+			}
+			for j := 0; j+1 < len(modeValue.Content); j += 2 {
+				colName := modeValue.Content[j].Value
+				if table, ok := keymaps.Columns[colName]; ok {
+					stampKeymapOrder(modeValue.Content[j+1], table)
+				}
+			}
+			continue
+		}
+
+		mode, err := keymap.ParseMode(modeName)
+		if err != nil {
+			continue // already surfaced as a load error by Keymaps.UnmarshalYAML
+		}
+		if table, ok := keymaps.Modes[mode]; ok {
+			stampKeymapOrder(modeValue, table)
+		}
+	}
 }
 
 // LocalExists returns true if the file at path exists.
@@ -425,11 +509,19 @@ func Save(path, provider, repo string) error {
 		return fmt.Errorf("config path %q must have .yml or .yaml extension", path)
 	}
 
-	// Read existing config if file exists.
+	// Read existing config if file exists. A missing file is fine (start
+	// fresh); a structurally invalid existing file is not -- surfacing that
+	// as an error avoids silently rewriting a truncated config (e.g. one
+	// whose keymaps: block failed to parse).
 	var cfg Config
 	data, err := os.ReadFile(path)
 	if err == nil {
-		_ = yaml.Unmarshal(data, &cfg) // ignore error, start fresh if invalid
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return fmt.Errorf("config %q: %w", path, err)
+		}
+		if _, err := assignActionOrder(data, &cfg); err != nil {
+			return fmt.Errorf("config %q: %w", path, err)
+		}
 	}
 
 	// Update provider and repo.
