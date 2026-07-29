@@ -430,6 +430,63 @@ keymaps:
 	}
 }
 
+// --- Save() legacy actions: round-trip preservation (#510) ---
+
+// TestSave_LegacyActionsBlock_RoundTripsWithoutSynthesizedKeymapsBlock is
+// the #510 Risks-section regression test: Save() re-reads the config
+// straight from disk and never calls Load() (and therefore never calls
+// translateLegacyActions), so an existing legacy actions: block must
+// round-trip byte-for-field intact and the file must not gain a
+// synthesized keymaps: block as a side effect of PR 1's changes to Load().
+func TestSave_LegacyActionsBlock_RoundTripsWithoutSynthesizedKeymapsBlock(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	initialYAML := `provider: github
+repo: owner/repo
+actions:
+  P:
+    name: Push
+    type: shell
+    command: "git push"
+    scope: board
+`
+	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	if err := Save(path, "ado", "new-owner/new-repo"); err != nil {
+		t.Fatalf("Save() returned unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved config: %v", err)
+	}
+
+	if strings.Contains(string(data), "keymaps:") {
+		t.Errorf("saved file = %q, want no synthesized \"keymaps:\" key for a config that only ever had a legacy actions: block", string(data))
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("saved file is not valid YAML: %v", err)
+	}
+	if cfg.Keymaps != nil {
+		t.Errorf("Keymaps = %+v, want nil after Save() round-trips a legacy-only config", cfg.Keymaps)
+	}
+	if len(cfg.Actions) != 1 {
+		t.Fatalf("Actions count = %d, want 1 (legacy actions: block must round-trip intact)", len(cfg.Actions))
+	}
+	action, ok := cfg.Actions["P"]
+	if !ok {
+		t.Fatal("Actions missing key \"P\" after Save() round-trip")
+	}
+	if action.Name != "Push" || action.Type != "shell" || action.Command != "git push" {
+		t.Errorf("Actions[P] = %+v, want the original legacy action fields untouched", action)
+	}
+}
+
 // findMappingValue returns the value node for key within a YAML mapping
 // node, failing the test if key is not found or node is not a mapping.
 func findMappingValue(t *testing.T, node *yaml.Node, key string) *yaml.Node {
