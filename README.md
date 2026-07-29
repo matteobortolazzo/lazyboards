@@ -196,6 +196,8 @@ Save and close to apply changes. Leave the title blank to cancel. If you add lab
 
 ## Custom Actions
 
+> **Deprecated:** the top-level `actions:` block is deprecated in favor of the `keymaps:` namespace (`keymaps.normal`/`keymaps.detail`).
+
 Bind uppercase keys (A-Z) to URL or shell actions in your config. The uppercase namespace is fully yours — no built-in ever claims an uppercase key in normal mode (the built-in git shortcuts live inside the [Git Menu](#git-menu)). The dispatch panel's own cenci controls (enroll, dispatch-once, loop on/off) are built in — see the [Dispatch Panel](#dispatch-panel) — so you only need custom actions for cenci commands the panel doesn't cover:
 
 ```yaml
@@ -325,6 +327,8 @@ Set `LAZYBOARDS_DEBUG_LOG=<path>` to append watcher connection errors (including
 If lazyboards panics, the stack trace is normally printed to stderr as the terminal is restored — where the altscreen switch tends to wipe it before you can read it. To make crashes diagnosable, lazyboards also appends each panic (timestamp, call site, panic value, and full stack trace) to `~/.config/lazyboards/crash.log`, alongside your config. This is always on and needs no configuration; the file and its parent directory are created on demand at crash time, so nothing is written during normal operation. After a crash, attach the latest entry from that file when reporting the issue.
 
 ### Column-Specific Actions
+
+> **Deprecated:** `columns[].actions` is deprecated in favor of `keymaps.columns.<name>` in the `keymaps:` namespace.
 
 Define actions under a column to override global actions for that column:
 
