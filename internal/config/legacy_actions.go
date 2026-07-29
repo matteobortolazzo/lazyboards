@@ -87,11 +87,10 @@ func translateLegacyActions(cfg *Config) {
 			cfg.Keymaps.Columns = make(map[string]KeymapTable)
 		}
 		lowerName := strings.ToLower(col.Name)
-		tableName, table := findKeymapColumnByLower(cfg.Keymaps.Columns, lowerName)
+		_, table := findKeymapColumnByLower(cfg.Keymaps.Columns, lowerName)
 		if table == nil {
-			tableName = col.Name
 			table = make(KeymapTable)
-			cfg.Keymaps.Columns[tableName] = table
+			cfg.Keymaps.Columns[col.Name] = table
 		}
 		insertLegacyActions(table, col.Actions)
 	}
