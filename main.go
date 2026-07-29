@@ -331,6 +331,13 @@ func main() {
 	}
 	board.sortNewestFirst = config.ResolveSortNewestFirst(cfg, state)
 
+	// Surface any legacy-config deprecation notices (e.g. actions:/
+	// columns[].actions translated onto keymaps:, #510) once per run, before
+	// BubbleTea takes over the terminal.
+	for _, notice := range cfg.Deprecations {
+		fmt.Fprintln(os.Stderr, sanitizeSingleLine(notice))
+	}
+
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.MouseValue() {
 		opts = append(opts, tea.WithMouseCellMotion())

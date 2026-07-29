@@ -67,6 +67,12 @@ type Config struct {
 	UpdateCheck      *bool             `yaml:"update_check,omitempty"`
 	SortOrder        *string           `yaml:"sort_order,omitempty"`
 	Keymaps          *Keymaps          `yaml:"keymaps,omitempty"`
+	// Deprecations holds human-readable notices surfaced to the user when
+	// Load() translates a legacy config construct (e.g. a top-level
+	// `actions:` or `columns[].actions:` block) onto the `keymaps:`
+	// namespace (see legacy_actions.go, #510). Never read from or written
+	// to the YAML file -- purely derived, like Action.Order.
+	Deprecations []string `yaml:"-"`
 }
 
 // Card sort directions accepted by the sort_order config field.
@@ -319,6 +325,8 @@ func Load(globalPath, localPath string) (Config, error) {
 	if err := validateActions(cfg.Actions); err != nil {
 		return Config{}, err
 	}
+
+	translateLegacyActions(&cfg)
 
 	if err := validateScopeConflicts(&cfg); err != nil {
 		return Config{}, err
