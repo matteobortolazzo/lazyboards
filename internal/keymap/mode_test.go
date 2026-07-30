@@ -138,6 +138,39 @@ func TestModeNames_AreSnakeCase(t *testing.T) {
 	}
 }
 
+// TestConsumesPrintableRunes_TextInputModes pins the exact five-mode set
+// named by #510's acceptance criteria: create, config, search, comment,
+// delete each swallow every printable rune as literal text input.
+func TestConsumesPrintableRunes_TextInputModes(t *testing.T) {
+	want := []Mode{ModeCreate, ModeConfig, ModeSearch, ModeComment, ModeDelete}
+	for _, m := range want {
+		if !m.ConsumesPrintableRunes() {
+			t.Errorf("Mode(%q).ConsumesPrintableRunes() = false, want true", m)
+		}
+	}
+}
+
+// TestConsumesPrintableRunes_OtherModes_False guards against the set
+// silently growing to include a non-text-input mode (which would wrongly
+// reject a bare printable-rune binding there too).
+func TestConsumesPrintableRunes_OtherModes_False(t *testing.T) {
+	textInput := map[Mode]bool{
+		ModeCreate:  true,
+		ModeConfig:  true,
+		ModeSearch:  true,
+		ModeComment: true,
+		ModeDelete:  true,
+	}
+	for _, m := range Modes() {
+		if textInput[m] {
+			continue
+		}
+		if m.ConsumesPrintableRunes() {
+			t.Errorf("Mode(%q).ConsumesPrintableRunes() = true, want false", m)
+		}
+	}
+}
+
 // TestModeDetail_IsDistinctFromNormal pins that "detail" is its own
 // resolvable surface (the detail-focused branch of handleNormalModeKey),
 // separate from "normal" -- both are overlay targets per the plan's
