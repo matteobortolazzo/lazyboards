@@ -179,21 +179,22 @@ actions:
 	}
 }
 
-func TestLoad_ActionKeySequence_LowercaseFirstKey_ReturnsError(t *testing.T) {
+func TestLoad_ActionKeySequence_LowercaseFirstKey_LoadsCleanly(t *testing.T) {
+	// #510 removed the "sequence key must start with an uppercase letter"
+	// requirement: a lowercase-first sequence key now loads with no error.
+	// Uses "z" (unused by any default normal/detail binding) rather than
+	// "p" (the default "open PR" key) so the translated two-key sequence
+	// doesn't trip the new prefix-conflict validator instead.
 	yamlContent := `provider: github
 actions:
-  pf:
+  zf:
     name: Bad sequence
     type: url
     url: "https://example.com"
 `
 
-	_, err := loadConfigFromStrings(t, yamlContent, "")
-	if err == nil {
-		t.Fatal("Load() returned nil error, want error for sequence key with lowercase first key")
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "uppercase") {
-		t.Errorf("error = %q, want it to contain 'uppercase'", err.Error())
+	if _, err := loadConfigFromStrings(t, yamlContent, ""); err != nil {
+		t.Fatalf("Load() returned unexpected error for lowercase-first sequence key: %v", err)
 	}
 }
 
@@ -224,7 +225,12 @@ actions:
 
 func TestLoad_ActionKeyPrefixConflict_Global_ReturnsError(t *testing.T) {
 	// "P" can never dispatch if "Pf" also exists (pressing P must wait for a
-	// continuation), so a key that is a strict prefix of another is rejected.
+	// continuation), so a key that is a strict prefix of another is
+	// rejected. #510: the unified validator runs over the *translated*
+	// keymaps: namespace, where legacySequence expands the multi-rune
+	// legacy key "Pf" into the canonical, space-separated two-key sequence
+	// "P f" (config/legacy_actions.go) -- so the error names "P f", not
+	// "Pf".
 	yamlContent := `provider: github
 actions:
   P:
@@ -241,8 +247,8 @@ actions:
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for key P being a prefix of key Pf")
 	}
-	if !strings.Contains(err.Error(), "P") || !strings.Contains(err.Error(), "Pf") {
-		t.Errorf("error = %q, want it to reference both conflicting keys P and Pf", err.Error())
+	if !strings.Contains(err.Error(), `"P"`) || !strings.Contains(err.Error(), `"P f"`) {
+		t.Errorf("error = %q, want it to reference both conflicting keys \"P\" and \"P f\"", err.Error())
 	}
 }
 
@@ -250,6 +256,8 @@ func TestLoad_ActionKeyPrefixConflict_GlobalVsColumn_ReturnsError(t *testing.T) 
 	// A column's single-key action would shadow (or be shadowed by) a global
 	// sequence sharing the prefix while that column is active, so the
 	// conflict is rejected across the merged global+column key set too.
+	// #510: see TestLoad_ActionKeyPrefixConflict_Global_ReturnsError for why
+	// the error names translated "P f", not raw "Pf".
 	yamlContent := `provider: github
 actions:
   Pf:
@@ -269,8 +277,8 @@ columns:
 	if err == nil {
 		t.Fatal("Load() returned nil error, want error for column key P conflicting with global key Pf")
 	}
-	if !strings.Contains(err.Error(), "P") || !strings.Contains(err.Error(), "Pf") {
-		t.Errorf("error = %q, want it to reference both conflicting keys P and Pf", err.Error())
+	if !strings.Contains(err.Error(), `"P"`) || !strings.Contains(err.Error(), `"P f"`) {
+		t.Errorf("error = %q, want it to reference both conflicting keys \"P\" and \"P f\"", err.Error())
 	}
 }
 
@@ -309,7 +317,9 @@ columns:
 	}
 }
 
-func TestLoad_ActionLowercaseKey_ReturnsError(t *testing.T) {
+func TestLoad_ActionLowercaseKey_LoadsCleanly(t *testing.T) {
+	// #510: a lowercase custom-action key no longer requires the reserved
+	// A-Z namespace and loads with no error.
 	lowercaseKeys := []string{"a", "b", "x", "z"}
 
 	for _, key := range lowercaseKeys {
@@ -322,19 +332,15 @@ actions:
     url: "https://example.com"
 `
 
-			_, err := loadConfigFromStrings(t, yamlContent, "")
-			if err == nil {
-				t.Fatalf("Load() returned nil error, want error for lowercase key %q", key)
-			}
-			errLower := strings.ToLower(err.Error())
-			if !strings.Contains(errLower, "uppercase") {
-				t.Errorf("error = %q, want it to contain 'uppercase'", err.Error())
+			if _, err := loadConfigFromStrings(t, yamlContent, ""); err != nil {
+				t.Fatalf("Load() returned unexpected error for lowercase key %q: %v", key, err)
 			}
 		})
 	}
 }
 
-func TestLoad_ActionNumberKey_ReturnsError(t *testing.T) {
+func TestLoad_ActionNumberKey_LoadsCleanly(t *testing.T) {
+	// #510: a digit-first custom-action key loads with no error.
 	numberKeys := []string{"1", "5", "9"}
 
 	for _, key := range numberKeys {
@@ -347,19 +353,17 @@ actions:
     url: "https://example.com"
 `
 
-			_, err := loadConfigFromStrings(t, yamlContent, "")
-			if err == nil {
-				t.Fatalf("Load() returned nil error, want error for number key %q", key)
-			}
-			errLower := strings.ToLower(err.Error())
-			if !strings.Contains(errLower, "uppercase") {
-				t.Errorf("error = %q, want it to contain 'uppercase'", err.Error())
+			if _, err := loadConfigFromStrings(t, yamlContent, ""); err != nil {
+				t.Fatalf("Load() returned unexpected error for number key %q: %v", key, err)
 			}
 		})
 	}
 }
 
-func TestLoad_ActionSymbolKey_ReturnsError(t *testing.T) {
+func TestLoad_ActionSymbolKey_LoadsCleanly(t *testing.T) {
+	// #510: a symbol custom-action key loads with no error (each of these
+	// is a single printable, non-format rune, so ParseKey accepts it as a
+	// valid canonical key once translated onto the keymaps: namespace).
 	symbolKeys := []string{"!", "@", "#"}
 
 	for _, key := range symbolKeys {
@@ -372,13 +376,8 @@ actions:
     url: "https://example.com"
 `
 
-			_, err := loadConfigFromStrings(t, yamlContent, "")
-			if err == nil {
-				t.Fatalf("Load() returned nil error, want error for symbol key %q", key)
-			}
-			errLower := strings.ToLower(err.Error())
-			if !strings.Contains(errLower, "uppercase") {
-				t.Errorf("error = %q, want it to contain 'uppercase'", err.Error())
+			if _, err := loadConfigFromStrings(t, yamlContent, ""); err != nil {
+				t.Fatalf("Load() returned unexpected error for symbol key %q: %v", key, err)
 			}
 		})
 	}
@@ -538,8 +537,9 @@ actions:
 	}
 }
 
-func TestLoad_ActionLowercaseConfigKey_ReturnsError(t *testing.T) {
-	// "c" is lowercase, so it should be rejected as non-uppercase.
+func TestLoad_ActionLowercaseConfigKey_LoadsCleanly(t *testing.T) {
+	// #510: "c" is lowercase, which used to be rejected as non-uppercase;
+	// it now loads with no error.
 	yamlContent := `provider: github
 actions:
   c:
@@ -548,13 +548,8 @@ actions:
     url: "https://example.com"
 `
 
-	_, err := loadConfigFromStrings(t, yamlContent, "")
-	if err == nil {
-		t.Fatal("Load() returned nil error, want error for lowercase key \"c\"")
-	}
-	errLower := strings.ToLower(err.Error())
-	if !strings.Contains(errLower, "uppercase") {
-		t.Errorf("error = %q, want it to contain 'uppercase'", err.Error())
+	if _, err := loadConfigFromStrings(t, yamlContent, ""); err != nil {
+		t.Fatalf("Load() returned unexpected error for lowercase key \"c\": %v", err)
 	}
 }
 
