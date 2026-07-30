@@ -12,7 +12,7 @@ import (
 func TestLoad_KeymapCommandString_ParsesAsCommandBinding(t *testing.T) {
 	localYAML := `keymaps:
   normal:
-    n: card.create
+    n: card.new
 `
 	result := mustLoadConfig(t, "", localYAML)
 
@@ -30,8 +30,8 @@ func TestLoad_KeymapCommandString_ParsesAsCommandBinding(t *testing.T) {
 	if binding.Kind != keymap.BindingCommand {
 		t.Fatalf("Modes[normal][n].Kind = %v, want BindingCommand", binding.Kind)
 	}
-	if binding.Command != "card.create" {
-		t.Errorf("Modes[normal][n].Command = %q, want %q", binding.Command, "card.create")
+	if binding.Command != "card.new" {
+		t.Errorf("Modes[normal][n].Command = %q, want %q", binding.Command, "card.new")
 	}
 }
 
@@ -150,7 +150,7 @@ func TestLoad_KeymapColumnsOverlay_ParsesPerColumnTable(t *testing.T) {
 	localYAML := `keymaps:
   columns:
     Implementing:
-      n: card.create.in.column
+      n: card.new
 `
 	result := mustLoadConfig(t, "", localYAML)
 
@@ -165,8 +165,8 @@ func TestLoad_KeymapColumnsOverlay_ParsesPerColumnTable(t *testing.T) {
 	if !ok {
 		t.Fatal("Keymaps.Columns[\"Implementing\"] missing key \"n\"")
 	}
-	if binding.Kind != keymap.BindingCommand || binding.Command != "card.create.in.column" {
-		t.Errorf("Keymaps.Columns[Implementing][n] = %+v, want CommandBinding(%q)", binding, "card.create.in.column")
+	if binding.Kind != keymap.BindingCommand || binding.Command != "card.new" {
+		t.Errorf("Keymaps.Columns[Implementing][n] = %+v, want CommandBinding(%q)", binding, "card.new")
 	}
 }
 
@@ -175,9 +175,9 @@ func TestLoad_KeymapColumnsOverlay_ParsesPerColumnTable(t *testing.T) {
 func TestLoad_KeymapOrder_SequentialFromYAMLPosition(t *testing.T) {
 	localYAML := `keymaps:
   normal:
-    z: card.zebra
-    a: card.apple
-    m: card.mango
+    z: card.new
+    a: card.edit
+    m: board.refresh
 `
 	result := mustLoadConfig(t, "", localYAML)
 
@@ -196,17 +196,17 @@ func TestLoad_KeymapModeMerge_LocalOverridesGlobalKey(t *testing.T) {
 	globalYAML := `provider: github
 keymaps:
   normal:
-    n: card.create.global
+    n: board.refresh
 `
 	localYAML := `keymaps:
   normal:
-    n: card.create.local
+    n: card.new
 `
 	result := mustLoadConfig(t, globalYAML, localYAML)
 
 	binding := result.Keymaps.Modes[keymap.ModeNormal]["n"]
-	if binding.Command != "card.create.local" {
-		t.Errorf("Modes[normal][n].Command = %q, want %q (local should override global)", binding.Command, "card.create.local")
+	if binding.Command != "card.new" {
+		t.Errorf("Modes[normal][n].Command = %q, want %q (local should override global)", binding.Command, "card.new")
 	}
 }
 
@@ -214,12 +214,12 @@ func TestLoad_KeymapModeMerge_GlobalOnlyKeyPreserved(t *testing.T) {
 	globalYAML := `provider: github
 keymaps:
   normal:
-    n: card.create
+    n: card.new
     e: card.edit
 `
 	localYAML := `keymaps:
   normal:
-    n: card.create.override
+    n: board.refresh
 `
 	result := mustLoadConfig(t, globalYAML, localYAML)
 
@@ -236,7 +236,7 @@ func TestLoad_KeymapModeMerge_OmittedModeTable_InheritsGlobalEntries(t *testing.
 	globalYAML := `provider: github
 keymaps:
   normal:
-    n: card.create
+    n: card.new
 `
 	// Local declares a keymaps: block but never mentions "normal" at all.
 	localYAML := `keymaps:
@@ -249,7 +249,7 @@ keymaps:
 	if !ok || len(table) != 1 {
 		t.Fatalf("Modes[normal] = %v, want the inherited global entry (mode omitted locally)", table)
 	}
-	if table["n"].Kind != keymap.BindingCommand || table["n"].Command != "card.create" {
+	if table["n"].Kind != keymap.BindingCommand || table["n"].Command != "card.new" {
 		t.Errorf("Modes[normal][n] = %+v, want the inherited global command binding", table["n"])
 	}
 }
@@ -258,7 +258,7 @@ func TestLoad_KeymapModeMerge_ExplicitEmptyModeTable_ClearsInheritedGlobalKeys(t
 	globalYAML := `provider: github
 keymaps:
   normal:
-    n: card.create
+    n: card.new
 `
 	localYAML := `keymaps:
   normal: {}
@@ -278,7 +278,7 @@ func TestLoad_KeymapModeMerge_LocalExplicitUnbindOverridesGlobalCommand(t *testi
 	globalYAML := `provider: github
 keymaps:
   normal:
-    n: card.create
+    n: card.new
 `
 	localYAML := `keymaps:
   normal:
@@ -303,7 +303,7 @@ func TestLoad_KeymapColumnsMerge_NilInheritsGlobalColumnTable(t *testing.T) {
 keymaps:
   columns:
     Implementing:
-      n: card.create.implementing
+      n: card.new
 `
 	// Local declares keymaps but no columns.Implementing entry at all.
 	localYAML := `keymaps:
@@ -316,8 +316,8 @@ keymaps:
 	if !ok || len(table) != 1 {
 		t.Fatalf("Columns[Implementing] = %v, want the inherited global entry", table)
 	}
-	if table["n"].Command != "card.create.implementing" {
-		t.Errorf("Columns[Implementing][n].Command = %q, want %q", table["n"].Command, "card.create.implementing")
+	if table["n"].Command != "card.new" {
+		t.Errorf("Columns[Implementing][n].Command = %q, want %q", table["n"].Command, "card.new")
 	}
 }
 
@@ -326,7 +326,7 @@ func TestLoad_KeymapColumnsMerge_ExplicitEmptyMapGetsNone(t *testing.T) {
 keymaps:
   columns:
     Implementing:
-      n: card.create.implementing
+      n: card.new
 `
 	localYAML := `keymaps:
   columns:
@@ -348,12 +348,12 @@ func TestLoad_KeymapColumnsMerge_NonEmptyMergesGlobalOnlyKeysAfterLocal(t *testi
 keymaps:
   columns:
     Implementing:
-      d: card.delete.implementing
+      d: card.delete
 `
 	localYAML := `keymaps:
   columns:
     Implementing:
-      b: card.branch.implementing
+      b: board.refresh
 `
 	result := mustLoadConfig(t, globalYAML, localYAML)
 

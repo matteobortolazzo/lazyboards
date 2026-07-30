@@ -269,14 +269,14 @@ func TestTranslateLegacyActions_KeymapsDeclaredKeyWinsOverLegacy(t *testing.T) {
     scope: board
 keymaps:
   normal:
-    P: card.create
+    P: card.new
 `
 	cfg := mustLoadConfig(t, "", localYAML)
 
 	binding := cfg.Keymaps.Modes[keymap.ModeNormal]["P"]
-	if binding.Kind != keymap.BindingCommand || binding.Command != "card.create" {
+	if binding.Kind != keymap.BindingCommand || binding.Command != "card.new" {
 		t.Errorf("Keymaps.Modes[normal][P] = %+v, want the keymaps:-declared CommandBinding(%q) to win over the colliding legacy action",
-			binding, "card.create")
+			binding, "card.new")
 	}
 }
 
@@ -296,14 +296,14 @@ func TestTranslateLegacyActions_KeymapsDeclaredColumnKeyWinsOverLegacy(t *testin
 keymaps:
   columns:
     Implementing:
-      Q: card.create.implementing
+      Q: card.new
 `
 	cfg := mustLoadConfig(t, "", localYAML)
 
 	binding := cfg.Keymaps.Columns["Implementing"]["Q"]
-	if binding.Kind != keymap.BindingCommand || binding.Command != "card.create.implementing" {
+	if binding.Kind != keymap.BindingCommand || binding.Command != "card.new" {
 		t.Errorf("Keymaps.Columns[\"Implementing\"][Q] = %+v, want the keymaps:-declared CommandBinding(%q) to win over the colliding legacy action",
-			binding, "card.create.implementing")
+			binding, "card.new")
 	}
 }
 
@@ -328,7 +328,7 @@ func TestTranslateLegacyActions_ColumnLookupIsCaseInsensitive(t *testing.T) {
 keymaps:
   columns:
     implementing:
-      R: card.create
+      R: card.new
 `
 	cfg := mustLoadConfig(t, "", localYAML)
 
@@ -485,7 +485,7 @@ columns:
 func TestLoad_Deprecations_KeymapsOnlyConfigProducesNoNotices(t *testing.T) {
 	localYAML := `keymaps:
   normal:
-    n: card.create
+    n: card.new
 `
 	cfg := mustLoadConfig(t, "", localYAML)
 
@@ -519,12 +519,12 @@ columns:
         scope: board
 keymaps:
   normal:
-    P: card.create
+    P: card.new
   detail:
-    P: card.create
+    P: card.new
   columns:
     Implementing:
-      Q: card.create.implementing
+      Q: card.new
 `
 	cfg := mustLoadConfig(t, "", localYAML)
 
@@ -536,11 +536,11 @@ keymaps:
 	// every collision), so this test genuinely exercises the "shadowed"
 	// case rather than accidentally testing an ordinary insertion.
 	normalBinding := cfg.Keymaps.Modes[keymap.ModeNormal]["P"]
-	if normalBinding.Kind != keymap.BindingCommand || normalBinding.Command != "card.create" {
+	if normalBinding.Kind != keymap.BindingCommand || normalBinding.Command != "card.new" {
 		t.Fatalf("Keymaps.Modes[normal][P] = %+v, want the keymaps:-declared command to remain unshadowed", normalBinding)
 	}
 	colBinding := cfg.Keymaps.Columns["Implementing"]["Q"]
-	if colBinding.Kind != keymap.BindingCommand || colBinding.Command != "card.create.implementing" {
+	if colBinding.Kind != keymap.BindingCommand || colBinding.Command != "card.new" {
 		t.Fatalf("Keymaps.Columns[\"Implementing\"][Q] = %+v, want the keymaps:-declared command to remain unshadowed", colBinding)
 	}
 }
