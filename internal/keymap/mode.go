@@ -153,3 +153,25 @@ func ParseMode(s string) (Mode, error) {
 func (m Mode) Resolvable() bool {
 	return resolvableModes[m]
 }
+
+// textInputModes is the set of modes whose handler consumes every printable
+// rune keypress as literal text input (see the handlers named in each
+// Mode's own doc comment: handleCreateModeKey, handleConfigModeKey,
+// handleSearchModeKey, handleCommentModeKey/comment_mode.go, and
+// handleDeleteModeKey's confirmation text field). A key binding for a bare
+// printable rune in one of these modes can never dispatch -- the input
+// widget swallows the keypress before any lookup happens.
+var textInputModes = map[Mode]bool{
+	ModeCreate:  true,
+	ModeConfig:  true,
+	ModeSearch:  true,
+	ModeComment: true,
+	ModeDelete:  true,
+}
+
+// ConsumesPrintableRunes reports whether m is a text-input surface (create,
+// config, search, comment, delete) that swallows every printable rune as
+// literal text, so no bare printable-rune key can ever be bound there.
+func (m Mode) ConsumesPrintableRunes() bool {
+	return textInputModes[m]
+}

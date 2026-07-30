@@ -328,6 +328,23 @@ func Load(globalPath, localPath string) (Config, error) {
 
 	translateLegacyActions(&cfg)
 
+	// validateKeymapActions must run before validateScopeConflicts: it
+	// infers and writes back the default scope for natively-declared
+	// keymaps: inline actions, the same way validateActions already did for
+	// cfg.Actions above -- validateScopeConflicts must see every action's
+	// concrete scope, not an unresolved "".
+	if err := validateKeymapActions(cfg.Keymaps); err != nil {
+		return Config{}, err
+	}
+
+	if err := validateCommandIDs(cfg.Keymaps); err != nil {
+		return Config{}, err
+	}
+
+	if err := validatePrintableRuneBindings(cfg.Keymaps); err != nil {
+		return Config{}, err
+	}
+
 	if err := validateScopeConflicts(&cfg); err != nil {
 		return Config{}, err
 	}
@@ -704,47 +721,62 @@ func validateActions(actions map[string]Action) error {
 				return fmt.Errorf("action key %q: sequence keys after the first must be letters or digits", key)
 			}
 		}
-		// Name is required.
-		if strings.TrimSpace(action.Name) == "" {
-			return fmt.Errorf("action %q: name is required", key)
+		if err := validateActionValue(key, &action); err != nil {
+			return err
 		}
-		// Type must be "url" or "shell".
-		if action.Type != "url" && action.Type != "shell" {
-			return fmt.Errorf("action %q: type must be \"url\" or \"shell\", got %q", key, action.Type)
+		actions[key] = action
+	}
+	return nil
+}
+
+// validateActionValue validates that one action definition is well-formed
+// (name, type, url/command per type, and scope, including the board/card
+// ticket-variable restrictions), inferring and writing back the default
+// scope in place when it was omitted. Shared by validateActions (top-level
+// actions:/columns[].actions:, #340) and validateKeymapActions (inline
+// keymaps: action definitions, #510) so both surfaces enforce identical
+// rules -- key only identifies the offending entry in any returned error,
+// it plays no part in the validation itself.
+func validateActionValue(key string, action *Action) error {
+	// Name is required.
+	if strings.TrimSpace(action.Name) == "" {
+		return fmt.Errorf("action %q: name is required", key)
+	}
+	// Type must be "url" or "shell".
+	if action.Type != "url" && action.Type != "shell" {
+		return fmt.Errorf("action %q: type must be \"url\" or \"shell\", got %q", key, action.Type)
+	}
+	// URL required for url type.
+	if action.Type == "url" && strings.TrimSpace(action.URL) == "" {
+		return fmt.Errorf("action %q: url is required when type is \"url\"", key)
+	}
+	// Command required for shell type.
+	if action.Type == "shell" && strings.TrimSpace(action.Command) == "" {
+		return fmt.Errorf("action %q: command is required when type is \"shell\"", key)
+	}
+	// Default empty scope: infer "board" when the template has no
+	// ticket-specific placeholders, otherwise "card" (today's default).
+	template := action.URL + action.Command
+	if action.Scope == "" {
+		action.Scope = inferScope(template)
+	}
+	// Validate scope value.
+	if action.Scope != "card" && action.Scope != "board" && action.Scope != "pr" {
+		return fmt.Errorf("action %q: scope must be \"card\", \"board\", or \"pr\", got %q", key, action.Scope)
+	}
+	// Board-scope actions must not reference card-specific variables.
+	if action.Scope == "board" {
+		if cardSpecificVarPattern.MatchString(template) {
+			return fmt.Errorf("action %q: scope \"board\" cannot use card-specific variables ({number}, {title}, {tags}, {session}, {window})", key)
 		}
-		// URL required for url type.
-		if action.Type == "url" && strings.TrimSpace(action.URL) == "" {
-			return fmt.Errorf("action %q: url is required when type is \"url\"", key)
+		if prSpecificVarPattern.MatchString(template) {
+			return fmt.Errorf("action %q: scope \"board\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title}, {pr_worktree})", key)
 		}
-		// Command required for shell type.
-		if action.Type == "shell" && strings.TrimSpace(action.Command) == "" {
-			return fmt.Errorf("action %q: command is required when type is \"shell\"", key)
-		}
-		// Default empty scope: infer "board" when the template has no
-		// ticket-specific placeholders, otherwise "card" (today's default).
-		template := action.URL + action.Command
-		if action.Scope == "" {
-			action.Scope = inferScope(template)
-			actions[key] = action
-		}
-		// Validate scope value.
-		if action.Scope != "card" && action.Scope != "board" && action.Scope != "pr" {
-			return fmt.Errorf("action %q: scope must be \"card\", \"board\", or \"pr\", got %q", key, action.Scope)
-		}
-		// Board-scope actions must not reference card-specific variables.
-		if action.Scope == "board" {
-			if cardSpecificVarPattern.MatchString(template) {
-				return fmt.Errorf("action %q: scope \"board\" cannot use card-specific variables ({number}, {title}, {tags}, {session}, {window})", key)
-			}
-			if prSpecificVarPattern.MatchString(template) {
-				return fmt.Errorf("action %q: scope \"board\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title}, {pr_worktree})", key)
-			}
-		}
-		// Card-scope actions must not reference pr-specific variables.
-		if action.Scope == "card" {
-			if prSpecificVarPattern.MatchString(template) {
-				return fmt.Errorf("action %q: scope \"card\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title}, {pr_worktree})", key)
-			}
+	}
+	// Card-scope actions must not reference pr-specific variables.
+	if action.Scope == "card" {
+		if prSpecificVarPattern.MatchString(template) {
+			return fmt.Errorf("action %q: scope \"card\" cannot use pr-specific variables ({pr_branch}, {pr_number}, {pr_url}, {pr_title}, {pr_worktree})", key)
 		}
 	}
 	return nil
@@ -756,32 +788,48 @@ func IsSequenceKey(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
 
-// validateScopeConflicts checks that no action key is assigned a "card" scope
-// in one map and a "pr" scope in another (across the global actions map and
-// every column's action override map). Per the ticket's Q1 decision, only
-// card<->pr conflicts are rejected; a letter shared between "board" and
-// either "card" or "pr" across maps is existing (unchanged) behavior.
+// validateScopeConflicts checks that no key sequence is assigned a "card"
+// scope by one inline action and a "pr" scope by another, across
+// keymaps.normal, keymaps.detail, and every keymaps.columns.<name> table.
+// #510 rewrite: scans the unified keymaps: namespace instead of the legacy
+// cfg.Actions/cfg.Columns[].Actions maps directly. By the time this runs,
+// translateLegacyActions has already mirrored every legacy actions:/
+// columns[].actions: entry into cfg.Keymaps (see Load()), so this one scan
+// covers legacy-derived and natively-declared keymaps: actions together --
+// the "one validation path" the ticket asks for. Per the ticket's Q1
+// decision, only card<->pr conflicts are rejected; a key shared between
+// "board" and either "card" or "pr" across tables is unchanged, existing
+// behavior.
 func validateScopeConflicts(cfg *Config) error {
-	scopesByKey := make(map[string]map[string]bool)
+	if cfg.Keymaps == nil {
+		return nil
+	}
 
-	addScopes := func(actions map[string]Action) {
-		for key, action := range actions {
-			scope := DefaultScope(action.Scope)
-			if scopesByKey[key] == nil {
-				scopesByKey[key] = make(map[string]bool)
+	scopesBySequence := make(map[string]map[string]bool)
+
+	addScopes := func(table KeymapTable) {
+		for seq, binding := range table {
+			if binding.Kind != keymap.BindingAction {
+				continue
 			}
-			scopesByKey[key][scope] = true
+			scope := DefaultScope(binding.Action.Scope)
+			if scopesBySequence[seq] == nil {
+				scopesBySequence[seq] = make(map[string]bool)
+			}
+			scopesBySequence[seq][scope] = true
 		}
 	}
 
-	addScopes(cfg.Actions)
-	for _, col := range cfg.Columns {
-		addScopes(col.Actions)
+	for _, table := range cfg.Keymaps.Modes {
+		addScopes(table)
+	}
+	for _, table := range cfg.Keymaps.Columns {
+		addScopes(table)
 	}
 
-	for key, scopes := range scopesByKey {
+	for seq, scopes := range scopesBySequence {
 		if scopes["card"] && scopes["pr"] {
-			return fmt.Errorf("action key %q: cannot be both \"card\" scope and \"pr\" scope across global/column action maps", key)
+			return fmt.Errorf("keymap key %q: cannot be both \"card\" scope and \"pr\" scope across mode/column action tables", seq)
 		}
 	}
 	return nil

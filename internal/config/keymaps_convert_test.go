@@ -12,7 +12,7 @@ import (
 func TestKeymaps_Tables_ConvertsCommandBinding(t *testing.T) {
 	localYAML := `keymaps:
   normal:
-    n: card.create
+    n: card.new
 `
 	cfg := mustLoadConfig(t, "", localYAML)
 	tables := cfg.Keymaps.Tables()
@@ -25,8 +25,8 @@ func TestKeymaps_Tables_ConvertsCommandBinding(t *testing.T) {
 	if result.Outcome != keymap.OutcomeMatch {
 		t.Fatalf("Lookup() outcome = %v, want OutcomeMatch", result.Outcome)
 	}
-	if result.Binding.Kind != keymap.BindingCommand || result.Binding.Command != "card.create" {
-		t.Errorf("Lookup() binding = %+v, want CommandBinding(%q)", result.Binding, "card.create")
+	if result.Binding.Kind != keymap.BindingCommand || result.Binding.Command != "card.new" {
+		t.Errorf("Lookup() binding = %+v, want CommandBinding(%q)", result.Binding, "card.new")
 	}
 }
 
@@ -97,7 +97,7 @@ func TestKeymaps_Tables_ConvertsColumnsOverlay(t *testing.T) {
 	localYAML := `keymaps:
   columns:
     Implementing:
-      n: card.create.implementing
+      n: card.new
 `
 	cfg := mustLoadConfig(t, "", localYAML)
 	tables := cfg.Keymaps.Tables()
@@ -111,8 +111,8 @@ func TestKeymaps_Tables_ConvertsColumnsOverlay(t *testing.T) {
 	if result.Outcome != keymap.OutcomeMatch {
 		t.Fatalf("Lookup() outcome = %v, want OutcomeMatch for the column overlay", result.Outcome)
 	}
-	if result.Binding.Command != "card.create.implementing" {
-		t.Errorf("Lookup() binding.Command = %q, want %q", result.Binding.Command, "card.create.implementing")
+	if result.Binding.Command != "card.new" {
+		t.Errorf("Lookup() binding.Command = %q, want %q", result.Binding.Command, "card.new")
 	}
 }
 
