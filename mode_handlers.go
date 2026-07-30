@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
 func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -166,10 +167,27 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b.handleDetailFocusedKey(msg)
 	}
 
-	switch msg.String() {
-	case "q":
+	return b.dispatchKey(keymap.ModeNormal, msg)
+}
+
+// runNormalCommand runs the built-in normal-mode command id resolves to.
+// Case bodies are transcribed verbatim from the pre-#489 switch msg.String()
+// (moved here unchanged, guard-for-guard) -- see docs/list-cursor-
+// invariants.md for the 'u' sort-order cursor restore and
+// docs/bubbletea-async-patterns.md for the tea.Cmd propagation both keep.
+func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	if idx, ok := navColumnIndex(id); ok {
+		if idx < len(b.Columns) {
+			b.Columns[idx].Cursor = 0
+			b.switchColumn(idx)
+		}
+		return b, nil
+	}
+
+	switch id {
+	case keymap.CommandQuit:
 		return b, tea.Quit
-	case "n":
+	case keymap.CommandCardNew:
 		b.mode = createMode
 		b.create.titleInput.SetValue("")
 		b.create.labelInput.SetValue("")
@@ -197,7 +215,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := b.create.titleInput.Focus()
 		b.create.labelInput.Blur()
 		return b, cmd
-	case "e":
+	case keymap.CommandCardEdit:
 		if len(b.Columns) == 0 {
 			return b, nil
 		}
@@ -205,15 +223,15 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b, openEditorCmd(b.selectedCard())
-	case "c":
+	case keymap.CommandConfig:
 		b.enterConfigMode()
-	case "r":
+	case keymap.CommandBoardRefresh:
 		if b.refreshing {
 			return b, nil
 		}
 		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
-	case "p":
+	case keymap.CommandCardOpenPR:
 		if len(b.Columns) == 0 {
 			return b, nil
 		}
@@ -221,7 +239,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b.handlePROpenKey(b.selectedCard())
-	case "x":
+	case keymap.CommandCardClose:
 		if len(b.Columns) == 0 {
 			return b, nil
 		}
@@ -231,7 +249,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.closeConfirm = closeConfirmState{card: b.selectedCard()}
 		b.mode = closeConfirmMode
 		return b, nil
-	case "t":
+	case keymap.CommandCardDelete:
 		if len(b.Columns) == 0 {
 			return b, nil
 		}
@@ -254,16 +272,16 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = deleteMode
 		b.statusBar.SetActionHints(deleteCommentHints)
 		return b, b.delete.commentInput.Focus()
-	case "v":
+	case keymap.CommandViewPRList:
 		b.enterPRList()
 		return b, fetchOpenPRsCmd(b.provider, b.prList.generation)
-	case "i":
+	case keymap.CommandViewMilestoneList:
 		b.enterMilestoneList()
 		return b, fetchMilestonesCmd(b.provider, b.milestoneList.generation)
-	case "w":
+	case keymap.CommandViewAgentList:
 		b.enterAgentList()
 		return b, nil
-	case "s":
+	case keymap.CommandNavAgent:
 		if len(b.Columns) == 0 {
 			return b, nil
 		}
@@ -271,31 +289,31 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b.handleAgentJumpKey(b.selectedCard())
-	case "/":
+	case keymap.CommandBoardSearch:
 		b.mode = searchMode
 		cmd := b.searchInput.Focus()
 		b.statusBar.SetActionHints(searchModeHints)
 		return b, cmd
-	case "o":
+	case keymap.CommandCardOpenTicket:
 		return b.handleTicketOpenKey()
-	case "m":
+	case keymap.CommandNavReference:
 		return b.handleReferenceNavKey()
-	case "l", "right":
+	case keymap.CommandNavDetailFocus:
 		b.detailFocused = true
 		b.rebuildDetailHints()
-	case "shift+tab":
+	case keymap.CommandNavColumnPrev:
 		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
-	case "tab":
+	case keymap.CommandNavColumnNext:
 		b.switchColumn((b.ActiveTab + 1) % len(b.Columns))
-	case "j", "down":
+	case keymap.CommandNavCursorDown:
 		col := &b.Columns[b.ActiveTab]
 		col.Cursor = moveCursor(col.Cursor, len(b.visibleCards()), true)
 		b.onCursorMoved()
-	case "k", "up":
+	case keymap.CommandNavCursorUp:
 		col := &b.Columns[b.ActiveTab]
 		col.Cursor = moveCursor(col.Cursor, len(b.visibleCards()), false)
 		b.onCursorMoved()
-	case "a":
+	case keymap.CommandCardAssign:
 		if len(b.Columns) == 0 || b.ActiveTab >= len(b.Columns) {
 			return b, nil
 		}
@@ -335,7 +353,7 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = assignMode
 		b.statusBar.SetActionHints(assignModeHints)
 		return b, nil
-	case "f":
+	case keymap.CommandBoardFilter:
 		if b.activeFilterType != filterTypeNone {
 			b.clearFilter()
 			b.clampScrollOffset()
@@ -358,20 +376,20 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.mode = filterMode
 		b.statusBar.SetActionHints(filterModeHints)
 		return b, nil
-	case "?":
+	case keymap.CommandHelp:
 		b.helpFromDetailFocused = false
 		b.helpScrollOffset = 0
 		b.mode = helpMode
 		b.statusBar.SetActionHints(helpModeHints)
 		return b, nil
-	case "g":
+	case keymap.CommandViewGitPanel:
 		b.enterGitPanel()
 		return b, nil
-	case "d":
+	case keymap.CommandViewDispatch:
 		b.dispatch = dispatchState{loading: true}
 		b.mode = dispatchMode
 		return b, queryDispatchStatusCmd(b.executor)
-	case "u":
+	case keymap.CommandBoardSortOrder:
 		// Capture the selected card's identity (filter-aware) before flipping
 		// the sort order, so the cursor can be restored to the same card by
 		// Number afterward rather than by raw index (#412;
@@ -416,17 +434,6 @@ func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b, saveSortOrderCmd(b.statePath, b.sortNewestFirst)
-	default:
-		// Check for number key navigation (1-9).
-		if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
-			idx := int(msg.Runes[0] - '1')
-			if idx < len(b.Columns) {
-				b.Columns[idx].Cursor = 0
-				b.switchColumn(idx)
-			}
-			return b, nil
-		}
-		return b.handleCustomActionKey(msg)
 	}
 	return b, nil
 }

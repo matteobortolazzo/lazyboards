@@ -124,7 +124,13 @@ func findKeymapColumnByLower(columns map[string]KeymapTable, lowerName string) (
 // via legacySequence, skipping (never overwriting) any canonical key table
 // already has -- keymaps:-declared entries always win on a collision.
 // Each inserted entry's Order is offset by table's existing key count,
-// mirroring mergeKeymapTable's convention (keymaps.go:276).
+// mirroring mergeKeymapTable's convention (keymaps.go:276). Per A4, the
+// top-level KeymapBinding.Order is stamped too (not just the nested
+// Action.Order) -- action.Order already reflects the legacy block's
+// document position (stamped by stampActionOrder ahead of translation), so
+// copying the post-offset value straight into KeymapBinding.Order gives
+// Tables() something non-zero to carry through into keymap.Action.Order for
+// legacy-derived bindings, same as native keymaps: entries.
 func insertLegacyActions(table KeymapTable, legacyActions map[string]Action) {
 	offset := len(table)
 	for key, action := range legacyActions {
@@ -133,6 +139,19 @@ func insertLegacyActions(table KeymapTable, legacyActions map[string]Action) {
 			continue
 		}
 		action.Order += offset
-		table[seq] = KeymapBinding{Kind: keymap.BindingAction, Action: action}
+		table[seq] = KeymapBinding{Kind: keymap.BindingAction, Action: action, Order: action.Order}
 	}
+}
+
+// KeymapFromLegacy derives a resolved *keymap.Keymap directly from legacy
+// actions/columns blocks, without a full config.Load() pass -- the path
+// NewBoard uses so its 96+ existing test call sites (constructed with
+// actions/columnConfigs literals, not YAML) keep dispatching identically to
+// the real app. It builds a throwaway *Config carrying just those two
+// fields, runs it through the same translateLegacyActions + ResolveKeymap
+// pipeline main.go's config.Load() path uses, and returns the result.
+func KeymapFromLegacy(actions map[string]Action, columns []ColumnConfig) (*keymap.Keymap, error) {
+	cfg := &Config{Actions: actions, Columns: columns}
+	translateLegacyActions(cfg)
+	return ResolveKeymap(cfg)
 }
