@@ -53,8 +53,12 @@ func legacySequence(key string) string {
 //
 // Precondition: this must run after validateActions/validateColumns (see
 // Load() in config.go), since legacySequence assumes every legacy key was
-// already validated to match [A-Z][A-Za-z0-9]*. Running it earlier would
-// silently translate unvalidated (or not-yet-scope-inferred) keys.
+// already validated to be non-empty with every continuation rune a letter
+// or digit (#510 dropped the old first-rune-must-be-uppercase requirement).
+// Running it earlier would silently translate unvalidated (or
+// not-yet-scope-inferred) keys. It must also run before validateKeymap, so
+// the unified prefix/ctrl+c checks see legacy-derived entries alongside
+// native keymaps: ones in the same resolved namespace.
 func translateLegacyActions(cfg *Config) {
 	legacyPresent := len(cfg.Actions) > 0
 

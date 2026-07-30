@@ -97,7 +97,9 @@ columns:
 	}
 }
 
-func TestLoad_ColumnActionLowercaseKey_ReturnsError(t *testing.T) {
+func TestLoad_ColumnActionLowercaseKey_LoadsCleanly(t *testing.T) {
+	// #510: a lowercase column-action key no longer requires the reserved
+	// A-Z namespace and loads with no error.
 	yamlContent := `provider: github
 columns:
   - name: Implementing
@@ -108,13 +110,8 @@ columns:
         url: "https://example.com"
 `
 
-	_, err := loadConfigFromStrings(t, yamlContent, "")
-	if err == nil {
-		t.Fatal("Load() returned nil error, want error for column action with lowercase key")
-	}
-	errLower := strings.ToLower(err.Error())
-	if !strings.Contains(errLower, "uppercase") {
-		t.Errorf("error = %q, want it to contain 'uppercase'", err.Error())
+	if _, err := loadConfigFromStrings(t, yamlContent, ""); err != nil {
+		t.Fatalf("Load() returned unexpected error for column action with lowercase key: %v", err)
 	}
 }
 
