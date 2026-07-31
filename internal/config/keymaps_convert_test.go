@@ -57,12 +57,14 @@ func TestKeymaps_Tables_ConvertsInlineActionBinding(t *testing.T) {
 	}
 }
 
-// TestKeymaps_Tables_DropsActionOrderMetadata pins the #492 deferral: Order
-// is derived config-layer metadata (document position, used for hint
-// ordering) that keymap.Binding has no concept of yet. Tables() must not
-// leak it into the engine layer even though keymap.Action happens to have an
-// Order field for cross-package tag-compatibility with config.Action.
-func TestKeymaps_Tables_DropsActionOrderMetadata(t *testing.T) {
+// TestKeymaps_Tables_CarriesActionOrderMetadataThrough pins the A4 reversal
+// of the #492 deferral: Order is derived config-layer metadata (document
+// position, used for #437's hint ordering); it now must flow from the
+// parsed KeymapBinding.Order all the way into the resolved
+// keymap.Binding.Action.Order, so the runtime hint-derivation layer (#489)
+// can order inline-action hints by config file position without a second,
+// config-layer-only lookup.
+func TestKeymaps_Tables_CarriesActionOrderMetadataThrough(t *testing.T) {
 	localYAML := `keymaps:
   normal:
     W:
@@ -75,7 +77,9 @@ func TestKeymaps_Tables_DropsActionOrderMetadata(t *testing.T) {
       command: "echo extra"
 `
 	cfg := mustLoadConfig(t, "", localYAML)
-	if cfg.Keymaps.Modes[keymap.ModeNormal]["W"].Order == cfg.Keymaps.Modes[keymap.ModeNormal]["X"].Order {
+	wOrder := cfg.Keymaps.Modes[keymap.ModeNormal]["W"].Order
+	xOrder := cfg.Keymaps.Modes[keymap.ModeNormal]["X"].Order
+	if wOrder == xOrder {
 		t.Fatal("test setup invalid: Load() did not assign distinct Order to the two inline-action bindings")
 	}
 
@@ -88,8 +92,8 @@ func TestKeymaps_Tables_DropsActionOrderMetadata(t *testing.T) {
 	if result.Outcome != keymap.OutcomeMatch {
 		t.Fatalf("Lookup() outcome = %v, want OutcomeMatch", result.Outcome)
 	}
-	if result.Binding.Action.Order != 0 {
-		t.Errorf("Lookup() binding.Action.Order = %d, want 0 (Tables() must drop Order metadata, deferred to #492)", result.Binding.Action.Order)
+	if result.Binding.Action.Order != wOrder {
+		t.Errorf("Lookup() binding.Action.Order = %d, want %d (Tables() must carry KeymapBinding.Order through to keymap.Action.Order, per A4)", result.Binding.Action.Order, wOrder)
 	}
 }
 

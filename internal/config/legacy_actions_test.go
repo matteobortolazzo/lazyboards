@@ -177,9 +177,15 @@ func TestTranslateLegacyActions_RunsAfterScopeInference(t *testing.T) {
 // TestTranslateLegacyActions_ResolvesIdenticallyToHandWrittenKeymaps is the
 // Implementation Order's step 2 equivalence check: keymap.Resolve(...)
 // .Entries(mode, col) must be reflect.DeepEqual between a legacy-only
-// config and the hand-written keymaps: equivalent. Tables() drops Order
-// (#492's deferral, pinned in keymaps_convert_test.go), so ordering can't
-// skew this comparison, and Entries always returns a freshly sorted slice.
+// config and the hand-written keymaps: equivalent. Since A4 reversed #492's
+// deferral, Tables() now carries KeymapBinding.Order through to
+// keymap.Action.Order (pinned in keymaps_convert_test.go) -- this
+// comparison still holds because both configs place their one action at
+// document position 1 in every table it lands in (mirrored by
+// TestInsertLegacyActions_StampsKeymapBindingOrder below, which pins the
+// legacy side of that stamp directly), so the resulting Order values match
+// even though they now flow through the comparison. Entries always returns
+// a freshly sorted slice.
 //
 // Both configs set an explicit scope on every action: unlike cfg.Actions
 // (which validateActions mutates in place to infer a scope when omitted),
@@ -556,5 +562,136 @@ repo: owner/repo
 
 	if len(cfg.Deprecations) != 0 {
 		t.Errorf("Deprecations = %v, want empty for a config with no actions: or keymaps: blocks at all", cfg.Deprecations)
+	}
+}
+
+// --- A4: insertLegacyActions must stamp the top-level KeymapBinding.Order too ---
+
+// TestInsertLegacyActions_StampsKeymapBindingOrder pins the config-layer
+// half of A4: insertLegacyActions must stamp the top-level
+// KeymapBinding.Order (not just the nested Action.Order, which
+// stampActionOrder already sets on cfg.Actions before translation runs),
+// so Tables()'s now-reversed Order propagation (keymaps_convert_test.go)
+// has something non-zero to carry through for legacy-derived bindings.
+func TestInsertLegacyActions_StampsKeymapBindingOrder(t *testing.T) {
+	localYAML := `actions:
+  Z:
+    name: Zebra
+    type: shell
+    command: "echo z"
+  A:
+    name: Apple
+    type: shell
+    command: "echo a"
+`
+	cfg := mustLoadConfig(t, "", localYAML)
+
+	table := cfg.Keymaps.Modes[keymap.ModeNormal]
+	zOrder := table["Z"].Order
+	aOrder := table["A"].Order
+	if zOrder == 0 || aOrder == 0 {
+		t.Fatalf("KeymapBinding.Order for legacy-derived entries = Z:%d A:%d, want both non-zero (insertLegacyActions must stamp the top-level KeymapBinding.Order)", zOrder, aOrder)
+	}
+	if zOrder >= aOrder {
+		t.Errorf("KeymapBinding.Order: Z=%d, A=%d, want Z < A (legacy document position order)", zOrder, aOrder)
+	}
+}
+
+// TestInsertLegacyActions_ColumnBindingOrderAlsoStamped is the per-column
+// analog: a legacy columns[].actions entry's derived KeymapBinding.Order
+// must also be non-zero.
+func TestInsertLegacyActions_ColumnBindingOrderAlsoStamped(t *testing.T) {
+	localYAML := `columns:
+  - name: Implementing
+    actions:
+      Z:
+        name: Zebra
+        type: shell
+        command: "echo z"
+      A:
+        name: Apple
+        type: shell
+        command: "echo a"
+`
+	cfg := mustLoadConfig(t, "", localYAML)
+
+	table := cfg.Keymaps.Columns["Implementing"]
+	zOrder := table["Z"].Order
+	aOrder := table["A"].Order
+	if zOrder == 0 || aOrder == 0 {
+		t.Fatalf("Keymaps.Columns[\"Implementing\"] Order for Z:%d A:%d, want both non-zero", zOrder, aOrder)
+	}
+	if zOrder >= aOrder {
+		t.Errorf("Keymaps.Columns[\"Implementing\"] Order: Z=%d, A=%d, want Z < A (legacy document position order)", zOrder, aOrder)
+	}
+}
+
+// --- KeymapFromLegacy: NewBoard's derivation path (#489 step 2) ---
+
+// TestKeymapFromLegacy_EquivalentToResolveKeymapOfSameConfig is the
+// Implementation Order's step 2 equivalence check: KeymapFromLegacy(actions,
+// columns) -- the helper NewBoard uses to derive a keymap directly from the
+// legacy actions/columnConfigs params it already receives -- must resolve
+// identically to running the very same legacy blocks through the full
+// Config pipeline (translateLegacyActions + ResolveKeymap), the path
+// main.go uses once config.Load() has run. A drift here would mean
+// NewBoard's test call sites (constructed directly with actions/columnConfigs,
+// not through config.Load()) silently dispatch differently than the real
+// app.
+func TestKeymapFromLegacy_EquivalentToResolveKeymapOfSameConfig(t *testing.T) {
+	actions := map[string]Action{
+		"P": {Name: "Push", Type: "shell", Command: "git push", Scope: "board"},
+	}
+	columns := []ColumnConfig{
+		{Name: "Implementing", Actions: map[string]Action{
+			"Q": {Name: "Quick", Type: "shell", Command: "echo quick", Scope: "board"},
+		}},
+	}
+
+	km, err := KeymapFromLegacy(actions, columns)
+	if err != nil {
+		t.Fatalf("KeymapFromLegacy() returned unexpected error: %v", err)
+	}
+
+	cfg := &Config{Actions: actions, Columns: columns}
+	translateLegacyActions(cfg)
+	wantKM, err := ResolveKeymap(cfg)
+	if err != nil {
+		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
+	}
+
+	for _, tc := range []struct {
+		mode   keymap.Mode
+		column string
+	}{
+		{keymap.ModeNormal, ""},
+		{keymap.ModeDetail, ""},
+		{keymap.ModeNormal, "Implementing"},
+	} {
+		got := km.Entries(tc.mode, tc.column)
+		want := wantKM.Entries(tc.mode, tc.column)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("Entries(%q, %q) = %+v, want %+v (KeymapFromLegacy must equal ResolveKeymap of the equivalent Config)", tc.mode, tc.column, got, want)
+		}
+	}
+}
+
+// TestKeymapFromLegacy_NilArgsIsInfallible pins the invariant NewBoard's
+// error-recovery fallback (model.go) relies on but never checks: when the
+// primary KeymapFromLegacy(actions, columnConfigs) call errors (a "can't
+// happen" state for production, config.Load()-validated input), NewBoard
+// falls back to KeymapFromLegacy(nil, nil) and discards its error under the
+// assumption empty legacy input against keymap.Defaults() can never fail.
+// This test doesn't change that production code path -- it just fails here,
+// loudly, instead of NewBoard silently panicking at runtime, the day a
+// future change to keymap.Defaults() (or ResolveKeymap's validation) breaks
+// the assumption.
+func TestKeymapFromLegacy_NilArgsIsInfallible(t *testing.T) {
+	km, err := KeymapFromLegacy(nil, nil)
+	if err != nil {
+		t.Fatalf("KeymapFromLegacy(nil, nil) returned unexpected error: %v", err)
+	}
+	if km == nil {
+		t.Fatal("KeymapFromLegacy(nil, nil) returned a nil *keymap.Keymap, want non-nil")
 	}
 }

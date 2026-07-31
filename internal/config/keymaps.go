@@ -360,9 +360,11 @@ func mergeKeymaps(local, global *Keymaps) *Keymaps {
 
 // Tables converts Keymaps into the keymap.Tables shape keymap.Resolve
 // consumes: a straight field copy of each binding's Kind/Command/Action.
-// #492: Order is derived config-layer metadata (document position, used
-// for hint ordering) that keymap.Binding has no concept of yet -- Tables()
-// intentionally drops it rather than leaking it into the engine layer.
+// Per A4 (reversing #492's deferral), KeymapBinding.Order -- derived
+// config-layer metadata reflecting document position, used by #489's
+// runtime hint derivation to order inline-action hints -- now flows through
+// into the resolved keymap.Action.Order, so the engine layer can order
+// hints without a second, config-layer-only lookup.
 func (k *Keymaps) Tables() keymap.Tables {
 	if k == nil {
 		return keymap.Tables{}
@@ -397,6 +399,7 @@ func convertKeymapBinding(b KeymapBinding) keymap.Binding {
 			URL:     b.Action.URL,
 			Command: b.Action.Command,
 			Scope:   b.Action.Scope,
+			Order:   b.Order,
 		})
 	case keymap.BindingUnbound:
 		return keymap.UnboundBinding()

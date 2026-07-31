@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -1218,9 +1219,10 @@ func (b *Board) filterMoveClamp(down bool) {
 }
 
 // dispatchGitMenuKey closes the git menu and runs the built-in action bound to
-// key. It dispatches from b.defaultActions directly (not resolveAction): git
-// menu keys are menu-scoped, so normal-mode custom actions on the same letter
-// never shadow them (and vice versa).
+// key. It dispatches from b.defaultActions directly (not the normal-mode
+// registry dispatch in keymap_dispatch.go): git menu keys are menu-scoped,
+// so normal-mode custom actions on the same letter never shadow them (and
+// vice versa).
 func (b Board) dispatchGitMenuKey(key string) (tea.Model, tea.Cmd) {
 	b.mode = normalMode
 	b.statusBar.SetActionHints(b.normalHints)
@@ -1287,16 +1289,15 @@ func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Handle Escape via msg.Type first.
-	if msg.Type == tea.KeyEsc {
-		b.detailFocused = false
-		b.statusBar.SetActionHints(b.normalHints)
-		return b, nil
-	}
+	return b.dispatchKey(keymap.ModeDetail, msg)
+}
 
-	// Check for number key navigation (1-9).
-	if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
-		idx := int(msg.Runes[0] - '1')
+// runDetailCommand runs the built-in detail-panel command id resolves to.
+// Case bodies are transcribed verbatim from the pre-#489 switch msg.String()
+// (moved here unchanged, guard-for-guard, including the detailFocused=false
+// side effect every mode-leaving case must apply).
+func (b Board) runDetailCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	if idx, ok := navColumnIndex(id); ok {
 		if idx < len(b.Columns) {
 			b.detailFocused = false
 			b.Columns[idx].Cursor = 0
@@ -1305,53 +1306,51 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	switch msg.String() {
-	case "q":
+	switch id {
+	case keymap.CommandQuit:
 		return b, tea.Quit
-	case "e":
+	case keymap.CommandCardEdit:
 		if len(b.visibleCards()) == 0 {
 			return b, nil
 		}
 		return b, openEditorCmd(b.selectedCard())
-	case "r":
+	case keymap.CommandBoardRefresh:
 		if b.refreshing {
 			return b, nil
 		}
 		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
-	case "o":
+	case keymap.CommandCardOpenTicket:
 		return b.handleTicketOpenKey()
-	case "m":
+	case keymap.CommandNavReference:
 		return b.handleReferenceNavKey()
-	case "p":
+	case keymap.CommandCardOpenPR:
 		if len(b.visibleCards()) == 0 {
 			return b, nil
 		}
 		return b.handlePROpenKey(b.selectedCard())
-	case "?":
+	case keymap.CommandHelp:
 		b.helpFromDetailFocused = true
 		b.detailFocused = false
 		b.helpScrollOffset = 0
 		b.mode = helpMode
 		b.statusBar.SetActionHints(helpModeHints)
 		return b, nil
-	case "h", "left":
+	case keymap.CommandDetailBlur:
 		b.detailFocused = false
 		b.statusBar.SetActionHints(b.normalHints)
-	case "j", "down":
+	case keymap.CommandDetailScrollDown:
 		b.scrollDetailDown()
-	case "k", "up":
+	case keymap.CommandDetailScrollUp:
 		if b.detailScrollOffset > 0 {
 			b.detailScrollOffset--
 		}
-	case "tab":
+	case keymap.CommandNavColumnNext:
 		b.detailFocused = false
 		b.switchColumn((b.ActiveTab + 1) % len(b.Columns))
-	case "shift+tab":
+	case keymap.CommandNavColumnPrev:
 		b.detailFocused = false
 		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
-	default:
-		return b.handleCustomActionKey(msg)
 	}
 	return b, nil
 }
