@@ -351,7 +351,7 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 
 		b.assign = assignState{items: items, cursor: 0}
 		b.mode = assignMode
-		b.statusBar.SetActionHints(assignModeHints)
+		b.statusBar.SetActionHints(b.assignHints())
 		return b, nil
 	case keymap.CommandBoardFilter:
 		if b.activeFilterType != filterTypeNone {
@@ -374,7 +374,7 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 			}
 		}
 		b.mode = filterMode
-		b.statusBar.SetActionHints(filterModeHints)
+		b.statusBar.SetActionHints(b.filterHints())
 		return b, nil
 	case keymap.CommandHelp:
 		b.helpFromDetailFocused = false
@@ -464,68 +464,102 @@ func (b Board) handleCommentModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+	result := b.lookupModalBinding(keymap.ModeFilter, msg)
+	switch result.Outcome {
+	case keymap.OutcomePending:
+		// Q4: filter mode has no multi-key pending-sequence machinery; a key
+		// that is only a prefix of a bound sequence is a silent no-op.
 		return b, nil
-	case tea.KeyEnter:
-		if b.filterCursor < len(b.filterItems) && !b.filterItems[b.filterCursor].isHeader {
-			item := b.filterItems[b.filterCursor]
-			b.applyFilter(item.itemType, item.value)
+	case keymap.OutcomeMatch:
+		if result.Binding.Kind != keymap.BindingCommand {
+			// A user config can legally bind an inline action inside
+			// keymaps.filter (validation is not mode-scoped); this modal has
+			// no inline-action dispatch path, so treat anything that isn't a
+			// built-in command as a no-op instead of falling through to the
+			// zero-value Command case below.
+			return b, nil
 		}
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
-		return b, nil
-	}
-
-	switch msg.String() {
-	case "j", "down":
-		b.filterMoveDown()
-	case "k", "up":
-		b.filterMoveUp()
+		switch result.Binding.Command {
+		case keymap.CommandFilterClose:
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
+			return b, nil
+		case keymap.CommandFilterSelect:
+			if b.filterCursor < len(b.filterItems) && !b.filterItems[b.filterCursor].isHeader {
+				item := b.filterItems[b.filterCursor]
+				b.applyFilter(item.itemType, item.value)
+			}
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
+			return b, nil
+		case keymap.CommandFilterNext:
+			b.filterMoveDown()
+		case keymap.CommandFilterPrev:
+			b.filterMoveUp()
+		default:
+			// Q4: a command id from a different domain (e.g. a stray
+			// override binding board.refresh here) is not recognized inside
+			// filter mode and must not dispatch.
+		}
 	}
 	return b, nil
 }
 
 func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+	result := b.lookupModalBinding(keymap.ModeAssign, msg)
+	switch result.Outcome {
+	case keymap.OutcomePending:
+		// Q4: assign mode has no multi-key pending-sequence machinery; a key
+		// that is only a prefix of a bound sequence is a silent no-op.
 		return b, nil
-	case tea.KeyEnter:
-		if len(b.assign.items) == 0 || b.assign.cursor >= len(b.assign.items) {
+	case keymap.OutcomeMatch:
+		if result.Binding.Kind != keymap.BindingCommand {
+			// A user config can legally bind an inline action inside
+			// keymaps.assign (validation is not mode-scoped); this modal has
+			// no inline-action dispatch path, so treat anything that isn't a
+			// built-in command as a no-op instead of falling through to the
+			// zero-value Command case below.
 			return b, nil
 		}
-		item := b.assign.items[b.assign.cursor]
-		card := b.selectedCard()
+		switch result.Binding.Command {
+		case keymap.CommandAssignClose:
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
+			return b, nil
+		case keymap.CommandAssignToggle:
+			if len(b.assign.items) == 0 || b.assign.cursor >= len(b.assign.items) {
+				return b, nil
+			}
+			item := b.assign.items[b.assign.cursor]
+			card := b.selectedCard()
 
-		newLogins := []string{}
-		if item.isAssigned {
-			for _, a := range card.Assignees {
-				if !strings.EqualFold(a.Login, item.login) {
+			newLogins := []string{}
+			if item.isAssigned {
+				for _, a := range card.Assignees {
+					if !strings.EqualFold(a.Login, item.login) {
+						newLogins = append(newLogins, a.Login)
+					}
+				}
+			} else {
+				for _, a := range card.Assignees {
 					newLogins = append(newLogins, a.Login)
 				}
+				newLogins = append(newLogins, item.login)
 			}
-		} else {
-			for _, a := range card.Assignees {
-				newLogins = append(newLogins, a.Login)
-			}
-			newLogins = append(newLogins, item.login)
+
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
+			statusCmd := b.statusBar.SetTimedMessage("Updating assignees...", StatusInfo, longStatusMessageDuration)
+			return b, tea.Batch(statusCmd, setAssigneesCmd(b.provider, card.Number, newLogins))
+		case keymap.CommandAssignNext:
+			b.assign.cursor = moveCursor(b.assign.cursor, len(b.assign.items), true)
+		case keymap.CommandAssignPrev:
+			b.assign.cursor = moveCursor(b.assign.cursor, len(b.assign.items), false)
+		default:
+			// Q4: a command id from a different domain (e.g. a stray
+			// override binding board.refresh here) is not recognized inside
+			// assign mode and must not dispatch.
 		}
-
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
-		statusCmd := b.statusBar.SetTimedMessage("Updating assignees...", StatusInfo, longStatusMessageDuration)
-		return b, tea.Batch(statusCmd, setAssigneesCmd(b.provider, card.Number, newLogins))
-	}
-
-	switch msg.String() {
-	case "j", "down":
-		b.assign.cursor = moveCursor(b.assign.cursor, len(b.assign.items), true)
-	case "k", "up":
-		b.assign.cursor = moveCursor(b.assign.cursor, len(b.assign.items), false)
 	}
 	return b, nil
 }
@@ -746,36 +780,56 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	switch msg.Type {
-	case tea.KeyEscape:
-		b.mode = normalMode
-		b.pendingPRAction = nil
-		restoreHints()
+	result := b.lookupModalBinding(keymap.ModePRPicker, msg)
+	switch result.Outcome {
+	case keymap.OutcomePending:
+		// Q4: the PR picker has no multi-key pending-sequence machinery; a
+		// key that is only a prefix of a bound sequence is a silent no-op.
 		return b, nil
-	case tea.KeyLeft:
-		b.prPickerIndex = (b.prPickerIndex - 1 + prCount) % prCount
-		return b, nil
-	case tea.KeyRight:
-		b.prPickerIndex = (b.prPickerIndex + 1) % prCount
-		return b, nil
-	case tea.KeyEnter:
-		pr := card.LinkedPRs[b.prPickerIndex]
-		b.mode = normalMode
-		restoreHints()
-		// Dual-purpose: if a scope: pr custom action is pending, run it
-		// against the selected PR and clear the pending state. Otherwise fall
-		// back to the original open-URL behavior (built-in "p" key).
-		if b.pendingPRAction != nil {
-			pending := b.pendingPRAction
+	case keymap.OutcomeMatch:
+		if result.Binding.Kind != keymap.BindingCommand {
+			// A user config can legally bind an inline action inside
+			// keymaps.pr_picker (validation is not mode-scoped); this modal
+			// has no inline-action dispatch path, so treat anything that
+			// isn't a built-in command as a no-op instead of falling through
+			// to the zero-value Command case below.
+			return b, nil
+		}
+		switch result.Binding.Command {
+		case keymap.CommandPRPickerClose:
+			b.mode = normalMode
 			b.pendingPRAction = nil
-			return b.runPRAction(pending.action, card, pr, pending.comment)
-		}
-		if err := b.executor.OpenURL(pr.URL); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+			restoreHints()
+			return b, nil
+		case keymap.CommandPRPickerPrev:
+			b.prPickerIndex = (b.prPickerIndex - 1 + prCount) % prCount
+			return b, nil
+		case keymap.CommandPRPickerNext:
+			b.prPickerIndex = (b.prPickerIndex + 1) % prCount
+			return b, nil
+		case keymap.CommandPRPickerSelect:
+			pr := card.LinkedPRs[b.prPickerIndex]
+			b.mode = normalMode
+			restoreHints()
+			// Dual-purpose: if a scope: pr custom action is pending, run it
+			// against the selected PR and clear the pending state. Otherwise fall
+			// back to the original open-URL behavior (built-in "p" key).
+			if b.pendingPRAction != nil {
+				pending := b.pendingPRAction
+				b.pendingPRAction = nil
+				return b.runPRAction(pending.action, card, pr, pending.comment)
+			}
+			if err := b.executor.OpenURL(pr.URL); err != nil {
+				cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+				return b, cmd
+			}
+			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), StatusSuccess, statusMessageDuration)
 			return b, cmd
+		default:
+			// Q4: a command id from a different domain (e.g. a stray
+			// override binding board.refresh here) is not recognized inside
+			// the PR picker and must not dispatch.
 		}
-		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), StatusSuccess, statusMessageDuration)
-		return b, cmd
 	}
 	return b, nil
 }

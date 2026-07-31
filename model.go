@@ -157,13 +157,6 @@ var searchModeHints = []Hint{
 	{Key: "↑/↓", Desc: "Navigate"},
 }
 
-// prPickerHints are the status bar hints shown when the PR picker modal is open.
-var prPickerHints = []Hint{
-	{Key: "\u25c0/\u25b6", Desc: "Cycle"},
-	{Key: "enter", Desc: "Select"},
-	{Key: "esc", Desc: "Cancel"},
-}
-
 // commentModeHints are the status bar hints shown when the comment input is active.
 var commentModeHints = []Hint{
 	{Key: "esc", Desc: "Cancel"},
@@ -182,13 +175,6 @@ var deleteCommentHints = []Hint{
 var deleteConfirmHints = []Hint{
 	{Key: "esc", Desc: "Cancel"},
 	{Key: "enter", Desc: "Confirm"},
-}
-
-// filterModeHints are the status bar hints shown in filter mode.
-var filterModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Select"},
 }
 
 // helpModeHints are the status bar hints shown in help mode.
@@ -588,13 +574,6 @@ type assigneesUpdatedMsg struct {
 // assigneesUpdateErrorMsg is sent when updating assignees fails.
 type assigneesUpdateErrorMsg struct {
 	err error
-}
-
-// assignModeHints are the status bar hints shown in assign mode.
-var assignModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Toggle"},
 }
 
 // gitPanelItem represents a single entry in the git panel picker list.

@@ -1219,7 +1219,7 @@ func (b Board) viewPRPickerModal() string {
 	prText := selectedRowStyle(fmt.Sprintf("#%d %s", pr.Number, sanitizeSingleLine(pr.Title)), true)
 	prDisplay := prPrefix + "\u25c0 " + prText + " \u25b6"
 
-	pickerHints := NewStatusBar(prPickerHints)
+	pickerHints := NewStatusBar(b.prPickerHints())
 	modalContent := "Select PR\n\n" +
 		prDisplay + "\n\n" +
 		pickerHints.View(modalWidth, 0, 0)
@@ -1581,7 +1581,7 @@ func (b Board) viewFilterModal() string {
 	}
 
 	lines = append(lines, "")
-	filterHints := NewStatusBar(filterModeHints)
+	filterHints := NewStatusBar(b.filterHints())
 	lines = append(lines, filterHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
@@ -1606,7 +1606,7 @@ func (b Board) viewAssignModal() string {
 	}
 
 	lines = append(lines, "")
-	assignHints := NewStatusBar(assignModeHints)
+	assignHints := NewStatusBar(b.assignHints())
 	lines = append(lines, assignHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
