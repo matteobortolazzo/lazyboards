@@ -206,7 +206,7 @@ func (b Board) handlePRActionKeyWithComment(act config.Action, card Card, commen
 		b.pendingPRAction = &pendingPRAction{action: act, comment: comment}
 		b.prPickerIndex = 0
 		b.mode = prPickerMode
-		b.statusBar.SetActionHints(prPickerHints)
+		b.statusBar.SetActionHints(b.prPickerHints())
 		return b, nil
 	}
 }

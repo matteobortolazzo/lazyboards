@@ -1259,7 +1259,7 @@ func (b Board) handlePROpenKey(card Card) (tea.Model, tea.Cmd) {
 	default:
 		b.prPickerIndex = 0
 		b.mode = prPickerMode
-		b.statusBar.SetActionHints(prPickerHints)
+		b.statusBar.SetActionHints(b.prPickerHints())
 		return b, nil
 	}
 }
