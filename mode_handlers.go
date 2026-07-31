@@ -380,7 +380,7 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		b.helpFromDetailFocused = false
 		b.helpScrollOffset = 0
 		b.mode = helpMode
-		b.statusBar.SetActionHints(helpModeHints)
+		b.statusBar.SetActionHints(b.helpHints())
 		return b, nil
 	case keymap.CommandViewGitPanel:
 		b.enterGitPanel()
@@ -588,81 +588,11 @@ func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleDispatchModeKey handles key presses while the agent dispatch modal
-// is open. Enter toggles enrollment for the current repo; "o" runs a
-// fleet-wide dispatch pass. The modal is rendered by viewDispatchModal (#284).
+// is open, dispatching through the ModeDispatch registry table
+// (keymap_panels.go's handleDispatchModalKey, #511 PR 2/2). The modal is
+// rendered by viewDispatchModal (#284).
 func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// A pending loop-toggle confirmation scopes every key to y/n/esc. Esc
-	// cancels the CONFIRM only -- it must not also close the whole modal.
-	if b.dispatch.confirmingLoop {
-		if msg.Type == tea.KeyEscape {
-			b.dispatch.confirmingLoop = false
-			return b, nil
-		}
-		switch msg.String() {
-		case "n":
-			b.dispatch.confirmingLoop = false
-			return b, nil
-		case "y":
-			b.dispatch.confirmingLoop = false
-			if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
-				// A busy/error state can arrive between opening the confirm and
-				// confirming (e.g. a background status poll set err); don't fire
-				// the toggle on top of it. Mirrors the 'l' entry guard.
-				return b, nil
-			}
-			loop, _ := b.dispatchLoopSource()
-			if loop == nil {
-				// Defensive: the live state went unknown between opening the
-				// confirm and confirming; there is no direction to toggle.
-				return b, nil
-			}
-			b.dispatch.loading = true
-			return b, toggleLoopCmd(b.executor, loop.Enabled)
-		}
-		return b, nil
-	}
-
-	switch msg.Type {
-	case tea.KeyEscape:
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
-		return b, nil
-	case tea.KeyEnter:
-		if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
-			return b, nil
-		}
-		if b.dispatch.repo == "" {
-			return b, nil
-		}
-		b.dispatch.loading = true
-		return b, toggleEnrollCmd(b.executor, b.dispatch.enrolled)
-	}
-
-	switch msg.String() {
-	case "o":
-		if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
-			return b, nil
-		}
-		if !b.dispatch.enrolled {
-			return b, nil
-		}
-		b.dispatch.running = true
-		return b, dispatchOnceCmd(b.executor)
-	case "l":
-		if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
-			return b, nil
-		}
-		// The loop is fleet-wide and not tied to this repo's enrollment, but a
-		// toggle needs a known current state to pick a direction. An old cenci
-		// binary (nil loop) can't report that, so there is nothing to toggle.
-		if loop, _ := b.dispatchLoopSource(); loop == nil {
-			return b, nil
-		}
-		b.dispatch.confirmingLoop = true
-		return b, nil
-	}
-
-	return b, nil
+	return b.handleDispatchModalKey(msg)
 }
 
 func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -993,32 +923,16 @@ func (b Board) handleAgentListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+// handleHelpModeKey handles key presses while the help modal is open,
+// dispatching through the ModeHelp registry table (keymap_panels.go's
+// panelBinding/runHelpCommand, #511 PR 2/2), mirroring handleGitPanelKey's
+// shape.
 func (b Board) handleHelpModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "q":
-		return b, tea.Quit
-	case "?":
-		b.closeHelp()
-		return b, nil
-	case "j", "down":
-		maxOffset := b.helpMaxScrollOffset()
-		if b.helpScrollOffset < maxOffset {
-			b.helpScrollOffset++
-		}
-		return b, nil
-	case "k", "up":
-		if b.helpScrollOffset > 0 {
-			b.helpScrollOffset--
-		}
+	binding, ok := b.panelBinding(keymap.ModeHelp, msg)
+	if !ok || binding.Kind != keymap.BindingCommand {
 		return b, nil
 	}
-
-	if msg.Type == tea.KeyEsc {
-		b.closeHelp()
-		return b, nil
-	}
-
-	return b, nil
+	return b.runHelpCommand(binding.Command)
 }
 
 func (b Board) handleLabelConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
