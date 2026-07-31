@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
@@ -489,5 +491,1036 @@ func TestKeymapPanels_GitPanel_ActionNameWithControlBytesSanitizedInView(t *test
 	want := sanitizeSingleLine(rawName)
 	if !strings.Contains(view, want) {
 		t.Errorf("View() = %q, want sanitized action name %q present", view, want)
+	}
+}
+
+// --- Route the dispatch modal and help modal through the registry (#511, PR 2/2) ---
+//
+// This is the RED step: it targets an API surface that does not exist yet --
+// b.runDispatchCommand, b.handleDispatchModalKey, b.dispatchModalHints,
+// b.helpHints and b.runHelpCommand -- so this whole test file (and thus the
+// package) is expected to fail to compile until keymap_panels.go grows these
+// building blocks (a separate, later delegation). handleDispatchModeKey and
+// handleHelpModeKey (mode_handlers.go) stay untouched in this delegation, so
+// every test below drives the new building blocks directly rather than
+// through b.Update()/sendKey -- mirroring how PR 1/2's git panel tests call
+// b.runGitPanelCommand/b.dispatchGitMenuAction directly. Per
+// .claude/rules/testing.md's "Parity Tests During Refactoring" rule, default-
+// parity assertions compare against literal fixture data transcribed from
+// today's production code (dispatchModalHints*/helpModalHints* below,
+// mirroring gitPanelModeHints in git_keymap_defaults_test.go), never against
+// the legacy handleDispatchModeKey/handleHelpModeKey functions themselves.
+//
+// assertHintsEqual is the shared comparison helper for the literal-fixture
+// hint assertions below.
+func assertHintsEqual(t *testing.T, got, want []Hint) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("hints = %+v, want %+v (length mismatch)", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("hints[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+// --- Dispatch modal: panelBinding default-table resolution ---
+
+func TestKeymapPanels_Dispatch_PanelBinding_DefaultKeysResolveToExpectedCommands(t *testing.T) {
+	b := newDispatchTestBoard(t)
+
+	cases := []struct {
+		msg  tea.KeyMsg
+		want keymap.CommandID
+	}{
+		{arrowMsg(tea.KeyEsc), keymap.CommandDispatchClose},
+		{arrowMsg(tea.KeyEnter), keymap.CommandDispatchToggleEnroll},
+		{keyMsg("o"), keymap.CommandDispatchOnce},
+		{keyMsg("l"), keymap.CommandDispatchToggleLoop},
+		{keyMsg("y"), keymap.CommandDispatchConfirmLoop},
+		{keyMsg("n"), keymap.CommandDispatchCancelLoop},
+	}
+	for _, tc := range cases {
+		binding, ok := b.panelBinding(keymap.ModeDispatch, tc.msg)
+		if !ok {
+			t.Errorf("panelBinding(ModeDispatch, %q) = not found, want command %v", tc.msg.String(), tc.want)
+			continue
+		}
+		if binding.Kind != keymap.BindingCommand || binding.Command != tc.want {
+			t.Errorf("panelBinding(ModeDispatch, %q) = %+v, want command %v", tc.msg.String(), binding, tc.want)
+		}
+	}
+}
+
+// --- Dispatch modal: runDispatchCommand normal-state branch ---
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_Close(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchClose)
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("runDispatchCommand returned %T, want Board", m)
+	}
+	if b2.mode != normalMode {
+		t.Errorf("mode after CommandDispatchClose = %v, want normalMode", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("CommandDispatchClose should not fire a Cmd")
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ToggleEnroll_NoopWhenRepoEmpty(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{}
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchToggleEnroll)
+	b2 := m.(Board)
+	if b2.dispatch.loading {
+		t.Error("expected dispatch.loading to remain false when dispatch.repo is empty")
+	}
+	if cmd != nil {
+		t.Error("expected a nil Cmd when dispatch.repo is empty")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("expected no RunShellOutput calls, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ToggleEnroll_FiresWhenIdleAndRepoSet(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: false}
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchToggleEnroll)
+	b2 := m.(Board)
+	if !b2.dispatch.loading {
+		t.Error("expected dispatch.loading=true after firing the enroll toggle")
+	}
+	if cmd == nil {
+		t.Fatal("expected a non-nil Cmd")
+	}
+	execCmds(cmd)
+	if len(fe.RunShellOutputCalls) == 0 || !strings.Contains(fe.RunShellOutputCalls[0], "dispatch enroll --dir") {
+		t.Errorf("RunShellOutputCalls = %v, want an enroll call", fe.RunShellOutputCalls)
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ToggleEnroll_NoopWhileBusy(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state dispatchState
+	}{
+		{"loading", dispatchState{repo: "owner/repo", loading: true}},
+		{"running", dispatchState{repo: "owner/repo", running: true}},
+		{"error", dispatchState{repo: "owner/repo", err: "boom"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fe := &action.FakeExecutor{}
+			b := newDispatchTestBoardWithExecutor(t, fe)
+			b.mode = dispatchMode
+			b.dispatch = tc.state
+
+			_, cmd := b.runDispatchCommand(keymap.CommandDispatchToggleEnroll)
+			if cmd != nil {
+				t.Errorf("ToggleEnroll while %s should be a no-op", tc.name)
+			}
+			if len(fe.RunShellOutputCalls) != 0 {
+				t.Errorf("ToggleEnroll while %s must not run any command, got %v", tc.name, fe.RunShellOutputCalls)
+			}
+		})
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_Once_NoopWhenNotEnrolled(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: false}
+
+	_, cmd := b.runDispatchCommand(keymap.CommandDispatchOnce)
+	if cmd != nil {
+		t.Error("expected Once to be a no-op when not enrolled")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("expected no RunShellOutput calls, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_Once_FiresWhenEnrolledAndIdle(t *testing.T) {
+	fe := &action.FakeExecutor{RunShellOutputStdout: "owner/repo#1 dispatch session-a"}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true}
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchOnce)
+	b2 := m.(Board)
+	if !b2.dispatch.running {
+		t.Error("expected dispatch.running=true")
+	}
+	if cmd == nil {
+		t.Fatal("expected a non-nil Cmd")
+	}
+	execCmds(cmd)
+	if len(fe.RunShellOutputCalls) == 0 || strings.Contains(fe.RunShellOutputCalls[0], "--dir") {
+		t.Errorf("dispatch-once must be fleet-wide (no --dir filter), got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ToggleLoop_EntersConfirmWhenLoopKnown(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: false}}
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchToggleLoop)
+	b2 := m.(Board)
+	if !b2.dispatch.confirmingLoop {
+		t.Error("expected dispatch.confirmingLoop=true")
+	}
+	if cmd != nil {
+		t.Error("ToggleLoop should only open the confirm prompt, not fire a Cmd")
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ToggleLoop_NoopWhenLoopUnknown(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: nil}
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchToggleLoop)
+	b2 := m.(Board)
+	if b2.dispatch.confirmingLoop {
+		t.Error("ToggleLoop with unknown loop state must NOT open the confirm prompt")
+	}
+	if cmd != nil {
+		t.Error("ToggleLoop with unknown loop state should be a no-op")
+	}
+}
+
+// TestKeymapPanels_Dispatch_ToggleLoop_NoopWhenRepoEmpty is the fleet-wide
+// mutation's repo=="" guard (docs/cenciwatch-integration.md's blast-radius
+// rule, mirroring CommandDispatchToggleEnroll's existing repo=="" guard):
+// viewDispatchModal never renders the loop-toggle affordance or the
+// blast-radius confirm text in a repo-less state, so 'l' then 'y' must not
+// silently start/commit the fleet-wide loop toggle with no visible warning
+// on screen. Exercised through handleDispatchModalKey (not runDispatchCommand
+// directly) so the full key-press flow -- including the confirmingLoop
+// commit step -- is covered end to end.
+func TestKeymapPanels_Dispatch_ToggleLoop_NoopWhenRepoEmpty(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "", loop: &cenciwatch.DispatchState{Enabled: false}}
+
+	m, cmd := b.handleDispatchModalKey(keyMsg("l"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("handleDispatchModalKey returned %T, want Board", m)
+	}
+	if b2.dispatch.confirmingLoop {
+		t.Error("'l' with repo==\"\" must not open the confirm prompt")
+	}
+	if cmd != nil {
+		t.Error("'l' with repo==\"\" should be a no-op")
+	}
+
+	m, cmd = b2.handleDispatchModalKey(keyMsg("y"))
+	b3, ok := m.(Board)
+	if !ok {
+		t.Fatalf("handleDispatchModalKey returned %T, want Board", m)
+	}
+	if b3.dispatch.confirmingLoop {
+		t.Error("'y' after a no-op 'l' with repo==\"\" must not leave confirmingLoop set")
+	}
+	if cmd != nil {
+		t.Error("'y' after a no-op 'l' with repo==\"\" should be a no-op")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("'l' then 'y' with repo==\"\" must not run any command, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+// TestKeymapPanels_Dispatch_RunDispatchCommand_ConfirmLoop_NoopWhenRepoEmpty
+// is runDispatchCommand's defense-in-depth guard directly: even if
+// confirmingLoop were somehow set without a repo, CommandDispatchConfirmLoop
+// must still refuse to fire the fleet-wide toggle.
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ConfirmLoop_NoopWhenRepoEmpty(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "", loop: &cenciwatch.DispatchState{Enabled: false}, confirmingLoop: true}
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchConfirmLoop)
+	b2 := m.(Board)
+	if b2.dispatch.confirmingLoop {
+		t.Error("ConfirmLoop with repo==\"\" should still clear confirmingLoop (it consumes the confirm step)")
+	}
+	if cmd != nil {
+		t.Error("ConfirmLoop with repo==\"\" must not fire the loop-toggle Cmd")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("ConfirmLoop with repo==\"\" must not run any command, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ToggleLoop_NoopWhileBusy(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state dispatchState
+	}{
+		{"loading", dispatchState{repo: "owner/repo", loading: true, loop: &cenciwatch.DispatchState{}}},
+		{"running", dispatchState{repo: "owner/repo", running: true, loop: &cenciwatch.DispatchState{}}},
+		{"error", dispatchState{repo: "owner/repo", err: "boom", loop: &cenciwatch.DispatchState{}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newDispatchTestBoard(t)
+			b.mode = dispatchMode
+			b.dispatch = tc.state
+
+			m, cmd := b.runDispatchCommand(keymap.CommandDispatchToggleLoop)
+			b2 := m.(Board)
+			if b2.dispatch.confirmingLoop {
+				t.Errorf("ToggleLoop while %s must not open the confirm prompt", tc.name)
+			}
+			if cmd != nil {
+				t.Errorf("ToggleLoop while %s should be a no-op", tc.name)
+			}
+		})
+	}
+}
+
+// --- Dispatch modal: runDispatchCommand confirmingLoop branch ---
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ConfirmLoop_NoopOutsideConfirm(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: false}
+
+	_, cmd := b.runDispatchCommand(keymap.CommandDispatchConfirmLoop)
+	if cmd != nil {
+		t.Error("CommandDispatchConfirmLoop outside confirmingLoop must be a no-op")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("expected no RunShellOutput calls, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ConfirmLoop_TogglesOffWhenEnabled(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true}
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchConfirmLoop)
+	b2 := m.(Board)
+	if b2.dispatch.confirmingLoop {
+		t.Error("confirming should clear dispatch.confirmingLoop")
+	}
+	if !b2.dispatch.loading {
+		t.Error("expected dispatch.loading=true after confirming a loop toggle")
+	}
+	if cmd == nil {
+		t.Fatal("expected a non-nil Cmd")
+	}
+	execCmds(cmd)
+	if len(fe.RunShellOutputCalls) == 0 || !strings.Contains(fe.RunShellOutputCalls[0], "dispatch loop off") {
+		t.Errorf("loop enabled -> confirm should turn it OFF, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ConfirmLoop_TogglesOnWhenDisabled(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: false}, confirmingLoop: true}
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchConfirmLoop)
+	b2 := m.(Board)
+	if !b2.dispatch.loading {
+		t.Error("expected dispatch.loading=true after confirming a loop toggle")
+	}
+	if cmd == nil {
+		t.Fatal("expected a non-nil Cmd")
+	}
+	execCmds(cmd)
+	if len(fe.RunShellOutputCalls) == 0 || !strings.Contains(fe.RunShellOutputCalls[0], "dispatch loop on") {
+		t.Errorf("loop disabled -> confirm should turn it ON, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+// TestKeymapPanels_Dispatch_RunDispatchCommand_ConfirmLoop_NoopWhileBusy is the
+// explicit risk-coverage test for docs/view-state-consistency.md's commit-step
+// re-check rule: a busy/error state can arrive between opening the confirm
+// (gated on !busy) and confirming, so ConfirmLoop must repeat that same guard
+// -- not just the loop==nil defense -- before firing toggleLoopCmd.
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ConfirmLoop_NoopWhileBusy(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state dispatchState
+	}{
+		{"loading", dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true, loading: true}},
+		{"running", dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true, running: true}},
+		{"error", dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true, err: "boom"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fe := &action.FakeExecutor{}
+			b := newDispatchTestBoardWithExecutor(t, fe)
+			b.mode = dispatchMode
+			b.dispatch = tc.state
+
+			m, cmd := b.runDispatchCommand(keymap.CommandDispatchConfirmLoop)
+			b2 := m.(Board)
+			if b2.dispatch.confirmingLoop {
+				t.Errorf("confirming while %s should still dismiss the confirm", tc.name)
+			}
+			if cmd != nil {
+				t.Errorf("confirming while %s must not fire the toggle Cmd", tc.name)
+			}
+			if len(fe.RunShellOutputCalls) != 0 {
+				t.Errorf("confirming while %s must not run any command, got %v", tc.name, fe.RunShellOutputCalls)
+			}
+		})
+	}
+}
+
+// TestKeymapPanels_Dispatch_RunDispatchCommand_ConfirmLoop_NoopWhenLoopNil is
+// the explicit risk-coverage test for the loop==nil defense staying intact:
+// the live state can go unknown between opening the confirm and confirming.
+func TestKeymapPanels_Dispatch_RunDispatchCommand_ConfirmLoop_NoopWhenLoopNil(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: nil, confirmingLoop: true}
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchConfirmLoop)
+	b2 := m.(Board)
+	if b2.dispatch.confirmingLoop {
+		t.Error("confirming should still dismiss the confirm even when loop is nil")
+	}
+	if cmd != nil {
+		t.Error("confirming with a nil loop must not fire a Cmd")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("expected no RunShellOutput calls, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_CancelLoop_ClearsConfirmNoCmd(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true}
+
+	m, cmd := b.runDispatchCommand(keymap.CommandDispatchCancelLoop)
+	b2 := m.(Board)
+	if b2.dispatch.confirmingLoop {
+		t.Error("CancelLoop should clear dispatch.confirmingLoop")
+	}
+	if b2.mode != dispatchMode {
+		t.Errorf("CancelLoop should keep the dispatch modal open, got mode %v", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("cancelling should not fire a Cmd")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("cancelling must not run any command, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestKeymapPanels_Dispatch_RunDispatchCommand_CancelLoop_NoopOutsideConfirm(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, confirmingLoop: false}
+
+	_, cmd := b.runDispatchCommand(keymap.CommandDispatchCancelLoop)
+	if cmd != nil {
+		t.Error("CommandDispatchCancelLoop outside confirmingLoop must be a no-op")
+	}
+}
+
+// --- Dispatch modal: the esc-during-confirm regression risk (docs/view-state-consistency.md) ---
+//
+// handleDispatchModalKey is the yet-to-be-built key router structurally
+// parallel to handleGitPanelKey (PR 1/2): it special-cases Esc while
+// confirmingLoop (cancel the confirm ONLY, never fall through to the table's
+// esc->CommandDispatchClose binding) before consulting panelBinding, then
+// dispatches a resolved BindingCommand through runDispatchCommand.
+
+func TestKeymapPanels_Dispatch_EscDuringConfirm_CancelsConfirmOnly_KeepsModalOpen(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true}
+
+	m, cmd := b.handleDispatchModalKey(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("handleDispatchModalKey returned %T, want Board", m)
+	}
+	if b2.dispatch.confirmingLoop {
+		t.Error("Esc during confirmingLoop should clear confirmingLoop")
+	}
+	if b2.mode != dispatchMode {
+		t.Errorf("Esc during confirm must keep the dispatch modal open (cancel the confirm ONLY), got mode %v", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("cancelling the confirm with Esc should not fire a Cmd")
+	}
+	if len(fe.RunShellOutputCalls) != 0 {
+		t.Errorf("Esc during confirm must not run any command, got %v", fe.RunShellOutputCalls)
+	}
+}
+
+func TestKeymapPanels_Dispatch_EscOutsideConfirm_ClosesModal(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true}
+
+	m, cmd := b.handleDispatchModalKey(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("handleDispatchModalKey returned %T, want Board", m)
+	}
+	if b2.mode != normalMode {
+		t.Errorf("Esc outside confirm should close the modal, got mode %v", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("closing should not fire a Cmd")
+	}
+}
+
+// --- Dispatch modal: remapped y/n still drive the confirm flow ---
+
+func TestKeymapPanels_Dispatch_RemappedConfirmCancelKeys_StillDriveConfirmFlow(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDispatch: {
+			"y": keymap.UnboundBinding(),
+			"n": keymap.UnboundBinding(),
+			"c": keymap.CommandBinding(keymap.CommandDispatchConfirmLoop),
+			"x": keymap.CommandBinding(keymap.CommandDispatchCancelLoop),
+		},
+	}, nil)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: false}, confirmingLoop: true}
+
+	// The old default 'y' must now no-op (explicitly unbound).
+	m, cmd := b.handleDispatchModalKey(keyMsg("y"))
+	b2 := m.(Board)
+	if !b2.dispatch.confirmingLoop {
+		t.Error("unbound 'y' must not affect confirmingLoop")
+	}
+	if cmd != nil {
+		t.Error("unbound 'y' must not fire a Cmd")
+	}
+
+	// The remapped 'c' key should confirm the toggle.
+	m, cmd = b2.handleDispatchModalKey(keyMsg("c"))
+	b3, ok := m.(Board)
+	if !ok {
+		t.Fatalf("handleDispatchModalKey returned %T, want Board", m)
+	}
+	if b3.dispatch.confirmingLoop {
+		t.Error("remapped 'c' should clear confirmingLoop")
+	}
+	if cmd == nil {
+		t.Fatal("remapped 'c' should fire the loop-toggle Cmd")
+	}
+	execCmds(cmd)
+	if len(fe.RunShellOutputCalls) == 0 || !strings.Contains(fe.RunShellOutputCalls[0], "dispatch loop on") {
+		t.Errorf("RunShellOutputCalls = %v, want a loop-on call", fe.RunShellOutputCalls)
+	}
+}
+
+// --- Dispatch modal: a keymaps.dispatch override wins over a normal-state built-in ---
+
+func TestKeymapPanels_Dispatch_OverrideWinsOverBuiltinNormalStateAction(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	b := newDispatchTestBoardWithExecutor(t, fe)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDispatch: {
+			"enter": keymap.UnboundBinding(),
+			"x":     keymap.CommandBinding(keymap.CommandDispatchToggleEnroll),
+		},
+	}, nil)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: false}
+
+	// The old default 'enter' must now no-op.
+	m, cmd := b.handleDispatchModalKey(arrowMsg(tea.KeyEnter))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("handleDispatchModalKey returned %T, want Board", m)
+	}
+	if b2.dispatch.loading {
+		t.Error("unbound 'enter' must not fire the enroll toggle")
+	}
+	if cmd != nil {
+		t.Error("unbound 'enter' must not fire a Cmd")
+	}
+
+	// The remapped 'x' key fires the enroll toggle instead.
+	m, cmd = b2.handleDispatchModalKey(keyMsg("x"))
+	b3, ok := m.(Board)
+	if !ok {
+		t.Fatalf("handleDispatchModalKey returned %T, want Board", m)
+	}
+	if !b3.dispatch.loading {
+		t.Error("remapped 'x' should fire the enroll toggle")
+	}
+	if cmd == nil {
+		t.Fatal("remapped 'x' should fire a Cmd")
+	}
+}
+
+// --- Dispatch modal: dispatchModalHints per-state matrix ---
+//
+// The literal fixtures below are transcribed verbatim from viewDispatchModal's
+// pre-#511 inline hint construction (view.go) -- the default-parity oracle,
+// mirroring gitPanelModeHints (git_keymap_defaults_test.go), never the legacy
+// handleDispatchModeKey/viewDispatchModal functions themselves.
+var dispatchModalHintsBusy = []Hint{{Key: "esc", Desc: "Close"}}
+var dispatchModalHintsConfirming = []Hint{{Key: "y", Desc: "Confirm"}, {Key: "n/esc", Desc: "Cancel"}}
+var dispatchModalHintsNotEnrolled = []Hint{{Key: "esc", Desc: "Close"}, {Key: "enter", Desc: "Enroll"}}
+var dispatchModalHintsEnrolled = []Hint{{Key: "esc", Desc: "Close"}, {Key: "enter", Desc: "Unenroll"}, {Key: "o", Desc: "Dispatch once"}}
+
+func TestKeymapPanels_Dispatch_DispatchModalHints_Loading(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.dispatch = dispatchState{loading: true}
+
+	assertHintsEqual(t, b.dispatchModalHints(), dispatchModalHintsBusy)
+}
+
+func TestKeymapPanels_Dispatch_DispatchModalHints_Running(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.dispatch = dispatchState{running: true, repo: "owner/repo"}
+
+	assertHintsEqual(t, b.dispatchModalHints(), dispatchModalHintsBusy)
+}
+
+func TestKeymapPanels_Dispatch_DispatchModalHints_Error(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.dispatch = dispatchState{err: "boom", repo: "owner/repo"}
+
+	assertHintsEqual(t, b.dispatchModalHints(), dispatchModalHintsBusy)
+}
+
+func TestKeymapPanels_Dispatch_DispatchModalHints_NoRepo(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.dispatch = dispatchState{}
+
+	assertHintsEqual(t, b.dispatchModalHints(), dispatchModalHintsBusy)
+}
+
+func TestKeymapPanels_Dispatch_DispatchModalHints_Confirming(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	loop := &cenciwatch.DispatchState{Enabled: false}
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: loop, confirmingLoop: true}
+
+	assertHintsEqual(t, b.dispatchModalHints(), dispatchModalHintsConfirming)
+}
+
+func TestKeymapPanels_Dispatch_DispatchModalHints_NotEnrolled(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: false}
+
+	assertHintsEqual(t, b.dispatchModalHints(), dispatchModalHintsNotEnrolled)
+}
+
+func TestKeymapPanels_Dispatch_DispatchModalHints_Enrolled(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true}
+
+	assertHintsEqual(t, b.dispatchModalHints(), dispatchModalHintsEnrolled)
+}
+
+// TestKeymapPanels_Dispatch_DispatchModalHints_UnboundOnceKeyOmitsHint mirrors
+// viewDispatchModal's existing "l:" loop-line omission (loop == nil hides the
+// affordance rather than rendering a dead key): when CommandDispatchOnce has
+// no bound key left, dispatchModalHints must omit the "Dispatch once" hint
+// entirely rather than render it with a blank Key -- a hint bar must never
+// advertise a key that silently no-ops.
+func TestKeymapPanels_Dispatch_DispatchModalHints_UnboundOnceKeyOmitsHint(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDispatch: {"o": keymap.UnboundBinding()},
+	}, nil)
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true}
+
+	got := b.dispatchModalHints()
+	for _, h := range got {
+		if h.Desc == "Dispatch once" {
+			t.Errorf("dispatchModalHints() = %+v, want the 'Dispatch once' hint omitted when its key is unbound", got)
+		}
+	}
+}
+
+// --- Dispatch modal: hint<->dispatch invariant (the ticket's named risk) ---
+
+func TestKeymapPanels_Dispatch_HintKeysAlwaysDispatch(t *testing.T) {
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{
+			name: "remapped and unbound table",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeDispatch: {
+					"enter": keymap.UnboundBinding(),
+					"u":     keymap.CommandBinding(keymap.CommandDispatchToggleEnroll),
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newDispatchTestBoard(t)
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+			b.mode = dispatchMode
+
+			for _, state := range []dispatchState{
+				{loading: true},
+				{repo: "owner/repo", enrolled: false},
+				{repo: "owner/repo", enrolled: true},
+				{repo: "owner/repo", enrolled: true, confirmingLoop: true, loop: &cenciwatch.DispatchState{Enabled: true}},
+			} {
+				b.dispatch = state
+				hints := b.dispatchModalHints()
+				if len(hints) == 0 {
+					t.Fatalf("state=%+v: dispatchModalHints() returned no hints", state)
+				}
+				for _, h := range hints {
+					for _, key := range strings.Split(h.Key, "/") {
+						if key == "" {
+							continue
+						}
+						result := b.keys.Lookup(keymap.ModeDispatch, "", keymap.Sequence{keymap.Key(key)})
+						if result.Outcome != keymap.OutcomeMatch {
+							t.Errorf("state=%+v hint %+v: Lookup(ModeDispatch, %q) outcome = %v, want OutcomeMatch", state, h, key, result.Outcome)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestKeymapPanels_Dispatch_ConfirmingLoop_CloseHintKey_CancelsConfirmOnly is the
+// real behavioral counterpart to the Lookup-resolution check above: the
+// "Cancel" hint dispatchModalHints renders while confirmingLoop composites
+// BOTH CommandDispatchCancelLoop and CommandDispatchClose into one key
+// (panelHintKey(entries, CommandDispatchCancelLoop, CommandDispatchClose)).
+// Under the default table that key is literal Escape (already covered by
+// TestKeymapPanels_Dispatch_EscDuringConfirm_CancelsConfirmOnly_KeepsModalOpen),
+// but under a table where a user's keymaps.dispatch config rebinds
+// dispatch.close off Escape onto another key, that OTHER key must still
+// cancel the confirm only -- not close the whole modal -- or the hint would
+// advertise an undispatchable key (the ticket's named regression risk).
+func TestKeymapPanels_Dispatch_ConfirmingLoop_CloseHintKey_CancelsConfirmOnly(t *testing.T) {
+	tests := []struct {
+		name    string
+		modes   map[keymap.Mode]keymap.Table
+		msg     tea.KeyMsg
+		hintKey string
+	}{
+		{name: "default table (literal esc)", modes: nil, msg: arrowMsg(tea.KeyEsc), hintKey: "esc"},
+		{
+			name: "remapped table (close rebound off esc onto 'x')",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeDispatch: {
+					"esc": keymap.UnboundBinding(),
+					"x":   keymap.CommandBinding(keymap.CommandDispatchClose),
+				},
+			},
+			msg:     keyMsg("x"),
+			hintKey: "x",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fe := &action.FakeExecutor{}
+			b := newDispatchTestBoardWithExecutor(t, fe)
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+			b.mode = dispatchMode
+			b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}, confirmingLoop: true}
+
+			// The hint bar must actually advertise this key as the way to cancel.
+			hints := b.dispatchModalHints()
+			found := false
+			for _, h := range hints {
+				if h.Desc != "Cancel" {
+					continue
+				}
+				for _, k := range strings.Split(h.Key, "/") {
+					if k == tc.hintKey {
+						found = true
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("dispatchModalHints() = %+v, want the Cancel hint to include key %q", hints, tc.hintKey)
+			}
+
+			m, cmd := b.handleDispatchModalKey(tc.msg)
+			b2, ok := m.(Board)
+			if !ok {
+				t.Fatalf("handleDispatchModalKey returned %T, want Board", m)
+			}
+			if b2.dispatch.confirmingLoop {
+				t.Errorf("key %q during confirmingLoop should clear confirmingLoop", tc.hintKey)
+			}
+			if b2.mode != dispatchMode {
+				t.Errorf("key %q during confirm must keep the dispatch modal open (cancel the confirm ONLY), got mode %v", tc.hintKey, b2.mode)
+			}
+			if cmd != nil {
+				t.Errorf("key %q cancelling the confirm should not fire a Cmd", tc.hintKey)
+			}
+			if len(fe.RunShellOutputCalls) != 0 {
+				t.Errorf("key %q during confirm must not run any command, got %v", tc.hintKey, fe.RunShellOutputCalls)
+			}
+		})
+	}
+}
+
+// --- Dispatch modal: the "l:" loop-toggle line derives its key from the registry ---
+
+func TestKeymapPanels_Dispatch_LoopLine_OmittedWhenToggleLoopUnbound(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDispatch: {"l": keymap.UnboundBinding()},
+	}, nil)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}}
+
+	view := b.View()
+
+	if strings.Contains(view, "Turn loop") {
+		t.Errorf("dispatch view with CommandDispatchToggleLoop unbound must NOT show the loop-toggle line, even though loop != nil, got:\n%s", view)
+	}
+}
+
+func TestKeymapPanels_Dispatch_LoopLine_KeyReflectsRemap(t *testing.T) {
+	b := newDispatchTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDispatch: {"l": keymap.UnboundBinding(), "t": keymap.CommandBinding(keymap.CommandDispatchToggleLoop)},
+	}, nil)
+	b.mode = dispatchMode
+	b.dispatch = dispatchState{repo: "owner/repo", enrolled: true, loop: &cenciwatch.DispatchState{Enabled: true}}
+
+	view := b.View()
+
+	if !strings.Contains(view, "t: Turn loop off") {
+		t.Errorf("dispatch view should render the remapped key 't' in the loop-toggle line, got:\n%s", view)
+	}
+	if strings.Contains(view, "l: Turn loop") {
+		t.Errorf("dispatch view should not still show the old default key 'l' in the loop-toggle line, got:\n%s", view)
+	}
+}
+
+// --- Help modal: panelBinding default-table resolution ---
+
+func TestKeymapPanels_Help_PanelBinding_DefaultKeysResolveToExpectedCommands(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	cases := []struct {
+		msg  tea.KeyMsg
+		want keymap.CommandID
+	}{
+		{arrowMsg(tea.KeyEsc), keymap.CommandHelpClose},
+		{keyMsg("?"), keymap.CommandHelpClose},
+		{keyMsg("j"), keymap.CommandHelpScrollDown},
+		{arrowMsg(tea.KeyDown), keymap.CommandHelpScrollDown},
+		{keyMsg("k"), keymap.CommandHelpScrollUp},
+		{arrowMsg(tea.KeyUp), keymap.CommandHelpScrollUp},
+		{keyMsg("q"), keymap.CommandQuit},
+	}
+	for _, tc := range cases {
+		binding, ok := b.panelBinding(keymap.ModeHelp, tc.msg)
+		if !ok {
+			t.Errorf("panelBinding(ModeHelp, %q) = not found, want command %v", tc.msg.String(), tc.want)
+			continue
+		}
+		if binding.Kind != keymap.BindingCommand || binding.Command != tc.want {
+			t.Errorf("panelBinding(ModeHelp, %q) = %+v, want command %v", tc.msg.String(), binding, tc.want)
+		}
+	}
+}
+
+// --- Help modal: runHelpCommand (mirrors runGitPanelCommand's verbatim-transcription pattern) ---
+
+func TestKeymapPanels_Help_RunHelpCommand_Quit(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.mode = helpMode
+
+	_, cmd := b.runHelpCommand(keymap.CommandQuit)
+	if cmd == nil {
+		t.Fatal("CommandQuit should return a non-nil Cmd (tea.Quit)")
+	}
+}
+
+func TestKeymapPanels_Help_RunHelpCommand_Close(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.mode = helpMode
+
+	m, cmd := b.runHelpCommand(keymap.CommandHelpClose)
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("runHelpCommand returned %T, want Board", m)
+	}
+	if b2.mode != normalMode {
+		t.Errorf("mode after CommandHelpClose = %v, want normalMode", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("CommandHelpClose should not fire a Cmd")
+	}
+}
+
+func TestKeymapPanels_Help_RunHelpCommand_ScrollDown_ClampsAtMaxOffset(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 20 // small height so help content exceeds the visible area
+	b.mode = helpMode
+	maxOffset := b.helpMaxScrollOffset()
+
+	for i := 0; i < maxOffset+50; i++ {
+		m, _ := b.runHelpCommand(keymap.CommandHelpScrollDown)
+		b = m.(Board)
+	}
+	if b.helpScrollOffset != maxOffset {
+		t.Errorf("helpScrollOffset = %d after excessive ScrollDown, want %d (clamped)", b.helpScrollOffset, maxOffset)
+	}
+
+	m, _ := b.runHelpCommand(keymap.CommandHelpScrollUp)
+	b2 := m.(Board)
+	if b2.helpScrollOffset != maxOffset-1 {
+		t.Errorf("helpScrollOffset = %d after a single ScrollUp from max, want %d", b2.helpScrollOffset, maxOffset-1)
+	}
+}
+
+func TestKeymapPanels_Help_RunHelpCommand_ScrollUp_ClampsAtZero(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.mode = helpMode
+
+	m, _ := b.runHelpCommand(keymap.CommandHelpScrollUp)
+	b2 := m.(Board)
+	if b2.helpScrollOffset != 0 {
+		t.Errorf("helpScrollOffset = %d after ScrollUp at offset 0, want 0", b2.helpScrollOffset)
+	}
+}
+
+// --- Help modal: remap works, old default key becomes a no-op ---
+
+func TestKeymapPanels_Help_RemappedCloseKeyWorks_OldDefaultKeyBecomesNoop(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeHelp: {
+			"esc": keymap.UnboundBinding(),
+			"?":   keymap.UnboundBinding(),
+			"x":   keymap.CommandBinding(keymap.CommandHelpClose),
+		},
+	}, nil)
+	b.mode = helpMode
+
+	if _, ok := b.panelBinding(keymap.ModeHelp, arrowMsg(tea.KeyEsc)); ok {
+		t.Error("panelBinding(ModeHelp, esc) resolved after an explicit unbind, want not found")
+	}
+
+	binding, ok := b.panelBinding(keymap.ModeHelp, keyMsg("x"))
+	if !ok || binding.Kind != keymap.BindingCommand || binding.Command != keymap.CommandHelpClose {
+		t.Fatalf("panelBinding(ModeHelp, x) = (%+v, %v), want CommandHelpClose", binding, ok)
+	}
+
+	m, cmd := b.runHelpCommand(binding.Command)
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("runHelpCommand returned %T, want Board", m)
+	}
+	if b2.mode != normalMode {
+		t.Errorf("mode after remapped close = %v, want normalMode", b2.mode)
+	}
+	if cmd != nil {
+		t.Error("close should not fire a Cmd")
+	}
+}
+
+// --- Help modal: helpHints() default parity ---
+//
+// The literal fixture below is transcribed from helpModeHints (model.go),
+// the pre-#511 hint bar -- except the Close hint drops "?" from "esc/?":
+// panelHintKey (keymap_panels.go, shared with the git panel and reused
+// as-is here) picks exactly one best display key per command id, and both
+// "esc" and "?" resolve to the SAME CommandHelpClose id, so only the named
+// key ("esc") is picked. Both keys still work (see the panelBinding test
+// above); only the status-bar LABEL text changes for the default table.
+var helpModalHintsDefault = []Hint{
+	{Key: "esc", Desc: "Close"},
+	{Key: "j/k", Desc: "Scroll"},
+}
+
+func TestKeymapPanels_Help_DefaultParity_Hints(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	assertHintsEqual(t, b.helpHints(), helpModalHintsDefault)
+}
+
+// --- Help modal: hint<->dispatch invariant ---
+
+func TestKeymapPanels_Help_HintKeysAlwaysDispatch(t *testing.T) {
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{
+			name: "remapped and unbound table",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeHelp: {
+					"esc":  keymap.UnboundBinding(),
+					"?":    keymap.CommandBinding(keymap.CommandHelpClose),
+					"down": keymap.UnboundBinding(),
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newLoadedTestBoard(t)
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+
+			hints := b.helpHints()
+			if len(hints) == 0 {
+				t.Fatal("helpHints() returned no hints")
+			}
+			for _, h := range hints {
+				for _, key := range strings.Split(h.Key, "/") {
+					if key == "" {
+						continue
+					}
+					result := b.keys.Lookup(keymap.ModeHelp, "", keymap.Sequence{keymap.Key(key)})
+					if result.Outcome != keymap.OutcomeMatch {
+						t.Errorf("hint %+v: Lookup(ModeHelp, %q) outcome = %v, want OutcomeMatch (every rendered hint key must actually dispatch)", h, key, result.Outcome)
+					}
+				}
+			}
+		})
 	}
 }
