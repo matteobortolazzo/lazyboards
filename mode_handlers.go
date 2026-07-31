@@ -564,34 +564,25 @@ func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+// handleGitPanelKey routes a git panel key through the ModeGitPanel registry
+// table (#511): a resolved command runs through runGitPanelCommand
+// (close/run-selected/next/prev, lazygit-style navigation and Enter-to-run),
+// a resolved inline action dispatches directly through dispatchGitMenuAction
+// (lazygit-style direct dispatch -- pressing a menu item's own key runs it
+// immediately without navigating to it first), and anything unresolved
+// (OutcomePending or OutcomeNoMatch -- panelBinding is single-key exact
+// match only) is a silent no-op.
 func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
-		return b, nil
-	case tea.KeyEnter:
-		if len(b.gitPanel.items) == 0 || b.gitPanel.cursor >= len(b.gitPanel.items) {
-			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
-			return b, nil
-		}
-		return b.dispatchGitMenuKey(b.gitPanel.items[b.gitPanel.cursor].key)
-	}
-
-	switch msg.String() {
-	case "j", "down":
-		b.gitPanel.cursor = moveCursor(b.gitPanel.cursor, len(b.gitPanel.items), true)
-		return b, nil
-	case "k", "up":
-		b.gitPanel.cursor = moveCursor(b.gitPanel.cursor, len(b.gitPanel.items), false)
+	binding, ok := b.panelBinding(keymap.ModeGitPanel, msg)
+	if !ok {
 		return b, nil
 	}
 
-	// Lazygit-style direct dispatch: pressing a menu item's key runs it
-	// immediately without navigating to it first.
-	if _, ok := b.defaultActions[msg.String()]; ok {
-		return b.dispatchGitMenuKey(msg.String())
+	switch binding.Kind {
+	case keymap.BindingCommand:
+		return b.runGitPanelCommand(binding.Command)
+	case keymap.BindingAction:
+		return b.dispatchGitMenuAction(binding.Action)
 	}
 	return b, nil
 }

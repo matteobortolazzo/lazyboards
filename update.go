@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -1218,19 +1219,21 @@ func (b *Board) filterMoveClamp(down bool) {
 	}
 }
 
-// dispatchGitMenuKey closes the git menu and runs the built-in action bound to
-// key. It dispatches from b.defaultActions directly (not the normal-mode
-// registry dispatch in keymap_dispatch.go): git menu keys are menu-scoped,
-// so normal-mode custom actions on the same letter never shadow them (and
-// vice versa).
-func (b Board) dispatchGitMenuKey(key string) (tea.Model, tea.Cmd) {
+// dispatchGitMenuAction closes the git menu and runs act: the keymap.Action
+// a ModeGitPanel registry lookup resolved (from
+// keymap_panels.go's handleGitPanelKey, for a direct-dispatch key press).
+func (b Board) dispatchGitMenuAction(act keymap.Action) (tea.Model, tea.Cmd) {
+	return b.closeGitMenuAndDispatch(configActionFromKeymap(act))
+}
+
+// closeGitMenuAndDispatch closes the git menu and runs act through the same
+// resolveAction/handleBoardActionKey path used by ordinary board-scope
+// hotkeys -- not through the normal-mode registry dispatch in
+// keymap_dispatch.go, since git menu keys are menu-scoped: normal-mode
+// custom actions on the same letter never shadow them (and vice versa).
+func (b Board) closeGitMenuAndDispatch(act config.Action) (tea.Model, tea.Cmd) {
 	b.mode = normalMode
 	b.statusBar.SetActionHints(b.normalHints)
-
-	act, ok := b.defaultActions[key]
-	if !ok {
-		return b, nil
-	}
 	return b.handleBoardActionKey(act)
 }
 

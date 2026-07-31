@@ -1546,14 +1546,14 @@ func (b Board) viewGitPanelModal() string {
 	lines = append(lines, "")
 
 	for i, item := range b.gitPanel.items {
-		display := "  " + item.key + "  " + item.name
+		display := "  " + item.key + "  " + sanitizeSingleLine(item.name)
 		display = selectedRowStyle(display, i == b.gitPanel.cursor)
 		lines = append(lines, display)
 	}
 
 	lines = append(lines, "")
-	gitPanelHints := NewStatusBar(gitPanelModeHints)
-	lines = append(lines, gitPanelHints.View(modalWidth, 0, 0))
+	gitPanelHintsBar := NewStatusBar(b.gitPanelHints())
+	lines = append(lines, gitPanelHintsBar.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
