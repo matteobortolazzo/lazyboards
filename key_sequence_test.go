@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
 // --- Custom-action key sequences (prefix keybindings) ---
@@ -36,9 +37,12 @@ func TestKeySequence_PendingHintsListCandidatesAndCancel(t *testing.T) {
 
 	b = sendKey(t, b, keyMsg("P"))
 
+	// Under the registry's canonical sequence format the which-key labels
+	// are space-separated ("P f"), not the bare rune-concatenated legacy
+	// form ("Pf") -- per A2.
 	wantHints := []Hint{
-		{Key: "Pb", Desc: "PR backend"},
-		{Key: "Pf", Desc: "PR frontend"},
+		{Key: "P b", Desc: "PR backend"},
+		{Key: "P f", Desc: "PR frontend"},
 		{Key: "esc", Desc: "cancel"},
 	}
 	hints := b.statusBar.hints
@@ -336,12 +340,33 @@ func TestKeySequence_ThreeKeySequenceDispatches(t *testing.T) {
 		t.Fatalf("pendingSeq = %q, want %q", b.pendingSeq, "P")
 	}
 	b = sendKey(t, b, keyMsg("f"))
-	if b.pendingSeq != "Pf" {
-		t.Fatalf("pendingSeq = %q, want %q", b.pendingSeq, "Pf")
+	if b.pendingSeq != "P f" {
+		t.Fatalf("pendingSeq = %q, want %q", b.pendingSeq, "P f")
 	}
 	b = sendKey(t, b, keyMsg("a"))
 
 	if len(fe.OpenURLCalls) != 1 {
 		t.Fatalf("expected 1 OpenURL call for three-key sequence, got %d", len(fe.OpenURLCalls))
+	}
+}
+
+// TestKeySequence_BuiltinCanExtendPrefix covers AC4: a built-in command can
+// complete a multi-key sequence exactly like a custom action
+// (TestKeySequence_ColumnActionCanExtendPrefix's built-in analog), reusing
+// the same pending-sequence + which-key hint flow.
+func TestKeySequence_BuiltinCanExtendPrefix(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeNormal: {"P n": keymap.CommandBinding(keymap.CommandBoardRefresh)},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("P"))
+	b = sendKey(t, b, keyMsg("n"))
+
+	if !b.refreshing {
+		t.Error("expected refreshing=true after completing a sequence bound to a built-in command")
+	}
+	if b.pendingSeq != "" {
+		t.Errorf("pendingSeq = %q after dispatch, want empty", b.pendingSeq)
 	}
 }

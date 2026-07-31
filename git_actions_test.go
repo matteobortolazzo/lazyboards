@@ -27,28 +27,27 @@ func gitDefaultsBoard(t *testing.T, userActions map[string]config.Action) (Board
 	return b, fe
 }
 
-// Git defaults are menu-scoped: resolveAction (the normal-mode custom action
-// path) must never surface them, keeping A-Z fully user-owned.
-func TestResolveAction_DoesNotFallBackToGitDefault(t *testing.T) {
-	b, _ := gitDefaultsBoard(t, nil)
-
-	if act, ok := b.resolveAction("P"); ok {
-		t.Fatalf("resolveAction(\"P\") = %+v, ok=true; git defaults must be git-menu-scoped, not normal-mode keys", act)
-	}
-}
-
-func TestResolveAction_UserActionOnGitDefaultKey_ResolvesUserAction(t *testing.T) {
+// Git defaults are menu-scoped: registry dispatch (the normal-mode custom
+// action path, #489) must never surface them, keeping keys fully user-owned.
+// TestGitDefaults_NormalModeUppercaseKey_DoesNotDispatch (below) already
+// covers the "no fallback" half through Update() end to end; this test
+// covers the complementary "a user action on the same key still dispatches"
+// half, migrated off the deleted resolveAction onto the registry dispatch
+// path per .claude/CLAUDE.md's dead-code rule.
+func TestGitDefaults_UserActionOnGitDefaultKey_Dispatches(t *testing.T) {
 	userActions := map[string]config.Action{
 		"P": {Name: "Custom P", Type: "shell", Command: "echo custom", Scope: "board"},
 	}
-	b, _ := gitDefaultsBoard(t, userActions)
+	b, fe := gitDefaultsBoard(t, userActions)
 
-	act, ok := b.resolveAction("P")
-	if !ok {
-		t.Fatal("resolveAction(\"P\") returned ok=false")
+	_, cmd := b.Update(keyMsg("P"))
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) != 1 {
+		t.Fatalf("expected 1 RunShell call for a user action bound to a git-default key, got %d", len(fe.RunShellCalls))
 	}
-	if act.Command != "echo custom" {
-		t.Errorf("resolveAction(\"P\").Command = %q, want user action %q", act.Command, "echo custom")
+	if !strings.Contains(fe.RunShellCalls[0], "echo custom") {
+		t.Errorf("RunShell called with %q, want it to contain %q", fe.RunShellCalls[0], "echo custom")
 	}
 }
 

@@ -216,7 +216,7 @@ Press the key to execute the action on the selected card. Custom actions and `Al
 
 ### Key Sequences (Prefix Keys)
 
-When single keys run out — a monorepo where you want to run several projects from a PR, say — bind multi-key sequences, neovim-style. A key is a sequence when it's longer than one character: the first key must still be uppercase `A-Z` (the namespace reserved for you), continuation keys can be any letter or digit:
+When single keys run out — a monorepo where you want to run several projects from a PR, say — bind multi-key sequences, neovim-style. A key is a sequence when it's longer than one character; every key of the sequence, including the first, can be any letter or digit (uppercase or lowercase) — built-in commands can participate in a sequence too, not just custom actions:
 
 ```yaml
 actions:
@@ -237,7 +237,7 @@ actions:
     command: 'tmux new-window -d -n wk-{pr_number} "cd {pr_worktree}/worker && go run ."'
 ```
 
-Press `R` and the status bar switches to a which-key style list of everything the prefix can complete to (`Rf: Run frontend | Rb: Run backend | ...`); press the next key to run it. While a sequence is pending it owns the keyboard — built-in keys like `j`/`k` act as continuation keys, not navigation. `Esc` cancels, as does any key that doesn't match a bound sequence. Holding `Alt` on any key of the sequence gives the same [comment-first flow](#comment-mode) as `Alt+Shift+key` on a single-key action.
+Press `R` and the status bar switches to a which-key style list of everything the prefix can complete to, rendered in canonical, space-separated form (`R f: Run frontend | R b: Run backend | R w: Run worker | esc: cancel`); press the next key to run it. While a sequence is pending it owns the keyboard — built-in keys like `j`/`k` act as continuation keys, not navigation. `Esc` cancels, as does any key that doesn't match a bound sequence. Holding `Alt` on any key of the sequence gives the same [comment-first flow](#comment-mode) as `Alt+Shift+key` on a single-key action.
 
 Sequences can be any length (`R`, `Rf`, `RFa1`, ...) and follow all the usual action rules: scopes, template variables, per-column overrides, and gating (a prefix whose only completions are `pr`-scope won't even open on a card with no linked PRs). One constraint is validated at startup: a key can't be a strict prefix of another key that can be active at the same time — a standalone `P` action plus a `Pf` sequence is a config error, because `P` could then never fire.
 
