@@ -87,7 +87,7 @@ func TestKeymapDispatch_LowercaseKeyDispatchesCustomAction(t *testing.T) {
 		},
 	}, nil)
 
-	b = sendKey(t, b, keyMsg("z"))
+	sendKey(t, b, keyMsg("z"))
 
 	if len(fe.OpenURLCalls) != 1 {
 		t.Fatalf("expected 1 OpenURL call for a lowercase-key custom action, got %d", len(fe.OpenURLCalls))
@@ -205,7 +205,7 @@ func TestKeymapDispatch_ColumnOverlayScopesToItsOwnColumnOnly(t *testing.T) {
 
 	// Column 1 ("Col B") has no overlay: "z" is not bound there.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
-	b = sendKey(t, b, keyMsg("z"))
+	sendKey(t, b, keyMsg("z"))
 	if len(fe.OpenURLCalls) != 1 {
 		t.Errorf("expected no additional OpenURL calls outside the overlaid column, got %d total", len(fe.OpenURLCalls))
 	}
