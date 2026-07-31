@@ -25,6 +25,9 @@ Test real flows end-to-end through the application stack.
 ## Explicit Risk Coverage
 When a plan's `### Risks` section names a specific mitigation (e.g., "empty-URL guard mirroring `handleTicketOpenKey`'s 'URL not available' path"), write a test case that exercises it before marking implementation done. Happy-path coverage alone will not expose missing edge-case guards. Without explicit coverage, implementation will pass Phase 4 verification and only surface during external review, costing a fix cycle.
 
+## State Coverage for Composite Hints
+When a hint's displayed key is composited from multiple command IDs via a variadic join helper (e.g. `panelHintKey(entries, idA, idB)`), **and the composite hint appears only in certain UI states** (state-gated rendering), the hint→dispatch invariant test's state matrix must include every such state — not just a representative sample. A composite hint silently assumes all its constituent command IDs are properly dispatched in that state; if the dispatcher's `switch` case only handles one of the composite IDs, the hint will advertise a key that silently no-ops. This assumption is exactly what can go stale when states change. Without full state coverage, the invariant test passes even though a missing dispatcher case exists.
+
 ## When a Test Forces an Implausible Production Shape
 If making a test pass requires production code to do something the plan/spec doesn't call for — a duplicated side-effecting call, an unreachable branch, a magic constant — stop and fix the test, don't bend production to it. A "guard against a race" comment justifying two concurrent `tea.Batch` Cmds is a red flag: batched Cmds run concurrently and cannot order a write-then-read.
 

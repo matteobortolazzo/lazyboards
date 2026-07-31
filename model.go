@@ -177,12 +177,6 @@ var deleteConfirmHints = []Hint{
 	{Key: "enter", Desc: "Confirm"},
 }
 
-// helpModeHints are the status bar hints shown in help mode.
-var helpModeHints = []Hint{
-	{Key: "esc/?", Desc: "Close"},
-	{Key: "j/k", Desc: "Scroll"},
-}
-
 // boardMode represents the current interaction mode of the board.
 type boardMode int
 
