@@ -625,13 +625,17 @@ func TestPRList_CustomAction_NonPRScopeIgnored(t *testing.T) {
 }
 
 // TestPRList_CustomAction_EmptyListNoOp asserts an action key on an empty
-// list is a safe no-op.
+// list is a safe no-op. The scope: pr action is configured through
+// newActionTestBoardWithColumns (NewBoard's legacy actions param), which
+// feeds the pr_list keymap dispatch reads against -- unlike a post-NewBoard
+// b.actions assignment, which no longer feeds dispatch now that the PR list
+// resolves inline actions through the registry (#490 PR 7b).
 func TestPRList_CustomAction_EmptyListNoOp(t *testing.T) {
-	fe := &action.FakeExecutor{}
-	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{{Number: 1, Title: "No PRs here"}}, fe)
-	b.actions = map[string]config.Action{
+	b, fe := newActionTestBoardWithColumns(t, map[string]config.Action{
 		"W": {Name: "Review", Type: "url", URL: "https://example.com/{pr_number}", Scope: "pr"},
-	}
+	}, []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{{Number: 1, Title: "No PRs here"}}},
+	})
 	b = sendKey(t, b, keyMsg("v"))
 	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation})
 
@@ -900,7 +904,7 @@ func TestPRList_ActionHints_AreSortedByKey(t *testing.T) {
 		"M": {Name: "Middle", Scope: "pr"},
 	})
 
-	hints := b.prListActionHints()
+	hints := b.prListHints()
 	wantKeys := []string{"esc", "j/k", "enter", "A", "M", "Z"}
 	if len(hints) != len(wantKeys) {
 		t.Fatalf("hint count = %d, want %d: %+v", len(hints), len(wantKeys), hints)
