@@ -944,8 +944,8 @@ func TestAction_PRScope_ZeroPRs_NoDispatchAndNoHint(t *testing.T) {
 func TestAction_PRActionKeyWithComment_ZeroPRs_ShowsStatusMessage(t *testing.T) {
 	// Defensive-branch test: handlePRActionKeyWithComment's 0-linked-PR case
 	// is unreachable through the documented dispatch flow today —
-	// resolveAction's prScopeGated check already refuses to dispatch a
-	// scope: pr action against a 0-PR card (see
+	// dispatchBinding's pr-scope gate (keymap_dispatch.go) already refuses
+	// to dispatch a scope: pr action against a 0-PR card (see
 	// TestAction_PRScope_ZeroPRs_NoDispatchAndNoHint above). This test calls
 	// the handler directly to exercise that defensive branch and confirm it
 	// gives the same user-facing feedback as the equivalent built-in "p"
@@ -1401,6 +1401,70 @@ columns:
 	}
 	if bIdx >= d || aIdx >= d {
 		t.Errorf("column-only key D should append after the global order (B, A); got indices B=%d A=%d D=%d in %+v", bIdx, aIdx, d, hints)
+	}
+}
+
+// TestAction_HintBar_MultiKeyLegacyActionUsesCanonicalLabel covers A2: a
+// legacy multi-key action key ("Pf") must reach the normal-mode hint bar
+// under its canonical, space-separated form ("P f"), not the bare
+// rune-concatenated legacy key -- exercised end to end through the real
+// config.Load()/translateLegacyActions pipeline, mirroring
+// key_sequence_test.go's which-key label assertion for the same format.
+func TestAction_HintBar_MultiKeyLegacyActionUsesCanonicalLabel(t *testing.T) {
+	localYAML := `provider: github
+repo: matteobortolazzo/lazyboards
+actions:
+  Pf:
+    name: PR frontend
+    type: url
+    scope: board
+    url: "https://example.com/frontend"
+`
+	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
+
+	hints := b.normalHints
+	if hintIndex(hints, "Pf") != -1 {
+		t.Errorf("normalHints should not contain the bare legacy key %q, want the canonical space-separated form", "Pf")
+	}
+	idx := hintIndex(hints, "P f")
+	if idx == -1 || hints[idx].Desc != "PR frontend" {
+		t.Errorf("normalHints missing canonical multi-key hint %q with Desc %q, got: %+v", "P f", "PR frontend", hints)
+	}
+}
+
+// TestAction_HintBar_CardScopeHintStaysVisibleWhenActiveFilterEmptiesVisibleList
+// covers the Should-Fix review finding: the hint bar's card-scope gate must
+// use the same raw b.Columns[b.ActiveTab].Cards predicate the deleted #437
+// gatedActionHints used, NOT the filter/search-aware visibleCards() that
+// gates dispatch/pending-sequence eligibility (eligibleCandidates). With an
+// active search query that empties the visible list but the column still
+// has a raw card, the hint must still show in the bar (matching pre-#489
+// behavior) even though the key itself still correctly no-ops on dispatch
+// (dispatchResolvedAction's own, separate visibleCards() gate).
+func TestAction_HintBar_CardScopeHintStaysVisibleWhenActiveFilterEmptiesVisibleList(t *testing.T) {
+	actions := map[string]config.Action{
+		"z": {Name: "Card action", Type: "url", URL: "https://example.com/{number}"}, // default (card) scope
+	}
+	b, fe := newActionTestBoardWithColumns(t, actions, []provider.Column{
+		{Title: "Col A", Cards: []provider.Card{{Number: 1, Title: "Card One"}}},
+	})
+
+	b.searchQuery = "no-such-card-title-matches-this"
+	b.rebuildNormalHints()
+	if len(b.visibleCards()) != 0 {
+		t.Fatalf("precondition: visibleCards() = %d, want 0 with the active search query", len(b.visibleCards()))
+	}
+
+	hints := b.normalHints
+	idx := hintIndex(hints, "z")
+	if idx == -1 || hints[idx].Desc != "Card action" {
+		t.Errorf("normalHints missing the card-scope hint %q while the active column still has a raw card (filtered to 0 visible), got: %+v", "z", hints)
+	}
+
+	// Dispatch stays correctly gated by visibleCards(): the key still no-ops.
+	b = sendKey(t, b, keyMsg("z"))
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("expected no OpenURL calls: dispatch must still be gated by visibleCards(), got %d", len(fe.OpenURLCalls))
 	}
 }
 

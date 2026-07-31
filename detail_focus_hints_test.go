@@ -8,21 +8,21 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 )
 
-// Detail-focused hint bar (#419)
+// Detail-focused hint bar (#419, cut over onto the keymap registry by #489)
 //
 // The detail panel's status-bar hints (b.statusBar.hints, set whenever
-// b.detailFocused becomes true) are currently a hardcoded static list
-// (detailFocusHints in model.go): "e" Edit, "j/k" Scroll, "h"/"esc" Back --
-// missing the "?" Help pointer and never reflecting the user's configured
-// custom actions the way the card-list hint bar (b.normalHints, built by
-// rebuildNormalHints()) does.
+// b.detailFocused becomes true) are derived from the active keymap
+// (rebuildDetailHints -> registryHints(keymap.ModeDetail), keymap_dispatch.go):
+// "?" Help, "e" Edit, "j/k" Scroll, "h"/"esc" Back, plus the user's
+// configured custom actions -- the same registry-derived builder the
+// card-list hint bar (b.normalHints, built by rebuildNormalHints()) uses.
 //
-// These tests assert the corrected behavior: the detail-focused hint bar
-// must carry the same "?" Help pointer, the same scope-gated custom-action
-// merge (global overlaid by the active column's per-column actions), and the
-// same truncation-safe ordering (help first, built-ins next, custom actions
-// last) as the card-list bar -- restored consistently at every point the app
-// sets the detail-focused hint bar.
+// These tests assert that behavior: the detail-focused hint bar must carry
+// the same "?" Help pointer, the same scope-gated custom-action merge
+// (global overlaid by the active column's per-column actions), and the same
+// truncation-safe ordering (help first, built-ins next, custom actions last)
+// as the card-list bar -- restored consistently at every point the app sets
+// the detail-focused hint bar.
 //
 // Tests read b.statusBar.hints directly (same package) rather than a new
 // production field, so they describe the required *behavior* without
@@ -470,5 +470,36 @@ func TestView_DetailFocused_ShowsHelpAndCustomActionHints(t *testing.T) {
 	}
 	if !strings.Contains(view, "Open board") {
 		t.Errorf("View() in detail focus should contain the custom action hint %q in the status bar, got:\n%s", "Open board", view)
+	}
+}
+
+// TestDetailFocusedHints_MultiKeyLegacyActionUsesCanonicalLabel is the
+// detail-focused analog of TestAction_HintBar_MultiKeyLegacyActionUsesCanonicalLabel
+// (actions_test.go): a legacy multi-key action key ("Pf") must reach the
+// detail-focused hint bar under its canonical, space-separated form ("P f").
+func TestDetailFocusedHints_MultiKeyLegacyActionUsesCanonicalLabel(t *testing.T) {
+	localYAML := `provider: github
+repo: matteobortolazzo/lazyboards
+actions:
+  Pf:
+    name: PR frontend
+    type: url
+    scope: board
+    url: "https://example.com/frontend"
+`
+	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
+
+	b = sendKey(t, b, keyMsg("l"))
+	if !b.detailFocused {
+		t.Fatal("precondition: detailFocused should be true after 'l'")
+	}
+
+	hints := b.statusBar.hints
+	if hintIndex(hints, "Pf") != -1 {
+		t.Errorf("detail-focused hints should not contain the bare legacy key %q, want the canonical space-separated form", "Pf")
+	}
+	idx := hintIndex(hints, "P f")
+	if idx == -1 || hints[idx].Desc != "PR frontend" {
+		t.Errorf("detail-focused hints missing canonical multi-key hint %q with Desc %q, got: %+v", "P f", "PR frontend", hints)
 	}
 }
