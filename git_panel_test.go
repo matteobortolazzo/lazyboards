@@ -9,6 +9,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"github.com/muesli/termenv"
 )
@@ -215,37 +216,38 @@ func TestGitPanel_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
 
 // TestGitPanel_SingleItem_NavigationIsNoOp covers the length<=1 guard for one
 // of the four modal list handlers (docs/list-cursor-invariants.md): with a
-// single default git action registered, j/k must never move the cursor off 0
-// and must not panic.
+// single git-panel action bound -- every other built-in explicitly unbound
+// via a keymaps.git_panel override (#511: the item list is now derived from
+// the ModeGitPanel registry table, not b.defaultActions -- see
+// keymap_panels.go's gitPanelItemsFromKeymap) -- j/k must never move the
+// cursor off 0 and must not panic.
 func TestGitPanel_SingleItem_NavigationIsNoOp(t *testing.T) {
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	singleAction := map[string]config.Action{
-		"P": {Name: "Push", Type: "shell", Command: "git push", Scope: "board"},
-	}
-	b := NewBoard(p, nil, singleAction, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
-	m, _ := b.Update(boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{{Title: "Empty", Cards: nil}},
-	}})
-	loaded := m.(Board)
-	loaded.Width = 120
-	loaded.Height = 40
+	b, _ := newGitPanelTestBoard(t, nil, nil)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeGitPanel: {
+			"p": keymap.UnboundBinding(),
+			"f": keymap.UnboundBinding(),
+			"m": keymap.UnboundBinding(),
+			"s": keymap.UnboundBinding(),
+			"S": keymap.UnboundBinding(),
+		},
+	}, nil)
 
-	loaded = sendKey(t, loaded, keyMsg("g"))
-	if loaded.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", loaded.mode)
+	b = sendKey(t, b, keyMsg("g"))
+	if b.mode != gitPanelMode {
+		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
 	}
-	if len(loaded.gitPanel.items) != 1 {
-		t.Fatalf("len(gitPanel.items) = %d, want 1", len(loaded.gitPanel.items))
+	if len(b.gitPanel.items) != 1 {
+		t.Fatalf("len(gitPanel.items) = %d, want 1", len(b.gitPanel.items))
 	}
 
-	loaded = sendKey(t, loaded, keyMsg("j"))
-	if loaded.gitPanel.cursor != 0 {
-		t.Errorf("cursor after j on single-item list = %d, want 0 (no-op)", loaded.gitPanel.cursor)
+	b = sendKey(t, b, keyMsg("j"))
+	if b.gitPanel.cursor != 0 {
+		t.Errorf("cursor after j on single-item list = %d, want 0 (no-op)", b.gitPanel.cursor)
 	}
-	loaded = sendKey(t, loaded, keyMsg("k"))
-	if loaded.gitPanel.cursor != 0 {
-		t.Errorf("cursor after k on single-item list = %d, want 0 (no-op)", loaded.gitPanel.cursor)
+	b = sendKey(t, b, keyMsg("k"))
+	if b.gitPanel.cursor != 0 {
+		t.Errorf("cursor after k on single-item list = %d, want 0 (no-op)", b.gitPanel.cursor)
 	}
 }
 

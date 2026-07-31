@@ -7,13 +7,37 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
+// gitPanelBuiltinOrder is the git menu's fixed display/dispatch order:
+// Push, Pull, Fetch, Mergetool, Stash push, Stash pop -- matching each
+// built-in action's Order in internal/keymap/defaults_panel.go's
+// gitPanelDefaults table (1-based position in this slice). It lived in
+// model.go before #511 routed the git panel through the ModeGitPanel
+// registry table (keymap_panels.go's gitPanelItemsFromKeymap, which now
+// derives item order from the registry's own Order field); its only
+// remaining consumer is this drift guard (plus keymap_panels_test.go's
+// default-parity assertions), so it moved here with production's other
+// call sites removed.
+var gitPanelBuiltinOrder = []string{"P", "p", "f", "m", "s", "S"}
+
+// gitPanelModeHints is the pre-#511 fixed git panel hint bar, kept here as
+// the default-parity oracle keymap_panels_test.go's
+// TestKeymapPanels_GitPanel_DefaultParity_HintsMatchTodaysGitPanelModeHints
+// compares the registry-derived gitPanelHints() against -- see that file's
+// package doc comment. It lived in model.go before #511 replaced it in
+// production with the registry-derived gitPanelHints().
+var gitPanelModeHints = []Hint{
+	{Key: "esc", Desc: "Cancel"},
+	{Key: "j/k", Desc: "Navigate"},
+	{Key: "enter", Desc: "Run"},
+}
+
 // TestGitPanelDefaults_MatchDefaultGitActions is the cross-package drift
 // guard named in the #508 plan (Q4/Assumptions): internal/keymap cannot
 // import internal/config (binding.go), so the git_panel default table's six
 // action entries are hand-duplicated literals in
 // internal/keymap/defaults_git_panel.go. This test lives in package main --
 // the only package that can import internal/keymap *and* internal/config
-// *and* see gitPanelBuiltinOrder (model.go:1088) -- so it can assert the
+// *and* see gitPanelBuiltinOrder (this file) -- so it can assert the
 // duplicated literals against the real producer values rather than
 // hardcoding a second copy of its own.
 //
