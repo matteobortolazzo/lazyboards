@@ -576,23 +576,21 @@ type assigneesUpdateErrorMsg struct {
 	err error
 }
 
-// gitPanelItem represents a single entry in the git panel picker list.
+// gitPanelItem represents a single entry in the git panel picker list. action
+// is the resolved config.Action key resolves to in the ModeGitPanel registry
+// table (keymap_panels.go's gitPanelItemsFromKeymap), so runGitPanelCommand's
+// CommandGitPanelRun can dispatch the cursor-selected entry without a second
+// keymap lookup by key.
 type gitPanelItem struct {
-	key  string
-	name string
+	key    string
+	name   string
+	action config.Action
 }
 
 // gitPanelState groups fields related to the git panel modal.
 type gitPanelState struct {
 	items  []gitPanelItem
 	cursor int
-}
-
-// gitPanelModeHints are the status bar hints shown in git panel mode.
-var gitPanelModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Run"},
 }
 
 // prListEntry is one row in the global PR list: a linked PR together with the
@@ -1060,32 +1058,21 @@ func (b *Board) enterConfigMode() {
 	}
 }
 
-// gitPanelBuiltinOrder is the fixed display/dispatch order of the git menu's
-// built-in shortcuts: Push, Pull, Fetch, Mergetool, Stash push, Stash pop.
-// This must hold regardless of Go map iteration order over defaultActions.
-var gitPanelBuiltinOrder = []string{"P", "p", "f", "m", "s", "S"}
-
-// enterGitPanel opens the git menu modal, populating its items from
-// b.defaultActions in a fixed order (not map iteration order). If no default
-// git actions are available (e.g. outside a git repo), this is a no-op and
-// the panel does not open.
+// enterGitPanel opens the git menu modal, populating its items from the
+// ModeGitPanel registry table (keymap_panels.go's gitPanelItemsFromKeymap).
+// b.defaultActions (config.DefaultGitActions() when the working tree is a
+// git repo, nil/empty otherwise) is consulted only as the "is this a git
+// repo" availability gate -- it no longer supplies the item list itself, so
+// if no default git actions are available this is a no-op and the panel
+// does not open.
 func (b *Board) enterGitPanel() {
 	if len(b.defaultActions) == 0 {
 		return
 	}
 
-	items := make([]gitPanelItem, 0, len(gitPanelBuiltinOrder))
-	for _, key := range gitPanelBuiltinOrder {
-		act, ok := b.defaultActions[key]
-		if !ok {
-			continue
-		}
-		items = append(items, gitPanelItem{key: key, name: act.Name})
-	}
-
-	b.gitPanel = gitPanelState{items: items, cursor: 0}
+	b.gitPanel = gitPanelState{items: b.gitPanelItemsFromKeymap(), cursor: 0}
 	b.mode = gitPanelMode
-	b.statusBar.SetActionHints(gitPanelModeHints)
+	b.statusBar.SetActionHints(b.gitPanelHints())
 }
 
 // enterPRList opens the global PR list modal, which surveys every open PR in
