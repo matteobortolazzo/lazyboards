@@ -1337,7 +1337,7 @@ func (b Board) runDetailCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		b.detailFocused = false
 		b.helpScrollOffset = 0
 		b.mode = helpMode
-		b.statusBar.SetActionHints(helpModeHints)
+		b.statusBar.SetActionHints(b.helpHints())
 		return b, nil
 	case keymap.CommandDetailBlur:
 		b.detailFocused = false

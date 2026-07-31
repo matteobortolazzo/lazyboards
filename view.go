@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
 // Package-level glamour renderer cache.
@@ -1443,7 +1444,7 @@ func (b Board) viewHelpModal() string {
 	}
 
 	// Add hints bar.
-	hintsBar := NewStatusBar(helpModeHints)
+	hintsBar := NewStatusBar(b.helpHints())
 	displayLines = append(displayLines, "", hintsBar.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(displayLines, "\n")
@@ -1903,14 +1904,14 @@ func (b Board) viewDispatchModal() string {
 	lines = append(lines, "Agent Dispatch")
 	lines = append(lines, "")
 
-	var hints []Hint
+	loop, loopErr := b.dispatchLoopSource()
+	hints := b.dispatchModalHints()
+
 	switch {
 	case b.dispatch.loading:
 		lines = append(lines, b.spinner.View()+" Checking dispatch status...")
-		hints = []Hint{{Key: "esc", Desc: "Close"}}
 	case b.dispatch.running:
 		lines = append(lines, b.spinner.View()+" Running dispatch...")
-		hints = []Hint{{Key: "esc", Desc: "Close"}}
 	case b.dispatch.err != "":
 		if b.dispatch.repo != "" {
 			lines = append(lines, "Repo: "+b.dispatch.repo)
@@ -1919,13 +1920,11 @@ func (b Board) viewDispatchModal() string {
 			lines = append(lines, "Dir: "+b.dispatch.dir)
 		}
 		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.dispatch.err))
-		hints = []Hint{{Key: "esc", Desc: "Close"}}
 	case b.dispatch.repo == "":
 		// Zero-value/unset dispatchState (e.g. modal opened before the status
 		// query resolves, or an unexpected empty repo from the query) is not
 		// a ready state — render it as such rather than showing blank fields.
 		lines = append(lines, "No repository detected.")
-		hints = []Hint{{Key: "esc", Desc: "Close"}}
 	default:
 		lines = append(lines, "Repo: "+b.dispatch.repo)
 		lines = append(lines, "Dir: "+b.dispatch.dir)
@@ -1957,7 +1956,6 @@ func (b Board) viewDispatchModal() string {
 		}
 
 		lines = append(lines, "")
-		loop, loopErr := b.dispatchLoopSource()
 		lines = append(lines, renderLoopLine(loop, loopErr))
 
 		if b.dispatch.confirmingLoop {
@@ -1966,24 +1964,16 @@ func (b Board) viewDispatchModal() string {
 			// every enrolled repo (#433).
 			lines = append(lines, "")
 			lines = append(lines, fmt.Sprintf("Turn dispatch loop %s? Affects all enrolled repos.", loopToggleTarget(loop)))
-			hints = []Hint{{Key: "y", Desc: "Confirm"}, {Key: "n/esc", Desc: "Cancel"}}
 		} else {
 			// The loop toggle needs a known current state to pick a direction;
-			// omit the affordance entirely when the loop state is unknown. It
-			// lives on its own line under the Loop line (rather than the bottom
-			// hint bar) both because it reads as an action on the state directly
-			// above it, and because a fourth hint overflows the modal width.
-			if loop != nil {
-				lines = append(lines, fmt.Sprintf("  l: Turn loop %s", loopToggleTarget(loop)))
-			}
-
-			enterDesc := "Enroll"
-			if b.dispatch.enrolled {
-				enterDesc = "Unenroll"
-			}
-			hints = []Hint{{Key: "esc", Desc: "Close"}, {Key: "enter", Desc: enterDesc}}
-			if b.dispatch.enrolled {
-				hints = append(hints, Hint{Key: "o", Desc: "Dispatch once"})
+			// omit the affordance entirely when the loop state is unknown or its
+			// key is unbound. It lives on its own line under the Loop line
+			// (rather than the bottom hint bar) both because it reads as an
+			// action on the state directly above it, and because a fourth hint
+			// overflows the modal width.
+			toggleKey := panelHintKey(b.panelEntries(keymap.ModeDispatch), keymap.CommandDispatchToggleLoop)
+			if loop != nil && toggleKey != "" {
+				lines = append(lines, fmt.Sprintf("  %s: Turn loop %s", toggleKey, loopToggleTarget(loop)))
 			}
 		}
 	}
