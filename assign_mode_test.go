@@ -483,7 +483,7 @@ func TestAssignMode_View_ContainsHints(t *testing.T) {
 	b = sendKey(t, b, keyMsg("a"))
 
 	view := b.View()
-	for _, hint := range assignModeHints {
+	for _, hint := range b.assignHints() {
 		if !strings.Contains(view, hint.Desc) {
 			t.Errorf("View() in assignMode should contain hint %q", hint.Desc)
 		}

@@ -16,6 +16,7 @@ GitHub Issues for tracking. GitHub for code and PRs.
 - When a refactor removes all production call sites of a function, delete it from production code — don't keep it alive because tests still call it. Migrate test coverage to the surviving building blocks instead.
 - When a feature needs to reference a fixed, app-wide entity (e.g., lazyboards' own GitHub repo for update checks), don't reuse Board fields like `repoOwner`/`repoName` which are semantically the user's configured tracked repo. Create separate, explicitly-named constants to prevent confusion and misuse.
 - When a spec defines precedence across multiple orthogonal axes (e.g., layer: user vs. default, scope: column vs. mode), state the explicit combined order across all combinations — not just each axis independently. A spec stating "user merges over default" and separately "column wins on conflict" doesn't specify whether `default-column` overrides `user-mode`. Implementation will encode one axis as the outer loop; if unspecified, this silent choice risks fail-open bugs (e.g., default bindings overriding user unbinds).
+- When refactoring dispatch logic to centralize (keymaps, handler consolidation), diff the new dispatcher against the established pattern and replicate all guards: type-checks (`Binding.Kind`), state-precedence conditions (`OutcomePending`), negative branches. Omitted guards create fail-closed-by-accident implicit invariants that silently break if the guarded type evolves.
 
 ## File Structure
 
