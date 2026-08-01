@@ -767,3 +767,99 @@ func TestKeymapText_DeleteConfirmHints_UnboundCancelKey_OmitsHintEntry(t *testin
 		t.Errorf("deleteConfirmHints() enter Desc = %q, want %q (only the cancel side was unbound)", got, "Confirm")
 	}
 }
+
+// --- create/config eligibility predicates (#540 PR 1/2) ---
+//
+// createCommandActive/configCommandActive are the fifth eligibility
+// condition handleCreateModeKey/handleConfigModeKey layer onto the
+// recognized-command predicate borrowed from handleDeleteModeKey
+// (mode_handlers.go): a resolved command id belonging to this mode's own
+// set must ALSO be currently eligible given b.create.focus/b.config.focus
+// (and, for create's assignee cycle, len(b.create.assigneeOptions) > 0), or
+// it falls through to the focused textinput exactly like an unbound key
+// would. The full focus x command matrix is only reachable through this
+// unit-level predicate -- integration tests can't drive focus == 2 with
+// zero/one assigneeOptions, since Tab only advances into that focus when
+// len(assigneeOptions) > 1 (mode_handlers.go, Test Strategy table in the
+// #540 plan).
+
+func TestKeymapText_CreateCommandActive_AssigneeCycleOnlyAtFocus2(t *testing.T) {
+	b := newTestBoard(t)
+	b.create.assigneeOptions = []string{noneAssignee, "alice", "bob"}
+
+	cycleIDs := []keymap.CommandID{keymap.CommandCreateAssigneePrev, keymap.CommandCreateAssigneeNext}
+
+	b.create.focus = 2
+	for _, id := range cycleIDs {
+		if !b.createCommandActive(id) {
+			t.Errorf("createCommandActive(%v) at focus 2 with options = false, want true", id)
+		}
+	}
+
+	for _, focus := range []int{0, 1} {
+		b.create.focus = focus
+		for _, id := range cycleIDs {
+			if b.createCommandActive(id) {
+				t.Errorf("createCommandActive(%v) at focus %d = true, want false (assignee cycle is gated on focus == 2)", id, focus)
+			}
+		}
+	}
+}
+
+func TestKeymapText_CreateCommandActive_AssigneeCycle_FalseWhenNoOptions(t *testing.T) {
+	b := newTestBoard(t)
+	b.create.focus = 2
+	b.create.assigneeOptions = nil
+
+	if b.createCommandActive(keymap.CommandCreateAssigneePrev) {
+		t.Error("createCommandActive(assignee_prev) at focus 2 with zero assigneeOptions = true, want false")
+	}
+	if b.createCommandActive(keymap.CommandCreateAssigneeNext) {
+		t.Error("createCommandActive(assignee_next) at focus 2 with zero assigneeOptions = true, want false")
+	}
+}
+
+func TestKeymapText_CreateCommandActive_NonCycleCommandsAlwaysActive(t *testing.T) {
+	b := newTestBoard(t)
+	ids := []keymap.CommandID{keymap.CommandCreateSubmit, keymap.CommandCreateCancel, keymap.CommandCreateNextField}
+	for _, focus := range []int{0, 1, 2} {
+		b.create.focus = focus
+		for _, id := range ids {
+			if !b.createCommandActive(id) {
+				t.Errorf("createCommandActive(%v) at focus %d = false, want true (not focus-gated)", id, focus)
+			}
+		}
+	}
+}
+
+func TestKeymapText_ConfigCommandActive_ProviderCycleOnlyAtFocus0(t *testing.T) {
+	b := newTestBoard(t)
+	cycleIDs := []keymap.CommandID{keymap.CommandConfigProviderPrev, keymap.CommandConfigProviderNext}
+
+	b.config.focus = 0
+	for _, id := range cycleIDs {
+		if !b.configCommandActive(id) {
+			t.Errorf("configCommandActive(%v) at focus 0 = false, want true", id)
+		}
+	}
+
+	b.config.focus = 1
+	for _, id := range cycleIDs {
+		if b.configCommandActive(id) {
+			t.Errorf("configCommandActive(%v) at focus 1 = true, want false (provider cycle is gated on focus == 0)", id)
+		}
+	}
+}
+
+func TestKeymapText_ConfigCommandActive_NonCycleCommandsAlwaysActive(t *testing.T) {
+	b := newTestBoard(t)
+	ids := []keymap.CommandID{keymap.CommandConfigSave, keymap.CommandConfigCancel, keymap.CommandConfigNextField}
+	for _, focus := range []int{0, 1} {
+		b.config.focus = focus
+		for _, id := range ids {
+			if !b.configCommandActive(id) {
+				t.Errorf("configCommandActive(%v) at focus %d = false, want true (not focus-gated)", id, focus)
+			}
+		}
+	}
+}
