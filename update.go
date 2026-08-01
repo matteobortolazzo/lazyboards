@@ -62,9 +62,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					b.agentList.cursor = 0
 				}
 			}
-			hints := agentListModeHints
+			hints := b.agentListHints()
 			if n == 0 {
-				hints = agentListEmptyHints
+				hints = b.agentListEmptyHints()
 			}
 			b.statusBar.SetActionHints(hints)
 		}

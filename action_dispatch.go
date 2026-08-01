@@ -132,22 +132,15 @@ func (b Board) runPRActionWithVars(act config.Action, pr LinkedPR, baseVars map[
 	return b.dispatchExpandedAction(act, vars)
 }
 
-// handlePRListActionKey dispatches an uppercase custom-action key pressed
-// inside the PR list modal against the selected PR row. Eligibility is
-// deliberately narrower than normal mode's registry dispatch (dispatchBinding
-// in keymap_dispatch.go): only GLOBAL
-// scope: pr actions apply — the modal is a repo-wide view with no active
-// column, so per-column overrides and card/board scopes have no sensible
-// target here. Rows linked to a board card dispatch with the same full
-// card+PR template variables as a normal-mode scope: pr action; unlinked
-// rows expand the card-derived variables ({number}, {title}, {tags},
-// {session}, {window}) to empty strings since there is no card to derive
-// them from. The modal stays open so several PRs can be acted on in a row.
-func (b Board) handlePRListActionKey(key string) (tea.Model, tea.Cmd) {
-	act, ok := b.actions[key]
-	if !ok || config.DefaultScope(act.Scope) != "pr" {
-		return b, nil
-	}
+// runPRListAction dispatches act (already resolved through the pr_list
+// registry table and scope-gated to scope: pr by handlePRListModeKey, Q2)
+// against the selected PR row in the PR list modal. Rows linked to a board
+// card dispatch with the same full card+PR template variables as a
+// normal-mode scope: pr action; unlinked rows expand the card-derived
+// variables ({number}, {title}, {tags}, {session}, {window}) to empty
+// strings since there is no card to derive them from. The modal stays open
+// so several PRs can be acted on in a row.
+func (b Board) runPRListAction(act config.Action) (tea.Model, tea.Cmd) {
 	if len(b.prList.entries) == 0 || b.prList.cursor >= len(b.prList.entries) {
 		return b, nil
 	}

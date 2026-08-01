@@ -676,6 +676,202 @@ func TestKeymapFromLegacy_EquivalentToResolveKeymapOfSameConfig(t *testing.T) {
 	}
 }
 
+// --- translateLegacyActions: scope: pr actions -> keymaps.pr_list (#490 PR 7b, Q1) ---
+//
+// Today the global PR list modal reaches a legacy scope: pr action via a raw
+// A-Z filter over b.actions[key] (mode_handlers.go's handlePRListActionKey).
+// Once the PR list dispatches through the pr_list keymap (this ticket),
+// that raw filter is deleted, so translateLegacyActions must also insert
+// global scope: pr legacy actions into cfg.Keymaps.Modes[pr_list] --
+// alongside the existing normal/detail insertion -- or a legacy config's
+// scope: pr actions would silently stop firing in the PR list. This is a
+// RED-phase addition: keymap.ModePRList exists (#508), but
+// translateLegacyActions does not insert into it yet.
+
+// TestTranslateLegacyActions_ScopePRActionReachableInPRListMode covers the
+// happy path of Q1: a legacy actions: entry with scope: pr must be
+// translated into cfg.Keymaps.Modes[pr_list], with its action fields intact,
+// exactly like the existing normal/detail insertion.
+func TestTranslateLegacyActions_ScopePRActionReachableInPRListMode(t *testing.T) {
+	localYAML := `actions:
+  P:
+    name: Open PR
+    type: shell
+    command: "gh pr view {pr_number}"
+    scope: pr
+`
+	cfg := mustLoadConfig(t, "", localYAML)
+
+	if cfg.Keymaps == nil {
+		t.Fatal("Keymaps is nil, want non-nil after a legacy scope: pr action is translated")
+	}
+	table, ok := cfg.Keymaps.Modes[keymap.ModePRList]
+	if !ok {
+		t.Fatal("Keymaps.Modes missing pr_list mode after translating a legacy scope: pr action")
+	}
+	binding, ok := table["P"]
+	if !ok {
+		t.Fatal("Keymaps.Modes[pr_list] missing key \"P\" after legacy translation of a scope: pr action")
+	}
+	if binding.Kind != keymap.BindingAction {
+		t.Fatalf("Keymaps.Modes[pr_list][P].Kind = %v, want BindingAction", binding.Kind)
+	}
+	if binding.Action.Name != "Open PR" || binding.Action.Scope != "pr" {
+		t.Errorf("Keymaps.Modes[pr_list][P].Action = %+v, want Name=%q Scope=%q", binding.Action, "Open PR", "pr")
+	}
+}
+
+// TestTranslateLegacyActions_NonPRScopeActionNotInPRListMode covers the
+// negative half of Q1: a legacy action whose scope is NOT "pr" (board, card,
+// or omitted -- which infers to card/board, never pr) must not be inserted
+// into cfg.Keymaps.Modes[pr_list], even though it is still inserted into
+// normal/detail as before. Table-driven over the scopes the PR list must
+// never see.
+func TestTranslateLegacyActions_NonPRScopeActionNotInPRListMode(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{
+			name: "scope: board",
+			yaml: `actions:
+  P:
+    name: Push
+    type: shell
+    command: "git push"
+    scope: board
+`,
+		},
+		{
+			name: "scope: card",
+			yaml: `actions:
+  P:
+    name: Card Action
+    type: shell
+    command: "echo {number}"
+    scope: card
+`,
+		},
+		{
+			name: "no scope (infers to board)",
+			yaml: `actions:
+  P:
+    name: No Scope
+    type: shell
+    command: "echo hi"
+`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := mustLoadConfig(t, "", tc.yaml)
+
+			// The action must still land in normal/detail as before.
+			if _, ok := cfg.Keymaps.Modes[keymap.ModeNormal]["P"]; !ok {
+				t.Fatal("test setup: expected legacy action to still be translated into Keymaps.Modes[normal]")
+			}
+
+			table, ok := cfg.Keymaps.Modes[keymap.ModePRList]
+			if ok {
+				if _, exists := table["P"]; exists {
+					t.Errorf("Keymaps.Modes[pr_list] has key \"P\" for a non-pr-scoped action (%s), want it absent -- only global scope: pr actions may land in pr_list", tc.name)
+				}
+			}
+		})
+	}
+}
+
+// TestTranslateLegacyActions_KeymapsDeclaredPRListKeyWinsOverLegacy is the
+// pr_list analog of TestTranslateLegacyActions_KeymapsDeclaredKeyWinsOverLegacy:
+// when a native (non-legacy) keymaps.pr_list.<key> entry already exists for
+// the same key, the legacy scope: pr translation must NOT overwrite it -- the
+// native entry always wins.
+func TestTranslateLegacyActions_KeymapsDeclaredPRListKeyWinsOverLegacy(t *testing.T) {
+	localYAML := `actions:
+  P:
+    name: Open PR
+    type: shell
+    command: "gh pr view {pr_number}"
+    scope: pr
+keymaps:
+  pr_list:
+    P: pr_list.open
+`
+	cfg := mustLoadConfig(t, "", localYAML)
+
+	binding := cfg.Keymaps.Modes[keymap.ModePRList]["P"]
+	if binding.Kind != keymap.BindingCommand || binding.Command != keymap.CommandPRListOpen {
+		t.Errorf("Keymaps.Modes[pr_list][P] = %+v, want the keymaps:-declared CommandBinding(%q) to win over the colliding legacy scope: pr action",
+			binding, keymap.CommandPRListOpen)
+	}
+}
+
+// TestTranslateLegacyActions_LowercaseKeyedScopePRActionNotInPRListMode
+// covers the code-review fix for Q1: the OLD PR-list dispatch (deleted raw
+// scan, previously handlePRListActionKey in mode_handlers.go) only ever
+// recognized single uppercase letters A-Z with no Alt modifier
+// (`!msg.Alt && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z'`). A legacy
+// scope: pr action bound to a lowercase key was previously a hard no-op
+// inside the PR list and must stay a no-op after this ticket -- only
+// single-uppercase-letter-keyed legacy scope: pr actions may be translated
+// into keymaps.pr_list.
+func TestTranslateLegacyActions_LowercaseKeyedScopePRActionNotInPRListMode(t *testing.T) {
+	localYAML := `actions:
+  p:
+    name: Open PR
+    type: shell
+    command: "gh pr view {pr_number}"
+    scope: pr
+`
+	cfg := mustLoadConfig(t, "", localYAML)
+
+	// The action must still land in normal/detail as before -- this
+	// restriction is scoped to the pr_list insertion path only.
+	if _, ok := cfg.Keymaps.Modes[keymap.ModeNormal]["p"]; !ok {
+		t.Fatal("test setup: expected legacy action to still be translated into Keymaps.Modes[normal]")
+	}
+
+	table, ok := cfg.Keymaps.Modes[keymap.ModePRList]
+	if ok {
+		if _, exists := table["p"]; exists {
+			t.Error("Keymaps.Modes[pr_list] has key \"p\" for a lowercase-keyed scope: pr action, want it absent -- the old PR-list dispatch only ever recognized single uppercase A-Z keys")
+		}
+	}
+}
+
+// TestKeymapFromLegacy_ScopePRActionReachableInPRListMode is the
+// KeymapFromLegacy analog (NewBoard's derivation path, used by 96+ test call
+// sites that construct actions directly instead of going through
+// config.Load()): a scope: pr action passed to KeymapFromLegacy must resolve
+// through keymap.ModePRList, not just cfg.Keymaps.Modes -- verified against
+// the actually-resolved *keymap.Keymap the PR list handler will Lookup
+// against.
+func TestKeymapFromLegacy_ScopePRActionReachableInPRListMode(t *testing.T) {
+	actions := map[string]Action{
+		"P": {Name: "Open PR", Type: "shell", Command: "gh pr view {pr_number}", Scope: "pr"},
+	}
+
+	km, err := KeymapFromLegacy(actions, nil)
+	if err != nil {
+		t.Fatalf("KeymapFromLegacy() returned unexpected error: %v", err)
+	}
+
+	entries := km.Entries(keymap.ModePRList, "")
+	found := false
+	for _, e := range entries {
+		if e.Sequence == "P" {
+			found = true
+			if e.Binding.Kind != keymap.BindingAction || e.Binding.Action.Name != "Open PR" {
+				t.Errorf("Entries(pr_list, \"\") key \"P\" binding = %+v, want the scope: pr action bound", e.Binding)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("Entries(pr_list, \"\") = %+v, want a \"P\" entry from the translated scope: pr action", entries)
+	}
+}
+
 // TestKeymapFromLegacy_NilArgsIsInfallible pins the invariant NewBoard's
 // error-recovery fallback (model.go) relies on but never checks: when the
 // primary KeymapFromLegacy(actions, columnConfigs) call errors (a "can't
