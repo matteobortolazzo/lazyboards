@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v68/github"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -474,6 +475,54 @@ func TestCloseMode_CardCloseErrorMsg_ReturnsToNormalMode(t *testing.T) {
 	view := b.View()
 	if !strings.Contains(strings.ToLower(view), "error") {
 		t.Errorf("View() after cardCloseErrorMsg should contain an error message, got:\n%s", view)
+	}
+}
+
+// TestCloseMode_PromptHintKeysAlwaysDispatch_DefaultAndRemappedTables is the
+// hint<->dispatch invariant test named in the #539 plan's Explicit Risk
+// Coverage: for every key advertised in the close_confirm "(y/n)"-style
+// prompt (promptKeySuffix, keymap_text_test.go), split on "/" and Lookup
+// each key against ModeCloseConfirm -- it must always resolve to
+// OutcomeMatch. Run against both the default table and a remapped/unbound
+// table, mirroring TestKeymapPanels_GitPanel_HintKeysAlwaysDispatch
+// (keymap_panels_test.go).
+func TestCloseMode_PromptHintKeysAlwaysDispatch_DefaultAndRemappedTables(t *testing.T) {
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{
+			name: "remapped table",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeCloseConfirm: {
+					"y":   keymap.UnboundBinding(),
+					"c":   keymap.CommandBinding(keymap.CommandCloseConfirmConfirm),
+					"esc": keymap.UnboundBinding(),
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newLoadedTestBoard(t)
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+
+			entries := b.keys.Entries(keymap.ModeCloseConfirm, "")
+			suffix := promptKeySuffix(entries, keymap.CommandCloseConfirmConfirm, keymap.CommandCloseConfirmCancel)
+			if suffix == "" {
+				t.Fatal("promptKeySuffix() returned empty, want at least one bound side for this table")
+			}
+			for _, key := range strings.Split(suffix, "/") {
+				result := b.keys.Lookup(keymap.ModeCloseConfirm, "", keymap.Sequence{keymap.Key(key)})
+				if result.Outcome != keymap.OutcomeMatch {
+					t.Errorf("suffix %q: Lookup(ModeCloseConfirm, %q) outcome = %v, want OutcomeMatch (every advertised key must actually dispatch)", suffix, key, result.Outcome)
+				}
+			}
+		})
 	}
 }
 
