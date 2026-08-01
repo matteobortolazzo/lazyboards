@@ -863,3 +863,116 @@ func TestKeymapText_ConfigCommandActive_NonCycleCommandsAlwaysActive(t *testing.
 		}
 	}
 }
+
+// --- glyphHintKey: arrow-preferred glyph substitution (#540 PR 2/2) ---
+//
+// create's Cycle hint (PR 1/2) only ever exercises glyphHintKey against a
+// fixture where an id's *only* bound key is an arrow alias (left/right),
+// which commandHintKeys' own alias-suppression never has to fight against.
+// search's default table is the first caller to bind an arrow key (up/down)
+// *and* a non-alias alias (ctrl+n/ctrl+p) to the very same command id
+// simultaneously -- the "both-aliases-bound" fixture the #540 plan's Risks
+// section names as glyphHintKey's named mitigation. This is a Calculation
+// (State Coverage for Composite Hints, .claude/rules/testing.md): the
+// preferArrow tie-break can only be fully exercised at the unit level
+// against a hand-built []keymap.Entry fixture, mirroring
+// TestKeymapText_PromptKeySuffix_* above.
+
+// TestKeymapText_GlyphHintKey_PreferArrow_BothArrowAndCtrlAliasBound_PicksArrowGlyph
+// reproduces searchDefaults verbatim (internal/keymap/defaults_text.go):
+// search.prev_result is bound to both "up" and "ctrl+p", search.next_result
+// to both "down" and "ctrl+n". Byte-identity with today's "↑/↓" literal
+// (searchModeHints, pre-#540 model.go) requires glyphHintKey to prefer the
+// arrow key here, not commandHintKeys' own alias-suppressed pick (which
+// would surface "ctrl+p"/"ctrl+n" instead, since commandHintKeys treats
+// up/down as suppressible aliases whenever a non-alias key is also bound).
+func TestKeymapText_GlyphHintKey_PreferArrow_BothArrowAndCtrlAliasBound_PicksArrowGlyph(t *testing.T) {
+	entries := []keymap.Entry{
+		{Sequence: "up", Binding: keymap.CommandBinding(keymap.CommandSearchPrevResult)},
+		{Sequence: "ctrl+p", Binding: keymap.CommandBinding(keymap.CommandSearchPrevResult)},
+		{Sequence: "down", Binding: keymap.CommandBinding(keymap.CommandSearchNextResult)},
+		{Sequence: "ctrl+n", Binding: keymap.CommandBinding(keymap.CommandSearchNextResult)},
+	}
+
+	got := glyphHintKey(entries, true, keymap.CommandSearchPrevResult, keymap.CommandSearchNextResult)
+	want := "↑/↓"
+	if got != want {
+		t.Errorf("glyphHintKey(preferArrow=true, both up/ctrl+p and down/ctrl+n bound) = %q, want %q (today's byte-identical search Navigate hint)", got, want)
+	}
+}
+
+// TestKeymapText_GlyphHintKey_PreferArrowFalse_BothArrowAndCtrlAliasBound_PicksCtrlAlias
+// is the preferArrow=false control case for the fixture above: without the
+// arrow preference, glyphHintKey must fall back to commandHintKeys' own
+// pick, which suppresses the arrow alias and surfaces the ctrl+ form
+// instead -- proving preferArrow, not some other code path, is what
+// recovers the arrow glyph.
+func TestKeymapText_GlyphHintKey_PreferArrowFalse_BothArrowAndCtrlAliasBound_PicksCtrlAlias(t *testing.T) {
+	entries := []keymap.Entry{
+		{Sequence: "up", Binding: keymap.CommandBinding(keymap.CommandSearchPrevResult)},
+		{Sequence: "ctrl+p", Binding: keymap.CommandBinding(keymap.CommandSearchPrevResult)},
+		{Sequence: "down", Binding: keymap.CommandBinding(keymap.CommandSearchNextResult)},
+		{Sequence: "ctrl+n", Binding: keymap.CommandBinding(keymap.CommandSearchNextResult)},
+	}
+
+	got := glyphHintKey(entries, false, keymap.CommandSearchPrevResult, keymap.CommandSearchNextResult)
+	want := "ctrl+p/ctrl+n"
+	if got != want {
+		t.Errorf("glyphHintKey(preferArrow=false, both up/ctrl+p and down/ctrl+n bound) = %q, want %q (no arrow preference: falls back to commandHintKeys' alias-suppressed pick)", got, want)
+	}
+}
+
+// TestKeymapText_GlyphHintKey_RemappedOffArrows_FallsBackToRawKeyText is
+// glyphHintKey's remap sibling: once neither id has an arrow key bound at
+// all (both unbound from up/down, rebound onto ctrl+k/ctrl+j), preferArrow
+// has nothing to prefer and the result must be the raw key text, not a
+// stale/misleading glyph -- mirroring arrowGlyphs' documented fallback
+// (keymap_dispatch.go) and create's
+// TestCreateModalHints_RemapAssigneeCycleKeys_ReflectsNewKeysNoGlyph.
+func TestKeymapText_GlyphHintKey_RemappedOffArrows_FallsBackToRawKeyText(t *testing.T) {
+	entries := []keymap.Entry{
+		{Sequence: "ctrl+k", Binding: keymap.CommandBinding(keymap.CommandSearchPrevResult)},
+		{Sequence: "ctrl+j", Binding: keymap.CommandBinding(keymap.CommandSearchNextResult)},
+	}
+
+	got := glyphHintKey(entries, true, keymap.CommandSearchPrevResult, keymap.CommandSearchNextResult)
+	want := "ctrl+k/ctrl+j"
+	if got != want {
+		t.Errorf("glyphHintKey(preferArrow=true, no arrow key bound to either id) = %q, want %q (raw key text, no glyph)", got, want)
+	}
+}
+
+// TestKeymapText_GlyphHintKey_OnlyArrowAliasBound_PicksArrowGlyph is
+// glyphHintKey's simplest preferArrow case -- an id whose *only* bound key
+// is the arrow alias (create's assignee_prev/assignee_next default
+// left/right, with nothing else bound) -- guarding the branch
+// createModalHints already exercises indirectly via
+// TestCreateModalHints_CycleHintPresentOnlyAtFocus2, at the unit level.
+func TestKeymapText_GlyphHintKey_OnlyArrowAliasBound_PicksArrowGlyph(t *testing.T) {
+	entries := []keymap.Entry{
+		{Sequence: "left", Binding: keymap.CommandBinding(keymap.CommandCreateAssigneePrev)},
+		{Sequence: "right", Binding: keymap.CommandBinding(keymap.CommandCreateAssigneeNext)},
+	}
+
+	got := glyphHintKey(entries, true, keymap.CommandCreateAssigneePrev, keymap.CommandCreateAssigneeNext)
+	want := "◀/▶"
+	if got != want {
+		t.Errorf("glyphHintKey(preferArrow=true, only left/right bound) = %q, want %q", got, want)
+	}
+}
+
+// TestKeymapText_GlyphHintKey_UnboundID_OmittedFromJoin guards the
+// no-key-bound skip: an id with nothing bound in entries must be dropped
+// from the joined result entirely, not render as an empty segment (e.g.
+// "◀/" or "/▶") -- matching textHintKey's documented "" skip.
+func TestKeymapText_GlyphHintKey_UnboundID_OmittedFromJoin(t *testing.T) {
+	entries := []keymap.Entry{
+		{Sequence: "up", Binding: keymap.CommandBinding(keymap.CommandSearchPrevResult)},
+	}
+
+	got := glyphHintKey(entries, true, keymap.CommandSearchPrevResult, keymap.CommandSearchNextResult)
+	want := "↑"
+	if got != want {
+		t.Errorf("glyphHintKey with search.next_result unbound = %q, want %q (unbound id dropped, not an empty segment)", got, want)
+	}
+}
