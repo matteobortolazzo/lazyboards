@@ -177,3 +177,236 @@ func (b Board) runDeleteCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	}
 	return b, nil
 }
+
+// --- create/config (#540 PR 1/2) ---
+//
+// create and config are both ConsumesPrintableRunes() text-input surfaces
+// with a per-instance focus field that gates two of their five commands:
+// create.assignee_prev/assignee_next only cycle the assignee at
+// b.create.focus == 2, and config.provider_prev/provider_next only cycle
+// the provider at b.config.focus == 0. createCommandActive/
+// configCommandActive are that fifth eligibility condition, layered onto
+// handleCreateModeKey/handleConfigModeKey's textBinding-resolved command
+// the same way handleDeleteModeKey's recognized-command predicate is
+// layered onto delete.submit/delete.cancel: an eligible command dispatches
+// through runCreateCommand/runConfigCommand, anything else (including a
+// resolved-but-currently-ineligible cycle command) falls through to the
+// mode's own fallback in mode_handlers.go.
+
+// glyphHintKey is textHintKey's arrow-glyph-substituting sibling: for each
+// id, it picks a single bound key (preferring an arrow-alias key -- left/
+// right/up/down -- when preferArrow is true and one is bound, otherwise
+// commandHintKeys' default shortest-then-alphabetical pick), renders it
+// through glyphOrKey (keymap_dispatch.go), and joins the results with "/".
+// Used by createModalHints' Cycle hint so the default "left"/"right" table
+// renders "◀/▶" (byte-identical to today's literal) while a remap onto
+// non-arrow keys (e.g. "h"/"l") falls back to the raw key text instead of a
+// stale glyph.
+func glyphHintKey(entries []keymap.Entry, preferArrow bool, ids ...keymap.CommandID) string {
+	single := singleKeyEntries(entries)
+	var parts []string
+	for _, id := range ids {
+		keys := commandHintKeys(single, id)
+		if len(keys) == 0 {
+			continue
+		}
+		key := keys[0]
+		if preferArrow {
+			for _, k := range keys {
+				if arrowAliasKeys[k] {
+					key = k
+					break
+				}
+			}
+		}
+		parts = append(parts, glyphOrKey(key))
+	}
+	return strings.Join(parts, "/")
+}
+
+// createHintSpecs curates the create modal's non-focus-gated status-bar
+// hints (Cancel, Next); Submit is applied separately (createSubmitHintSpec)
+// so createModalHints can insert the focus == 2-gated Cycle hint between
+// Next and Submit, matching today's Cancel/Next/Cycle/Submit order
+// (view.go's pre-#540 inline literal).
+var createHintSpecs = []hintSpec{
+	{desc: "Cancel", commands: []keymap.CommandID{keymap.CommandCreateCancel}},
+	{desc: "Next", commands: []keymap.CommandID{keymap.CommandCreateNextField}},
+}
+
+// createSubmitHintSpec is createHintSpecs' Submit sibling, applied last.
+var createSubmitHintSpec = hintSpec{desc: "Submit", commands: []keymap.CommandID{keymap.CommandCreateSubmit}}
+
+// configHintSpecs curates the config modal's status-bar hints (Cancel,
+// Next, Save) -- config's provider cycle has no hint-bar entry today
+// (view.go's pre-#540 inline literal doesn't advertise left/right either),
+// so configModalHints doesn't need a glyphHintKey-derived Cycle entry.
+var configHintSpecs = []hintSpec{
+	{desc: "Cancel", commands: []keymap.CommandID{keymap.CommandConfigCancel}},
+	{desc: "Next", commands: []keymap.CommandID{keymap.CommandConfigNextField}},
+	{desc: "Save", commands: []keymap.CommandID{keymap.CommandConfigSave}},
+}
+
+// createModalHints derives the create modal's status-bar hints from the
+// active keymap, byte-identical to today's inline literal (view.go) under
+// the default table: Cancel, Next, Cycle (only at b.create.focus == 2), then
+// Submit.
+func (b Board) createModalHints() []Hint {
+	entries := singleKeyEntries(b.keys.Entries(keymap.ModeCreate, ""))
+	hints := builtinHints(entries, createHintSpecs)
+	if b.create.focus == 2 {
+		if key := glyphHintKey(entries, true, keymap.CommandCreateAssigneePrev, keymap.CommandCreateAssigneeNext); key != "" {
+			hints = append(hints, Hint{Key: key, Desc: "Cycle"})
+		}
+	}
+	hints = append(hints, builtinHints(entries, []hintSpec{createSubmitHintSpec})...)
+	return hints
+}
+
+// configModalHints derives the config modal's status-bar hints from the
+// active keymap, byte-identical to today's inline literal (view.go) under
+// the default table.
+func (b Board) configModalHints() []Hint {
+	entries := singleKeyEntries(b.keys.Entries(keymap.ModeConfig, ""))
+	return builtinHints(entries, configHintSpecs)
+}
+
+// createCommandActive reports whether a textBinding-resolved create.*
+// command id is currently eligible to run: assignee_prev/assignee_next
+// require b.create.focus == 2 (the assignee picker) AND at least one
+// assignee option (mirroring today's `len(b.create.assigneeOptions) == 0`
+// no-op guard, mode_handlers.go); every other create.* command id is not
+// focus-gated.
+func (b Board) createCommandActive(id keymap.CommandID) bool {
+	switch id {
+	case keymap.CommandCreateAssigneePrev, keymap.CommandCreateAssigneeNext:
+		return b.create.focus == 2 && len(b.create.assigneeOptions) > 0
+	default:
+		return true
+	}
+}
+
+// configCommandActive is createCommandActive's config sibling:
+// provider_prev/provider_next require b.config.focus == 0 (the provider
+// picker); every other config.* command id is not focus-gated.
+func (b Board) configCommandActive(id keymap.CommandID) bool {
+	switch id {
+	case keymap.CommandConfigProviderPrev, keymap.CommandConfigProviderNext:
+		return b.config.focus == 0
+	default:
+		return true
+	}
+}
+
+// runCreateCommand runs the create command id resolves to. Case bodies are
+// transcribed verbatim from the pre-#540 handleCreateModeKey
+// (mode_handlers.go), guard for guard, including the
+// b.validationErr = "" clear on the assignee-cycle commands (today's
+// `default:` branch clears it before the assignee switch).
+func (b Board) runCreateCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	switch id {
+	case keymap.CommandCreateCancel:
+		b.mode = normalMode
+		return b, nil
+	case keymap.CommandCreateSubmit:
+		title := strings.TrimSpace(strings.ReplaceAll(b.create.titleInput.Value(), "\n", " "))
+		if title == "" {
+			b.validationErr = "Title is required"
+			return b, nil
+		}
+		label := strings.TrimSpace(b.create.labelInput.Value())
+		for _, col := range b.Columns {
+			if strings.EqualFold(col.Title, label) {
+				b.validationErr = "Cannot use reserved column label"
+				return b, nil
+			}
+		}
+		// Store pending assignee if a real collaborator is selected (not "(none)").
+		if len(b.create.assigneeOptions) > 1 && b.create.assigneeOptions[b.create.assigneeIndex] != noneAssignee {
+			login := b.create.assigneeOptions[b.create.assigneeIndex]
+			login = strings.TrimSuffix(login, " (me)")
+			b.create.pendingAssignee = login
+		} else {
+			b.create.pendingAssignee = ""
+		}
+		b.mode = creatingMode
+		b.create.titleInput.Blur()
+		b.create.labelInput.Blur()
+		return b, tea.Batch(b.spinner.Tick, createCardCmd(b.provider, title, label))
+	case keymap.CommandCreateNextField:
+		var cmd tea.Cmd
+		hasAssignee := len(b.create.assigneeOptions) > 1
+		switch b.create.focus {
+		case 0: // title -> label
+			b.create.focus = 1
+			b.create.titleInput.Blur()
+			cmd = b.create.labelInput.Focus()
+		case 1: // label -> assignee (if available) or title
+			b.create.labelInput.Blur()
+			if hasAssignee {
+				b.create.focus = 2
+			} else {
+				b.create.focus = 0
+				cmd = b.create.titleInput.Focus()
+			}
+		case 2: // assignee -> title
+			b.create.focus = 0
+			cmd = b.create.titleInput.Focus()
+		}
+		return b, cmd
+	case keymap.CommandCreateAssigneePrev:
+		b.validationErr = ""
+		b.create.assigneeIndex--
+		if b.create.assigneeIndex < 0 {
+			b.create.assigneeIndex = len(b.create.assigneeOptions) - 1
+		}
+		return b, nil
+	case keymap.CommandCreateAssigneeNext:
+		b.validationErr = ""
+		b.create.assigneeIndex++
+		if b.create.assigneeIndex >= len(b.create.assigneeOptions) {
+			b.create.assigneeIndex = 0
+		}
+		return b, nil
+	}
+	return b, nil
+}
+
+// runConfigCommand runs the config command id resolves to. Case bodies are
+// transcribed verbatim from the pre-#540 handleConfigModeKey
+// (mode_handlers.go), guard for guard.
+func (b Board) runConfigCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	switch id {
+	case keymap.CommandConfigCancel:
+		if b.config.firstLaunch {
+			return b, tea.Quit
+		}
+		b.mode = normalMode
+		return b, nil
+	case keymap.CommandConfigSave:
+		provider := b.config.providerOptions[b.config.providerIndex]
+		repo := strings.TrimSpace(b.config.repoInput.Value())
+		if repo == "" {
+			b.validationErr = "Repository is required"
+			return b, nil
+		}
+		b.validationErr = ""
+		return b, saveConfigCmd(b.config.localPath, provider, repo)
+	case keymap.CommandConfigNextField:
+		if b.config.focus == 0 {
+			b.config.focus = 1
+			cmd := b.config.repoInput.Focus()
+			return b, cmd
+		}
+		b.config.focus = 0
+		b.config.repoInput.Blur()
+		return b, nil
+	case keymap.CommandConfigProviderNext:
+		b.config.providerIndex = (b.config.providerIndex + 1) % len(b.config.providerOptions)
+		return b, nil
+	case keymap.CommandConfigProviderPrev:
+		b.config.providerIndex = (b.config.providerIndex - 1 + len(b.config.providerOptions)) % len(b.config.providerOptions)
+		return b, nil
+	}
+	return b, nil
+}

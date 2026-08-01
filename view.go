@@ -1079,15 +1079,7 @@ func (b Board) viewCreateModal() string {
 		if b.validationErr != "" {
 			errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
 		}
-		hints := []Hint{
-			{Key: "esc", Desc: "Cancel"},
-			{Key: "tab", Desc: "Next"},
-		}
-		if b.create.focus == 2 {
-			hints = append(hints, Hint{Key: "\u25c0/\u25b6", Desc: "Cycle"})
-		}
-		hints = append(hints, Hint{Key: "enter", Desc: "Submit"})
-		createHints := NewStatusBar(hints)
+		createHints := NewStatusBar(b.createModalHints())
 
 		var assigneeLine string
 		if len(b.create.assigneeOptions) > 1 {
@@ -1114,11 +1106,7 @@ func (b Board) viewConfigModal() string {
 
 	providerDisplay := "< " + b.config.providerOptions[b.config.providerIndex] + " >"
 
-	configHints := NewStatusBar([]Hint{
-		{Key: "esc", Desc: "Cancel"},
-		{Key: "tab", Desc: "Next"},
-		{Key: "enter", Desc: "Save"},
-	})
+	configHints := NewStatusBar(b.configModalHints())
 
 	repoView := b.config.repoInput.View()
 

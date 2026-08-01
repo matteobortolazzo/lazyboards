@@ -72,27 +72,6 @@ var prPickerHintSpecs = []hintSpec{
 	{desc: "Cancel", commands: []keymap.CommandID{keymap.CommandPRPickerClose}},
 }
 
-// prPickerArrowGlyphs maps the default PR picker's raw key names to the
-// arrow glyphs the pre-registry prPickerHints var rendered (Q3): keyed on
-// the literal key name, not on the command id, so remapping Cycle onto keys
-// outside this map (e.g. "h"/"l") falls back to the raw key text instead of
-// a stale/misleading glyph.
-var prPickerArrowGlyphs = map[string]string{
-	"left":  "◀",
-	"right": "▶",
-	"up":    "↑",
-	"down":  "↓",
-}
-
-// prPickerGlyphOrKey returns key's arrow glyph if it has one, the raw key
-// text otherwise.
-func prPickerGlyphOrKey(key string) string {
-	if glyph, ok := prPickerArrowGlyphs[key]; ok {
-		return glyph
-	}
-	return key
-}
-
 // prPickerCycleHint builds the PR picker's "Cycle" hint from entries' pr_picker.prev/
 // pr_picker.next bindings, substituting arrow glyphs per Q3. It reports
 // false when either command has no bound key left (nothing to advertise).
@@ -102,7 +81,7 @@ func prPickerCycleHint(entries []keymap.Entry) (Hint, bool) {
 	if len(prevKeys) == 0 || len(nextKeys) == 0 {
 		return Hint{}, false
 	}
-	key := prPickerGlyphOrKey(prevKeys[0]) + "/" + prPickerGlyphOrKey(nextKeys[0])
+	key := glyphOrKey(prevKeys[0]) + "/" + glyphOrKey(nextKeys[0])
 	return Hint{Key: key, Desc: "Cycle"}, true
 }
 
