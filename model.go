@@ -163,20 +163,6 @@ var commentModeHints = []Hint{
 	{Key: "enter", Desc: "Submit"},
 }
 
-// deleteCommentHints are the status bar hints shown at the delete flow's
-// optional-comment step.
-var deleteCommentHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "enter", Desc: "Continue"},
-}
-
-// deleteConfirmHints are the status bar hints shown at the delete flow's
-// retype-to-confirm step.
-var deleteConfirmHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "enter", Desc: "Confirm"},
-}
-
 // boardMode represents the current interaction mode of the board.
 type boardMode int
 
