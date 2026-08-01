@@ -395,6 +395,28 @@ var detailHintSpecs = []hintSpec{
 // one of them (better an arrow-key hint than none at all).
 var arrowAliasKeys = map[string]bool{"up": true, "down": true, "left": true, "right": true}
 
+// arrowGlyphs maps raw key names to the arrow glyphs the pre-registry hint
+// vars rendered (Q3, #540): keyed on the literal key name, not on a command
+// id, so remapping a Cycle/Navigate hint onto keys outside this map (e.g.
+// "h"/"l") falls back to the raw key text instead of a stale/misleading
+// glyph. Originally prPickerArrowGlyphs (#490); renamed and moved here so
+// #540's create/search hint builders can share it beside arrowAliasKeys.
+var arrowGlyphs = map[string]string{
+	"left":  "◀",
+	"right": "▶",
+	"up":    "↑",
+	"down":  "↓",
+}
+
+// glyphOrKey returns key's arrow glyph if it has one, the raw key text
+// otherwise. Originally prPickerGlyphOrKey (#490).
+func glyphOrKey(key string) string {
+	if glyph, ok := arrowGlyphs[key]; ok {
+		return glyph
+	}
+	return key
+}
+
 // commandHintKeys returns the resolved, alias-suppressed keys bound to id in
 // entries (registryHints passes the active column's overlaid entries --
 // Entries(mode, column) -- so a column-scoped rebind of a curated built-in is
