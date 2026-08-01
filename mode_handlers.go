@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
@@ -755,41 +756,57 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+// handlePRListModeKey routes a global PR list key through the ModePRList
+// registry table (#490 PR 7b), mirroring handleFilterModeKey/
+// handleAssignModeKey's shape. Unlike those two modals, an inline action
+// bound under keymaps.pr_list DOES dispatch here -- gated to scope: pr (Q2),
+// mirroring the deleted raw A-Z scan's own scope check -- against the
+// selected row via runPRListAction.
 func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+	result := b.lookupModalBinding(keymap.ModePRList, msg)
+	switch result.Outcome {
+	case keymap.OutcomePending:
+		// Q4: the PR list has no multi-key pending-sequence machinery; a key
+		// that is only a prefix of a bound sequence is a silent no-op.
 		return b, nil
-	case tea.KeyEnter:
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
-		if len(b.prList.entries) == 0 || b.prList.cursor >= len(b.prList.entries) {
+	case keymap.OutcomeMatch:
+		if result.Binding.Kind == keymap.BindingAction {
+			act := configActionFromKeymap(result.Binding.Action)
+			if config.DefaultScope(act.Scope) != "pr" {
+				// Q2: only global scope: pr actions may dispatch inside the
+				// PR list -- it is a repo-wide row view with no sensible
+				// board/card target for any other scope.
+				return b, nil
+			}
+			return b.runPRListAction(act)
+		}
+		switch result.Binding.Command {
+		case keymap.CommandPRListClose:
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
 			return b, nil
-		}
-		pr := b.prList.entries[b.prList.cursor].pr
-		if err := b.executor.OpenURL(pr.URL); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+		case keymap.CommandPRListOpen:
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
+			if len(b.prList.entries) == 0 || b.prList.cursor >= len(b.prList.entries) {
+				return b, nil
+			}
+			pr := b.prList.entries[b.prList.cursor].pr
+			if err := b.executor.OpenURL(pr.URL); err != nil {
+				cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+				return b, cmd
+			}
+			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), StatusSuccess, statusMessageDuration)
 			return b, cmd
+		case keymap.CommandPRListNext:
+			b.prList.cursor = moveCursor(b.prList.cursor, len(b.prList.entries), true)
+		case keymap.CommandPRListPrev:
+			b.prList.cursor = moveCursor(b.prList.cursor, len(b.prList.entries), false)
+		default:
+			// Q4: a command id from a different domain (e.g. a stray
+			// override binding board.refresh here) is not recognized inside
+			// the PR list and must not dispatch.
 		}
-		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), StatusSuccess, statusMessageDuration)
-		return b, cmd
-	}
-
-	switch msg.String() {
-	case "j", "down":
-		b.prList.cursor = moveCursor(b.prList.cursor, len(b.prList.entries), true)
-		return b, nil
-	case "k", "up":
-		b.prList.cursor = moveCursor(b.prList.cursor, len(b.prList.entries), false)
-		return b, nil
-	}
-
-	// Plain uppercase A-Z: global scope: pr custom actions against the
-	// selected row (see handlePRListActionKey). Alt combinations are excluded:
-	// the comment-action flow is normal-mode-only.
-	if !msg.Alt && len(msg.Runes) == 1 && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z' {
-		return b.handlePRListActionKey(msg.String())
 	}
 	return b, nil
 }
@@ -800,57 +817,78 @@ func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // (statusbar.go), so an untrusted GitHub title must be capped here too.
 const milestoneStatusTitleMaxLen = 60
 
-// handleMilestoneListModeKey handles key presses while the Milestones modal
-// (i) is open. Enter closes the modal and, mirroring handlePRListModeKey's
-// "close first, then guard" shape, applies the selected milestone as the
-// board filter (applyFilter) only when entries is non-empty and cursor is in
-// range -- the modal always closes on Enter, but no filter or status message
-// is applied when there is nothing to select. Esc cancels without applying
-// anything. o opens the selected milestone's URL and leaves the modal open,
-// mirroring handleTicketOpenKey's empty-URL guard ("URL not available",
+// handleMilestoneListModeKey routes a Milestones modal (i) key through the
+// ModeMilestoneList registry table (#490 PR 7b), mirroring
+// handleFilterModeKey/handleAssignModeKey's shape -- this modal has no
+// inline-action dispatch path (Q4). Enter closes the modal and, mirroring
+// handlePRListModeKey's "close first, then guard" shape, applies the
+// selected milestone as the board filter (applyFilter) only when entries is
+// non-empty and cursor is in range (loading/err/empty all leave entries nil,
+// per milestoneListState's doc comment, so this one guard covers every
+// non-loaded state uniformly) -- the modal always closes on the bound key,
+// but no filter or status message is applied when there is nothing to
+// select. Esc cancels without applying anything. o opens the selected
+// milestone's URL and leaves the modal open, mirroring
+// handleTicketOpenKey's empty-URL guard ("URL not available",
 // StatusWarning).
 func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+	result := b.lookupModalBinding(keymap.ModeMilestoneList, msg)
+	switch result.Outcome {
+	case keymap.OutcomePending:
+		// Q4: the Milestones modal has no multi-key pending-sequence
+		// machinery; a key that is only a prefix of a bound sequence is a
+		// silent no-op.
 		return b, nil
-	case tea.KeyEnter:
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
-		if len(b.milestoneList.entries) == 0 || b.milestoneList.cursor >= len(b.milestoneList.entries) {
+	case keymap.OutcomeMatch:
+		if result.Binding.Kind != keymap.BindingCommand {
+			// A user config can legally bind an inline action inside
+			// keymaps.milestone_list (validation is not mode-scoped); this
+			// modal has no inline-action dispatch path, so treat anything
+			// that isn't a built-in command as a no-op instead of falling
+			// through to the zero-value Command case below.
 			return b, nil
 		}
-		m := b.milestoneList.entries[b.milestoneList.cursor]
-		b.applyFilter(filterByMilestone, m.Title)
-		title := truncateOutput(sanitizeSingleLine(m.Title), milestoneStatusTitleMaxLen)
-		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Filtered by milestone: %s", title), StatusSuccess, statusMessageDuration)
-		return b, cmd
-	}
-
-	switch msg.String() {
-	case "j", "down":
-		b.milestoneList.cursor = moveCursor(b.milestoneList.cursor, len(b.milestoneList.entries), true)
-		return b, nil
-	case "k", "up":
-		b.milestoneList.cursor = moveCursor(b.milestoneList.cursor, len(b.milestoneList.entries), false)
-		return b, nil
-	case "o":
-		if len(b.milestoneList.entries) == 0 || b.milestoneList.cursor >= len(b.milestoneList.entries) {
+		switch result.Binding.Command {
+		case keymap.CommandMilestoneListClose:
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
 			return b, nil
-		}
-		m := b.milestoneList.entries[b.milestoneList.cursor]
-		title := truncateOutput(sanitizeSingleLine(m.Title), milestoneStatusTitleMaxLen)
-		if m.URL == "" {
-			cmd := b.statusBar.SetTimedMessage("URL not available", StatusWarning, statusMessageDuration)
+		case keymap.CommandMilestoneListFilter:
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
+			if len(b.milestoneList.entries) == 0 || b.milestoneList.cursor >= len(b.milestoneList.entries) {
+				return b, nil
+			}
+			m := b.milestoneList.entries[b.milestoneList.cursor]
+			b.applyFilter(filterByMilestone, m.Title)
+			title := truncateOutput(sanitizeSingleLine(m.Title), milestoneStatusTitleMaxLen)
+			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Filtered by milestone: %s", title), StatusSuccess, statusMessageDuration)
 			return b, cmd
-		}
-		if err := b.executor.OpenURL(m.URL); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+		case keymap.CommandMilestoneListNext:
+			b.milestoneList.cursor = moveCursor(b.milestoneList.cursor, len(b.milestoneList.entries), true)
+		case keymap.CommandMilestoneListPrev:
+			b.milestoneList.cursor = moveCursor(b.milestoneList.cursor, len(b.milestoneList.entries), false)
+		case keymap.CommandMilestoneListOpen:
+			if len(b.milestoneList.entries) == 0 || b.milestoneList.cursor >= len(b.milestoneList.entries) {
+				return b, nil
+			}
+			m := b.milestoneList.entries[b.milestoneList.cursor]
+			title := truncateOutput(sanitizeSingleLine(m.Title), milestoneStatusTitleMaxLen)
+			if m.URL == "" {
+				cmd := b.statusBar.SetTimedMessage("URL not available", StatusWarning, statusMessageDuration)
+				return b, cmd
+			}
+			if err := b.executor.OpenURL(m.URL); err != nil {
+				cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+				return b, cmd
+			}
+			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened milestone %s", title), StatusSuccess, statusMessageDuration)
 			return b, cmd
+		default:
+			// Q4: a command id from a different domain (e.g. a stray
+			// override binding board.refresh here) is not recognized inside
+			// the Milestones modal and must not dispatch.
 		}
-		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened milestone %s", title), StatusSuccess, statusMessageDuration)
-		return b, cmd
 	}
 	return b, nil
 }
@@ -888,37 +926,61 @@ func (b Board) handleAgentJumpKey(card Card) (tea.Model, tea.Cmd) {
 	}
 }
 
-// handleAgentListModeKey handles keys in the agents list modal. Enter closes
-// the modal and switches the tmux client to the selected agent's window; the
-// empty-list guard mirrors viewAgentListModal's empty/unavailable states
-// (docs/view-state-consistency.md).
+// handleAgentListModeKey routes an agents list modal key through the
+// ModeAgentList registry table (#490 PR 7b), mirroring handleFilterModeKey/
+// handleAssignModeKey's shape -- this modal has no inline-action dispatch
+// path (Q4). entries is derived live from the streamed snapshot BEFORE
+// dispatch, exactly as before the conversion (agentListState's doc comment):
+// a snapshot arriving mid-modal can shrink the row count, so every branch
+// below must re-clamp against this fresh entries, not a stale count. Enter
+// closes the modal and switches the tmux client to the selected agent's
+// window; the empty-list guard mirrors viewAgentListModal's
+// empty/unavailable states (docs/view-state-consistency.md).
 func (b Board) handleAgentListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	entries := b.agentListEntries()
-	switch msg.Type {
-	case tea.KeyEscape:
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+
+	result := b.lookupModalBinding(keymap.ModeAgentList, msg)
+	switch result.Outcome {
+	case keymap.OutcomePending:
+		// Q4: the agents list has no multi-key pending-sequence machinery; a
+		// key that is only a prefix of a bound sequence is a silent no-op.
 		return b, nil
-	case tea.KeyEnter:
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
-		if len(entries) == 0 || b.agentList.cursor >= len(entries) {
+	case keymap.OutcomeMatch:
+		if result.Binding.Kind != keymap.BindingCommand {
+			// A user config can legally bind an inline action inside
+			// keymaps.agent_list (validation is not mode-scoped); this modal
+			// has no inline-action dispatch path, so treat anything that
+			// isn't a built-in command as a no-op instead of falling through
+			// to the zero-value Command case below.
 			return b, nil
 		}
-		w := entries[b.agentList.cursor].window
-		if err := b.switchToAgentWindow(w); err != nil {
-			cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+		switch result.Binding.Command {
+		case keymap.CommandAgentListClose:
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
+			return b, nil
+		case keymap.CommandAgentListGoToWindow:
+			b.mode = normalMode
+			b.statusBar.SetActionHints(b.normalHints)
+			if len(entries) == 0 || b.agentList.cursor >= len(entries) {
+				return b, nil
+			}
+			w := entries[b.agentList.cursor].window
+			if err := b.switchToAgentWindow(w); err != nil {
+				cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
+				return b, cmd
+			}
+			cmd := b.statusBar.SetTimedMessage("Switched to "+w.WindowName, StatusSuccess, statusMessageDuration)
 			return b, cmd
+		case keymap.CommandAgentListNext:
+			b.agentList.cursor = moveCursor(b.agentList.cursor, len(entries), true)
+		case keymap.CommandAgentListPrev:
+			b.agentList.cursor = moveCursor(b.agentList.cursor, len(entries), false)
+		default:
+			// Q4: a command id from a different domain (e.g. a stray
+			// override binding board.refresh here) is not recognized inside
+			// the agents list and must not dispatch.
 		}
-		cmd := b.statusBar.SetTimedMessage("Switched to "+w.WindowName, StatusSuccess, statusMessageDuration)
-		return b, cmd
-	}
-
-	switch msg.String() {
-	case "j", "down":
-		b.agentList.cursor = moveCursor(b.agentList.cursor, len(entries), true)
-	case "k", "up":
-		b.agentList.cursor = moveCursor(b.agentList.cursor, len(entries), false)
 	}
 	return b, nil
 }

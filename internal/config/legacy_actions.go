@@ -24,6 +24,17 @@ const legacyDeprecationNotice = "actions:/columns[].actions are deprecated; migr
 // rune-by-rune concatenation (action_dispatch.go:63): a legacy multi-key
 // action was always built up one keystroke at a time with no separator,
 // so translating it back to canonical form is a straight rune split.
+// isUppercaseLetterKey reports whether key is exactly one rune in the range
+// A-Z, mirroring the old PR-list dispatch's key filter (deleted raw scan,
+// previously handlePRListActionKey in mode_handlers.go:
+// `!msg.Alt && msg.Runes[0] >= 'A' && msg.Runes[0] <= 'Z'`). Used to gate the
+// pr_list legacy-action insertion path so a legacy scope: pr action bound to
+// any other kind of key stays the no-op it always was inside the PR list.
+func isUppercaseLetterKey(key string) bool {
+	r := []rune(key)
+	return len(r) == 1 && r[0] >= 'A' && r[0] <= 'Z'
+}
+
 func legacySequence(key string) string {
 	runes := []rune(key)
 	seq := make(keymap.Sequence, len(runes))
@@ -70,12 +81,29 @@ func translateLegacyActions(cfg *Config) {
 			cfg.Keymaps.Modes = make(map[keymap.Mode]KeymapTable)
 		}
 		for _, mode := range []keymap.Mode{keymap.ModeNormal, keymap.ModeDetail} {
-			table, ok := cfg.Keymaps.Modes[mode]
-			if !ok {
-				table = make(KeymapTable)
-				cfg.Keymaps.Modes[mode] = table
+			insertLegacyActions(modeTable(cfg, mode), cfg.Actions)
+		}
+
+		// #490 PR 7b, Q1: a global scope: pr legacy action must also reach the
+		// PR list, which (once this ticket lands) dispatches inline actions
+		// through keymaps.pr_list instead of the raw A-Z scan over
+		// b.actions[key] handlePRListActionKey used to do. Only scope: pr
+		// actions are eligible -- board/card-scoped (or scope-omitted, which
+		// infers to board/card, never pr) legacy actions never had a route
+		// into the PR list before and must not gain one now. The OLD PR-list
+		// dispatch (deleted raw scan) only ever recognized single uppercase
+		// letters A-Z with no Alt modifier, so a legacy scope: pr action
+		// bound to any other kind of key (lowercase, multi-key, digit, ...)
+		// was previously a hard no-op inside the PR list and must stay one --
+		// isUppercaseLetterKey restricts this insertion path accordingly.
+		prScopeActions := make(map[string]Action)
+		for key, action := range cfg.Actions {
+			if action.Scope == "pr" && isUppercaseLetterKey(key) {
+				prScopeActions[key] = action
 			}
-			insertLegacyActions(table, cfg.Actions)
+		}
+		if len(prScopeActions) > 0 {
+			insertLegacyActions(modeTable(cfg, keymap.ModePRList), prScopeActions)
 		}
 	}
 
@@ -102,6 +130,19 @@ func translateLegacyActions(cfg *Config) {
 	if legacyPresent {
 		cfg.Deprecations = append(cfg.Deprecations, legacyDeprecationNotice)
 	}
+}
+
+// modeTable returns cfg.Keymaps.Modes[mode], creating an empty table and
+// storing it back first if none exists yet. Callers must ensure
+// cfg.Keymaps and cfg.Keymaps.Modes are already non-nil (translateLegacyActions
+// does this once, ahead of every modeTable call).
+func modeTable(cfg *Config, mode keymap.Mode) KeymapTable {
+	table, ok := cfg.Keymaps.Modes[mode]
+	if !ok {
+		table = make(KeymapTable)
+		cfg.Keymaps.Modes[mode] = table
+	}
+	return table
 }
 
 // findKeymapColumnByLower looks up columns by case-insensitive name match
