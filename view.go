@@ -1441,7 +1441,7 @@ func (b Board) viewHelpModal() string {
 
 func (b Board) viewCommentModal() string {
 	modalWidth := b.createModalWidth()
-	commentHints := NewStatusBar(commentModeHints)
+	commentHints := NewStatusBar(b.commentHints())
 	modalContent := b.comment.pendingAction.Name + "\n\n" +
 		b.comment.input.View() + "\n\n" +
 		commentHints.View(modalWidth, 0, 0)

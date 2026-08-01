@@ -150,19 +150,6 @@ func labelColor(label Label) lipgloss.Color {
 	return labelPalette[h.Sum32()%uint32(len(labelPalette))]
 }
 
-// searchModeHints are the status bar hints shown when search mode is active.
-var searchModeHints = []Hint{
-	{Key: "enter", Desc: "Apply"},
-	{Key: "esc", Desc: "Clear"},
-	{Key: "↑/↓", Desc: "Navigate"},
-}
-
-// commentModeHints are the status bar hints shown when the comment input is active.
-var commentModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "enter", Desc: "Submit"},
-}
-
 // boardMode represents the current interaction mode of the board.
 type boardMode int
 
