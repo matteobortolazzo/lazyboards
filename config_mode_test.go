@@ -559,6 +559,65 @@ func TestConfigMode_RemapProviderCycleKeys_OldKeysNoLongerCycleNewKeysDo(t *test
 	}
 }
 
+// TestConfigMode_EscBoundToAction_FallsThroughToTextinputNotDispatched and
+// TestConfigMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched
+// cover two of handleConfigModeKey's four documented fall-through outcomes
+// (mirroring handleDeleteModeKey's TestDeleteMode_CommentStep_EscBoundToAction_
+// FallsThroughToTextinputNotDispatched /
+// TestDeleteMode_CommentStep_ForeignCommandIDBoundToKey_
+// FallsThroughToTextinputNotDispatched, delete_mode_test.go): a resolved
+// non-command BindingAction, and a command id valid elsewhere in the catalog
+// but foreign to ModeConfig's own five ids. Exercised at focus == 1 (repo
+// input focused) so a wrongly-dispatched action/foreign command would be
+// distinguishable from the textinput-forwarding fallback.
+func TestConfigMode_EscBoundToAction_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("c"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab)) // provider -> repo, focus == 1
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeConfig: {
+			"esc": keymap.ActionBinding(keymap.Action{Name: "Noop", Type: "url", URL: "https://example.com/{number}"}),
+		},
+	}, nil)
+	before := b.config.repoInput.Value()
+
+	m, _ := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != configMode {
+		t.Errorf("mode after esc resolved to a non-command action = %v, want unchanged configMode (must not dispatch the action)", b2.mode)
+	}
+	if got := b2.config.repoInput.Value(); got != before {
+		t.Errorf("repoInput.Value() = %q after esc resolved to a non-command action, want unchanged %q (falls through to the textinput)", got, before)
+	}
+}
+
+func TestConfigMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("c"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab)) // provider -> repo, focus == 1
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeConfig: {
+			"f1": keymap.CommandBinding(keymap.CommandCloseConfirmConfirm),
+		},
+	}, nil)
+	before := b.config.repoInput.Value()
+
+	m, _ := b.Update(arrowMsg(tea.KeyF1))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != configMode {
+		t.Errorf("mode after a foreign command id (close_confirm.confirm) bound into ModeConfig = %v, want unchanged configMode", b2.mode)
+	}
+	if got := b2.config.repoInput.Value(); got != before {
+		t.Errorf("repoInput.Value() = %q after a foreign command id bound into ModeConfig, want unchanged %q (falls through to the textinput, not dispatched)", got, before)
+	}
+}
+
 // --- configModalHints(): byte-identity, remap ---
 
 func TestConfigModalHints_DefaultParityMatchesTodaysLiteral(t *testing.T) {

@@ -1615,6 +1615,65 @@ func TestCreateMode_RemapAssigneeCycleKeys_OldKeysNoLongerCycleNewKeysDo(t *test
 	}
 }
 
+// TestCreateMode_EscBoundToAction_FallsThroughToTextinputNotDispatched and
+// TestCreateMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched
+// cover two of handleCreateModeKey's four documented fall-through outcomes
+// (mirroring handleDeleteModeKey's TestDeleteMode_CommentStep_EscBoundToAction_
+// FallsThroughToTextinputNotDispatched /
+// TestDeleteMode_CommentStep_ForeignCommandIDBoundToKey_
+// FallsThroughToTextinputNotDispatched, delete_mode_test.go): a resolved
+// non-command BindingAction, and a command id valid elsewhere in the catalog
+// but foreign to ModeCreate's own five ids. Neither is dispatched -- the
+// user config's semantic validator only checks a bound command id is
+// catalogued somewhere, not that it belongs to the mode it's bound under
+// (internal/config/keymap_semantic_validate.go), so both are reachable via a
+// legal (if unusual) keymaps.create config.
+func TestCreateMode_EscBoundToAction_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeCreate: {
+			"esc": keymap.ActionBinding(keymap.Action{Name: "Noop", Type: "url", URL: "https://example.com/{number}"}),
+		},
+	}, nil)
+	before := b.create.titleInput.Value()
+
+	m, _ := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != createMode {
+		t.Errorf("mode after esc resolved to a non-command action = %v, want unchanged createMode (must not dispatch the action)", b2.mode)
+	}
+	if got := b2.create.titleInput.Value(); got != before {
+		t.Errorf("titleInput.Value() = %q after esc resolved to a non-command action, want unchanged %q (falls through to the textinput)", got, before)
+	}
+}
+
+func TestCreateMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeCreate: {
+			"f1": keymap.CommandBinding(keymap.CommandCloseConfirmConfirm),
+		},
+	}, nil)
+	before := b.create.titleInput.Value()
+
+	m, _ := b.Update(arrowMsg(tea.KeyF1))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != createMode {
+		t.Errorf("mode after a foreign command id (close_confirm.confirm) bound into ModeCreate = %v, want unchanged createMode", b2.mode)
+	}
+	if got := b2.create.titleInput.Value(); got != before {
+		t.Errorf("titleInput.Value() = %q after a foreign command id bound into ModeCreate, want unchanged %q (falls through to the textinput, not dispatched)", got, before)
+	}
+}
+
 // --- createModalHints(): byte-identity, focus-gated Cycle hint, remap ---
 
 func TestCreateModalHints_DefaultParityMatchesTodaysLiteral(t *testing.T) {
