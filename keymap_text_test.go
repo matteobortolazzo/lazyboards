@@ -610,3 +610,160 @@ func TestKeymapText_LabelConfirm_UnrecognizedKey_NoOp(t *testing.T) {
 		t.Error("unrecognized key should not fire a cmd")
 	}
 }
+
+// --- delete mode: textBinding + hint-bar derivation (#539 PR 2/2) ---
+//
+// delete stays one Mode (ModeDelete) shared by both steps of the two-step
+// flow: delete.submit/delete.cancel resolve identically regardless of step,
+// while the per-step wording ("Continue" vs "Confirm") and dispatch
+// (handleDeleteModeKey, mode_handlers.go) live in package main. Unlike
+// close_confirm/label_confirm, delete.ConsumesPrintableRunes() is true, so
+// textBinding's printable-rune guard is load-bearing here -- proven
+// structurally below, and end-to-end through the real handler in
+// delete_mode_test.go.
+
+func TestKeymapText_TextBinding_Delete_DefaultEnterEscResolve(t *testing.T) {
+	b := newTestBoard(t)
+
+	cases := []struct {
+		msg  tea.KeyMsg
+		want keymap.CommandID
+	}{
+		{arrowMsg(tea.KeyEnter), keymap.CommandDeleteSubmit},
+		{arrowMsg(tea.KeyEsc), keymap.CommandDeleteCancel},
+	}
+	for _, tc := range cases {
+		binding, ok := b.textBinding(keymap.ModeDelete, tc.msg)
+		if !ok {
+			t.Errorf("textBinding(ModeDelete, %q) = not found, want command %v", tc.msg.String(), tc.want)
+			continue
+		}
+		if binding.Kind != keymap.BindingCommand || binding.Command != tc.want {
+			t.Errorf("textBinding(ModeDelete, %q) = %+v, want command %v", tc.msg.String(), binding, tc.want)
+		}
+	}
+}
+
+// TestKeymapText_TextBinding_Delete_PrintableRuneNeverFound proves
+// textBinding's ConsumesPrintableRunes guard for delete mode specifically:
+// unlike close_confirm/label_confirm (ConsumesPrintableRunes() == false), a
+// printable rune -- even one that happens to be bound as a command
+// elsewhere (e.g. "y"/"n" in close_confirm/label_confirm) -- must be
+// reported not-found by construction here, not merely because nothing is
+// bound to it in ModeDelete's own table. This is the structural half of the
+// guard; TestDeleteMode_TypedCommentPassesThroughLiteralRunes_NoDispatch
+// (delete_mode_test.go) proves the same guard end-to-end through the real
+// handler.
+func TestKeymapText_TextBinding_Delete_PrintableRuneNeverFound(t *testing.T) {
+	b := newTestBoard(t)
+	for _, r := range []string{"y", "n", "d", "x", "g"} {
+		if _, ok := b.textBinding(keymap.ModeDelete, keyMsg(r)); ok {
+			t.Errorf("textBinding(ModeDelete, %q) resolved, want not found (ConsumesPrintableRunes guard)", r)
+		}
+	}
+}
+
+// TestKeymapText_DeleteCommentHints_DefaultParityMatchesTodaysWording locks
+// in today's UI text for the optional-comment step's status-bar hint bar
+// (model.go's deleteCommentHints package var, pre-#539), now derived from
+// the registry via the new b.deleteCommentHints() Board method.
+func TestKeymapText_DeleteCommentHints_DefaultParityMatchesTodaysWording(t *testing.T) {
+	b := newTestBoard(t)
+	hints := b.deleteCommentHints()
+
+	if got := hintDesc(t, hints, "esc"); got != "Cancel" {
+		t.Errorf("deleteCommentHints() esc Desc = %q, want %q", got, "Cancel")
+	}
+	if got := hintDesc(t, hints, "enter"); got != "Continue" {
+		t.Errorf("deleteCommentHints() enter Desc = %q, want %q", got, "Continue")
+	}
+}
+
+// TestKeymapText_DeleteConfirmHints_DefaultParityMatchesTodaysWording is the
+// retype-to-confirm-step sibling of the test above (deleteConfirmHints,
+// pre-#539), via the new b.deleteConfirmHints() Board method.
+func TestKeymapText_DeleteConfirmHints_DefaultParityMatchesTodaysWording(t *testing.T) {
+	b := newTestBoard(t)
+	hints := b.deleteConfirmHints()
+
+	if got := hintDesc(t, hints, "esc"); got != "Cancel" {
+		t.Errorf("deleteConfirmHints() esc Desc = %q, want %q", got, "Cancel")
+	}
+	if got := hintDesc(t, hints, "enter"); got != "Confirm" {
+		t.Errorf("deleteConfirmHints() enter Desc = %q, want %q", got, "Confirm")
+	}
+}
+
+// TestKeymapText_DeleteHints_RemapSubmitKey_BothStepsReflectNewKey covers
+// item 1/2 of the #539 PR2 plan: remapping delete.submit's key must be
+// reflected in BOTH steps' hint bars (the single ModeDelete table backs
+// both), and the stale old key must no longer be advertised by either.
+func TestKeymapText_DeleteHints_RemapSubmitKey_BothStepsReflectNewKey(t *testing.T) {
+	b := newTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"enter": keymap.UnboundBinding(),
+			"c":     keymap.CommandBinding(keymap.CommandDeleteSubmit),
+		},
+	}, nil)
+
+	commentHints := b.deleteCommentHints()
+	if got := hintDesc(t, commentHints, "c"); got != "Continue" {
+		t.Errorf("deleteCommentHints() after remap: Desc for new key %q = %q, want %q", "c", got, "Continue")
+	}
+	for _, h := range commentHints {
+		if h.Key == "enter" {
+			t.Errorf("deleteCommentHints() still advertises the old 'enter' key after remap, got %+v", commentHints)
+		}
+	}
+
+	confirmHints := b.deleteConfirmHints()
+	if got := hintDesc(t, confirmHints, "c"); got != "Confirm" {
+		t.Errorf("deleteConfirmHints() after remap: Desc for new key %q = %q, want %q", "c", got, "Confirm")
+	}
+	for _, h := range confirmHints {
+		if h.Key == "enter" {
+			t.Errorf("deleteConfirmHints() still advertises the old 'enter' key after remap, got %+v", confirmHints)
+		}
+	}
+}
+
+// TestKeymapText_DeleteCommentHints_UnboundSubmitKey_OmitsHintEntry and its
+// sibling below lock in the "never advertise a key that silently no-ops"
+// convention (docs/view-state-consistency.md, also documented at
+// dispatchModalHints in keymap_panels.go): once a side has no bound key
+// left, its Hint entry must be dropped from the slice entirely, not
+// rendered with a blank Key.
+func TestKeymapText_DeleteCommentHints_UnboundSubmitKey_OmitsHintEntry(t *testing.T) {
+	b := newTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {"enter": keymap.UnboundBinding()},
+	}, nil)
+
+	hints := b.deleteCommentHints()
+	for _, h := range hints {
+		if h.Desc == "Continue" {
+			t.Errorf("deleteCommentHints() still advertises a Continue hint after unbinding enter, got %+v (never advertise a key that silently no-ops)", hints)
+		}
+	}
+	if got := hintDesc(t, hints, "esc"); got != "Cancel" {
+		t.Errorf("deleteCommentHints() esc Desc = %q, want %q (only the submit side was unbound)", got, "Cancel")
+	}
+}
+
+func TestKeymapText_DeleteConfirmHints_UnboundCancelKey_OmitsHintEntry(t *testing.T) {
+	b := newTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {"esc": keymap.UnboundBinding()},
+	}, nil)
+
+	hints := b.deleteConfirmHints()
+	for _, h := range hints {
+		if h.Desc == "Cancel" {
+			t.Errorf("deleteConfirmHints() still advertises a Cancel hint after unbinding esc, got %+v (never advertise a key that silently no-ops)", hints)
+		}
+	}
+	if got := hintDesc(t, hints, "enter"); got != "Confirm" {
+		t.Errorf("deleteConfirmHints() enter Desc = %q, want %q (only the cancel side was unbound)", got, "Confirm")
+	}
+}

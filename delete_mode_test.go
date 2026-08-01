@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v68/github"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -1124,6 +1125,566 @@ func TestDeleteMode_ViewSanitizesControlSequencesInTitle(t *testing.T) {
 	}
 	if !strings.Contains(view, "RED title") {
 		t.Errorf("View() at deleteStepConfirm = %q, want visible title text %q retained", view, "RED title")
+	}
+}
+
+// --- Registry dispatch seam (#539 PR 2/2) ---
+//
+// handleDeleteModeKey cuts over from a hardcoded `msg.Type == tea.KeyEsc`
+// pre-check + per-step `msg.Type == tea.KeyEnter` branch to
+// keymap.Keymap.Lookup against ModeDelete (textBinding, keymap_text.go),
+// mirroring close_confirm/label_confirm's PR1 cutover. delete diverges from
+// that seam in one deliberate way: every key that is NOT a recognized
+// command (delete.submit/delete.cancel) -- whether genuinely unrecognized OR
+// resolved to a non-command (BindingAction) binding -- must fall through to
+// the active step's textinput.Update(msg), not no-op, byte-identical to
+// today's behavior where everything except esc/enter reaches the textinput.
+
+// --- Remap: rebinding delete.submit's key changes dispatch AND the hint bar, at both steps ---
+
+func TestDeleteMode_RemapSubmitKey_CommentStep_DispatchAndHintStaySync(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"enter": keymap.UnboundBinding(),
+			"tab":   keymap.CommandBinding(keymap.CommandDeleteSubmit),
+		},
+	}, nil)
+	b = sendKey(t, b, keyMsg("t"))
+	if b.mode != deleteMode || b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: mode=%d step=%d, want deleteMode/deleteStepComment", b.mode, b.delete.step)
+	}
+
+	foundNew, foundOld := false, false
+	for _, h := range b.statusBar.hints {
+		if h.Key == "tab" && h.Desc == "Continue" {
+			foundNew = true
+		}
+		if h.Key == "enter" {
+			foundOld = true
+		}
+	}
+	if !foundNew {
+		t.Errorf("statusBar hints missing remapped 'tab'/Continue entry, got %+v", b.statusBar.hints)
+	}
+	if foundOld {
+		t.Errorf("statusBar hints still advertise the old 'enter' key after remap, got %+v", b.statusBar.hints)
+	}
+
+	// Old 'enter' (now unbound) must no longer advance the step.
+	before := b.mode
+	beforeStep := b.delete.step
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != before || b2.delete.step != beforeStep {
+		t.Errorf("mode/step after old (now unbound) enter = %d/%d, want unchanged %d/%d", b2.mode, b2.delete.step, before, beforeStep)
+	}
+	if cmd != nil {
+		t.Error("unbound enter should not fire a cmd")
+	}
+
+	// New 'tab' key advances comment -> confirm.
+	m, cmd = b.Update(arrowMsg(tea.KeyTab))
+	b3, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b3.delete.step != deleteStepConfirm {
+		t.Errorf("step after remapped 'tab' = %d, want deleteStepConfirm", b3.delete.step)
+	}
+	if cmd == nil {
+		t.Error("remapped 'tab' advancing to the confirm step should focus confirmInput (non-nil cmd)")
+	}
+}
+
+func TestDeleteMode_RemapSubmitKey_ConfirmStep_DispatchAndHintStaySync(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	card := b.selectedCard()
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"enter": keymap.UnboundBinding(),
+			"tab":   keymap.CommandBinding(keymap.CommandDeleteSubmit),
+		},
+	}, nil)
+	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab)) // advance comment -> confirm via the remapped key
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+
+	foundNew, foundOld := false, false
+	for _, h := range b.statusBar.hints {
+		if h.Key == "tab" && h.Desc == "Confirm" {
+			foundNew = true
+		}
+		if h.Key == "enter" {
+			foundOld = true
+		}
+	}
+	if !foundNew {
+		t.Errorf("statusBar hints missing remapped 'tab'/Confirm entry, got %+v", b.statusBar.hints)
+	}
+	if foundOld {
+		t.Errorf("statusBar hints still advertise the old 'enter' key after remap, got %+v", b.statusBar.hints)
+	}
+
+	for _, ch := range strconv.Itoa(card.Number) {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	// Old 'enter' (now unbound) must no longer confirm.
+	before := b.mode
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != before {
+		t.Errorf("mode after old (now unbound) enter = %v, want unchanged (%v)", b2.mode, before)
+	}
+	if cmd != nil {
+		t.Error("unbound enter should not fire a cmd")
+	}
+
+	// New 'tab' key confirms the delete.
+	m, cmd = b.Update(arrowMsg(tea.KeyTab))
+	b3, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b3.mode != normalMode {
+		t.Errorf("mode after remapped 'tab' confirm = %v, want normalMode", b3.mode)
+	}
+	if cmd == nil {
+		t.Fatal("remapped 'tab' should fire the delete cmd")
+	}
+}
+
+// --- Unbound enter/esc: fall through to the textinput, not a no-op-only path ---
+
+func TestDeleteMode_CommentStep_UnboundEnter_FallsThroughToTextinput(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {"enter": keymap.UnboundBinding()},
+	}, nil)
+	b = sendKey(t, b, keyMsg("t"))
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+
+	before := b.delete.commentInput.Value()
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != deleteMode || b2.delete.step != deleteStepComment {
+		t.Errorf("mode/step after unbound enter = %d/%d, want unchanged deleteMode/deleteStepComment", b2.mode, b2.delete.step)
+	}
+	if cmd != nil {
+		t.Error("unbound enter should not fire a cmd")
+	}
+	if b2.delete.commentInput.Value() != before {
+		t.Errorf("commentInput.Value() = %q after unbound enter, want unchanged %q (Enter carries no runes, so textinput passthrough is a genuine no-op, byte-identical to today)", b2.delete.commentInput.Value(), before)
+	}
+}
+
+func TestDeleteMode_CommentStep_UnboundEsc_FallsThroughToTextinputNotCancel(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {"esc": keymap.UnboundBinding()},
+	}, nil)
+	b = sendKey(t, b, keyMsg("t"))
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != deleteMode || b2.delete.step != deleteStepComment {
+		t.Errorf("mode/step after unbound esc = %d/%d, want unchanged deleteMode/deleteStepComment (esc must no longer cancel once unbound)", b2.mode, b2.delete.step)
+	}
+	if cmd != nil {
+		t.Error("unbound esc should not fire a cmd")
+	}
+}
+
+func TestDeleteMode_ConfirmStep_UnboundEnter_FallsThroughToTextinputNotConfirm(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	card := b.selectedCard()
+
+	// Reach the confirm step via the default table (enter is still bound),
+	// then unbind it -- rather than constructing deleteState mid-flow -- so
+	// this exercises the real handler's step-advance path too.
+	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {"enter": keymap.UnboundBinding()},
+	}, nil)
+
+	for _, ch := range strconv.Itoa(card.Number) {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	before := b.mode
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != before || b2.delete.step != deleteStepConfirm {
+		t.Errorf("mode/step after unbound enter = %v/%d, want unchanged %v/deleteStepConfirm", b2.mode, b2.delete.step, before)
+	}
+	if cmd != nil {
+		t.Error("unbound enter should not fire a cmd (the delete must not proceed)")
+	}
+}
+
+func TestDeleteMode_ConfirmStep_UnboundEsc_FallsThroughToTextinputNotCancel(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {"esc": keymap.UnboundBinding()},
+	}, nil)
+	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // enter is still bound by default -> confirm step
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != deleteMode || b2.delete.step != deleteStepConfirm {
+		t.Errorf("mode/step after unbound esc = %d/%d, want unchanged deleteMode/deleteStepConfirm (esc must no longer cancel once unbound)", b2.mode, b2.delete.step)
+	}
+	if cmd != nil {
+		t.Error("unbound esc should not fire a cmd")
+	}
+}
+
+// --- Resolved-but-non-command binding: falls through to the textinput too ---
+//
+// This is the seam's deliberate divergence from close_confirm/label_confirm:
+// there, a resolved BindingAction result is a plain no-op (mode_handlers.go's
+// `!ok || binding.Kind != keymap.BindingCommand` guard returns b, nil).
+// delete must instead still route the keypress to the active step's
+// textinput, since delete's ConsumesPrintableRunes()==true handler owns
+// every keystroke that isn't one of its two commands.
+
+func TestDeleteMode_CommentStep_EscBoundToAction_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"esc": keymap.ActionBinding(keymap.Action{Name: "Noop", Type: "url", URL: "https://example.com/{number}"}),
+		},
+	}, nil)
+	b = sendKey(t, b, keyMsg("t"))
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != deleteMode || b2.delete.step != deleteStepComment {
+		t.Errorf("mode/step after esc resolved to a non-command action = %d/%d, want unchanged deleteMode/deleteStepComment", b2.mode, b2.delete.step)
+	}
+	if cmd != nil {
+		t.Error("esc resolved to a non-command action should not fire a cmd (must fall through to the textinput, not dispatch the action)")
+	}
+}
+
+func TestDeleteMode_ConfirmStep_EnterBoundToAction_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+
+	// Reach the confirm step via the default table (enter is still bound to
+	// delete.submit), then rebind enter to a non-command action -- rather
+	// than constructing deleteState mid-flow -- so this exercises the real
+	// handler's step-advance path too.
+	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"enter": keymap.ActionBinding(keymap.Action{Name: "Noop", Type: "url", URL: "https://example.com/{number}"}),
+		},
+	}, nil)
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != deleteMode || b2.delete.step != deleteStepConfirm {
+		t.Errorf("mode/step after enter resolved to a non-command action = %d/%d, want unchanged deleteMode/deleteStepConfirm", b2.mode, b2.delete.step)
+	}
+	if cmd != nil {
+		t.Error("enter resolved to a non-command action should not fire a cmd (must fall through to the textinput, not dispatch the action, and must not confirm the delete)")
+	}
+}
+
+// --- Foreign command id bound into ModeDelete: falls through, not dispatched ---
+//
+// A misconfigured/creative user config can bind a command id that is valid
+// elsewhere in the catalog (e.g. close_confirm.confirm) into ModeDelete's
+// table. handleDeleteModeKey only dispatches when the resolved binding's
+// command id is exactly delete.submit or delete.cancel, so a foreign id must
+// fall through to the textinput like any other non-dispatchable binding.
+// Bound to a named key (f1), not a bare printable rune, since ModeDelete's
+// ConsumesPrintableRunes guard makes bare-rune bindings unreachable via
+// textBinding before Lookup ever sees them.
+
+func TestDeleteMode_CommentStep_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"f1": keymap.CommandBinding(keymap.CommandCloseConfirmConfirm),
+		},
+	}, nil)
+	b = sendKey(t, b, keyMsg("t"))
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyF1))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != deleteMode || b2.delete.step != deleteStepComment {
+		t.Errorf("mode/step after a foreign command id (close_confirm.confirm) bound into ModeDelete = %d/%d, want unchanged deleteMode/deleteStepComment", b2.mode, b2.delete.step)
+	}
+	if cmd != nil {
+		t.Error("a foreign command id bound into ModeDelete must fall through to the textinput, not dispatch as submit/cancel")
+	}
+}
+
+func TestDeleteMode_ConfirmStep_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+
+	// Reach the confirm step via the default table (enter is still bound to
+	// delete.submit), then rebind a named key to a foreign command id --
+	// rather than constructing deleteState mid-flow -- so this exercises the
+	// real handler's step-advance path too.
+	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"f1": keymap.CommandBinding(keymap.CommandCloseConfirmConfirm),
+		},
+	}, nil)
+
+	m, cmd := b.Update(arrowMsg(tea.KeyF1))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != deleteMode || b2.delete.step != deleteStepConfirm {
+		t.Errorf("mode/step after a foreign command id (close_confirm.confirm) bound into ModeDelete = %d/%d, want unchanged deleteMode/deleteStepConfirm", b2.mode, b2.delete.step)
+	}
+	if cmd != nil {
+		t.Error("a foreign command id bound into ModeDelete must fall through to the textinput, not dispatch as submit/cancel, and must not confirm the delete")
+	}
+}
+
+// --- Textinput passthrough: command-bound-elsewhere runes insert literally ---
+
+// TestDeleteMode_TypedCommentPassesThroughLiteralRunes_NoDispatch proves
+// textBinding's ConsumesPrintableRunes guard end-to-end through the real
+// handler: "y"/"n" are commands in close_confirm/label_confirm, and
+// "d"/"x"/"g" are commands in normal mode, but none of that may leak into
+// delete mode's comment textinput.
+func TestDeleteMode_TypedCommentPassesThroughLiteralRunes_NoDispatch(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = sendKey(t, b, keyMsg("t"))
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+
+	const comment = "y n d x g plain text"
+	for _, ch := range comment {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	if b.delete.commentInput.Value() != comment {
+		t.Errorf("commentInput.Value() = %q, want %q (every typed rune must reach the textinput literally)", b.delete.commentInput.Value(), comment)
+	}
+	if b.mode != deleteMode || b.delete.step != deleteStepComment {
+		t.Errorf("mode/step changed after typing command-bound-elsewhere runes: mode=%d step=%d, want unchanged deleteMode/deleteStepComment", b.mode, b.delete.step)
+	}
+}
+
+// --- Mismatch-retype: fires no command ---
+
+func TestDeleteMode_ConfirmStep_MismatchThenEnter_FiresNoCommand(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	card := b.selectedCard()
+
+	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // blank comment -> confirm step
+
+	wrong := strconv.Itoa(card.Number + 999)
+	for _, ch := range wrong {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if cmd != nil {
+		t.Error("expected a nil cmd from a mismatched retype-and-enter (no delete/comment command should fire)")
+	}
+	if b2.mode != deleteMode || b2.delete.step != deleteStepConfirm {
+		t.Errorf("mode=%d step=%d after mismatch, want deleteMode/deleteStepConfirm (stay in step)", b2.mode, b2.delete.step)
+	}
+	if b2.delete.mismatchMsg == "" {
+		t.Error("expected a non-empty mismatchMsg after a wrong retype")
+	}
+}
+
+// --- Esc-from-step-2: cancels the whole flow, restores b.normalHints ---
+
+func TestDeleteMode_EscAtConfirmStep_RestoresNormalHints(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+
+	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // -> confirm step
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+
+	m, _ := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+
+	if b2.mode != normalMode {
+		t.Fatalf("mode = %d after esc-cancel from confirm step, want normalMode", b2.mode)
+	}
+	if len(b2.statusBar.hints) != len(b2.normalHints) {
+		t.Fatalf("statusBar.hints len = %d after esc-cancel from confirm step, want normalHints len %d", len(b2.statusBar.hints), len(b2.normalHints))
+	}
+	for i, h := range b2.normalHints {
+		if b2.statusBar.hints[i] != h {
+			t.Errorf("statusBar.hints[%d] = %+v after esc-cancel from confirm step, want normalHints[%d] = %+v", i, b2.statusBar.hints[i], i, h)
+		}
+	}
+}
+
+// --- ctrl+c always quits, regardless of user keymap config ---
+
+func TestDeleteMode_CtrlCQuits_EvenWithOverriddenKeymap(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {"ctrl+c": keymap.CommandBinding(keymap.CommandDeleteSubmit)},
+	}, nil)
+	b = sendKey(t, b, keyMsg("t"))
+	if b.mode != deleteMode {
+		t.Fatalf("precondition: mode = %d, want deleteMode", b.mode)
+	}
+
+	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Error("Ctrl+C in deleteMode should return a non-nil Cmd (tea.Quit), even with an overridden keymap")
+	}
+}
+
+// --- Composite hint<->dispatch invariant, for both steps ---
+
+// TestDeleteMode_HintKeysAlwaysDispatch_BothStepsDefaultAndRemappedTables is
+// the hint<->dispatch invariant test named in the #539 plan's Explicit Risk
+// Coverage, adapted to delete's []Hint-slice hint bar (rather than
+// close_confirm/label_confirm's single joined "(y/n)"-style string): for
+// every key advertised by b.deleteCommentHints()/b.deleteConfirmHints(), it
+// must resolve through b.textBinding -- the real dispatch path
+// handleDeleteModeKey uses -- against ModeDelete. Run against both the
+// default table and a remapped/unbound table, for both steps, mirroring
+// TestCloseMode_PromptHintKeysAlwaysDispatch_DefaultAndRemappedTables
+// (close_mode_test.go).
+//
+// The remapped table uses named keys (f1/f2), not bare printable runes:
+// ModeDelete.ConsumesPrintableRunes()==true makes a bare-rune binding
+// unreachable via textBinding (it never even reaches Lookup), so asserting
+// through raw Lookup instead of textBinding would pass even for a hint that
+// advertises a key that can never actually dispatch through the real
+// handler. f1/f2 don't collide with deleteDefaults (internal/keymap/defaults_text.go),
+// which only binds enter/esc.
+func TestDeleteMode_HintKeysAlwaysDispatch_BothStepsDefaultAndRemappedTables(t *testing.T) {
+	keyMsgForLabel := func(label string) tea.KeyMsg {
+		switch label {
+		case "enter":
+			return arrowMsg(tea.KeyEnter)
+		case "esc":
+			return arrowMsg(tea.KeyEsc)
+		case "f1":
+			return arrowMsg(tea.KeyF1)
+		case "f2":
+			return arrowMsg(tea.KeyF2)
+		default:
+			return keyMsg(label)
+		}
+	}
+
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{
+			name: "remapped table",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeDelete: {
+					"enter": keymap.UnboundBinding(),
+					"f1":    keymap.CommandBinding(keymap.CommandDeleteSubmit),
+					"esc":   keymap.UnboundBinding(),
+					"f2":    keymap.CommandBinding(keymap.CommandDeleteCancel),
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b, _ := newDeleteTestBoard(t)
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+
+			for _, hints := range [][]Hint{b.deleteCommentHints(), b.deleteConfirmHints()} {
+				for _, h := range hints {
+					if h.Key == "" {
+						continue
+					}
+					for _, key := range strings.Split(h.Key, "/") {
+						if _, ok := b.textBinding(keymap.ModeDelete, keyMsgForLabel(key)); !ok {
+							t.Errorf("hint %+v: textBinding(ModeDelete, %q) not found, want a match (every advertised key must actually dispatch through the real handler)", h, key)
+						}
+					}
+				}
+			}
+		})
 	}
 }
 
