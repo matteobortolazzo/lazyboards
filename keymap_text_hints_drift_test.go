@@ -33,6 +33,8 @@ func hintDesc(t *testing.T, hints []Hint, key string) string {
 // expected value from the implementation" rule. Mirrors
 // TestGitPanelDefaults_MatchDefaultGitActions (git_keymap_defaults_test.go).
 func TestTextCommandDescs_MatchHintBarWording(t *testing.T) {
+	b := newTestBoard(t)
+
 	cases := []struct {
 		id   keymap.CommandID
 		want string
@@ -45,13 +47,13 @@ func TestTextCommandDescs_MatchHintBarWording(t *testing.T) {
 		{"search.next_result", hintDesc(t, searchModeHints, "↑/↓")},
 		{"search.prev_result", hintDesc(t, searchModeHints, "↑/↓")},
 
-		{"delete.cancel", hintDesc(t, deleteCommentHints, "esc")},
-		{"delete.cancel", hintDesc(t, deleteConfirmHints, "esc")},
+		{"delete.cancel", hintDesc(t, b.deleteCommentHints(), "esc")},
+		{"delete.cancel", hintDesc(t, b.deleteConfirmHints(), "esc")},
 
 		// delete.submit's desc is composed from the two per-step producers
 		// rather than hardcoded as "Continue / Confirm" -- renaming either
 		// step's hint must fail this test.
-		{"delete.submit", hintDesc(t, deleteCommentHints, "enter") + " / " + hintDesc(t, deleteConfirmHints, "enter")},
+		{"delete.submit", hintDesc(t, b.deleteCommentHints(), "enter") + " / " + hintDesc(t, b.deleteConfirmHints(), "enter")},
 	}
 
 	for _, tc := range cases {
