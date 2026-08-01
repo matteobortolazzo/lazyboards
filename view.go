@@ -1658,7 +1658,7 @@ func (b Board) viewPRListModal() string {
 	}
 
 	lines = append(lines, "")
-	prListHints := NewStatusBar(b.prListActionHints())
+	prListHints := NewStatusBar(b.prListHints())
 	lines = append(lines, prListHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
@@ -1764,7 +1764,7 @@ func (b Board) viewMilestoneListModal() string {
 	}
 
 	lines = append(lines, "")
-	milestoneHints := NewStatusBar(milestoneListModeHints)
+	milestoneHints := NewStatusBar(b.milestoneListHints())
 	lines = append(lines, milestoneHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
@@ -1878,12 +1878,12 @@ func (b Board) viewAgentListModal() string {
 	}
 
 	lines = append(lines, "")
-	hints := agentListModeHints
+	hints := b.agentListHints()
 	if len(entries) == 0 {
-		hints = agentListEmptyHints
+		hints = b.agentListEmptyHints()
 	}
-	agentListHints := NewStatusBar(hints)
-	lines = append(lines, agentListHints.View(modalWidth, 0, 0))
+	agentListStatusBar := NewStatusBar(hints)
+	lines = append(lines, agentListStatusBar.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)

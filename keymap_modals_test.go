@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
@@ -533,5 +535,347 @@ func TestKeymapModals_PRPicker_ClampHoldsAfterShrinkAndRemappedNavigationKey(t *
 	}
 	if len(fe.OpenURLCalls) != 0 {
 		t.Errorf("OpenURL called %d times from a navigation key, want 0", len(fe.OpenURLCalls))
+	}
+}
+
+// --- PR list, Milestones list, agents list (#490, PR 7b) ---
+//
+// handlePRListModeKey, handleMilestoneListModeKey, and handleAgentListModeKey
+// cut over from a hardcoded switch msg.Type/msg.String() (plus, for the PR
+// list, a raw A-Z scan over b.actions[key]) to keymap.Keymap.Lookup against
+// ModePRList/ModeMilestoneList/ModeAgentList, exactly like PR 7a did for
+// filter/assign/pr_picker. The PR list additionally gains inline-action
+// dispatch through keymaps.pr_list.<key> (replacing the raw A-Z scan), gated
+// by the existing scope: pr convention (Q2).
+
+// --- PR list mode: inline-action dispatch + scope gate (Q2) ---
+
+// TestKeymapModals_PRList_InlineActionWithScopePRDispatchesAgainstSelectedRow
+// is the Q1/Q2 happy path: an inline action bound directly under
+// keymaps.pr_list.<key> (not a legacy actions: entry -- that path is covered
+// by internal/config/legacy_actions_test.go) with scope: pr explicitly set
+// must dispatch against the selected PR row, expanding both PR and
+// owning-card template variables exactly like the deleted
+// handlePRListActionKey did. The shared prFixtureColumns fixture's fallback
+// entry 0 is PR #10, linked to card #2 (see pr_list_test.go's header
+// comment).
+func TestKeymapModals_PRList_InlineActionWithScopePRDispatchesAgainstSelectedRow(t *testing.T) {
+	b, fe := newBoardWithPRsAndExecutor(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModePRList: {
+			"w": keymap.ActionBinding(keymap.Action{Name: "Review", Type: "url", URL: "https://example.com/{number}/{pr_number}", Scope: "pr"}),
+		},
+	}, nil)
+	b = sendKey(t, b, keyMsg("v"))
+	if b.mode != prListMode {
+		t.Fatalf("test setup: expected prListMode after 'v', got %d", b.mode)
+	}
+
+	m, cmd := b.Update(keyMsg("w"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != prListMode {
+		t.Errorf("mode after inline action = %d, want prListMode (%d) (modal stays open)", b.mode, prListMode)
+	}
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL called %d times, want 1", len(fe.OpenURLCalls))
+	}
+	if fe.OpenURLCalls[0] != "https://example.com/2/10" {
+		t.Errorf("OpenURL = %q, want card #2 and PR #10 expanded", fe.OpenURLCalls[0])
+	}
+}
+
+// TestKeymapModals_PRList_InlineActionWithoutScopePRDoesNotDispatch is Q2's
+// negative case: a key bound under keymaps.pr_list.<key> to an inline action
+// that is NOT explicitly scope: pr (here scope: board) must not dispatch --
+// the PR list is a repo-wide row view with no sensible board/card target,
+// same convention as the deleted raw-filter's scope check.
+func TestKeymapModals_PRList_InlineActionWithoutScopePRDoesNotDispatch(t *testing.T) {
+	b, fe := newBoardWithPRsAndExecutor(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModePRList: {
+			"b": keymap.ActionBinding(keymap.Action{Name: "Board thing", Type: "url", URL: "https://example.com/board", Scope: "board"}),
+		},
+	}, nil)
+	b = sendKey(t, b, keyMsg("v"))
+	if b.mode != prListMode {
+		t.Fatalf("test setup: expected prListMode after 'v', got %d", b.mode)
+	}
+
+	m, cmd := b.Update(keyMsg("b"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("OpenURL called %d times from a non-pr-scope inline action bound in pr_list, want 0: %v", len(fe.OpenURLCalls), fe.OpenURLCalls)
+	}
+	if b.mode != prListMode {
+		t.Errorf("mode = %d, want prListMode (%d)", b.mode, prListMode)
+	}
+}
+
+// TestKeymapModals_PRList_OutcomePendingPrefixIsNoOp is Q4's explicit-risk
+// coverage for the PR list: a key that is only a prefix of a bound sequence
+// must be a silent no-op -- the PR list has no multi-key pending-sequence
+// machinery.
+func TestKeymapModals_PRList_OutcomePendingPrefixIsNoOp(t *testing.T) {
+	b, fe := newBoardWithPRsAndExecutor(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModePRList: {"z a": keymap.CommandBinding(keymap.CommandPRListOpen)},
+	}, nil)
+	b = sendKey(t, b, keyMsg("v"))
+	if b.mode != prListMode {
+		t.Fatalf("test setup: expected prListMode after 'v', got %d", b.mode)
+	}
+	initialCursor := b.prList.cursor
+
+	m, cmd := b.Update(keyMsg("z"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != prListMode {
+		t.Errorf("mode = %d after pressing a pending-sequence prefix key, want prListMode (%d) -- OutcomePending must be a no-op in modals", b.mode, prListMode)
+	}
+	if b.prList.cursor != initialCursor {
+		t.Errorf("prList.cursor = %d after pressing a pending prefix key, want unchanged (%d)", b.prList.cursor, initialCursor)
+	}
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("OpenURL called %d times after only a pending prefix key, want 0", len(fe.OpenURLCalls))
+	}
+}
+
+// TestKeymapModals_PRList_UnrecognizedCommandIsNoOp is Q4's second half for
+// the PR list: a key bound to a command id from a wholly different domain
+// (here, normal mode's board.refresh) must resolve to OutcomeMatch but still
+// be a documented no-op, not silently fall through and run board.refresh.
+func TestKeymapModals_PRList_UnrecognizedCommandIsNoOp(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModePRList: {"z": keymap.CommandBinding(keymap.CommandBoardRefresh)},
+	}, nil)
+	b = sendKey(t, b, keyMsg("v"))
+	if b.mode != prListMode {
+		t.Fatalf("test setup: expected prListMode after 'v', got %d", b.mode)
+	}
+	initialCursor := b.prList.cursor
+
+	m, cmd := b.Update(keyMsg("z"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != prListMode {
+		t.Errorf("mode = %d after pressing a key bound to an out-of-domain command, want prListMode (%d)", b.mode, prListMode)
+	}
+	if b.prList.cursor != initialCursor {
+		t.Errorf("prList.cursor = %d after pressing a key bound to board.refresh, want unchanged (%d)", b.prList.cursor, initialCursor)
+	}
+	if b.refreshing {
+		t.Error("refreshing = true after pressing a key bound to board.refresh inside prListMode, want false -- an unrecognized command id must not dispatch")
+	}
+}
+
+// TestKeymapModals_PRList_MultiKeyInlineActionExcludedFromHints covers the
+// security-review fix: the PR list has no pending-sequence/which-key
+// machinery (Q4 -- a multi-key sequence resolves to OutcomePending and is an
+// explicit no-op there), so advertising a multi-key-bound inline action in
+// the hint bar would show a key combo that silently does nothing if pressed.
+// A scope: pr inline action bound to a multi-key sequence ("z a") must not
+// appear in b.prListHints(), while a single-key-bound one still does.
+func TestKeymapModals_PRList_MultiKeyInlineActionExcludedFromHints(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModePRList: {
+			"z a": keymap.ActionBinding(keymap.Action{Name: "Multi key", Type: "url", URL: "https://example.com/multi", Scope: "pr"}),
+			"w":    keymap.ActionBinding(keymap.Action{Name: "Single key", Type: "url", URL: "https://example.com/single", Scope: "pr"}),
+		},
+	}, nil)
+
+	hints := b.prListHints()
+	for _, h := range hints {
+		if h.Key == "z a" || h.Desc == "Multi key" {
+			t.Errorf("prListHints() = %+v, want no hint for the multi-key-bound inline action (silently no-ops -- PR list has no pending-sequence machinery)", hints)
+		}
+	}
+
+	found := false
+	for _, h := range hints {
+		if h.Key == "w" && h.Desc == "Single key" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("prListHints() = %+v, want the single-key-bound inline action still hinted", hints)
+	}
+}
+
+// --- Milestones list mode: full view-state precedence under a remapped key ---
+
+// TestKeymapModals_MilestoneList_RemappedFilterKeyRespectsViewStatePrecedence
+// covers the risk named in the plan and in docs/list-cursor-invariants.md:
+// converting the key handler to the registry must not collapse
+// milestoneListState's loading -> err -> empty -> loaded precedence into
+// just the loaded happy path. The default "enter" binding for
+// milestone_list.filter is unbound and remapped onto "f"; every state must
+// still gate on cursor/entries emptiness exactly as before -- the modal
+// always closes to normalMode on the key, but only the loaded state (with a
+// valid cursor) actually applies the milestone filter.
+func TestKeymapModals_MilestoneList_RemappedFilterKeyRespectsViewStatePrecedence(t *testing.T) {
+	loadedFixture := []provider.Milestone{
+		{Title: "v1.0", URL: "https://github.com/owner/repo/milestone/2", DueOn: dueDate(2024, 3, 15), OpenIssueCount: 3, ClosedIssueCount: 1, ProgressPercentage: 25.0},
+	}
+
+	tests := []struct {
+		name              string
+		setup             func(t *testing.T, b Board) Board
+		wantFilterApplied bool
+	}{
+		{
+			name: "loading",
+			setup: func(t *testing.T, b Board) Board {
+				return openMilestoneList(t, b)
+			},
+			wantFilterApplied: false,
+		},
+		{
+			name: "error",
+			setup: func(t *testing.T, b Board) Board {
+				b = openMilestoneList(t, b)
+				return sendKey(t, b, milestonesFetchedMsg{generation: b.milestoneList.generation, err: errors.New("boom: raw provider failure")})
+			},
+			wantFilterApplied: false,
+		},
+		{
+			name: "empty",
+			setup: func(t *testing.T, b Board) Board {
+				return openMilestoneListWithResult(t, b, nil)
+			},
+			wantFilterApplied: false,
+		},
+		{
+			name: "loaded",
+			setup: func(t *testing.T, b Board) Board {
+				return openMilestoneListWithResult(t, b, loadedFixture)
+			},
+			wantFilterApplied: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newLoadedTestBoard(t)
+			b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+				keymap.ModeMilestoneList: {
+					"f":     keymap.CommandBinding(keymap.CommandMilestoneListFilter),
+					"enter": keymap.UnboundBinding(),
+				},
+			}, nil)
+			b = tc.setup(t, b)
+			if b.mode != milestoneListMode {
+				t.Fatalf("test setup: expected milestoneListMode, got %d", b.mode)
+			}
+
+			m, cmd := b.Update(keyMsg("f"))
+			b = m.(Board)
+			execCmds(cmd)
+
+			if b.mode != normalMode {
+				t.Errorf("[%s] mode after remapped filter key = %d, want normalMode (%d) -- the modal always closes on the bound key regardless of state", tc.name, b.mode, normalMode)
+			}
+			gotFilterApplied := b.activeFilterType == filterByMilestone
+			if gotFilterApplied != tc.wantFilterApplied {
+				t.Errorf("[%s] filter applied = %v (activeFilterType=%d), want %v", tc.name, gotFilterApplied, b.activeFilterType, tc.wantFilterApplied)
+			}
+		})
+	}
+}
+
+// TestKeymapModals_MilestoneList_RemappedOpenKeyRespectsEmptyGuard covers the
+// second milestones guard (o / milestone_list.open) under a remap: unlike
+// filter/enter, "o" does NOT close the modal -- it stays open and only
+// dispatches OpenURL when entries is non-empty and cursor is in range. The
+// empty-state guard (mirroring handleTicketOpenKey's precedent) must survive
+// the registry conversion.
+func TestKeymapModals_MilestoneList_RemappedOpenKeyRespectsEmptyGuard(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b = loadFromFakeProvider(t, b, p)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeMilestoneList: {
+			"u": keymap.CommandBinding(keymap.CommandMilestoneListOpen),
+			"o": keymap.UnboundBinding(),
+		},
+	}, nil)
+	b = openMilestoneListWithResult(t, b, nil)
+	if b.mode != milestoneListMode {
+		t.Fatalf("test setup: expected milestoneListMode, got %d", b.mode)
+	}
+
+	m, cmd := b.Update(keyMsg("u"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != milestoneListMode {
+		t.Errorf("mode after remapped open key on an empty list = %d, want milestoneListMode (%d) (o/open never closes the modal)", b.mode, milestoneListMode)
+	}
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("OpenURL called %d times on an empty milestones list via the remapped open key, want 0", len(fe.OpenURLCalls))
+	}
+}
+
+// --- Agents list mode: empty-vs-loaded hint precedence ---
+
+// TestKeymapModals_AgentList_EmptyAndLoadedHintsStayDistinct is the
+// regression guard named in the plan: the agents list modal's empty-state
+// hints (b.agentListEmptyHints()) and loaded-state hints (b.agentListHints())
+// must stay distinct after the conversion -- a careless conversion that
+// collapses both states onto one hint accessor would silently start
+// advertising "Go to window"/navigate on an empty list (which the handler's
+// own empty-list guard makes a no-op) or drop "Cancel" from one branch. It
+// asserts against the registry-derived accessors directly (keymap_modals.go)
+// before also exercising the real Update()/View() stack: opening the modal
+// with rows shows the loaded hints, then a live snapshot update that shrinks
+// the windows to zero must switch to the empty hints.
+func TestKeymapModals_AgentList_EmptyAndLoadedHintsStayDistinct(t *testing.T) {
+	b := newAgentListBoard(t, &action.FakeExecutor{}, threeWindows())
+	loadedHints := b.agentListHints()
+	emptyHints := b.agentListEmptyHints()
+
+	loadedDescs := make(map[string]bool, len(loadedHints))
+	for _, h := range loadedHints {
+		loadedDescs[h.Desc] = true
+	}
+	for _, h := range emptyHints {
+		if loadedDescs[h.Desc] && h.Desc != "Cancel" {
+			t.Errorf("agentListEmptyHints() and agentListHints() both advertise %q (besides the shared Cancel), want the empty-state hint set to stay a strict subset advertising no navigation/action hints", h.Desc)
+		}
+	}
+	if len(emptyHints) >= len(loadedHints) {
+		t.Fatalf("test setup: agentListEmptyHints() (%d) must be strictly smaller than agentListHints() (%d) for this to be a meaningful regression guard", len(emptyHints), len(loadedHints))
+	}
+
+	fe := &action.FakeExecutor{}
+	b = newAgentListBoard(t, fe, threeWindows())
+	b = sendKey(t, b, keyMsg("w"))
+	if b.mode != agentListMode {
+		t.Fatalf("test setup: expected agentListMode after 'w', got %d", b.mode)
+	}
+
+	loadedStatus := b.statusBar.View(200, 0, 0)
+	if !strings.Contains(loadedStatus, "Go to window") {
+		t.Errorf("status bar with loaded agent windows = %q, want it to advertise \"Go to window\"", loadedStatus)
+	}
+
+	m, cmd := b.Update(agentSnapshotMsg{snapshot: &cenciwatch.StateSnapshot{Windows: nil}})
+	b = m.(Board)
+	execCmds(cmd)
+
+	emptyStatus := b.statusBar.View(200, 0, 0)
+	if strings.Contains(emptyStatus, "Go to window") {
+		t.Errorf("status bar after the snapshot shrinks to zero windows = %q, still advertising \"Go to window\" -- want the empty-state hints, distinct from the loaded ones", emptyStatus)
+	}
+	if !strings.Contains(emptyStatus, "Cancel") {
+		t.Errorf("status bar after shrinking to zero windows = %q, want \"Cancel\" to remain", emptyStatus)
 	}
 }

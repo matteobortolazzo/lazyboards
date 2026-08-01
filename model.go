@@ -618,35 +618,6 @@ type openPRsMsg struct {
 	generation uint64
 }
 
-// prListModeHints are the base status bar hints shown in PR list mode; see
-// prListActionHints for the full set including custom-action hints.
-var prListModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Open"},
-}
-
-// prListActionHints returns the PR list mode hints: the base navigation
-// hints plus one named hint per global scope: pr custom action, mirroring
-// how normal mode surfaces action names. Only scope: pr actions appear
-// because only they can fire inside the modal (handlePRListActionKey) —
-// hinting other scopes would advertise keys that silently no-op.
-func (b Board) prListActionHints() []Hint {
-	hints := append([]Hint{}, prListModeHints...)
-	keys := make([]string, 0, len(b.actions))
-	for key := range b.actions {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		act := b.actions[key]
-		if config.DefaultScope(act.Scope) == "pr" {
-			hints = append(hints, Hint{Key: key, Desc: act.Name})
-		}
-	}
-	return hints
-}
-
 // milestoneListState groups fields related to the Milestones modal.
 //
 // Rendering/handling precedence: loading -> err -> loaded. Unlike
@@ -668,15 +639,6 @@ type milestonesFetchedMsg struct {
 	milestones []provider.Milestone
 	err        error
 	generation uint64
-}
-
-// milestoneListModeHints are the status bar hints shown in the Milestones
-// modal.
-var milestoneListModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Filter board"},
-	{Key: "o", Desc: "Open in browser"},
 }
 
 // agentListEntry is one row in the agents list modal: a cenci-watch window
@@ -708,21 +670,6 @@ const (
 	agentListMsgWaiting    = "Waiting for cenci-watch daemon..."
 	agentListMsgNoWindows  = "No agent windows"
 )
-
-// agentListModeHints are the status bar hints shown in agents list mode when
-// there are rows to act on.
-var agentListModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Go to window"},
-}
-
-// agentListEmptyHints are the hints for the modal's empty/unavailable states:
-// enter and j/k are no-ops there, so hinting them would advertise keys that
-// silently do nothing.
-var agentListEmptyHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-}
 
 // dispatchState groups fields related to the agent dispatch modal.
 type dispatchState struct {
@@ -1097,7 +1044,7 @@ func (b *Board) enterPRList() {
 
 	b.prList = prListState{entries: entries, cursor: 0, loading: true, generation: generation}
 	b.mode = prListMode
-	b.statusBar.SetActionHints(b.prListActionHints())
+	b.statusBar.SetActionHints(b.prListHints())
 }
 
 // enterMilestoneList opens the repo-wide Milestones modal (i). Unlike
@@ -1109,7 +1056,7 @@ func (b *Board) enterMilestoneList() {
 	generation := b.milestoneList.generation + 1
 	b.milestoneList = milestoneListState{entries: nil, cursor: 0, loading: true, generation: generation}
 	b.mode = milestoneListMode
-	b.statusBar.SetActionHints(milestoneListModeHints)
+	b.statusBar.SetActionHints(b.milestoneListHints())
 }
 
 // enterAgentList opens the global agents list modal. Rows are derived live
@@ -1130,9 +1077,9 @@ func (b *Board) enterAgentListForCard(number int) {
 func (b *Board) enterAgentListScoped(cardNumber int) {
 	b.agentList = agentListState{cursor: 0, cardNumber: cardNumber}
 	b.mode = agentListMode
-	hints := agentListModeHints
+	hints := b.agentListHints()
 	if len(b.agentListEntries()) == 0 {
-		hints = agentListEmptyHints
+		hints = b.agentListEmptyHints()
 	}
 	b.statusBar.SetActionHints(hints)
 }
