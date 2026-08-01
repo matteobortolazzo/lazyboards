@@ -24,14 +24,15 @@ func hintDesc(t *testing.T, hints []Hint, key string) string {
 // TestTextCommandDescs_MatchHintBarWording is the cross-package drift guard
 // named in the #538 plan (Q3): internal/keymap cannot import package main,
 // so command_text.go's desc strings for comment/search/delete are
-// hand-duplicated literals copied from the *Hints vars in model.go. This
-// test lives in package main -- the only package that can import
-// internal/keymap *and* see commentModeHints/searchModeHints/
-// deleteCommentHints/deleteConfirmHints (model.go) -- so it can assert the
-// duplicated descs against the real producer values rather than hardcoding
-// a second copy of its own, per .claude/rules/testing.md's "never copy an
-// expected value from the implementation" rule. Mirrors
-// TestGitPanelDefaults_MatchDefaultGitActions (git_keymap_defaults_test.go).
+// hand-duplicated literals copied from the *Hints vars in model.go (pre-#540)
+// / keymap_text.go's hint builders (#540). This test lives in package main --
+// the only package that can import internal/keymap *and* see
+// b.commentHints()/b.searchHints()/deleteCommentHints/deleteConfirmHints --
+// so it can assert the duplicated descs against the real producer values
+// rather than hardcoding a second copy of its own, per
+// .claude/rules/testing.md's "never copy an expected value from the
+// implementation" rule. Mirrors TestGitPanelDefaults_MatchDefaultGitActions
+// (git_keymap_defaults_test.go).
 func TestTextCommandDescs_MatchHintBarWording(t *testing.T) {
 	b := newTestBoard(t)
 
@@ -39,13 +40,13 @@ func TestTextCommandDescs_MatchHintBarWording(t *testing.T) {
 		id   keymap.CommandID
 		want string
 	}{
-		{"comment.submit", hintDesc(t, commentModeHints, "enter")},
-		{"comment.cancel", hintDesc(t, commentModeHints, "esc")},
+		{"comment.submit", hintDesc(t, b.commentHints(), "enter")},
+		{"comment.cancel", hintDesc(t, b.commentHints(), "esc")},
 
-		{"search.apply", hintDesc(t, searchModeHints, "enter")},
-		{"search.cancel", hintDesc(t, searchModeHints, "esc")},
-		{"search.next_result", hintDesc(t, searchModeHints, "↑/↓")},
-		{"search.prev_result", hintDesc(t, searchModeHints, "↑/↓")},
+		{"search.apply", hintDesc(t, b.searchHints(), "enter")},
+		{"search.cancel", hintDesc(t, b.searchHints(), "esc")},
+		{"search.next_result", hintDesc(t, b.searchHints(), "↑/↓")},
+		{"search.prev_result", hintDesc(t, b.searchHints(), "↑/↓")},
 
 		{"delete.cancel", hintDesc(t, b.deleteCommentHints(), "esc")},
 		{"delete.cancel", hintDesc(t, b.deleteConfirmHints(), "esc")},

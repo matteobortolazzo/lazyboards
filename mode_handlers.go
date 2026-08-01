@@ -240,7 +240,7 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	case keymap.CommandBoardSearch:
 		b.mode = searchMode
 		cmd := b.searchInput.Focus()
-		b.statusBar.SetActionHints(searchModeHints)
+		b.statusBar.SetActionHints(b.searchHints())
 		return b, cmd
 	case keymap.CommandCardOpenTicket:
 		return b.handleTicketOpenKey()
@@ -386,29 +386,24 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+// handleCommentModeKey routes comment mode through the ModeComment registry
+// (textBinding, keymap_text.go): a resolved comment.* command dispatches
+// through runCommentCommand -- neither of comment's two command ids is
+// focus-gated, so there is no eligibility predicate to check, unlike
+// create/config. Anything else -- no match, OutcomePending, a non-command
+// binding, or a foreign command id -- falls through to the comment.input
+// textinput below, transcribed verbatim from the pre-#540 `default:` branch.
 func (b Board) handleCommentModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		b.mode = normalMode
-		b.restoreModeHints()
-		return b, nil
-	case tea.KeyEnter:
-		b.mode = normalMode
-		b.restoreModeHints()
-		comment := b.comment.input.Value()
-		act := b.comment.pendingAction
-		if b.comment.boardScope {
-			return b.handleBoardActionKeyWithComment(act, comment)
+	if binding, ok := b.textBinding(keymap.ModeComment, msg); ok && binding.Kind == keymap.BindingCommand {
+		switch binding.Command {
+		case keymap.CommandCommentSubmit, keymap.CommandCommentCancel:
+			return b.runCommentCommand(binding.Command)
 		}
-		if b.comment.prScope {
-			return b.handlePRActionKeyWithComment(act, b.comment.pendingCard, comment)
-		}
-		return b.handleActionKeyWithComment(act, b.comment.pendingCard, comment)
-	default:
-		var cmd tea.Cmd
-		b.comment.input, cmd = b.comment.input.Update(msg)
-		return b, cmd
 	}
+
+	var cmd tea.Cmd
+	b.comment.input, cmd = b.comment.input.Update(msg)
+	return b, cmd
 }
 
 func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -543,61 +538,33 @@ func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b.handleDispatchModalKey(msg)
 }
 
+// handleSearchModeKey routes search mode through the ModeSearch registry
+// (textBinding, keymap_text.go): a resolved search.* command dispatches
+// through runSearchCommand -- none of search's six command ids is focus-
+// gated, so there is no eligibility predicate to check, unlike
+// create/config. Anything else -- no match, OutcomePending, a non-command
+// binding, or a foreign command id -- falls through to the searchInput
+// textinput below, transcribed verbatim from the pre-#540 `default:`
+// branch: queries can contain any character -- card-number search ("42")
+// and titles with j/k must stay typeable.
 func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEsc:
-		b.clearSearch()
-		b.mode = normalMode
-		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
-		return b, nil
-	case tea.KeyEnter:
-		b.searchInput.Blur()
-		b.mode = normalMode
-		b.clampScrollOffset()
-		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
-		return b, nil
-	case tea.KeyTab:
-		b.clearSearch()
-		b.mode = normalMode
-		b.switchColumn((b.ActiveTab + 1) % len(b.Columns))
-		return b, nil
-	case tea.KeyShiftTab:
-		b.clearSearch()
-		b.mode = normalMode
-		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
-		return b, nil
-	// Result navigation while typing: arrows plus ctrl+n/ctrl+p (the
-	// neovim/fzf convention). Bare j/k must reach the textinput so queries
-	// containing those letters stay typeable.
-	case tea.KeyDown, tea.KeyCtrlN:
-		col := &b.Columns[b.ActiveTab]
-		col.Cursor = moveCursor(col.Cursor, len(b.visibleCards()), true)
-		b.detailScrollOffset = 0
-		b.clampScrollOffset()
-		return b, nil
-	case tea.KeyUp, tea.KeyCtrlP:
-		col := &b.Columns[b.ActiveTab]
-		col.Cursor = moveCursor(col.Cursor, len(b.visibleCards()), false)
-		b.detailScrollOffset = 0
-		b.clampScrollOffset()
-		return b, nil
-	default:
-		// Forward everything else (including digits and j/k) to the textinput:
-		// queries can contain any character — card-number search ("42") and
-		// titles with j/k must stay typeable. Column switching while searching
-		// is available via tab/shift+tab.
-		var cmd tea.Cmd
-		b.searchInput, cmd = b.searchInput.Update(msg)
-		b.searchQuery = b.searchInput.Value()
-		// Reset cursor and scroll offset when filter changes.
-		col := &b.Columns[b.ActiveTab]
-		col.Cursor = 0
-		col.ScrollOffset = 0
-		b.statusBar.SetActionHints(searchModeHints)
-		return b, cmd
+	if binding, ok := b.textBinding(keymap.ModeSearch, msg); ok && binding.Kind == keymap.BindingCommand {
+		switch binding.Command {
+		case keymap.CommandSearchApply, keymap.CommandSearchCancel, keymap.CommandSearchNextResult,
+			keymap.CommandSearchPrevResult, keymap.CommandSearchNextColumn, keymap.CommandSearchPrevColumn:
+			return b.runSearchCommand(binding.Command)
+		}
 	}
+
+	var cmd tea.Cmd
+	b.searchInput, cmd = b.searchInput.Update(msg)
+	b.searchQuery = b.searchInput.Value()
+	// Reset cursor and scroll offset when filter changes.
+	col := &b.Columns[b.ActiveTab]
+	col.Cursor = 0
+	col.ScrollOffset = 0
+	b.statusBar.SetActionHints(b.searchHints())
+	return b, cmd
 }
 
 // closePRPickerNoPRs exits the PR picker back to normalMode when the

@@ -202,22 +202,35 @@ func (b Board) runDeleteCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 // renders "◀/▶" (byte-identical to today's literal) while a remap onto
 // non-arrow keys (e.g. "h"/"l") falls back to the raw key text instead of a
 // stale glyph.
+//
+// preferArrow's arrow-alias lookup scans entries directly rather than
+// commandHintKeys' returned keys: commandHintKeys already suppresses an
+// arrow-alias key whenever a non-alias key is also bound to the same
+// command (its own alias-suppression logic, designed for normal-mode hints
+// where the alias is genuinely secondary), so by the time its result
+// reaches this function the arrow key may already be gone -- exactly
+// search's default up+ctrl+p/down+ctrl+n table. Scanning the unfiltered
+// (single-key) entries directly is the only way to see a bound arrow key
+// that commandHintKeys has already suppressed away.
 func glyphHintKey(entries []keymap.Entry, preferArrow bool, ids ...keymap.CommandID) string {
 	single := singleKeyEntries(entries)
 	var parts []string
 	for _, id := range ids {
-		keys := commandHintKeys(single, id)
-		if len(keys) == 0 {
-			continue
-		}
-		key := keys[0]
+		var key string
 		if preferArrow {
-			for _, k := range keys {
-				if arrowAliasKeys[k] {
-					key = k
+			for _, e := range single {
+				if e.Binding.Kind == keymap.BindingCommand && e.Binding.Command == id && arrowAliasKeys[e.Sequence] {
+					key = e.Sequence
 					break
 				}
 			}
+		}
+		if key == "" {
+			keys := commandHintKeys(single, id)
+			if len(keys) == 0 {
+				continue
+			}
+			key = keys[0]
 		}
 		parts = append(parts, glyphOrKey(key))
 	}
@@ -407,6 +420,124 @@ func (b Board) runConfigCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	case keymap.CommandConfigProviderPrev:
 		b.config.providerIndex = (b.config.providerIndex - 1 + len(b.config.providerOptions)) % len(b.config.providerOptions)
 		return b, nil
+	}
+	return b, nil
+}
+
+// --- search/comment (#540 PR 2/2) ---
+//
+// search and comment are both ConsumesPrintableRunes() text-input surfaces,
+// same as create/config, but neither has a focus-gated command: every one
+// of their command ids is always eligible, so unlike createCommandActive/
+// configCommandActive there is no eligibility predicate here -- a resolved
+// search.*/comment.* command id always dispatches through
+// runSearchCommand/runCommentCommand.
+
+// searchHintSpecs curates the search mode's non-glyph status-bar hints
+// (Apply, Clear); the Navigate hint is applied separately (searchHints)
+// since it needs glyphHintKey's arrow-preferred substitution, not
+// builtinHints' plain commandHintKeys pick.
+var searchHintSpecs = []hintSpec{
+	{desc: "Apply", commands: []keymap.CommandID{keymap.CommandSearchApply}},
+	{desc: "Clear", commands: []keymap.CommandID{keymap.CommandSearchCancel}},
+}
+
+// commentHintSpecs curates the comment modal's status-bar hints (Cancel,
+// Submit).
+var commentHintSpecs = []hintSpec{
+	{desc: "Cancel", commands: []keymap.CommandID{keymap.CommandCommentCancel}},
+	{desc: "Submit", commands: []keymap.CommandID{keymap.CommandCommentSubmit}},
+}
+
+// searchHints derives search mode's status-bar hints from the active
+// keymap, byte-identical to today's searchModeHints package var (pre-#540
+// model.go) under the default table: Apply, Clear, then Navigate (arrow-
+// preferred glyph-substituted, mirroring createModalHints' Cycle hint) --
+// search's ctrl+n/ctrl+p are aliases for up/down (the inverse of normal
+// mode's j/k-primary convention), so the arrow-preferred tie-break is what
+// keeps today's "↑/↓" literal byte-identical under the default table.
+func (b Board) searchHints() []Hint {
+	entries := singleKeyEntries(b.keys.Entries(keymap.ModeSearch, ""))
+	hints := builtinHints(entries, searchHintSpecs)
+	if key := glyphHintKey(entries, true, keymap.CommandSearchPrevResult, keymap.CommandSearchNextResult); key != "" {
+		hints = append(hints, Hint{Key: key, Desc: "Navigate"})
+	}
+	return hints
+}
+
+// commentHints derives the comment modal's status-bar hints from the active
+// keymap, byte-identical to today's commentModeHints package var (pre-#540
+// model.go) under the default table.
+func (b Board) commentHints() []Hint {
+	entries := singleKeyEntries(b.keys.Entries(keymap.ModeComment, ""))
+	return builtinHints(entries, commentHintSpecs)
+}
+
+// runSearchCommand runs the search command id resolves to. Case bodies are
+// transcribed verbatim from the pre-#540 handleSearchModeKey
+// (mode_handlers.go), guard for guard.
+func (b Board) runSearchCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	switch id {
+	case keymap.CommandSearchCancel:
+		b.clearSearch()
+		b.mode = normalMode
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case keymap.CommandSearchApply:
+		b.searchInput.Blur()
+		b.mode = normalMode
+		b.clampScrollOffset()
+		b.rebuildNormalHints()
+		b.statusBar.SetActionHints(b.normalHints)
+		return b, nil
+	case keymap.CommandSearchNextColumn:
+		b.clearSearch()
+		b.mode = normalMode
+		b.switchColumn((b.ActiveTab + 1) % len(b.Columns))
+		return b, nil
+	case keymap.CommandSearchPrevColumn:
+		b.clearSearch()
+		b.mode = normalMode
+		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
+		return b, nil
+	case keymap.CommandSearchNextResult:
+		col := &b.Columns[b.ActiveTab]
+		col.Cursor = moveCursor(col.Cursor, len(b.visibleCards()), true)
+		b.detailScrollOffset = 0
+		b.clampScrollOffset()
+		return b, nil
+	case keymap.CommandSearchPrevResult:
+		col := &b.Columns[b.ActiveTab]
+		col.Cursor = moveCursor(col.Cursor, len(b.visibleCards()), false)
+		b.detailScrollOffset = 0
+		b.clampScrollOffset()
+		return b, nil
+	}
+	return b, nil
+}
+
+// runCommentCommand runs the comment command id resolves to. Case bodies
+// are transcribed verbatim from the pre-#540 handleCommentModeKey
+// (mode_handlers.go), guard for guard.
+func (b Board) runCommentCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	switch id {
+	case keymap.CommandCommentCancel:
+		b.mode = normalMode
+		b.restoreModeHints()
+		return b, nil
+	case keymap.CommandCommentSubmit:
+		b.mode = normalMode
+		b.restoreModeHints()
+		comment := b.comment.input.Value()
+		act := b.comment.pendingAction
+		if b.comment.boardScope {
+			return b.handleBoardActionKeyWithComment(act, comment)
+		}
+		if b.comment.prScope {
+			return b.handlePRActionKeyWithComment(act, b.comment.pendingCard, comment)
+		}
+		return b.handleActionKeyWithComment(act, b.comment.pendingCard, comment)
 	}
 	return b, nil
 }

@@ -40,7 +40,7 @@ func (b Board) dispatchActionWithAlt(act config.Action, alt bool) (tea.Model, te
 		}
 		b.detailFocused = false
 		b.mode = commentMode
-		b.statusBar.SetActionHints(commentModeHints)
+		b.statusBar.SetActionHints(b.commentHints())
 		return b, b.comment.input.Focus()
 	}
 	// No Alt, or Alt on an action without {comment} -- execute normally.
