@@ -10,142 +10,90 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
+// handleCreateModeKey routes create mode through the ModeCreate registry
+// (textBinding, keymap_text.go): a resolved create.* command that's also
+// currently eligible (createCommandActive -- the assignee cycle's fifth
+// condition, gated on b.create.focus == 2 and a non-empty
+// assigneeOptions) dispatches through runCreateCommand. Anything else --
+// no match, OutcomePending, a non-command binding, a foreign command id, or
+// a resolved-but-ineligible assignee-cycle command -- falls through to the
+// focused field below, transcribed verbatim from the pre-#540 `default:`
+// branch minus the hardcoded `case "left"/"right"` assignee-cycle switch:
+// that logic now lives exclusively behind the eligibility-gated command
+// path above, so an unbound/remapped-away left/right at focus 2 is a
+// genuine no-op (mirroring TestCreateMode_UnbindAssigneeCycleKeys_
+// LeftRightNoOpAtFocus2) instead of silently cycling via raw string
+// matching.
 func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		b.mode = normalMode
-		return b, nil
-	case tea.KeyEnter:
-		title := strings.TrimSpace(strings.ReplaceAll(b.create.titleInput.Value(), "\n", " "))
-		if title == "" {
-			b.validationErr = "Title is required"
-			return b, nil
-		}
-		label := strings.TrimSpace(b.create.labelInput.Value())
-		for _, col := range b.Columns {
-			if strings.EqualFold(col.Title, label) {
-				b.validationErr = "Cannot use reserved column label"
-				return b, nil
+	if binding, ok := b.textBinding(keymap.ModeCreate, msg); ok && binding.Kind == keymap.BindingCommand {
+		switch binding.Command {
+		case keymap.CommandCreateSubmit, keymap.CommandCreateCancel, keymap.CommandCreateNextField,
+			keymap.CommandCreateAssigneePrev, keymap.CommandCreateAssigneeNext:
+			if b.createCommandActive(binding.Command) {
+				return b.runCreateCommand(binding.Command)
 			}
 		}
-		// Store pending assignee if a real collaborator is selected (not "(none)").
-		if len(b.create.assigneeOptions) > 1 && b.create.assigneeOptions[b.create.assigneeIndex] != noneAssignee {
-			login := b.create.assigneeOptions[b.create.assigneeIndex]
-			login = strings.TrimSuffix(login, " (me)")
-			b.create.pendingAssignee = login
-		} else {
-			b.create.pendingAssignee = ""
-		}
-		b.mode = creatingMode
-		b.create.titleInput.Blur()
-		b.create.labelInput.Blur()
-		return b, tea.Batch(b.spinner.Tick, createCardCmd(b.provider, title, label))
-	case tea.KeyTab:
-		var cmd tea.Cmd
-		hasAssignee := len(b.create.assigneeOptions) > 1
-		switch b.create.focus {
-		case 0: // title -> label
-			b.create.focus = 1
-			b.create.titleInput.Blur()
-			cmd = b.create.labelInput.Focus()
-		case 1: // label -> assignee (if available) or title
-			b.create.labelInput.Blur()
-			if hasAssignee {
-				b.create.focus = 2
-			} else {
-				b.create.focus = 0
-				cmd = b.create.titleInput.Focus()
-			}
-		case 2: // assignee -> title
-			b.create.focus = 0
-			cmd = b.create.titleInput.Focus()
-		}
-		return b, cmd
-	default:
-		b.validationErr = ""
-		var cmd tea.Cmd
-		switch b.create.focus {
-		case 0: // title focused
-			b.create.titleInput, cmd = b.create.titleInput.Update(msg)
-			b.recalcCreateInputs()
-			// After recalcCreateInputs changes the textarea height, the
-			// internal viewport's content lines may be stale, preventing
-			// repositionView from scrolling correctly. Call View() to
-			// update the viewport content (via the shared pointer), then
-			// send a nil message through Update to trigger
-			// repositionView, which scrolls the viewport to keep the
-			// cursor visible.
-			_ = b.create.titleInput.View()
-			var repositionCmd tea.Cmd
-			b.create.titleInput, repositionCmd = b.create.titleInput.Update(nil)
-			cmd = tea.Batch(cmd, repositionCmd)
-		case 1: // label focused
-			b.create.labelInput, cmd = b.create.labelInput.Update(msg)
-		case 2: // assignee focused
-			if len(b.create.assigneeOptions) == 0 {
-				return b, nil
-			}
-			switch msg.String() {
-			case "left":
-				b.create.assigneeIndex--
-				if b.create.assigneeIndex < 0 {
-					b.create.assigneeIndex = len(b.create.assigneeOptions) - 1
-				}
-			case "right":
-				b.create.assigneeIndex++
-				if b.create.assigneeIndex >= len(b.create.assigneeOptions) {
-					b.create.assigneeIndex = 0
-				}
-			}
-		}
-		return b, cmd
 	}
+
+	b.validationErr = ""
+	var cmd tea.Cmd
+	switch b.create.focus {
+	case 0: // title focused
+		b.create.titleInput, cmd = b.create.titleInput.Update(msg)
+		b.recalcCreateInputs()
+		// After recalcCreateInputs changes the textarea height, the
+		// internal viewport's content lines may be stale, preventing
+		// repositionView from scrolling correctly. Call View() to
+		// update the viewport content (via the shared pointer), then
+		// send a nil message through Update to trigger
+		// repositionView, which scrolls the viewport to keep the
+		// cursor visible.
+		_ = b.create.titleInput.View()
+		var repositionCmd tea.Cmd
+		b.create.titleInput, repositionCmd = b.create.titleInput.Update(nil)
+		cmd = tea.Batch(cmd, repositionCmd)
+	case 1: // label focused
+		b.create.labelInput, cmd = b.create.labelInput.Update(msg)
+	case 2: // assignee focused -- no textinput to forward to; the
+		// assignee cycle only ever dispatches through the eligibility-
+		// gated command path above, so any other key here is a no-op.
+	}
+	return b, cmd
 }
 
+// handleConfigModeKey routes config mode through the ModeConfig registry
+// (textBinding, keymap_text.go): a resolved config.* command that's also
+// currently eligible (configCommandActive -- the provider cycle's fifth
+// condition, gated on b.config.focus == 0) dispatches through
+// runConfigCommand. A resolved-but-ineligible provider-cycle command (left/
+// right at focus == 1, repo input focused) is explicitly swallowed rather
+// than forwarded to repoInput -- unlike create's default-branch text-
+// forwarding shape, config's left/right were dedicated top-level cases in
+// the pre-#540 handler that already returned (b, nil) whenever focus != 0,
+// so this preserves that byte-identical swallow (the #540 plan's Q&A #2
+// behavior-parity decision; TestConfigMode_LeftRight_AtRepoFocus_
+// DoesNotReachInput is the named regression guard -- do not "fix" this to
+// forward to repoInput). Anything else -- no match, OutcomePending, a
+// non-command binding, or a foreign command id -- falls through to the
+// verbatim pre-#540 `default:` branch below.
 func (b Board) handleConfigModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyEscape:
-		if b.config.firstLaunch {
-			return b, tea.Quit
-		}
-		b.mode = normalMode
-		return b, nil
-	case tea.KeyEnter:
-		provider := b.config.providerOptions[b.config.providerIndex]
-		repo := strings.TrimSpace(b.config.repoInput.Value())
-		if repo == "" {
-			b.validationErr = "Repository is required"
+	if binding, ok := b.textBinding(keymap.ModeConfig, msg); ok && binding.Kind == keymap.BindingCommand {
+		switch binding.Command {
+		case keymap.CommandConfigSave, keymap.CommandConfigCancel, keymap.CommandConfigNextField,
+			keymap.CommandConfigProviderPrev, keymap.CommandConfigProviderNext:
+			if b.configCommandActive(binding.Command) {
+				return b.runConfigCommand(binding.Command)
+			}
 			return b, nil
 		}
-		b.validationErr = ""
-		return b, saveConfigCmd(b.config.localPath, provider, repo)
-	case tea.KeyTab:
-		if b.config.focus == 0 {
-			b.config.focus = 1
-			cmd := b.config.repoInput.Focus()
-			return b, cmd
-		}
-		b.config.focus = 0
-		b.config.repoInput.Blur()
-		return b, nil
-	case tea.KeyRight:
-		if b.config.focus == 0 {
-			b.config.providerIndex = (b.config.providerIndex + 1) % len(b.config.providerOptions)
-		}
-		return b, nil
-	case tea.KeyLeft:
-		if b.config.focus == 0 {
-			b.config.providerIndex = (b.config.providerIndex - 1 + len(b.config.providerOptions)) % len(b.config.providerOptions)
-		}
-		return b, nil
-	default:
-		if b.config.focus == 1 {
-			var cmd tea.Cmd
-			b.config.repoInput, cmd = b.config.repoInput.Update(msg)
-			return b, cmd
-		}
-		return b, nil
 	}
+
+	if b.config.focus == 1 {
+		var cmd tea.Cmd
+		b.config.repoInput, cmd = b.config.repoInput.Update(msg)
+		return b, cmd
+	}
+	return b, nil
 }
 
 func (b Board) handleNormalModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
