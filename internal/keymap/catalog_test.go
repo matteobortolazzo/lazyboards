@@ -41,6 +41,7 @@ func TestDefaultModeTableGroups_NoModeCollisions(t *testing.T) {
 		"modalDefaultTables":  modalDefaultTables,
 		"panelDefaultTables":  panelDefaultTables,
 		"systemDefaultTables": systemDefaultTables,
+		"textDefaultTables":   textDefaultTables,
 	}
 
 	seenIn := make(map[Mode]string)
@@ -101,22 +102,19 @@ func TestDefaults_EveryBoundCommandExistsInCatalogue(t *testing.T) {
 	}
 }
 
-// TestDefaults_OnlyBoardAndModalModesPopulated pins this ticket's scope:
-// #507 delivers the normal/detail default tables and #508 PR 1
-// (pr1Modes, catalog_pr1_test.go) adds the six navigable modals, the git
-// panel, the dispatch modal, help and errorMode -- Defaults() must not
-// populate any mode beyond that set yet (PR 2 adds the confirm/text-input
-// modes next).
-func TestDefaults_OnlyBoardAndModalModesPopulated(t *testing.T) {
-	populated := map[Mode]bool{ModeNormal: true, ModeDetail: true}
-	for _, mode := range pr1Modes {
-		populated[mode] = true
-	}
-
+// TestDefaults_NeverPopulatesUnresolvableMode replaces TestDefaults_
+// OnlyBoardAndModalModesPopulated: with #538 completing the catalogue
+// (closing the gap #508's missing PR 2/2 left), every mode in Modes() is now
+// populated, so an allow-list of "populated" modes became a restatement of
+// Modes() and caught nothing. This asserts the inverse, permanent invariant
+// instead: Defaults() must never populate a mode that isn't Resolvable() --
+// i.e. it must never populate ModeColumns, the config-namespace pseudo-mode
+// that Modes() deliberately excludes.
+func TestDefaults_NeverPopulatesUnresolvableMode(t *testing.T) {
 	defaults := Defaults()
 	for mode := range defaults.Modes {
-		if !populated[mode] {
-			t.Errorf("Defaults().Modes contains mode %q, want only the #507 board modes and #508 PR 1 modal modes", mode)
+		if !mode.Resolvable() {
+			t.Errorf("Defaults().Modes contains mode %q, which is not Resolvable() -- Defaults() must never populate a mode outside Modes()", mode)
 		}
 	}
 }
