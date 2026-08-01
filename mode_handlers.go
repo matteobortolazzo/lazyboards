@@ -997,17 +997,30 @@ func (b Board) handleHelpModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b.runHelpCommand(binding.Command)
 }
 
+// handleLabelConfirmModeKey routes a key press in labelConfirmMode through
+// the ModeLabelConfirm registry (textBinding, keymap_text.go), mirroring
+// handleHelpModeKey's binding->dispatch->run shape (#539 PR 1/2). Unlike the
+// pre-#539 handler, there is no literal `msg.Type == tea.KeyEsc` pre-check:
+// esc resolves through the table onto label_confirm.cancel, the same
+// command id "n" resolves to, so an explicit unbind of esc alone genuinely
+// disables it (see keymap_text_test.go's EscUnbound regression coverage).
 func (b Board) handleLabelConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
-		b.mode = normalMode
-		cmd := b.statusBar.SetTimedMessage("Edit cancelled", StatusWarning, statusMessageDuration)
-		return b, cmd
+	binding, ok := b.textBinding(keymap.ModeLabelConfirm, msg)
+	if !ok || binding.Kind != keymap.BindingCommand {
+		return b, nil
 	}
-	switch msg.String() {
-	case "y":
+	return b.runLabelConfirmCommand(binding.Command)
+}
+
+// runLabelConfirmCommand runs the label_confirm command id resolves to.
+// Case bodies are transcribed verbatim from the pre-#539
+// handleLabelConfirmModeKey (mode_handlers.go), guard for guard.
+func (b Board) runLabelConfirmCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	switch id {
+	case keymap.CommandLabelConfirmCreate:
 		label := b.labelConfirm.unknownLabels[b.labelConfirm.currentIdx]
 		return b, createLabelCmd(b.provider, label)
-	case "n":
+	case keymap.CommandLabelConfirmCancel:
 		b.mode = normalMode
 		cmd := b.statusBar.SetTimedMessage("Edit cancelled", StatusWarning, statusMessageDuration)
 		return b, cmd
@@ -1015,18 +1028,31 @@ func (b Board) handleLabelConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
+// handleCloseConfirmModeKey routes a key press in closeConfirmMode through
+// the ModeCloseConfirm registry (textBinding, keymap_text.go), mirroring
+// handleHelpModeKey's binding->dispatch->run shape (#539 PR 1/2). Unlike the
+// pre-#539 handler, there is no literal `msg.Type == tea.KeyEsc` pre-check:
+// esc resolves through the table onto close_confirm.cancel, the same
+// command id "n" resolves to, so an explicit unbind of esc alone genuinely
+// disables it (see keymap_text_test.go's EscUnbound regression coverage).
 func (b Board) handleCloseConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
-		b.mode = normalMode
-		cmd := b.statusBar.SetTimedMessage("Close cancelled", StatusWarning, statusMessageDuration)
-		return b, cmd
+	binding, ok := b.textBinding(keymap.ModeCloseConfirm, msg)
+	if !ok || binding.Kind != keymap.BindingCommand {
+		return b, nil
 	}
-	switch msg.String() {
-	case "y":
+	return b.runCloseConfirmCommand(binding.Command)
+}
+
+// runCloseConfirmCommand runs the close_confirm command id resolves to.
+// Case bodies are transcribed verbatim from the pre-#539
+// handleCloseConfirmModeKey (mode_handlers.go), guard for guard.
+func (b Board) runCloseConfirmCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	switch id {
+	case keymap.CommandCloseConfirmConfirm:
 		cmd := closeCardCmd(b.provider, b.closeConfirm.card.Number)
 		b.mode = normalMode
 		return b, cmd
-	case "n":
+	case keymap.CommandCloseConfirmCancel:
 		b.mode = normalMode
 		cmd := b.statusBar.SetTimedMessage("Close cancelled", StatusWarning, statusMessageDuration)
 		return b, cmd
