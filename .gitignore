@@ -7,6 +7,9 @@
 # Ephemeral cenci pipeline state (per-ticket stage tracking + lock files)
 .cenci/pipeline/
 
+# Generated maintenance report from /cenci:maintain
+**/.cenci/maintain-report.json
+
 # Binaries
 *.exe
 *.exe~

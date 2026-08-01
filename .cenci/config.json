@@ -1,16 +1,18 @@
 {
+  "configVersion": "0.45.0",
   "branchPattern": "feature/<id>-<description>",
   "stack": {
     "backend": "go-bubbletea",
     "frontend": null,
     "testing": ["go-test"]
   },
-  "claudeMdLocation": ".claude/CLAUDE.md",
+  "guidanceLocation": "AGENTS.md",
   "mcpServers": {
     "context7": true
   },
   "lspServers": {
-    "gopls": true
+    "gopls": true,
+    "pyright": true
   },
   "autoCompactDisabled": true,
   "pinSubagents200K": false,
@@ -25,6 +27,8 @@
   "lazyboards": {
     "enabled": true,
     "serveCommand": "go run .",
-    "boardKey": "W"
+    "boardKey": "S",
+    "testCommand": "go test ./...",
+    "testKey": "T"
   }
 }
