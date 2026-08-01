@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -271,7 +270,7 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 			commentInput: ci,
 		}
 		b.mode = deleteMode
-		b.statusBar.SetActionHints(deleteCommentHints)
+		b.statusBar.SetActionHints(b.deleteCommentHints())
 		return b, b.delete.commentInput.Focus()
 	case keymap.CommandViewPRList:
 		b.enterPRList()
@@ -1061,49 +1060,30 @@ func (b Board) runCloseConfirmCommand(id keymap.CommandID) (tea.Model, tea.Cmd) 
 }
 
 // handleDeleteModeKey drives the two-step delete-confirm flow: an optional
-// comment step, then a retype-to-confirm step. Esc cancels the whole flow
-// (discarding any comment typed in step 1) from either step. The
-// retype-to-confirm step only accepts an exact string match of the card
-// number; a mismatch shows an inline message and remains in the step rather
-// than auto-cancelling.
+// comment step, then a retype-to-confirm step. It routes through the
+// ModeDelete registry (textBinding, keymap_text.go) but deliberately
+// diverges from close_confirm/label_confirm's binding->dispatch->run shape
+// (#539 PR 2/2): those modes no-op on anything that isn't a recognized
+// command, but delete's ConsumesPrintableRunes() is true and its handler
+// owns every keystroke that isn't one of its two commands
+// (delete.submit/delete.cancel), so any other outcome -- no match,
+// OutcomePending, a resolved non-command (BindingAction) binding, or a
+// command id outside that set -- must fall through to the active step's
+// textinput.Update(msg) instead of silently no-oping, byte-identical to
+// today's behavior where everything except esc/enter reaches the textinput.
 func (b Board) handleDeleteModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEsc {
-		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
-		cmd := b.statusBar.SetTimedMessage("Delete cancelled", StatusWarning, statusMessageDuration)
-		return b, cmd
+	binding, ok := b.textBinding(keymap.ModeDelete, msg)
+	if ok && binding.Kind == keymap.BindingCommand &&
+		(binding.Command == keymap.CommandDeleteSubmit || binding.Command == keymap.CommandDeleteCancel) {
+		return b.runDeleteCommand(binding.Command)
 	}
 
 	switch b.delete.step {
 	case deleteStepComment:
-		if msg.Type == tea.KeyEnter {
-			ci := textinput.New()
-			ci.Placeholder = strconv.Itoa(b.delete.card.Number)
-			ci.CharLimit = 20
-			b.delete.step = deleteStepConfirm
-			b.delete.confirmInput = ci
-			b.delete.mismatchMsg = ""
-			b.statusBar.SetActionHints(deleteConfirmHints)
-			return b, b.delete.confirmInput.Focus()
-		}
 		var cmd tea.Cmd
 		b.delete.commentInput, cmd = b.delete.commentInput.Update(msg)
 		return b, cmd
 	case deleteStepConfirm:
-		if msg.Type == tea.KeyEnter {
-			card := b.delete.card
-			if b.delete.confirmInput.Value() != strconv.Itoa(card.Number) {
-				b.delete.mismatchMsg = fmt.Sprintf("Doesn't match #%d — try again or Esc to cancel", card.Number)
-				return b, nil
-			}
-			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
-			comment := strings.TrimSpace(b.delete.commentInput.Value())
-			if comment != "" {
-				return b, addCommentForDeleteCmd(b.provider, card, comment)
-			}
-			return b, deleteCardCmd(b.provider, card, false)
-		}
 		var cmd tea.Cmd
 		b.delete.confirmInput, cmd = b.delete.confirmInput.Update(msg)
 		return b, cmd
