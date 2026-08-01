@@ -4,10 +4,12 @@ package keymap
 // detail-panel surfaces (#507). modalCommands (command_modal.go),
 // panelCommands (command_panel.go) and systemCommands (command_system.go)
 // hold the #508 PR 1 surfaces (the six navigable modals, the git panel, the
-// dispatch modal, help and errorMode); init (below) merges every group into
-// catalog. PR 2 will add its own confirm/text-input groups the same way --
-// a new mode group only needs a var here (or its own file) plus one line in
-// init, not a new accessor alongside Commands/FindCommand/Defaults.
+// dispatch modal, help and errorMode); textCommands (command_text.go) holds
+// the #538 surfaces (the seven confirm/text-input modes: close_confirm,
+// label_confirm, delete, create, config, search, comment). init (below)
+// merges every group into catalog -- a new mode group only needs a var here
+// (or its own file) plus one line in init, not a new accessor alongside
+// Commands/FindCommand/Defaults.
 var boardCommands = []Command{
 	{CommandQuit, "Quit"},
 	{CommandHelp, "Help"},
@@ -54,8 +56,9 @@ var catalog []Command
 // defaultModeTables backs Defaults(): the normal/detail default Table
 // literals from defaults_board.go (#507), merged with modalDefaultTables
 // (defaults_modal.go), panelDefaultTables (defaults_panel.go) and
-// systemDefaultTables (defaults_system.go) for #508 PR 1, keyed by the Mode
-// each binds.
+// systemDefaultTables (defaults_system.go) for #508 PR 1, and
+// textDefaultTables (defaults_text.go) for #538, keyed by the Mode each
+// binds. Every mode in Modes() now has a non-empty entry here.
 var defaultModeTables map[Mode]Table
 
 // init populates catalog and defaultModeTables from the per-group vars
@@ -67,6 +70,7 @@ func init() {
 	catalog = append(catalog, modalCommands...)
 	catalog = append(catalog, panelCommands...)
 	catalog = append(catalog, systemCommands...)
+	catalog = append(catalog, textCommands...)
 
 	defaultModeTables = map[Mode]Table{
 		ModeNormal: normalDefaults,
@@ -79,6 +83,9 @@ func init() {
 		defaultModeTables[mode] = table
 	}
 	for mode, table := range systemDefaultTables {
+		defaultModeTables[mode] = table
+	}
+	for mode, table := range textDefaultTables {
 		defaultModeTables[mode] = table
 	}
 }
@@ -102,10 +109,14 @@ func FindCommand(id CommandID) (Command, bool) {
 }
 
 // Defaults returns the built-in default Tables: the normal-mode and
-// detail-panel tables for #507. #508 fills in every remaining mode. It
-// returns a defensive copy, mirroring Commands() (above), Modes() (mode.go)
-// and Entries() (keymap.go) -- callers cannot mutate the package-level
-// defaultModeTables (or its nested per-mode Tables) through the result.
+// detail-panel tables for #507, the six navigable modals/git panel/dispatch
+// modal/help/errorMode for #508 PR 1, and the seven confirm/text-input
+// modes (close_confirm, label_confirm, delete, create, config, search,
+// comment) for #538 -- every mode in Modes() now has a non-empty default
+// table. It returns a defensive copy, mirroring Commands() (above), Modes()
+// (mode.go) and Entries() (keymap.go) -- callers cannot mutate the
+// package-level defaultModeTables (or its nested per-mode Tables) through
+// the result.
 func Defaults() Tables {
 	modes := make(map[Mode]Table, len(defaultModeTables))
 	for mode, table := range defaultModeTables {
