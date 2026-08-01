@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -660,5 +662,388 @@ func TestSearchMode_SearchInputPrompt(t *testing.T) {
 	expectedPrompt := "/ "
 	if b.searchInput.Prompt != expectedPrompt {
 		t.Errorf("searchInput.Prompt = %q, want %q", b.searchInput.Prompt, expectedPrompt)
+	}
+}
+
+// --- Registry routing (#540 PR 2/2) ---
+//
+// handleSearchModeKey cuts over from a hardcoded switch msg.Type to
+// b.textBinding(keymap.ModeSearch, msg) (keymap_text.go), mirroring
+// handleCreateModeKey/handleConfigModeKey (#540 PR 1/2): a resolved
+// search.* command dispatches through runSearchCommand; anything else --
+// no match, OutcomePending, a non-command binding, or a foreign command id
+// -- falls through to the searchInput textinput, since search is one of
+// keymap.Mode.ConsumesPrintableRunes()'s modes.
+
+// TestSearchMode_PrintableRunesReachInput_NotInterceptedAsCommands extends
+// the existing digit/j/k passthrough coverage (TestSearchMode_
+// DigitsTypeIntoQuery, TestSearchMode_JKTypeIntoQuery) with "y"/"n" -- the
+// letters close_confirm/label_confirm bind as commands elsewhere in the
+// catalog -- to guard against a future default-table change accidentally
+// binding a printable rune into ModeSearch: textBinding's
+// ConsumesPrintableRunes guard must keep refusing bare printable runes here
+// regardless.
+func TestSearchMode_PrintableRunesReachInput_NotInterceptedAsCommands(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+	requireColumns(t, b)
+
+	b = sendKey(t, b, keyMsg("/"))
+	for _, ch := range "jkyn42" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	if b.searchQuery != "jkyn42" {
+		t.Errorf("searchQuery = %q, want %q (printable runes, including y/n, must reach the textinput)", b.searchQuery, "jkyn42")
+	}
+	if b.mode != searchMode {
+		t.Errorf("mode after typing printable runes = %d, want %d (searchMode; none of them may dispatch a command)", b.mode, searchMode)
+	}
+}
+
+// TestSearchMode_RemapCancelKey_DispatchStaysInSync mirrors
+// TestCreateMode_RemapCancelKey_DispatchAndHintStaySync (create_mode_test.go,
+// #540 PR 1/2): unbinding "esc" from search.cancel and rebinding it onto
+// "f1" must make the old key a no-op and the new key cancel the search.
+func TestSearchMode_RemapCancelKey_DispatchStaysInSync(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("/"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeSearch: {
+			"esc": keymap.UnboundBinding(),
+			"f1":  keymap.CommandBinding(keymap.CommandSearchCancel),
+		},
+	}, nil)
+	b = sendKey(t, b, keyMsg("b"))
+
+	before := b.mode
+	b2 := sendKey(t, b, arrowMsg(tea.KeyEsc))
+	if b2.mode != before {
+		t.Errorf("mode after unbound (now-old) esc = %v, want unchanged %v", b2.mode, before)
+	}
+	if b2.searchQuery == "" {
+		t.Error("unbound esc should not clear the search query")
+	}
+
+	b3 := sendKey(t, b, arrowMsg(tea.KeyF1))
+	if b3.mode != normalMode {
+		t.Errorf("mode after remapped 'f1' = %v, want normalMode", b3.mode)
+	}
+	if b3.searchQuery != "" {
+		t.Errorf("searchQuery after cancelling via remapped 'f1' = %q, want empty (search.cancel clears the query)", b3.searchQuery)
+	}
+}
+
+// TestSearchMode_RemapNavigateKeys_OldKeysNoLongerNavigateNewKeysDo is
+// TestSearchMode_RemapCancelKey_DispatchStaysInSync's Navigate sibling,
+// unbinding search's default up/down/ctrl+p/ctrl+n from
+// search.prev_result/search.next_result and rebinding onto ctrl+k/ctrl+j
+// (non-printable, per .claude/rules/testing.md's "Keymap Remap Tests for
+// Text-Input Modes" lesson).
+func TestSearchMode_RemapNavigateKeys_OldKeysNoLongerNavigateNewKeysDo(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Bug: login fails", Labels: []provider.Label{{Name: "bug"}}},
+		{Number: 2, Title: "Bug: crash on load", Labels: []provider.Label{{Name: "bug"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+	b = sendKey(t, b, keyMsg("/"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeSearch: {
+			"up":     keymap.UnboundBinding(),
+			"down":   keymap.UnboundBinding(),
+			"ctrl+p": keymap.UnboundBinding(),
+			"ctrl+n": keymap.UnboundBinding(),
+			"ctrl+k": keymap.CommandBinding(keymap.CommandSearchPrevResult),
+			"ctrl+j": keymap.CommandBinding(keymap.CommandSearchNextResult),
+		},
+	}, nil)
+	before := b.Columns[b.ActiveTab].Cursor
+
+	b2 := sendKey(t, b, arrowMsg(tea.KeyDown))
+	if got := b2.Columns[b2.ActiveTab].Cursor; got != before {
+		t.Errorf("cursor after old (now unbound) down = %d, want unchanged %d", got, before)
+	}
+	b3 := sendKey(t, b, arrowMsg(tea.KeyCtrlN))
+	if got := b3.Columns[b3.ActiveTab].Cursor; got != before {
+		t.Errorf("cursor after old (now unbound) ctrl+n = %d, want unchanged %d", got, before)
+	}
+
+	b4 := sendKey(t, b, arrowMsg(tea.KeyCtrlJ))
+	if got := b4.Columns[b4.ActiveTab].Cursor; got == before {
+		t.Error("cursor unchanged after remapped 'ctrl+j', want it to advance to the next result")
+	}
+}
+
+// TestSearchMode_EscBoundToAction_FallsThroughToTextinputNotDispatched and
+// TestSearchMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched
+// cover two of handleSearchModeKey's documented fall-through outcomes,
+// mirroring TestCreateMode_EscBoundToAction_FallsThroughToTextinputNotDispatched
+// / TestCreateMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched
+// (create_mode_test.go, #540 PR 1/2): a resolved non-command BindingAction,
+// and a command id valid elsewhere in the catalog but foreign to
+// ModeSearch's own six ids. Neither may dispatch.
+func TestSearchMode_EscBoundToAction_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("/"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeSearch: {
+			"esc": keymap.ActionBinding(keymap.Action{Name: "Noop", Type: "url", URL: "https://example.com/{number}"}),
+		},
+	}, nil)
+	before := b.searchInput.Value()
+
+	m, _ := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != searchMode {
+		t.Errorf("mode after esc resolved to a non-command action = %v, want unchanged searchMode (must not dispatch the action)", b2.mode)
+	}
+	if got := b2.searchInput.Value(); got != before {
+		t.Errorf("searchInput.Value() = %q after esc resolved to a non-command action, want unchanged %q (falls through to the textinput)", got, before)
+	}
+}
+
+func TestSearchMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("/"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeSearch: {
+			"f1": keymap.CommandBinding(keymap.CommandCloseConfirmConfirm),
+		},
+	}, nil)
+	before := b.searchInput.Value()
+
+	m, _ := b.Update(arrowMsg(tea.KeyF1))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != searchMode {
+		t.Errorf("mode after a foreign command id (close_confirm.confirm) bound into ModeSearch = %v, want unchanged searchMode", b2.mode)
+	}
+	if got := b2.searchInput.Value(); got != before {
+		t.Errorf("searchInput.Value() = %q after a foreign command id bound into ModeSearch, want unchanged %q (falls through to the textinput, not dispatched)", got, before)
+	}
+}
+
+// --- searchHints(): byte-identity, arrow-preferred Navigate glyph, remap ---
+
+// TestSearchHints_DefaultParityMatchesTodaysLiteral asserts
+// b.searchHints() renders byte-identically to the deleted searchModeHints
+// package var (pre-#540 model.go) under the default table, including the
+// "↑/↓" Navigate glyph (Q3 of the #540 plan: search's ctrl+n/ctrl+p are
+// aliases for up/down, the inverse of normal mode's j/k-primary
+// convention, which is why the arrow-preferred tie-break is needed here).
+func TestSearchHints_DefaultParityMatchesTodaysLiteral(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("/"))
+
+	hints := b.searchHints()
+	want := []Hint{
+		{Key: "enter", Desc: "Apply"},
+		{Key: "esc", Desc: "Clear"},
+		{Key: "↑/↓", Desc: "Navigate"},
+	}
+	if !reflect.DeepEqual(hints, want) {
+		t.Errorf("searchHints() = %+v, want %+v (today's inline literal, byte-identical)", hints, want)
+	}
+}
+
+// TestSearchHints_RemapNavigateKeysOffArrows_ReflectsRawKeyNames is the Q3
+// arrow-preferred/glyph-substituted case: once search.prev_result/
+// search.next_result are remapped onto keys with no arrow glyph
+// (ctrl+k/ctrl+j), the Navigate hint must show the raw key names instead of
+// a stale "↑/↓" glyph.
+func TestSearchHints_RemapNavigateKeysOffArrows_ReflectsRawKeyNames(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("/"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeSearch: {
+			"up":     keymap.UnboundBinding(),
+			"down":   keymap.UnboundBinding(),
+			"ctrl+p": keymap.UnboundBinding(),
+			"ctrl+n": keymap.UnboundBinding(),
+			"ctrl+k": keymap.CommandBinding(keymap.CommandSearchPrevResult),
+			"ctrl+j": keymap.CommandBinding(keymap.CommandSearchNextResult),
+		},
+	}, nil)
+
+	hints := b.searchHints()
+	if got := hintDesc(t, hints, "ctrl+k/ctrl+j"); got != "Navigate" {
+		t.Errorf("searchHints() after remap onto ctrl+k/ctrl+j: Desc for %q = %q, want %q", "ctrl+k/ctrl+j", got, "Navigate")
+	}
+	for _, h := range hints {
+		if h.Key == "↑/↓" {
+			t.Errorf("searchHints() still advertises the stale '↑/↓' glyph after remapping off up/down/ctrl+p/ctrl+n, got %+v", hints)
+		}
+	}
+}
+
+// TestSearchMode_PerKeystrokeHintRefresh_ReflectsRemapAppliedAfterEntry
+// asserts the per-keystroke hint refresh (mode_handlers.go's default branch
+// in handleSearchModeKey) re-derives hints from the *current* keymap on
+// every rune keypress, not just at mode entry: remapping after entering
+// search mode, then typing a rune, must be reflected in b.statusBar's
+// rendered hints -- asserted via the hints slice itself
+// (.claude/rules/testing.md forbids a call-count assertion here).
+func TestSearchMode_PerKeystrokeHintRefresh_ReflectsRemapAppliedAfterEntry(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("/"))
+	if hintDesc(t, b.statusBar.hints, "esc") != "Clear" {
+		t.Fatalf("precondition: entering search mode should show the default 'esc' Clear hint")
+	}
+
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeSearch: {
+			"esc": keymap.UnboundBinding(),
+			"f1":  keymap.CommandBinding(keymap.CommandSearchCancel),
+		},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("a"))
+
+	for _, h := range b.statusBar.hints {
+		if h.Key == "esc" {
+			t.Errorf("statusBar hints after typing a rune still advertise the unbound 'esc' key, want the per-keystroke refresh to pick up the remap: %+v", b.statusBar.hints)
+		}
+	}
+	if got := hintDesc(t, b.statusBar.hints, "f1"); got != "Clear" {
+		t.Errorf("statusBar hints after typing a rune: Desc for remapped 'f1' = %q, want %q", got, "Clear")
+	}
+}
+
+// --- hint<->dispatch invariant across default and remapped tables ---
+
+// TestSearchHints_KeysAlwaysDispatch_DefaultAndRemappedTables is the
+// hint<->dispatch invariant test named in the #540 plan's Explicit Risk
+// Coverage, mirroring TestCreateModalHints_KeysAlwaysDispatch_
+// AllFocusPositionsDefaultAndRemappedTables (create_mode_test.go): every key
+// b.searchHints() advertises must resolve through b.textBinding against
+// ModeSearch -- the real dispatch path handleSearchModeKey uses.
+func TestSearchHints_KeysAlwaysDispatch_DefaultAndRemappedTables(t *testing.T) {
+	glyphToKey := map[string]string{"↑": "up", "↓": "down"}
+	keyMsgForLabel := func(label string) tea.KeyMsg {
+		if raw, ok := glyphToKey[label]; ok {
+			label = raw
+		}
+		switch label {
+		case "enter":
+			return arrowMsg(tea.KeyEnter)
+		case "esc":
+			return arrowMsg(tea.KeyEsc)
+		case "up":
+			return arrowMsg(tea.KeyUp)
+		case "down":
+			return arrowMsg(tea.KeyDown)
+		case "ctrl+n":
+			return arrowMsg(tea.KeyCtrlN)
+		case "ctrl+p":
+			return arrowMsg(tea.KeyCtrlP)
+		case "ctrl+j":
+			return arrowMsg(tea.KeyCtrlJ)
+		case "ctrl+k":
+			return arrowMsg(tea.KeyCtrlK)
+		case "f1":
+			return arrowMsg(tea.KeyF1)
+		default:
+			return keyMsg(label)
+		}
+	}
+
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{
+			name: "remapped table",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeSearch: {
+					"esc":    keymap.UnboundBinding(),
+					"f1":     keymap.CommandBinding(keymap.CommandSearchCancel),
+					"up":     keymap.UnboundBinding(),
+					"down":   keymap.UnboundBinding(),
+					"ctrl+p": keymap.UnboundBinding(),
+					"ctrl+n": keymap.UnboundBinding(),
+					"ctrl+k": keymap.CommandBinding(keymap.CommandSearchPrevResult),
+					"ctrl+j": keymap.CommandBinding(keymap.CommandSearchNextResult),
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newLoadedTestBoard(t)
+			b = sendKey(t, b, keyMsg("/"))
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+
+			for _, h := range b.searchHints() {
+				if h.Key == "" {
+					continue
+				}
+				for _, key := range strings.Split(h.Key, "/") {
+					if _, ok := b.textBinding(keymap.ModeSearch, keyMsgForLabel(key)); !ok {
+						t.Errorf("hint %+v: textBinding(ModeSearch, %q) not found, want a match (every advertised key must actually dispatch through the real handler)", h, key)
+					}
+				}
+			}
+		})
+	}
+}
+
+// --- ctrl+c always quits, regardless of user keymap config ---
+
+func TestSearchMode_CtrlCQuits_EvenWithOverriddenKeymap(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("/"))
+	// Attempt to steal ctrl+c for something else -- update.go's global
+	// ctrl+c-always-quits check runs before any mode dispatch, so this must
+	// have no effect.
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeSearch: {"ctrl+c": keymap.CommandBinding(keymap.CommandSearchApply)},
+	}, nil)
+
+	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Error("Ctrl+C in searchMode should return a non-nil Cmd (tea.Quit), even with an overridden keymap")
+	}
+}
+
+// --- runNormalCommand's search-entry hint set derives from the registry ---
+
+// TestSearchMode_EnterFromNormalMode_HintsDeriveFromRegistry covers the
+// #540 plan's shared bullet: runNormalCommand's CommandBoardSearch case
+// (mode_handlers.go, pre-#540 line 243) must set the status bar's hints via
+// b.searchHints() rather than the deleted searchModeHints package var, so a
+// keymap remap made *before* ever entering search mode is reflected the
+// very first time it's entered -- not just after the per-keystroke refresh
+// covered separately above.
+func TestSearchMode_EnterFromNormalMode_HintsDeriveFromRegistry(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeSearch: {
+			"esc": keymap.UnboundBinding(),
+			"f1":  keymap.CommandBinding(keymap.CommandSearchCancel),
+		},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("/"))
+
+	if b.mode != searchMode {
+		t.Fatalf("precondition: mode = %d, want %d (searchMode)", b.mode, searchMode)
+	}
+	for _, h := range b.statusBar.hints {
+		if h.Key == "esc" {
+			t.Errorf("statusBar hints right after entering search mode still show the unbound 'esc' key, want the registry-derived hint set: %+v", b.statusBar.hints)
+		}
+	}
+	if got := hintDesc(t, b.statusBar.hints, "f1"); got != "Clear" {
+		t.Errorf("statusBar hints right after entering search mode: Desc for remapped 'f1' = %q, want %q", got, "Clear")
 	}
 }
