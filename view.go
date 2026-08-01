@@ -100,11 +100,11 @@ func (b Board) View() string {
 	}
 	if b.mode == labelConfirmMode && b.labelConfirm.currentIdx < len(b.labelConfirm.unknownLabels) {
 		label := b.labelConfirm.unknownLabels[b.labelConfirm.currentIdx]
-		helpBar = fmt.Sprintf("Label %q doesn't exist. Create it? (y/n)", label)
+		helpBar = fmt.Sprintf("Label %q doesn't exist. Create it?%s", label, promptParenthetical(b.keys.Entries(keymap.ModeLabelConfirm, ""), keymap.CommandLabelConfirmCreate, keymap.CommandLabelConfirmCancel))
 	}
 	if b.mode == closeConfirmMode {
 		card := b.closeConfirm.card
-		helpBar = fmt.Sprintf("Close #%d %q? (y/n)", card.Number, sanitizeSingleLine(card.Title))
+		helpBar = fmt.Sprintf("Close #%d %q?%s", card.Number, sanitizeSingleLine(card.Title), promptParenthetical(b.keys.Entries(keymap.ModeCloseConfirm, ""), keymap.CommandCloseConfirmConfirm, keymap.CommandCloseConfirmCancel))
 	}
 
 	// Assemble inner content.

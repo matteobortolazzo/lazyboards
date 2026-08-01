@@ -6,8 +6,66 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
+
+// newBoardWithUnknownLabelConfirm returns a Board already in
+// labelConfirmMode with one unknown label ("newlabel") pending confirmation,
+// wired with the default keymap (see helpers_test.go's newTestBoard/
+// newLoadedTestBoard) -- shared setup for keymap_text_test.go's registry
+// dispatch coverage (#539 PR 1/2).
+func newBoardWithUnknownLabelConfirm(t *testing.T) Board {
+	t.Helper()
+	b := newBoardWithCustomCard(t, "Card One", []provider.Label{{Name: "bug"}}, "body")
+	card := b.Columns[0].Cards[0]
+	originalContent := composeFrontmatter(card.Title, []string{"bug"}, card.Body)
+	editedContent := composeFrontmatter("Card One", []string{"bug", "newlabel"}, "body")
+
+	msg := editorFinishedMsg{
+		editedContent:   editedContent,
+		originalContent: originalContent,
+		card:            card,
+	}
+	m, _ := b.Update(msg)
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if updated.mode != labelConfirmMode {
+		t.Fatalf("precondition: mode = %d, want labelConfirmMode", updated.mode)
+	}
+	return updated
+}
+
+// newBoardWithUnknownLabelConfirmCustomKeymap is
+// newBoardWithUnknownLabelConfirm, but with modes overridden via
+// boardWithOverrideKeymap (keymap_dispatch_test.go) BEFORE entering
+// labelConfirmMode, so the override is already active when the mode-entry
+// flow (and its view) runs.
+func newBoardWithUnknownLabelConfirmCustomKeymap(t *testing.T, modes map[keymap.Mode]keymap.Table) Board {
+	t.Helper()
+	b := newBoardWithCustomCard(t, "Card One", []provider.Label{{Name: "bug"}}, "body")
+	b = boardWithOverrideKeymap(t, b, modes, nil)
+	card := b.Columns[0].Cards[0]
+	originalContent := composeFrontmatter(card.Title, []string{"bug"}, card.Body)
+	editedContent := composeFrontmatter("Card One", []string{"bug", "newlabel"}, "body")
+
+	msg := editorFinishedMsg{
+		editedContent:   editedContent,
+		originalContent: originalContent,
+		card:            card,
+	}
+	m, _ := b.Update(msg)
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if updated.mode != labelConfirmMode {
+		t.Fatalf("precondition: mode = %d, want labelConfirmMode", updated.mode)
+	}
+	return updated
+}
 
 // --- Frontmatter with Labels ---
 
@@ -461,6 +519,54 @@ func TestLabelConfirm_NonSentinelError_DoesNotUpdate(t *testing.T) {
 }
 
 // --- View Rendering ---
+
+// TestLabelConfirm_PromptHintKeysAlwaysDispatch_DefaultAndRemappedTables is
+// the hint<->dispatch invariant test named in the #539 plan's Explicit Risk
+// Coverage: for every key advertised in the label_confirm "(y/n)"-style
+// prompt (promptKeySuffix, keymap_text_test.go), split on "/" and Lookup
+// each key against ModeLabelConfirm -- it must always resolve to
+// OutcomeMatch. Run against both the default table and a remapped/unbound
+// table, mirroring TestKeymapPanels_GitPanel_HintKeysAlwaysDispatch
+// (keymap_panels_test.go).
+func TestLabelConfirm_PromptHintKeysAlwaysDispatch_DefaultAndRemappedTables(t *testing.T) {
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{
+			name: "remapped table",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeLabelConfirm: {
+					"y":   keymap.UnboundBinding(),
+					"c":   keymap.CommandBinding(keymap.CommandLabelConfirmCreate),
+					"esc": keymap.UnboundBinding(),
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newBoardWithCustomCard(t, "Card One", []provider.Label{{Name: "bug"}}, "body")
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+
+			entries := b.keys.Entries(keymap.ModeLabelConfirm, "")
+			suffix := promptKeySuffix(entries, keymap.CommandLabelConfirmCreate, keymap.CommandLabelConfirmCancel)
+			if suffix == "" {
+				t.Fatal("promptKeySuffix() returned empty, want at least one bound side for this table")
+			}
+			for _, key := range strings.Split(suffix, "/") {
+				result := b.keys.Lookup(keymap.ModeLabelConfirm, "", keymap.Sequence{keymap.Key(key)})
+				if result.Outcome != keymap.OutcomeMatch {
+					t.Errorf("suffix %q: Lookup(ModeLabelConfirm, %q) outcome = %v, want OutcomeMatch (every advertised key must actually dispatch)", suffix, key, result.Outcome)
+				}
+			}
+		})
+	}
+}
 
 func TestLabelConfirm_ViewShowsPrompt(t *testing.T) {
 	b := newBoardWithCustomCard(t, "Card One", []provider.Label{{Name: "bug"}}, "body")
