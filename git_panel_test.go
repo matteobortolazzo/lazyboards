@@ -57,10 +57,10 @@ func gitPanelItemIndex(b Board, key string) int {
 func TestGitPanel_PressG_OpensPanel_WhenDefaultActionsPresent(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if b.mode != gitPanelMode {
-		t.Errorf("after pressing 'g' with default git actions available: mode = %d, want gitPanelMode (%d)", b.mode, gitPanelMode)
+		t.Errorf("after pressing 'G' with default git actions available: mode = %d, want gitPanelMode (%d)", b.mode, gitPanelMode)
 	}
 }
 
@@ -76,19 +76,19 @@ func TestGitPanel_PressG_Noop_WhenNoDefaultActions(t *testing.T) {
 	b.Width = 120
 	b.Height = 40
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if b.mode != normalMode {
-		t.Errorf("after pressing 'g' with no default git actions: mode = %d, want normalMode (%d)", b.mode, normalMode)
+		t.Errorf("after pressing 'G' with no default git actions: mode = %d, want normalMode (%d)", b.mode, normalMode)
 	}
 }
 
 func TestGitPanel_Escape_ReturnsToNormalMode(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
@@ -101,7 +101,7 @@ func TestGitPanel_Escape_ReturnsToNormalMode(t *testing.T) {
 func TestGitPanel_Escape_RestoresNormalHints(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
 	view := b.View()
@@ -119,9 +119,9 @@ func TestGitPanel_ItemsFixedOrder_RegardlessOfMapIteration(t *testing.T) {
 	// range, so repeating this within a single test run will surface a
 	// naive "range defaultActions" implementation that doesn't sort/fix order.
 	for i := 0; i < 20; i++ {
-		b = sendKey(t, b, keyMsg("g"))
+		b = sendKey(t, b, keyMsg("G"))
 		if b.mode != gitPanelMode {
-			t.Fatalf("iteration %d: expected gitPanelMode after 'g', got %d", i, b.mode)
+			t.Fatalf("iteration %d: expected gitPanelMode after 'G', got %d", i, b.mode)
 		}
 		if len(b.gitPanel.items) != len(gitPanelKeyOrder) {
 			t.Fatalf("iteration %d: len(gitPanel.items) = %d, want %d", i, len(b.gitPanel.items), len(gitPanelKeyOrder))
@@ -140,9 +140,9 @@ func TestGitPanel_ItemsFixedOrder_RegardlessOfMapIteration(t *testing.T) {
 func TestGitPanel_JK_Navigation(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	initialCursor := b.gitPanel.cursor
@@ -163,9 +163,9 @@ func TestGitPanel_JK_Navigation(t *testing.T) {
 func TestGitPanel_CursorWrapsAtBounds(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 	lastIndex := len(b.gitPanel.items) - 1
 
@@ -200,7 +200,7 @@ func TestGitPanel_CursorWrapsAtBounds(t *testing.T) {
 // wrap identically to j/k: both route through the shared moveCursor helper.
 func TestGitPanel_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	lastIndex := len(b.gitPanel.items) - 1
 
 	b = sendKey(t, b, arrowMsg(tea.KeyUp))
@@ -233,9 +233,9 @@ func TestGitPanel_SingleItem_NavigationIsNoOp(t *testing.T) {
 		},
 	}, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 	if len(b.gitPanel.items) != 1 {
 		t.Fatalf("len(gitPanel.items) = %d, want 1", len(b.gitPanel.items))
@@ -256,9 +256,9 @@ func TestGitPanel_SingleItem_NavigationIsNoOp(t *testing.T) {
 func TestGitPanel_Enter_DefaultKey_DispatchesBuiltinAction(t *testing.T) {
 	b, fe := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	idx := gitPanelItemIndex(b, "f")
@@ -290,9 +290,9 @@ func TestGitPanel_MenuKeysAreScopedFromUserActions(t *testing.T) {
 	}
 	b, fe := newGitPanelTestBoard(t, userActions, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	idx := gitPanelItemIndex(b, "S")
@@ -321,9 +321,9 @@ func TestGitPanel_MenuKeysAreScopedFromUserActions(t *testing.T) {
 func TestGitPanel_DirectKey_DispatchesAndClosesPanel(t *testing.T) {
 	b, fe := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	m, cmd := b.Update(keyMsg("P"))
@@ -344,7 +344,7 @@ func TestGitPanel_DirectKey_DispatchesAndClosesPanel(t *testing.T) {
 func TestGitPanel_DirectKey_LowercasePull(t *testing.T) {
 	b, fe := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	m, cmd := b.Update(keyMsg("p"))
 	b = m.(Board)
 	execCmds(cmd)
@@ -360,7 +360,7 @@ func TestGitPanel_DirectKey_LowercasePull(t *testing.T) {
 func TestGitPanel_UnboundKey_IsIgnored(t *testing.T) {
 	b, fe := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	b = sendKey(t, b, keyMsg("z"))
 
 	if b.mode != gitPanelMode {
@@ -376,7 +376,7 @@ func TestGitPanel_JK_NavigateWithoutDispatching(t *testing.T) {
 	// letters — they are not menu keys.
 	b, fe := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("k"))
 
@@ -391,9 +391,9 @@ func TestGitPanel_JK_NavigateWithoutDispatching(t *testing.T) {
 func TestGitPanel_Enter_ClosesPanel(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
@@ -416,9 +416,9 @@ func TestGitPanel_Enter_SuccessfulAction_RefreshesGitStatusViaExistingWiring(t *
 	reader := gitdetect.FakeReader{Status: gitdetect.Status{Branch: "main"}}
 	b, fe := newGitPanelTestBoard(t, nil, reader)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	idx := gitPanelItemIndex(b, "P")
@@ -479,9 +479,9 @@ func TestGitPanel_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
 	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
 
 	b, _ := newGitPanelTestBoard(t, nil, nil)
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 	if len(b.gitPanel.items) < 2 {
 		t.Fatal("fixture needs at least two git panel items")
@@ -516,9 +516,9 @@ func TestGitPanel_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
 func TestGitPanel_View_RendersModalWithItemNames(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	view := b.View()

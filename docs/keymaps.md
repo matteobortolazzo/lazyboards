@@ -4,13 +4,31 @@ Architecture/schema reference for the `keymaps:` registry: how a key press
 becomes a dispatched command or action, and how `internal/config` parses,
 validates, and merges user config into it. This documents **mechanism**, not
 the shipped default key values — the README's [Keybindings](../README.md#keybindings)
-tables are the single home for actual key values, and #502 is expected to
-swap the default tables wholesale shortly after this doc lands. For gotchas
+tables (including its [Keybinding migration](../README.md#keybinding-migration)
+subsection) are the single home for actual key values. For gotchas
 and process rules discovered while working in this subsystem, see
 [`keymap-conventions.md`](keymap-conventions.md) — that's the lessons doc;
 this one is the stable architecture reference and the two cross-link rather
 than merge, so a stable reference and an append-only lessons log don't get
 mixed.
+
+#502 remapped nine default bindings to neovim-style mnemonics (the old key,
+where still bound, keeps its pre-#502 command; the ones below just moved):
+
+| Command | Old key | New key |
+|---|---|---|
+| `card.delete` | `t` | `d` |
+| `view.dispatch` | `d` | `D` |
+| `nav.reference` | `m` | `g r` |
+| `view.milestone_list` | `i` | `m` |
+| `nav.agent` | `s` | `g a` |
+| `board.sort_order` | `u` | `s` |
+| `view.pr_list` | `v` | `P` |
+| `view.agent_list` | `w` | `A` |
+| `view.git_panel` | `g` | `G` |
+
+Every other default key kept its pre-#502 binding — the remap only touched
+these nine command ids; nothing else in the default tables moved.
 
 ## Layers
 

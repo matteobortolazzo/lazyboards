@@ -71,11 +71,16 @@ func TestTranslateLegacyActions_TopLevelActionProducesNormalAndDetailEntries(t *
 }
 
 // TestTranslateLegacyActions_MultiKeySequenceUsesCanonicalForm covers a
-// legacy multi-key action ("Pf") landing under its canonical, space-joined
-// sequence key ("P f") rather than the bare legacy key.
+// legacy multi-key action ("Zf") landing under its canonical, space-joined
+// sequence key ("Z f") rather than the bare legacy key. Uses "Z" (unused by
+// any default binding, #502) rather than "P" (now an exact-match built-in
+// after #502's remap): this test loads through mustLoadConfig, which
+// resolves against the real built-in defaults, so a bare "Pf"-derived
+// "P f" would trip the prefix-conflict validator against default "P"
+// instead of exercising the translation this test targets.
 func TestTranslateLegacyActions_MultiKeySequenceUsesCanonicalForm(t *testing.T) {
 	localYAML := `actions:
-  Pf:
+  Zf:
     name: Push force
     type: shell
     command: "git push --force"
@@ -87,15 +92,15 @@ func TestTranslateLegacyActions_MultiKeySequenceUsesCanonicalForm(t *testing.T) 
 		t.Fatal("Keymaps is nil, want non-nil after a legacy actions: block is translated")
 	}
 	table := cfg.Keymaps.Modes[keymap.ModeNormal]
-	if _, bare := table["Pf"]; bare {
-		t.Error("Keymaps.Modes[normal] has bare legacy key \"Pf\", want it translated to canonical form \"P f\"")
+	if _, bare := table["Zf"]; bare {
+		t.Error("Keymaps.Modes[normal] has bare legacy key \"Zf\", want it translated to canonical form \"Z f\"")
 	}
-	binding, ok := table["P f"]
+	binding, ok := table["Z f"]
 	if !ok {
-		t.Fatal("Keymaps.Modes[normal] missing canonical key \"P f\" after legacy translation")
+		t.Fatal("Keymaps.Modes[normal] missing canonical key \"Z f\" after legacy translation")
 	}
 	if binding.Action.Name != "Push force" {
-		t.Errorf("Keymaps.Modes[normal][\"P f\"].Action.Name = %q, want %q", binding.Action.Name, "Push force")
+		t.Errorf("Keymaps.Modes[normal][\"Z f\"].Action.Name = %q, want %q", binding.Action.Name, "Push force")
 	}
 }
 

@@ -25,16 +25,16 @@ func newSortPersistBoard(t *testing.T) (Board, string) {
 	return b, path
 }
 
-func TestNormalMode_U_PersistsNewSortOrder(t *testing.T) {
+func TestNormalMode_S_PersistsNewSortOrder(t *testing.T) {
 	b, path := newSortPersistBoard(t)
 
-	m, cmd := b.Update(keyMsg("u"))
+	m, cmd := b.Update(keyMsg("s"))
 	updated, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if cmd == nil {
-		t.Fatal("'u' toggle returned a nil cmd, want a cmd that persists the new sort order")
+		t.Fatal("'s' toggle returned a nil cmd, want a cmd that persists the new sort order")
 	}
 	if !updated.sortNewestFirst {
 		t.Fatalf("precondition: sortNewestFirst = false after toggle, want true")
@@ -50,23 +50,23 @@ func TestNormalMode_U_PersistsNewSortOrder(t *testing.T) {
 	}
 }
 
-func TestNormalMode_U_PersistsBothDirections(t *testing.T) {
+func TestNormalMode_S_PersistsBothDirections(t *testing.T) {
 	b, path := newSortPersistBoard(t)
 
-	m, cmd := b.Update(keyMsg("u"))
+	m, cmd := b.Update(keyMsg("s"))
 	b, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	execCmds(cmd)
 
-	m, cmd = b.Update(keyMsg("u"))
+	m, cmd = b.Update(keyMsg("s"))
 	b, ok = m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if cmd == nil {
-		t.Fatal("second 'u' toggle returned a nil cmd, want a cmd that persists the restored sort order")
+		t.Fatal("second 's' toggle returned a nil cmd, want a cmd that persists the restored sort order")
 	}
 	execCmds(cmd)
 
@@ -84,20 +84,20 @@ func TestNormalMode_U_PersistsBothDirections(t *testing.T) {
 
 // A board with no resolvable state path (e.g. no home directory) must still
 // toggle — it just can't remember the choice.
-func TestNormalMode_U_WithoutStatePath_TogglesWithoutPersisting(t *testing.T) {
+func TestNormalMode_S_WithoutStatePath_TogglesWithoutPersisting(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "Oldest", CreatedAt: sortTestOlder},
 		{Number: 2, Title: "Newest", CreatedAt: sortTestNewest},
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
 
-	m, cmd := b.Update(keyMsg("u"))
+	m, cmd := b.Update(keyMsg("s"))
 	updated, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if cmd != nil {
-		t.Error("'u' toggle returned a non-nil cmd with no state path configured, want nil (nothing to persist to)")
+		t.Error("'s' toggle returned a non-nil cmd with no state path configured, want nil (nothing to persist to)")
 	}
 	if !updated.sortNewestFirst {
 		t.Error("sortNewestFirst = false after toggle, want true (the toggle must work even when it can't be saved)")
@@ -162,7 +162,7 @@ func TestSaveSortOrderCmd_SuccessReportsSavedMsg(t *testing.T) {
 	}
 }
 
-// A successful save is silent — no status-bar noise on every 'u' press.
+// A successful save is silent — no status-bar noise on every 's' press.
 func TestSortOrderSavedMsg_ShowsNoStatusMessage(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120

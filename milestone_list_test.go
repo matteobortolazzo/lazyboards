@@ -14,7 +14,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
-// Milestones modal (#487): opened with 'i' from Normal Mode, lists every open
+// Milestones modal (#487): opened with 'm' from Normal Mode, lists every open
 // repository milestone (independent of any board card). Production symbols
 // referenced below do not exist yet -- this file is the RED phase, and the
 // package is expected to fail to compile until Phase 4 implements them.
@@ -46,14 +46,14 @@ func dueDate(year int, month time.Month, day int) *time.Time {
 	return &d
 }
 
-// openMilestoneList presses 'i' from Normal Mode, entering milestoneListMode
+// openMilestoneList presses 'm' from Normal Mode, entering milestoneListMode
 // with the fetch in flight.
 func openMilestoneList(t *testing.T, b Board) Board {
 	t.Helper()
-	return sendKey(t, b, keyMsg("i"))
+	return sendKey(t, b, keyMsg("m"))
 }
 
-// openMilestoneListWithResult presses 'i' and immediately feeds a successful
+// openMilestoneListWithResult presses 'm' and immediately feeds a successful
 // milestonesFetchedMsg carrying the given milestones, landing the modal in
 // its loaded state.
 func openMilestoneListWithResult(t *testing.T, b Board, milestones []provider.Milestone) Board {
@@ -74,7 +74,7 @@ func newMouseEnabledMilestoneBoard(t *testing.T) Board {
 
 // --- State + fetch ---
 
-func TestNormalMode_I_OpensMilestoneListModal_EmptyBoard_NoPanic(t *testing.T) {
+func TestNormalMode_M_OpensMilestoneListModal_EmptyBoard_NoPanic(t *testing.T) {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: nil}})
@@ -84,18 +84,18 @@ func TestNormalMode_I_OpensMilestoneListModal_EmptyBoard_NoPanic(t *testing.T) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("Update(i) on a zero-column board panicked: %v", r)
+			t.Fatalf("Update(m) on a zero-column board panicked: %v", r)
 		}
 	}()
 
-	m, cmd := b.Update(keyMsg("i"))
+	m, cmd := b.Update(keyMsg("m"))
 	b = m.(Board)
 
 	if b.mode != milestoneListMode {
 		t.Fatalf("mode = %d, want milestoneListMode (%d)", b.mode, milestoneListMode)
 	}
 	if cmd == nil {
-		t.Fatal("Update(i) returned nil cmd, want the milestones fetch command")
+		t.Fatal("Update(m) returned nil cmd, want the milestones fetch command")
 	}
 	if !b.milestoneList.loading {
 		t.Error("milestoneList.loading = false, want true (fetch in flight)")
@@ -107,17 +107,17 @@ func TestNormalMode_I_OpensMilestoneListModal_EmptyBoard_NoPanic(t *testing.T) {
 	_ = b.View()
 }
 
-func TestNormalMode_I_OpensMilestoneListModal_LoadedBoard(t *testing.T) {
+func TestNormalMode_M_OpensMilestoneListModal_LoadedBoard(t *testing.T) {
 	b := newLoadedTestBoard(t)
 
-	m, cmd := b.Update(keyMsg("i"))
+	m, cmd := b.Update(keyMsg("m"))
 	b = m.(Board)
 
 	if b.mode != milestoneListMode {
 		t.Fatalf("mode = %d, want milestoneListMode (%d)", b.mode, milestoneListMode)
 	}
 	if cmd == nil {
-		t.Fatal("Update(i) returned nil cmd, want the milestones fetch command")
+		t.Fatal("Update(m) returned nil cmd, want the milestones fetch command")
 	}
 	if !b.milestoneList.loading {
 		t.Error("milestoneList.loading = false, want true (fetch in flight)")

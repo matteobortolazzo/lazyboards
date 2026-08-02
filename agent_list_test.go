@@ -42,18 +42,18 @@ func threeWindows() []cenciwatch.WindowState {
 
 // --- Opening the modal ---
 
-func TestNormalMode_W_OpensAgentListModal(t *testing.T) {
+func TestNormalMode_A_OpensAgentListModal(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
 
-	m, cmd := b.Update(keyMsg("w"))
+	m, cmd := b.Update(keyMsg("A"))
 	b = m.(Board)
 
 	if b.mode != agentListMode {
-		t.Errorf("mode after w = %d, want agentListMode (%d)", b.mode, agentListMode)
+		t.Errorf("mode after A = %d, want agentListMode (%d)", b.mode, agentListMode)
 	}
 	if cmd != nil {
-		t.Errorf("cmd after w = %v, want nil (modal reads the stored snapshot, no fetch)", cmd)
+		t.Errorf("cmd after A = %v, want nil (modal reads the stored snapshot, no fetch)", cmd)
 	}
 	if b.agentList.cursor != 0 {
 		t.Errorf("cursor after open = %d, want 0", b.agentList.cursor)
@@ -192,7 +192,7 @@ func TestAgentList_View_ShowsSessionIndexPrefix(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
 	b.tmuxSession = "dev"
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 
 	view := b.View()
 
@@ -204,10 +204,10 @@ func TestAgentList_View_ShowsSessionIndexPrefix(t *testing.T) {
 	}
 }
 
-// TestNormalMode_S_OutOfSessionAgent_NotJumped: the s jump is scoped to the
-// instance's session too, so a card whose only agent runs in another tmux
-// session reports no windows rather than jumping across sessions.
-func TestNormalMode_S_OutOfSessionAgent_NotJumped(t *testing.T) {
+// TestGoToAgent_OutOfSessionAgent_NotJumped: the "g a" jump is scoped to
+// the instance's session too, so a card whose only agent runs in another
+// tmux session reports no windows rather than jumping across sessions.
+func TestGoToAgent_OutOfSessionAgent_NotJumped(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	// Card #42's only agent runs in "ops"; this instance is "dev".
 	b := newAgentListBoard(t, fe, []cenciwatch.WindowState{
@@ -215,7 +215,8 @@ func TestNormalMode_S_OutOfSessionAgent_NotJumped(t *testing.T) {
 	})
 	b.tmuxSession = "dev"
 
-	m, cmd := b.Update(keyMsg("s")) // card #42 selected (cursor 0)
+	b = sendKey(t, b, keyMsg("g")) // card #42 selected (cursor 0)
+	m, cmd := b.Update(keyMsg("a"))
 	b = m.(Board)
 	execCmds(cmd)
 
@@ -235,7 +236,7 @@ func TestNormalMode_S_OutOfSessionAgent_NotJumped(t *testing.T) {
 func TestAgentList_View_ShowsWindowsWithCardRefs(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 
 	view := b.View()
 
@@ -260,7 +261,7 @@ func TestAgentList_View_NewlineInWindowFields_RendersOneRowWithAllFragments(t *t
 	}
 	b := newAgentListBoard(t, fe, windows)
 	b.Columns[0].Title = "cOne\ncTwo"
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 
 	view := b.View()
 	assertOneRow(t, view, "sOne", "sTwo", "wOne", "wTwo", "aO", "aT", "cOne", "cTwo")
@@ -275,7 +276,7 @@ func TestAgentList_View_StatePrecedence(t *testing.T) {
 		fe := &action.FakeExecutor{}
 		b := newAgentListBoard(t, fe, threeWindows())
 		mutate(&b)
-		return sendKey(t, b, keyMsg("w"))
+		return sendKey(t, b, keyMsg("A"))
 	}
 
 	t.Run("watcher disabled", func(t *testing.T) {
@@ -333,7 +334,7 @@ func TestAgentList_View_KeepsSelectedRowVisibleWithinTerminal(t *testing.T) {
 	windows[39].WindowName = "last-window"
 	b := newAgentListBoard(t, fe, windows)
 	b.Height = 20
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 	b.agentList.cursor = 39
 
 	view := b.View()
@@ -367,7 +368,7 @@ func TestAgentList_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
 
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 	if b.agentList.cursor != 0 {
 		t.Fatalf("test setup: expected cursor 0, got %d", b.agentList.cursor)
 	}
@@ -404,7 +405,7 @@ func TestAgentList_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
 func TestAgentList_Navigation_MovesAndWrapsCursor(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 	lastIndex := len(b.agentListEntries()) - 1
 
 	// k at the top wraps to the last window.
@@ -437,7 +438,7 @@ func TestAgentList_Navigation_MovesAndWrapsCursor(t *testing.T) {
 func TestAgentList_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 	lastIndex := len(b.agentListEntries()) - 1
 
 	b = sendKey(t, b, arrowMsg(tea.KeyUp))
@@ -456,7 +457,7 @@ func TestAgentList_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
 func TestAgentList_Enter_SwitchesToSelectedWindow(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 	b = sendKey(t, b, keyMsg("j")) // select 999-research (dev:5)
 
 	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
@@ -483,7 +484,7 @@ func TestAgentList_Enter_EscapesShellMetacharacters(t *testing.T) {
 	b := newAgentListBoard(t, fe, []cenciwatch.WindowState{
 		{Session: "de'v; rm -rf /", WindowIndex: "2", WindowName: "evil", Status: "idle"},
 	})
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 
 	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
 	b = m.(Board)
@@ -504,7 +505,7 @@ func TestAgentList_Enter_EscapesShellMetacharacters(t *testing.T) {
 func TestAgentList_Enter_EmptyList_NoShellCall(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, nil)
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 
 	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
 	b = m.(Board)
@@ -524,7 +525,7 @@ func TestAgentList_Enter_ShellError_ShowsStderr(t *testing.T) {
 		RunShellStderr: "no current client\n",
 	}
 	b := newAgentListBoard(t, fe, threeWindows())
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 
 	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
 	b = m.(Board)
@@ -541,7 +542,7 @@ func TestAgentList_Enter_ShellError_ShowsStderr(t *testing.T) {
 func TestAgentList_SnapshotUpdate_ClampsCursorWhileOpen(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("j")) // cursor on the last of 3 rows
 
@@ -571,7 +572,7 @@ func TestAgentList_SnapshotUpdate_ClampsCursorWhileOpen(t *testing.T) {
 func TestAgentList_SnapshotUpdate_ShrinkToZero_SwitchesToEmptyHints(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, cardJumpWindows())
-	b = sendKey(t, b, keyMsg("s")) // card #42 scoped: two windows
+	b = sendKeys(t, b, "g", "a") // card #42 scoped: two windows
 
 	// Both of #42's windows close; only another card's window survives.
 	m, cmd := b.Update(agentSnapshotMsg{snapshot: &cenciwatch.StateSnapshot{Windows: []cenciwatch.WindowState{
@@ -597,7 +598,7 @@ func TestAgentList_SnapshotUpdate_ShrinkToZero_SwitchesToEmptyHints(t *testing.T
 func TestAgentList_SnapshotUpdate_GrowFromZero_RestoresHints(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, nil)
-	b = sendKey(t, b, keyMsg("w")) // opens empty: esc-only hints
+	b = sendKey(t, b, keyMsg("A")) // opens empty: esc-only hints
 
 	m, cmd := b.Update(agentSnapshotMsg{snapshot: &cenciwatch.StateSnapshot{Windows: threeWindows()}})
 	b = m.(Board)
@@ -616,7 +617,7 @@ func TestAgentList_SnapshotUpdate_GrowFromZero_RestoresHints(t *testing.T) {
 func TestAgentList_Esc_ReturnsToNormal(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 
 	b = sendKey(t, b, arrowMsg(tea.KeyEscape))
 
@@ -625,7 +626,7 @@ func TestAgentList_Esc_ReturnsToNormal(t *testing.T) {
 	}
 }
 
-// --- Card-scoped jump (s) ---
+// --- Card-scoped jump (g a) ---
 
 // cardJumpWindows: card #42 has two agent windows, card #7 has one.
 func cardJumpWindows() []cenciwatch.WindowState {
@@ -636,12 +637,13 @@ func cardJumpWindows() []cenciwatch.WindowState {
 	}
 }
 
-func TestNormalMode_S_SingleWindow_SwitchesDirectly(t *testing.T) {
+func TestGoToAgent_SingleWindow_SwitchesDirectly(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, cardJumpWindows())
 	b = sendKey(t, b, keyMsg("j")) // select card #7 (one window: 7-fix)
 
-	m, cmd := b.Update(keyMsg("s"))
+	b = sendKey(t, b, keyMsg("g"))
+	m, cmd := b.Update(keyMsg("a"))
 	b = m.(Board)
 	execCmds(cmd)
 
@@ -660,11 +662,12 @@ func TestNormalMode_S_SingleWindow_SwitchesDirectly(t *testing.T) {
 	}
 }
 
-func TestNormalMode_S_MultipleWindows_OpensModalFilteredToCard(t *testing.T) {
+func TestGoToAgent_MultipleWindows_OpensModalFilteredToCard(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, cardJumpWindows())
 
-	m, cmd := b.Update(keyMsg("s")) // card #42 selected: two windows
+	b = sendKey(t, b, keyMsg("g")) // card #42 selected: two windows
+	m, cmd := b.Update(keyMsg("a"))
 	b = m.(Board)
 	execCmds(cmd)
 
@@ -692,10 +695,10 @@ func TestNormalMode_S_MultipleWindows_OpensModalFilteredToCard(t *testing.T) {
 	}
 }
 
-func TestNormalMode_S_FilteredModal_EnterSwitches(t *testing.T) {
+func TestGoToAgent_FilteredModal_EnterSwitches(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, cardJumpWindows())
-	b = sendKey(t, b, keyMsg("s"))
+	b = sendKeys(t, b, "g", "a")
 	b = sendKey(t, b, keyMsg("j")) // select 42-implement (dev:2)
 
 	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
@@ -714,13 +717,14 @@ func TestNormalMode_S_FilteredModal_EnterSwitches(t *testing.T) {
 	}
 }
 
-func TestNormalMode_S_NoWindows_ShowsStatusMessage(t *testing.T) {
+func TestGoToAgent_NoWindows_ShowsStatusMessage(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, []cenciwatch.WindowState{
 		{Session: "dev", WindowIndex: "9", WindowName: "999-other", Status: "idle"},
 	})
 
-	m, cmd := b.Update(keyMsg("s")) // card #42 selected: no windows
+	b = sendKey(t, b, keyMsg("g")) // card #42 selected: no windows
+	m, cmd := b.Update(keyMsg("a"))
 	b = m.(Board)
 	execCmds(cmd)
 
@@ -735,16 +739,17 @@ func TestNormalMode_S_NoWindows_ShowsStatusMessage(t *testing.T) {
 	}
 }
 
-// TestNormalMode_S_StatePrecedence locks the full cenciwatch state precedence
+// TestGoToAgent_StatePrecedence locks the full cenciwatch state precedence
 // for the jump's zero-window branch: "no windows for this card" must only be
 // claimed when a daemon snapshot is actually connected.
-func TestNormalMode_S_StatePrecedence(t *testing.T) {
+func TestGoToAgent_StatePrecedence(t *testing.T) {
 	press := func(t *testing.T, mutate func(*Board)) Board {
 		t.Helper()
 		fe := &action.FakeExecutor{}
 		b := newAgentListBoard(t, fe, nil)
 		mutate(&b)
-		m, cmd := b.Update(keyMsg("s"))
+		b = sendKey(t, b, keyMsg("g"))
+		m, cmd := b.Update(keyMsg("a"))
 		updated := m.(Board)
 		execCmds(cmd)
 		return updated
@@ -772,16 +777,17 @@ func TestNormalMode_S_StatePrecedence(t *testing.T) {
 	})
 }
 
-// TestNormalMode_S_RespectsActiveSearch locks the cursor-invariant rule: with
-// a search active the cursor indexes the filtered list, so s must act on the
-// filtered selection (via selectedCard), not the raw column card at the same
-// index.
-func TestNormalMode_S_RespectsActiveSearch(t *testing.T) {
+// TestGoToAgent_RespectsActiveSearch locks the cursor-invariant rule: with
+// a search active the cursor indexes the filtered list, so "g a" must act on
+// the filtered selection (via selectedCard), not the raw column card at the
+// same index.
+func TestGoToAgent_RespectsActiveSearch(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, cardJumpWindows())
 	b.searchQuery = "card b" // only card #7 visible; cursor 0 now means #7
 
-	m, cmd := b.Update(keyMsg("s"))
+	b = sendKey(t, b, keyMsg("g"))
+	m, cmd := b.Update(keyMsg("a"))
 	b = m.(Board)
 	execCmds(cmd)
 
@@ -794,15 +800,15 @@ func TestNormalMode_S_RespectsActiveSearch(t *testing.T) {
 	}
 }
 
-// TestNormalMode_W_AfterCardScopedOpen_ListsAll guards the reset: a global
+// TestNormalMode_A_AfterCardScopedOpen_ListsAll guards the reset: a global
 // open after a card-scoped one must not inherit the card filter.
-func TestNormalMode_W_AfterCardScopedOpen_ListsAll(t *testing.T) {
+func TestNormalMode_A_AfterCardScopedOpen_ListsAll(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, cardJumpWindows())
-	b = sendKey(t, b, keyMsg("s")) // card-scoped (#42)
+	b = sendKeys(t, b, "g", "a") // card-scoped (#42)
 	b = sendKey(t, b, arrowMsg(tea.KeyEscape))
 
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 
 	if got := len(b.agentListEntries()); got != 3 {
 		t.Errorf("global entries after a card-scoped open = %d, want 3", got)
@@ -829,7 +835,7 @@ func TestHelp_ListsAgentListKeybindings(t *testing.T) {
 	goToWindowDesc := mustFindCommand(t, keymap.CommandAgentListGoToWindow).Desc
 	navigateDesc := mustFindCommand(t, keymap.CommandAgentListNext).Desc
 	cancelDesc := mustFindCommand(t, keymap.CommandAgentListClose).Desc
-	for _, want := range []string{"w", openDesc, goToWindowDesc, navigateDesc, cancelDesc} {
+	for _, want := range []string{"A", openDesc, goToWindowDesc, navigateDesc, cancelDesc} {
 		if !strings.Contains(sectionContent, want) {
 			t.Errorf("Agents help section missing %q", want)
 		}

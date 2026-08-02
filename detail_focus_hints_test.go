@@ -475,13 +475,19 @@ func TestView_DetailFocused_ShowsHelpAndCustomActionHints(t *testing.T) {
 
 // TestDetailFocusedHints_MultiKeyLegacyActionUsesCanonicalLabel is the
 // detail-focused analog of TestAction_HintBar_MultiKeyLegacyActionUsesCanonicalLabel
-// (actions_test.go): a legacy multi-key action key ("Pf") must reach the
-// detail-focused hint bar under its canonical, space-separated form ("P f").
+// (actions_test.go): a legacy multi-key action key ("Zf") must reach the
+// detail-focused hint bar under its canonical, space-separated form ("Z f").
+// Uses "Z" (unused by any default binding, #502) rather than "P" (now an
+// exact-match built-in after #502's remap): this test loads through
+// mustLoadConfig/config.Load, which resolves against the real built-in
+// defaults, so a legacy "Pf" key would trip the prefix-conflict validator
+// against default "P" instead of exercising the canonical-label rendering
+// this test targets.
 func TestDetailFocusedHints_MultiKeyLegacyActionUsesCanonicalLabel(t *testing.T) {
 	localYAML := `provider: github
 repo: matteobortolazzo/lazyboards
 actions:
-  Pf:
+  Zf:
     name: PR frontend
     type: url
     scope: board
@@ -495,11 +501,11 @@ actions:
 	}
 
 	hints := b.statusBar.hints
-	if hintIndex(hints, "Pf") != -1 {
-		t.Errorf("detail-focused hints should not contain the bare legacy key %q, want the canonical space-separated form", "Pf")
+	if hintIndex(hints, "Zf") != -1 {
+		t.Errorf("detail-focused hints should not contain the bare legacy key %q, want the canonical space-separated form", "Zf")
 	}
-	idx := hintIndex(hints, "P f")
+	idx := hintIndex(hints, "Z f")
 	if idx == -1 || hints[idx].Desc != "PR frontend" {
-		t.Errorf("detail-focused hints missing canonical multi-key hint %q with Desc %q, got: %+v", "P f", "PR frontend", hints)
+		t.Errorf("detail-focused hints missing canonical multi-key hint %q with Desc %q, got: %+v", "Z f", "PR frontend", hints)
 	}
 }

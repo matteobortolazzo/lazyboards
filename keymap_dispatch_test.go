@@ -186,6 +186,167 @@ func TestKeymapDispatch_UnmatchedContinuationAfterBuiltinPrefixWarnsAndCancels(t
 	}
 }
 
+// --- #502: the "g" go-prefix is a built-in multi-key sequence, generalized
+// through the same registry/dispatch machinery as any other prefix key ---
+
+// TestKeymapDispatch_BareGShowsWhichKeyHintsForGoPrefix covers the #502
+// acceptance criterion that bare "g" in normal mode (against the shipped
+// defaults, no override needed -- "g a"/"g r" are default bindings) enters a
+// pending state and shows which-key hints listing both completions, in
+// canonical sorted order.
+func TestKeymapDispatch_BareGShowsWhichKeyHintsForGoPrefix(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	b = sendKey(t, b, keyMsg("g"))
+
+	if b.pendingSeq != "g" {
+		t.Fatalf("pendingSeq = %q, want %q after the built-in go-prefix key", b.pendingSeq, "g")
+	}
+	wantHints := []Hint{
+		{Key: "g a", Desc: mustFindCommand(t, keymap.CommandNavAgent).Desc},
+		{Key: "g r", Desc: mustFindCommand(t, keymap.CommandNavReference).Desc},
+		{Key: "esc", Desc: "cancel"},
+	}
+	hints := b.statusBar.hints
+	if len(hints) != len(wantHints) {
+		t.Fatalf("hints after bare 'g' = %v, want %v", hints, wantHints)
+	}
+	for i, want := range wantHints {
+		if hints[i] != want {
+			t.Errorf("hints[%d] after bare 'g' = %v, want %v", i, hints[i], want)
+		}
+	}
+}
+
+// TestKeymapDispatch_BareGEscCancelsAndRestoresHints is the go-prefix analog
+// of TestKeymapDispatch_PendingSequenceEscRestoresHintsAfterBuiltinPrefix:
+// esc during the pending "g" state cancels it and restores the normal-mode
+// hints, and the stale continuation key must not still complete it.
+func TestKeymapDispatch_BareGEscCancelsAndRestoresHints(t *testing.T) {
+	b := newBoardWithCollaborators(t)
+	before := append([]Hint{}, b.normalHints...)
+
+	b = sendKey(t, b, keyMsg("g"))
+	if b.pendingSeq != "g" {
+		t.Fatalf("precondition: pendingSeq = %q, want %q", b.pendingSeq, "g")
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	if b.pendingSeq != "" {
+		t.Errorf("pendingSeq = %q after esc, want empty", b.pendingSeq)
+	}
+	if len(b.statusBar.hints) != len(before) {
+		t.Errorf("hints = %+v after esc, want the normal-mode hints restored: %+v", b.statusBar.hints, before)
+	}
+	// The stale continuation key must not still complete the cancelled
+	// go-prefix sequence: "a" alone is card.assign (enters assignMode), a
+	// different outcome than completing "g a" (nav.agent) would produce, so
+	// landing in assignMode is a strong positive signal "a" was NOT
+	// swallowed as a continuation of the stale "g" prefix.
+	b = sendKey(t, b, keyMsg("a"))
+	if b.mode != assignMode {
+		t.Errorf("mode after 'a' post-cancel = %v, want assignMode (card.assign fired fresh, not as a stale 'g' continuation)", b.mode)
+	}
+}
+
+// --- #502 AC6: a user config can restore an old, pre-remap key ---
+
+// TestKeymapDispatch_UserConfigRestoresPreRemapKey covers AC6: a user config
+// binding `keymaps.normal: t: card.delete` restores the old, pre-#502 key
+// for card.delete (its default moved to "d") -- exercised through the real
+// config.Load -> config.ResolveKeymap -> withKeymap pipeline
+// (newKeymapConfigLoadedTestBoard), mirroring main.go's actual startup
+// wiring.
+func TestKeymapDispatch_UserConfigRestoresPreRemapKey(t *testing.T) {
+	b := newKeymapConfigLoadedTestBoard(t, `keymaps:
+  normal:
+    t: card.delete
+`)
+
+	b = sendKey(t, b, keyMsg("t"))
+
+	if b.mode != deleteMode {
+		t.Errorf("mode after 't' with the restoring keymaps: override = %v, want deleteMode", b.mode)
+	}
+}
+
+// --- #502 AC7: a legacy actions: block can shadow a new built-in default ---
+
+// TestKeymapDispatch_LegacyActionsBlockShadowsRemappedBuiltinDefaults covers
+// AC7: a legacy actions: block claiming any of D/P/A/G (#502's new built-in
+// defaults) loads without error and shadows the built-in, exactly like any
+// other legacy-vs-default collision (TestTranslateLegacyActions_
+// KeymapsDeclaredKeyWinsOverLegacy's precedent, just approached from the
+// opposite direction: here the legacy action is the one that should win
+// because nothing else claims the key). Exercised through
+// newConfigLoadedActionTestBoard, whose NewBoard call threads cfg.Actions
+// through config.KeymapFromLegacy -- the same merge config.ResolveKeymap
+// performs (TestKeymapFromLegacy_EquivalentToResolveKeymapOfSameConfig) --
+// so it doubles as FakeExecutor-wired dispatch coverage without needing the
+// heavier full config.Load->ResolveKeymap->withKeymap board builder.
+func TestKeymapDispatch_LegacyActionsBlockShadowsRemappedBuiltinDefaults(t *testing.T) {
+	localYAML := `provider: github
+actions:
+  D:
+    name: Custom D
+    type: shell
+    command: "echo custom-d"
+    scope: board
+  P:
+    name: Custom P
+    type: shell
+    command: "echo custom-p"
+    scope: board
+  A:
+    name: Custom A
+    type: shell
+    command: "echo custom-a"
+    scope: board
+  G:
+    name: Custom G
+    type: shell
+    command: "echo custom-g"
+    scope: board
+`
+	b, fe := newConfigLoadedActionTestBoard(t, localYAML)
+
+	for _, tc := range []struct {
+		key         string
+		wantCommand string
+	}{
+		{"D", "echo custom-d"},
+		{"P", "echo custom-p"},
+		{"A", "echo custom-a"},
+		{"G", "echo custom-g"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			m, cmd := b.Update(keyMsg(tc.key))
+			board, ok := m.(Board)
+			if !ok {
+				t.Fatalf("Update(%q) returned %T, want Board", tc.key, m)
+			}
+			if cmd == nil {
+				t.Fatalf("Update(%q) returned nil cmd, want the shell action's cmd", tc.key)
+			}
+			execCmds(cmd)
+
+			if board.mode != normalMode {
+				t.Errorf("mode after %q = %v, want normalMode (the legacy action, not the built-in modal, must fire)", tc.key, board.mode)
+			}
+			found := false
+			for _, call := range fe.RunShellCalls {
+				if call == tc.wantCommand {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("RunShellCalls after %q = %v, want it to contain %q (the legacy action shadowing the built-in default)", tc.key, fe.RunShellCalls, tc.wantCommand)
+			}
+		})
+	}
+}
+
 // --- AC5: per-column overrides scope to that column only ---
 
 func TestKeymapDispatch_ColumnOverlayScopesToItsOwnColumnOnly(t *testing.T) {

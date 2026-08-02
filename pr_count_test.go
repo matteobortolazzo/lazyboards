@@ -187,7 +187,7 @@ func TestFetchBoardCmd_IncludesRepoWideOpenPRs(t *testing.T) {
 // never changes the count.
 func TestBoard_PRIndicatorCount_RefreshedByPRListFetch(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t) // 3 card-linked PRs
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
 		{Number: 40, Title: "chore: unlinked", URL: "https://x/40"},
 	}})
@@ -199,7 +199,7 @@ func TestBoard_PRIndicatorCount_RefreshedByPRListFetch(t *testing.T) {
 	// A result landing after Esc (same, still-latest generation) still
 	// refreshes the count: it's fresh repo-wide data regardless of the modal.
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	gen := b.prList.generation
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 	b = sendKey(t, b, openPRsMsg{generation: gen, prs: []provider.LinkedPR{
@@ -211,7 +211,7 @@ func TestBoard_PRIndicatorCount_RefreshedByPRListFetch(t *testing.T) {
 	}
 
 	// A stale-generation result (superseded by a newer request) is dropped.
-	b = sendKey(t, b, keyMsg("v")) // bumps the generation past gen
+	b = sendKey(t, b, keyMsg("P")) // bumps the generation past gen
 	b = sendKey(t, b, openPRsMsg{generation: gen, prs: []provider.LinkedPR{
 		{Number: 40, Title: "chore: unlinked", URL: "https://x/40"},
 		{Number: 41, Title: "chore: another", URL: "https://x/41"},

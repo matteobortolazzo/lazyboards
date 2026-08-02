@@ -116,7 +116,7 @@ func TestKeymapHelp_RemapCardNew_ShowsNewKeyAndDropsOldKey(t *testing.T) {
 func TestKeymapHelp_UnbindCardDelete_NoRowCarriesItsDesc(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
-		keymap.ModeNormal: {"t": keymap.UnboundBinding()},
+		keymap.ModeNormal: {"d": keymap.UnboundBinding()},
 	}, nil)
 
 	content := b.buildHelpContent()
@@ -124,7 +124,7 @@ func TestKeymapHelp_UnbindCardDelete_NoRowCarriesItsDesc(t *testing.T) {
 	desc := mustFindCommand(t, keymap.CommandCardDelete).Desc
 
 	if strings.Contains(section, desc) {
-		t.Errorf("Normal Mode section still contains %q after unbinding card.delete's only key (t), got:\n%s", desc, section)
+		t.Errorf("Normal Mode section still contains %q after unbinding card.delete's only key (d, #502 remap: was t), got:\n%s", desc, section)
 	}
 }
 
@@ -196,7 +196,7 @@ func TestHelpBuiltinRows_LabelEqualsCatalogueDesc(t *testing.T) {
 	}{
 		{keymap.CommandCardNew, "n"},
 		{keymap.CommandCardEdit, "e"},
-		{keymap.CommandCardDelete, "t"},
+		{keymap.CommandCardDelete, "d"},
 		{keymap.CommandBoardRefresh, "r"},
 	}
 	for _, tc := range cases {
@@ -484,20 +484,21 @@ func TestKeymapHelp_GitMenuSection_ShowsOpenedByRow(t *testing.T) {
 	section := helpSectionBody(t, content, "Git Menu")
 
 	wantDesc := mustFindCommand(t, keymap.CommandViewGitPanel).Desc
-	re := regexp.MustCompile(`(?m)^  g\s+` + regexp.QuoteMeta(wantDesc) + `$`)
+	re := regexp.MustCompile(`(?m)^  G\s+` + regexp.QuoteMeta(wantDesc) + `$`)
 	if !re.MatchString(section) {
-		t.Errorf("Git Menu section missing openedBy row (key %q from the normal-mode table, desc %q), got:\n%s", "g", wantDesc, section)
+		t.Errorf("Git Menu section missing openedBy row (key %q from the normal-mode table, desc %q), got:\n%s", "G", wantDesc, section)
 	}
 }
 
 // TestKeymapHelp_GitMenuSection_OpenedByRowDisappearsWhenNormalCommandUnbound
 // covers the plan's named Risk: "openedBy row disappears when its
 // normal-mode command is unbound" -- a hint must never advertise a key that
-// silently no-ops (docs/view-state-consistency.md).
+// silently no-ops (docs/view-state-consistency.md). #502 remapped
+// view.git_panel's normal-mode key from "g" to "G".
 func TestKeymapHelp_GitMenuSection_OpenedByRowDisappearsWhenNormalCommandUnbound(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
-		keymap.ModeNormal: {"g": keymap.UnboundBinding()},
+		keymap.ModeNormal: {"G": keymap.UnboundBinding()},
 	}, nil)
 
 	content := b.buildHelpContent()
