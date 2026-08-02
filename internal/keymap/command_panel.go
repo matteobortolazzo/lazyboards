@@ -20,10 +20,7 @@ const (
 )
 
 // panelCommands is the Command catalogue entries for the git panel and
-// dispatch modal, sourced from gitPanelModeHints (model.go:630) and the
-// "Dispatch (cenci)" helpSections entry (view.go:1298) so hint/help wording
-// matches today's status bar/help text exactly. catalog.go merges this into
-// the package-level catalog.
+// dispatch modal. catalog.go merges this into the package-level catalog.
 var panelCommands = []Command{
 	{CommandGitPanelClose, "Cancel"},
 	{CommandGitPanelRun, "Run"},

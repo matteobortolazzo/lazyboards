@@ -1,7 +1,7 @@
 package keymap
 
 // closeConfirmDefaults is the default ModeCloseConfirm table, transcribed
-// from handleCloseConfirmModeKey (mode_handlers.go:956).
+// from handleCloseConfirmModeKey (mode_handlers.go).
 var closeConfirmDefaults = Table{
 	"y":   CommandBinding(CommandCloseConfirmConfirm),
 	"n":   CommandBinding(CommandCloseConfirmCancel),
@@ -9,7 +9,7 @@ var closeConfirmDefaults = Table{
 }
 
 // labelConfirmDefaults is the default ModeLabelConfirm table, transcribed
-// from handleLabelConfirmModeKey (mode_handlers.go:938).
+// from handleLabelConfirmModeKey (mode_handlers.go).
 var labelConfirmDefaults = Table{
 	"y":   CommandBinding(CommandLabelConfirmCreate),
 	"n":   CommandBinding(CommandLabelConfirmCancel),
@@ -17,21 +17,20 @@ var labelConfirmDefaults = Table{
 }
 
 // deleteDefaults is the default ModeDelete table, transcribed from
-// handleDeleteModeKey (mode_handlers.go:981). delete stays one Mode: enter
+// handleDeleteModeKey (mode_handlers.go). delete stays one Mode: enter
 // resolves to the single id delete.submit regardless of which step
 // (comment/confirm) the handler is currently in -- step branching, and the
 // per-step status-bar wording ("Continue" vs "Confirm"), stay handler-side
-// (deleteCommentHints/deleteConfirmHints in model.go) until the sibling
-// conversion ticket.
+// until the sibling conversion ticket.
 var deleteDefaults = Table{
 	"enter": CommandBinding(CommandDeleteSubmit),
 	"esc":   CommandBinding(CommandDeleteCancel),
 }
 
 // createDefaults is the default ModeCreate table, transcribed from
-// handleCreateModeKey (mode_handlers.go:13). left/right are bound
+// handleCreateModeKey (mode_handlers.go). left/right are bound
 // unconditionally here even though the handler only acts on them when the
-// assignee field is focused (mode_handlers.go:88-99) -- the focus gate
+// assignee field is focused (mode_handlers.go) -- the focus gate
 // stays handler-side for the sibling conversion ticket, same pattern
 // applied to config.provider_prev/next below.
 var createDefaults = Table{
@@ -43,9 +42,9 @@ var createDefaults = Table{
 }
 
 // configDefaults is the default ModeConfig table, transcribed from
-// handleConfigModeKey (mode_handlers.go:105). left/right are bound
+// handleConfigModeKey (mode_handlers.go). left/right are bound
 // unconditionally here even though the handler only acts on them when the
-// provider field is focused (mode_handlers.go:131-140) -- the focus gate
+// provider field is focused (mode_handlers.go) -- the focus gate
 // stays handler-side for the sibling conversion ticket.
 var configDefaults = Table{
 	"enter": CommandBinding(CommandConfigSave),
@@ -56,7 +55,7 @@ var configDefaults = Table{
 }
 
 // searchDefaults is the default ModeSearch table, transcribed from
-// handleSearchModeKey (mode_handlers.go:598).
+// handleSearchModeKey (mode_handlers.go).
 var searchDefaults = Table{
 	"enter":     CommandBinding(CommandSearchApply),
 	"esc":       CommandBinding(CommandSearchCancel),
@@ -69,7 +68,7 @@ var searchDefaults = Table{
 }
 
 // commentDefaults is the default ModeComment table, transcribed from
-// handleCommentModeKey (mode_handlers.go:441).
+// handleCommentModeKey (mode_handlers.go).
 var commentDefaults = Table{
 	"enter": CommandBinding(CommandCommentSubmit),
 	"esc":   CommandBinding(CommandCommentCancel),

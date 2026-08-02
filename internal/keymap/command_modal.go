@@ -40,11 +40,8 @@ const (
 )
 
 // modalCommands is the Command catalogue entries (id + desc) for the six
-// navigable modal surfaces, sourced from their *Hints vars (model.go:177
-// prPickerHints, :205 filterModeHints, :611 assignModeHints, :669
-// prListModeHints, :721 milestoneListModeHints, :760 agentListModeHints) so
-// hint wording matches today's status bar exactly. catalog.go merges this
-// into the package-level catalog.
+// navigable modal surfaces. catalog.go merges this into the package-level
+// catalog.
 var modalCommands = []Command{
 	{CommandPRListClose, "Cancel"},
 	{CommandPRListOpen, "Open"},

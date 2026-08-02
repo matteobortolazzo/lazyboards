@@ -7,8 +7,8 @@ import "testing"
 // multi-key sequence ("g r") for the two-key go-prefix #502 introduces.
 //
 // Unaffected entries are transcribed directly from the current handler
-// switch statements (handleNormalModeKey, mode_handlers.go:169-430;
-// handleDetailFocusedKey, update.go:1289-1357). The nine #502-remapped
+// switch statements (handleNormalModeKey, mode_handlers.go;
+// handleDetailFocusedKey, update.go). The nine #502-remapped
 // entries are transcribed from the ticket's remap table instead --
 // deliberately never copied from the pre-#502 internal/keymap/
 // defaults_board.go, so a bug in the production remap can't also corrupt

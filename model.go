@@ -773,7 +773,7 @@ type Board struct {
 	pendingSeq    string
 	pendingSeqAlt bool
 	// pendingRefs holds the #N references parsed from the selected card's
-	// body while the "m" reference-navigation which-key prompt is active
+	// body while the nav.reference (default "g r") which-key prompt is active
 	// (see handleReferenceNavKey/handlePendingRefKey in references.go). It
 	// is a dedicated state, not a reuse of pendingSeq, so reference labels
 	// ('a'-'z') can never collide with or be swallowed by an unrelated
