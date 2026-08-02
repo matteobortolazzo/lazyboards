@@ -529,16 +529,12 @@ func TestCloseMode_PromptHintKeysAlwaysDispatch_DefaultAndRemappedTables(t *test
 // --- Keybinding hint registration (CLAUDE.md hard rule) ---
 
 func TestHelpSections_NormalMode_ContainsCloseCardHint(t *testing.T) {
-	for _, section := range helpSections {
-		if section.title != "Normal Mode" {
-			continue
-		}
-		for _, kv := range section.keys {
-			if kv[0] == "x" {
-				return
-			}
-		}
-		t.Fatalf("helpSections[%q] does not contain an entry for key %q", "Normal Mode", "x")
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+	section := helpSectionBody(t, content, "Normal Mode")
+
+	desc := mustFindCommand(t, keymap.CommandCardClose).Desc
+	if !strings.Contains(section, desc) {
+		t.Fatalf("generated Normal Mode section does not contain the card.close desc %q, got:\n%s", desc, section)
 	}
-	t.Fatal(`helpSections has no "Normal Mode" section`)
 }
