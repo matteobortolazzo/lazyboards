@@ -161,7 +161,7 @@ func shouldCheckForUpdate(version string, enabled bool) bool {
 // before BubbleTea takes over the terminal.
 func printDeprecations(w io.Writer, notices []string) {
 	for _, notice := range notices {
-		fmt.Fprintln(w, sanitizeSingleLine(notice))
+		_, _ = fmt.Fprintln(w, sanitizeSingleLine(notice))
 	}
 }
 
