@@ -15,14 +15,14 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Assign and unassign collaborators to cards
 - Search cards by title and filter by label, assignee, or milestone
 - PR linking with picker modal
-- Milestones modal: every open milestone in the repository with progress bar, counts, and due date, `Enter` to filter the board by milestone (`i`)
+- Milestones modal: every open milestone in the repository with progress bar, counts, and due date, `Enter` to filter the board by milestone (`m`)
 - Custom actions: open URLs or run shell commands bound to any key (not just Shift+key — see [Keymaps](#keymaps)) or multi-key sequences (neovim-style prefix keys), with column cleanup on departure
 - Mouse support: scroll, click tabs, click cards
 - Auto-detection of provider and repo from git remote
 - In-app configuration UI (first-launch flow or press `c`)
 - Board refresh (manual and periodic background refresh)
-- Agent dispatch panel: enroll repos and trigger fleet-wide dispatch (`d`)
-- Agents modal: every cenci-watch window in this instance's own tmux session — matched to a card or not — labeled by `session:index`, with `Enter` jumping to its tmux window (`w`), or jump straight to a card's own agent window with `s`
+- Agent dispatch panel: enroll repos and trigger fleet-wide dispatch (`D`)
+- Agents modal: every cenci-watch window in this instance's own tmux session — matched to a card or not — labeled by `session:index`, with `Enter` jumping to its tmux window (`A`), or jump straight to a card's own agent window with `g a`
 - Help popup with full keybinding reference (`?`)
 - Error screen with retry support
 - Responsive terminal resizing
@@ -37,6 +37,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - [Editing Cards](#editing-cards)
 - [Custom Actions](#custom-actions)
 - [Keybindings](#keybindings)
+  - [Keybinding migration](#keybinding-migration)
 - [Mouse Support](#mouse-support)
 - [Build from Source](#build-from-source)
 - [Releases](#releases)
@@ -84,7 +85,7 @@ Cards are GitHub issues. Each column maps to a label — an issue with the label
 
 Linked pull requests come from two sources, unioned: GitHub's closing-PR relationship (supported closing keywords such as `Fixes #123`, `Closes #123`, and `Resolves #123`, plus links added manually through GitHub's Development sidebar) and any other open PR that mentions the issue number anywhere (e.g. `Related to #123`, or this project's own `Stack: 2/3 — depends on #123`). Closed or merged PRs are excluded from mentions so a stale reference doesn't leave a dead link behind. Press `p` to open a linked PR, or pick from multiple.
 
-Each linked PR renders on its own line beneath the card title, prefixed with the purple  PR marker followed by a glyph colored by that PR's status: gray `●` draft, green `✓` mergeable, red `✗` conflicting, yellow `●` checks still running, yellow `!` blocked (behind base or needs review). A card with several linked PRs shows one line per PR — each with its own status, not a single collapsed worst-of-all glyph — so stacked PRs stay individually visible. While GitHub is still computing a PR's mergeability, the glyph keeps its neutral color rather than guessing. Live agent windows render the same way: one line per non-idle window beneath the title. The same purple-prefixed, colored glyph prefixes each row in the PR list (`v`) modal; the PR picker (`p`) modal shows the same status glyph without the purple marker, blank there instead of neutral when status isn't known yet. These status glyphs keep their full color on every card and every PR list row, focused or not, so a glance across the board shows which tickets have an agent or a linked PR attached. Muting applies to row *text*: a non-selected card title, and every non-selected row across the PR list, filter, assignee, git menu, and agents list modals, renders gray; the currently selected/focused row stays bold white.
+Each linked PR renders on its own line beneath the card title, prefixed with the purple  PR marker followed by a glyph colored by that PR's status: gray `●` draft, green `✓` mergeable, red `✗` conflicting, yellow `●` checks still running, yellow `!` blocked (behind base or needs review). A card with several linked PRs shows one line per PR — each with its own status, not a single collapsed worst-of-all glyph — so stacked PRs stay individually visible. While GitHub is still computing a PR's mergeability, the glyph keeps its neutral color rather than guessing. Live agent windows render the same way: one line per non-idle window beneath the title. The same purple-prefixed, colored glyph prefixes each row in the PR list (`P`) modal; the PR picker (`p`) modal shows the same status glyph without the purple marker, blank there instead of neutral when status isn't known yet. These status glyphs keep their full color on every card and every PR list row, focused or not, so a glance across the board shows which tickets have an agent or a linked PR attached. Muting applies to row *text*: a non-selected card title, and every non-selected row across the PR list, filter, assignee, git menu, and agents list modals, renders gray; the currently selected/focused row stays bold white.
 
 If a card has GitHub's native sub-issue relationships, they render as muted gray status lines above the agent/PR lines: a `󰙅` line shows a parent card's completed/total sub-issue count (e.g. `󰙅 2/3`), and a `󱞫` line shows a child card's parent issue number (e.g. `󱞫 #12`). A card that's both a parent and a child shows both lines, parent first; a card with neither relationship shows no extra line. The full status-line order beneath a card's title is: sub-issue line(s), then agent line(s), then PR line(s). Sub-issue lines are gray by design on every card. Agent badges, PR status glyphs, and the per-label color dots next to a card title keep their assigned colors on non-focused cards too — only the title text mutes — preserving cross-card color-coded scanning.
 
@@ -92,7 +93,7 @@ The board auto-refreshes in the background (default: every 5 minutes). Press `r`
 
 ### Dispatch Panel
 
-Press `d` to open the agent dispatch panel for the repo you're currently in. It shows whether the repo is enrolled with the cenci-watch daemon and lets you toggle enrollment with `Enter`.
+Press `D` to open the agent dispatch panel for the repo you're currently in. It shows whether the repo is enrolled with the cenci-watch daemon and lets you toggle enrollment with `Enter`.
 
 Once a repo is enrolled, `o` triggers a dispatch run — but this is **fleet-wide**: it dispatches across *all* enrolled repos, not just the one currently open. The panel shows a summary of the last run (dispatched/skipped counts) after it completes.
 
@@ -114,7 +115,7 @@ This walks through wiring lazyboards to a real [cenci-watch](https://github.com/
 
    The daemon owns the broadcast socket that lazyboards' agent-status badges and dispatch panel both read from.
 
-2. **Enroll the repo.** From inside the repo, either run `cenci dispatch enroll` yourself, or open lazyboards and press `d` then `Enter` — enrollment is idempotent either way, and only affects the currently open repo.
+2. **Enroll the repo.** From inside the repo, either run `cenci dispatch enroll` yourself, or open lazyboards and press `D` then `Enter` — enrollment is idempotent either way, and only affects the currently open repo.
 
 3. **Wire per-column actions to `cenci run`** in `~/.config/lazyboards/config.yml` (global) or `.lazyboards.yml` (per-project):
 
@@ -141,7 +142,9 @@ This walks through wiring lazyboards to a real [cenci-watch](https://github.com/
 
    Pressing `R` on a `New` card runs `cenci run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup). When the agent's PR lands the card in `In Review`, `W` opens its worktree in a fresh tmux window so you can review and run it locally — append the project's run command (`ng serve`, `dotnet run`, …) in a per-project `.lazyboards.yml` (see [Action Scope](#action-scope)).
 
-   Jumping to a card's agent window is built in — no custom action needed. Press `s` on a card to jump straight to its agent's tmux window (a picker opens if several windows match), or press `w` to open the full Agents modal listing every cenci-watch window.
+   Note: the `Refined` column's `D:` (Design) action shadows the built-in `D` (`view.dispatch`) while that column is active — column overlays always win over the global default for their own column, by design (see [Keymaps](#keymaps)). `W:` (Open worktree) is a plain uppercase custom action with no built-in collision of its own.
+
+   Jumping to a card's agent window is built in — no custom action needed. Press `g a` on a card to jump straight to its agent's tmux window (a picker opens if several windows match), or press `A` to open the full Agents modal listing every cenci-watch window.
 
 4. **Let cenci pick up approved plans automatically.** Once a ticket reaches `Planned` with an approved `.plans/<id>-*.md` file, `cenci dispatch` will run it for you — fleet-wide, across every enrolled repo. Trigger a single pass from the panel with `o`, or turn the recurring loop on/off with `l` (see the [Dispatch Panel](#dispatch-panel)). Tune concurrency, quiet hours, and per-agent budgets in cenci's own `dispatch` config block (`$XDG_CONFIG_HOME/cenci/config.json`) — see the [cenci README](https://github.com/matteobortolazzo/cenci/tree/main/watch#configuration-1) for the full reference.
 
@@ -174,13 +177,13 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `mouse` | bool | `true` | Enable mouse support |
 | `cenci` | bool | `true` | Enable live agent status badges + status-bar counts (requires the cenci-watch daemon; silently off when absent) |
 | `update_check` | bool | `true` | Check for newer lazyboards releases on startup and show a sticky notice when one is available |
-| `sort_order` | string | `oldest` | Card sort direction by creation date: `oldest` or `newest` created first (board-wide; sets the starting direction, and `u` toggles it) |
+| `sort_order` | string | `oldest` | Card sort direction by creation date: `oldest` or `newest` created first (board-wide; sets the starting direction, and `s` toggles it) |
 | `cleanup` | string | — | Default cleanup command applied to every column that doesn't set its own (see [Column Cleanup](#column-cleanup)) |
 | `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, actions, cleanup) |
 | `actions` | map | — | Global custom actions (see [Custom Actions](#custom-actions)) |
 | `keymaps` | map | — | Per-mode key bindings: command ids, inline actions, or `~` to unbind (see [Keymaps](#keymaps)) |
 
-**Note on remembered state:** pressing `u` to flip the sort order writes your choice to `~/.config/lazyboards/state.yml`, so it survives a restart. That file is written by lazyboards alone — your config files are never rewritten — and a remembered direction takes precedence over `sort_order`. Delete it to go back to the configured default.
+**Note on remembered state:** pressing `s` to flip the sort order writes your choice to `~/.config/lazyboards/state.yml`, so it survives a restart. That file is written by lazyboards alone — your config files are never rewritten — and a remembered direction takes precedence over `sort_order`. Delete it to go back to the configured default.
 
 ### Keymaps
 
@@ -322,7 +325,7 @@ Long-running or foreground shell commands will block that action's key slot unti
 
 ### Git Menu
 
-Inside a git repository with a remote, press `g` to open the **Git Menu** — six built-in board-scope git shortcuts with lazygit-style keys, no config required:
+Inside a git repository with a remote, press `G` to open the **Git Menu** — six built-in board-scope git shortcuts with lazygit-style keys, no config required:
 
 | Key | Action | Command |
 |-----|--------|---------|
@@ -339,7 +342,7 @@ Inside the menu, press an action's key to run it immediately (like lazygit), or 
 
 At the left of the status bar, an always-visible prefix summarizes the whole repository: agent-status counts (`▶N` running, `!N` awaiting input) followed by the repo-wide open-PR total (` N`, using the same PR glyph shown on cards). Each token is omitted when its count is zero, and the prefix disappears entirely when all are zero. Because the prefix is reserved before anything else, it stays visible through timed status messages and is never truncated to make room for hints or the right-aligned git/dispatch segments.
 
-The agent counts cover every window the cenci-watch daemon tracks — across all tmux sessions, whether or not a window's name joins to a card on the board. (The `w` agents modal, by contrast, is scoped to this instance's own tmux session, so its row count may be smaller than the status-bar total.) The PR total counts every open PR in the repository — the same set the `v` [open-PR list](#pull-requests) shows — not just PRs linked to cards. Until the first repo-wide listing succeeds (or if it isn't available), the PR token falls back to the card-linked sum; afterwards a failed refresh keeps the last known total rather than dropping the token.
+The agent counts cover every window the cenci-watch daemon tracks — across all tmux sessions, whether or not a window's name joins to a card on the board. (The `A` agents modal, by contrast, is scoped to this instance's own tmux session, so its row count may be smaller than the status-bar total.) The PR total counts every open PR in the repository — the same set the `P` [open-PR list](#pull-requests) shows — not just PRs linked to cards. Until the first repo-wide listing succeeds (or if it isn't available), the PR token falls back to the card-linked sum; afterwards a failed refresh keeps the last known total rather than dropping the token.
 
 ### Git Status Segment
 
@@ -457,8 +460,13 @@ Every row below is a shipped default; any key (including the ones already
 listed here) can also be rebound, unbound, or given a [custom
 action](#custom-actions) or [key sequence](#key-sequences-prefix-keys) via
 `keymaps.normal` — a user binding always wins over a default. The shipped
-defaults happen to use only lowercase keys, leaving uppercase and every
-other key free for your own bindings.
+defaults follow neovim-style mnemonics: lowercase keys are the primary,
+single-purpose commands; `g` is a go-prefix for "go to X" navigation
+sequences (`g a`, `g r`); and uppercase keys are the wider-scope siblings of
+their lowercase counterpart (`D`ispatch vs. `d`elete, `P`R list vs. `p`R
+open, `A`gents list vs. `g a` go-to-agent, `G`it menu). See [Keybinding
+migration](#keybinding-migration) if you're upgrading from a pre-#502
+config and want the old keys back.
 
 | Key | Command | Action |
 |-----|---------|--------|
@@ -469,20 +477,20 @@ other key free for your own bindings.
 | `e` | `card.edit` | Edit card |
 | `c` | `app.config` | Configuration |
 | `o` | `card.open_ticket` | Open ticket |
-| `m` | `nav.reference` | Go to referenced issue |
+| `g r` | `nav.reference` | Go to referenced issue |
 | `r` | `board.refresh` | Refresh board |
 | `p` | `card.open_pr` | Open PR |
 | `x` | `card.close` | Close card (with confirmation) |
-| `t` | `card.delete` | Delete card permanently (with two-step confirmation) |
-| `v` | `view.pr_list` | Open PRs (all open PRs in the repo) |
-| `i` | `view.milestone_list` | Milestones (all open milestones in the repo) |
-| `w` | `view.agent_list` | (cenci) Agents (cenci-watch windows in this instance's tmux session, labeled `session:index`; `enter` jumps to the tmux window) |
-| `s` | `nav.agent` | (cenci) Go to agent (jumps straight to the selected card's agent window in this session when there's exactly one; opens a picker when there are several) |
+| `d` | `card.delete` | Delete card permanently (with two-step confirmation) |
+| `P` | `view.pr_list` | Open PRs (all open PRs in the repo) |
+| `m` | `view.milestone_list` | Milestones (all open milestones in the repo) |
+| `A` | `view.agent_list` | (cenci) Agents (cenci-watch windows in this instance's tmux session, labeled `session:index`; `enter` jumps to the tmux window) |
+| `g a` | `nav.agent` | (cenci) Go to agent (jumps straight to the selected card's agent window in this session when there's exactly one; opens a picker when there are several) |
 | `/` | `board.search` | Search |
 | `a` | `card.assign` | Assign collaborator |
-| `g` | `view.git_panel` | Git menu |
-| `d` | `view.dispatch` | (cenci) Dispatch |
-| `u` | `board.sort_order` | Toggle sort order (oldest/newest created first; board-wide, applies to all columns; remembered across restarts) |
+| `G` | `view.git_panel` | Git menu |
+| `D` | `view.dispatch` | (cenci) Dispatch |
+| `s` | `board.sort_order` | Toggle sort order (oldest/newest created first; board-wide, applies to all columns; remembered across restarts) |
 | `f` | `board.filter` | Filter (toggle) |
 | `l` / `right` (→) | `nav.detail_focus` | Detail panel |
 | `j` / `down` (↓) | `nav.cursor_down` | Next card |
@@ -509,7 +517,7 @@ Mode](#normal-mode).
 | `shift+tab` | `nav.column_prev` | Previous column |
 | `1`-`9` | `nav.column_1` … `nav.column_9` | Jump to column |
 | `o` | `card.open_ticket` | Open ticket |
-| `m` | `nav.reference` | Go to referenced issue |
+| `g r` | `nav.reference` | Go to referenced issue |
 | `p` | `card.open_pr` | Open PR |
 | `r` | `board.refresh` | Refresh |
 | `q` | `app.quit` | Quit |
@@ -550,7 +558,7 @@ remaining collaborators sorted alphabetically (case-insensitive).
 
 ### Pull Requests
 
-Opened with `v` from normal mode. Lists every **open PR in the repository**,
+Opened with `P` from normal mode. Lists every **open PR in the repository**,
 not just those linked to a board card. While the repo-wide fetch is in
 flight, the card-linked PRs (aggregated across all columns and cards,
 regardless of any active search/filter) render immediately as a fallback; if
@@ -579,7 +587,7 @@ that action against the selected PR.
 
 ### Milestones
 
-Opened with `i` from normal mode. Lists every **open milestone in the
+Opened with `m` from normal mode. Lists every **open milestone in the
 repository** on one line each: title, a block progress bar, percentage,
 `closed/total` issue counts, and its due date (or `no due date` when unset).
 Three states: `Loading milestones...` while the fetch is in flight, the list
@@ -599,9 +607,9 @@ milestone's GitHub URL in your browser without closing the modal.
 
 ### Agents
 
-`w` always opens the modal, listing every cenci-watch window in this
+`A` always opens the modal, listing every cenci-watch window in this
 instance's own tmux session (labeled `session:index`) regardless of whether
-it matches a card. `s` is a smart jump scoped to the selected card: zero
+it matches a card. `g a` is a smart jump scoped to the selected card: zero
 matching windows shows a status message, exactly one switches the tmux
 client directly (no modal), and several open this same modal scoped to just
 that card's windows.
@@ -622,7 +630,7 @@ that card's windows.
 
 ### Delete
 
-Opened with `t` from normal mode. Permanently deletes the selected card via
+Opened with `d` from normal mode. Permanently deletes the selected card via
 the provider (not a column move) after a two-step confirmation. Cards with
 any linked PR cannot be deleted — the status bar shows an error and the card
 list stays unchanged. Step 1 accepts an optional comment (blank is fine);
@@ -700,7 +708,7 @@ alphabetically (case-insensitive) below.
 
 ### Git Menu
 
-Opened with `g` from normal mode.
+Opened with `G` from normal mode.
 
 | Key | Command | Action |
 |-----|---------|--------|
@@ -717,7 +725,7 @@ Opened with `g` from normal mode.
 
 ### Dispatch (cenci)
 
-Opened with `d` from normal mode. See [Dispatch Panel](#dispatch-panel) for
+Opened with `D` from normal mode. See [Dispatch Panel](#dispatch-panel) for
 what enrollment and a dispatch run actually do.
 
 | Key | Command | Action |
@@ -746,6 +754,69 @@ Opened with `?` from normal mode or the detail panel.
 |-----|---------|--------|
 | `r` | `error.retry` | Retry loading |
 | `q` | `app.quit` | Quit |
+
+### Keybinding migration
+
+#502 remapped nine Normal Mode defaults to neovim-style mnemonics (see the
+[Normal Mode](#normal-mode) table above for the full current list):
+
+| Command | Old key | New key |
+|---|---|---|
+| `card.delete` | `t` | `d` |
+| `view.dispatch` | `d` | `D` |
+| `nav.reference` | `m` | `g r` |
+| `view.milestone_list` | `i` | `m` |
+| `nav.agent` | `s` | `g a` |
+| `board.sort_order` | `u` | `s` |
+| `view.pr_list` | `v` | `P` |
+| `view.agent_list` | `w` | `A` |
+| `view.git_panel` | `g` | `G` |
+
+Every other default key (`q ? c n e o p x a r / f l j k tab shift+tab 1`-`9`,
+and every Detail Panel/modal key) kept its pre-#502 binding — only the nine
+commands above moved, so any config that doesn't already bind one of the old
+keys above needs no changes.
+
+If you bind a sequence under `D`/`P`/`A`/`G`, or bind `g` itself, unbind the
+colliding default first — e.g. `P: ~` — otherwise `config.Load` rejects the
+config with a prefix-conflict error (a key that's also a bound default can
+never dispatch once a longer sequence shares its prefix).
+
+This also applies to the legacy `actions:` block: an entry like `Pf:` is
+translated internally to the same canonical `"P f"` sequence, so it collides
+with the new `P` default exactly like a `keymaps:` sequence would, and the
+resulting error names the resolved sequence (e.g. `"P f"`), not your
+original `Pf:` key. Unbind the collision the same way (`P: ~` under
+`keymaps.normal`), or migrate the entry to `keymaps:` directly.
+
+To restore every pre-#502 key exactly as it worked before, add this to your
+`keymaps:` block (global `~/.config/lazyboards/config.yml` or per-project
+`.lazyboards.yml`):
+
+<!-- legacy-keymaps-restore:start -->
+```yaml
+keymaps:
+  normal:
+    t: card.delete
+    d: view.dispatch
+    m: nav.reference
+    i: view.milestone_list
+    s: nav.agent
+    u: board.sort_order
+    v: view.pr_list
+    w: view.agent_list
+    g: view.git_panel
+    "g a": ~
+    "g r": ~
+    D: ~
+    P: ~
+    A: ~
+    G: ~
+  detail:
+    m: nav.reference
+    "g r": ~
+```
+<!-- legacy-keymaps-restore:end -->
 
 ## Mouse Support
 

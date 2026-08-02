@@ -68,6 +68,19 @@ func sendKey(t *testing.T, b Board, msg tea.Msg) Board {
 	return updated
 }
 
+// sendKeys sends a sequence of single-rune keys through Update one at a
+// time (via keyMsg/sendKey), returning the Board after the final keypress.
+// Exists so #502's two-key "g"-prefixed go-navigation sequences ("g r", "g
+// a") don't need a repeated two-line sendKey(sendKey(...)) at every call
+// site.
+func sendKeys(t *testing.T, b Board, keys ...string) Board {
+	t.Helper()
+	for _, key := range keys {
+		b = sendKey(t, b, keyMsg(key))
+	}
+	return b
+}
+
 // simulateRefresh simulates a background refresh completing by fetching
 // default board data from a FakeProvider and sending a boardFetchedMsg.
 func simulateRefresh(t *testing.T, b Board) Board {

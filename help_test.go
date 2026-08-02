@@ -602,10 +602,12 @@ func TestHelpMode_ViewShowsAltKeyInNormalMode(t *testing.T) {
 
 // --- Help Mode: cenci-dependent features labeled ---
 //
-// Agents (w/s keys, "Agents" modal section) and Dispatch (d key, "Dispatch"
-// modal section) both require cenci integration to be configured. They are
-// labeled with a static "(cenci)" annotation in the help popup so users know
-// these features won't do anything useful without cenci set up. See #417.
+// Agents (A/"g a" keys, "Agents" modal section) and Dispatch (D key,
+// "Dispatch" modal section) both require cenci integration to be configured.
+// They are labeled with a static "(cenci)" annotation in the help popup so
+// users know these features won't do anything useful without cenci set up.
+// See #417. #502 remapped view.agent_list (w -> A), nav.agent (s -> "g a"),
+// and view.dispatch (d -> D).
 
 func TestHelpContent_NormalModeRowsLabeledCenci(t *testing.T) {
 	b := newLoadedTestBoard(t)
@@ -622,9 +624,9 @@ func TestHelpContent_NormalModeRowsLabeledCenci(t *testing.T) {
 		name string
 		key  string
 	}{
-		{"AgentsRow_w", "w"},
-		{"CardAgentsRow_s", "s"},
-		{"DispatchRow_d", "d"},
+		{"AgentsRow_A", "A"},
+		{"CardAgentsRow_ga", "g a"},
+		{"DispatchRow_D", "D"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -702,17 +704,18 @@ func TestHelpMode_StatusBarShowsHints(t *testing.T) {
 
 // --- Help Content: Accuracy & Consistency ---
 //
-// handleAgentJumpKey (mode_handlers.go) documents that "s" jumps directly to
-// the single matching agent window (no modal) when there's exactly one, and
-// only opens the Agents modal when there are several. "Card agents" implied
-// a list is always shown, which isn't true in the single-window case.
+// handleAgentJumpKey (mode_handlers.go) documents that "g a" (remapped from
+// "s" by #502) jumps directly to the single matching agent window (no modal)
+// when there's exactly one, and only opens the Agents modal when there are
+// several. "Card agents" implied a list is always shown, which isn't true in
+// the single-window case.
 
 func TestHelpContent_AgentJumpKeyIsNotMislabeledAsCardAgents(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	content := b.buildHelpContent()
 
 	if strings.Contains(content, "Card agents") {
-		t.Error("buildHelpContent() should not describe 's' as 'Card agents' — it jumps directly to the single matching window, only opening a list when there are several")
+		t.Error("buildHelpContent() should not describe 'g a' as 'Card agents' — it jumps directly to the single matching window, only opening a list when there are several")
 	}
 }
 
@@ -812,9 +815,9 @@ func TestHelpContent_GitMenuDocumentsOpenTrigger(t *testing.T) {
 	section := helpSectionBody(t, content, "Git Menu")
 
 	desc := mustFindCommand(t, keymap.CommandViewGitPanel).Desc
-	re := regexp.MustCompile(`(?m)^  g\s+` + regexp.QuoteMeta(desc) + `$`)
+	re := regexp.MustCompile(`(?m)^  G\s+` + regexp.QuoteMeta(desc) + `$`)
 	if !re.MatchString(section) {
-		t.Errorf("Git Menu section should document 'g' as the open trigger (consistent with Delete/Filter/Dispatch) via desc %q, got:\n%s", desc, section)
+		t.Errorf("Git Menu section should document 'G' as the open trigger (consistent with Delete/Filter/Dispatch) via desc %q, got:\n%s", desc, section)
 	}
 }
 
@@ -824,8 +827,8 @@ func TestHelpContent_DispatchOpenTriggerMatchesDeleteConvention(t *testing.T) {
 	section := helpSectionBody(t, content, "Dispatch (cenci)")
 
 	desc := mustFindCommand(t, keymap.CommandViewDispatch).Desc
-	re := regexp.MustCompile(`(?m)^  d\s+` + regexp.QuoteMeta(desc) + `$`)
+	re := regexp.MustCompile(`(?m)^  D\s+` + regexp.QuoteMeta(desc) + `$`)
 	if !re.MatchString(section) {
-		t.Errorf("Dispatch section's open trigger (key 'd') should carry the view.dispatch catalogue desc %q, consistent with the Delete section's own openedBy row, got:\n%s", desc, section)
+		t.Errorf("Dispatch section's open trigger (key 'D') should carry the view.dispatch catalogue desc %q, consistent with the Delete section's own openedBy row, got:\n%s", desc, section)
 	}
 }

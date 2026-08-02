@@ -9,7 +9,8 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
-// Tests for the "m" reference-navigation trigger (#464): reads the selected
+// Tests for the "g r" reference-navigation trigger (#464; remapped from "m"
+// to "g r" by #502): reads the selected
 // card's #N references (parsed by #463's parseCardRefs), enters a pending
 // which-key state, and on label selection either jumps to the on-board card
 // or opens the constructed same-repo issue URL. Mirrors the structure of
@@ -27,7 +28,7 @@ func TestReferenceNav_TriggersPendingStateWithHints(t *testing.T) {
 	}
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 
 	if len(b.pendingRefs) != 1 {
 		t.Fatalf("pendingRefs = %+v, want 1 entry", b.pendingRefs)
@@ -55,7 +56,7 @@ func TestReferenceNav_MultipleReferencesEachGetAHint(t *testing.T) {
 	}
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 
 	wantHints := []Hint{
 		{Key: "a", Desc: "#2"},
@@ -80,7 +81,7 @@ func TestReferenceNav_TriggersFromDetailFocusedMode(t *testing.T) {
 	if !b.detailFocused {
 		t.Fatal("expected detailFocused after l")
 	}
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 
 	if len(b.pendingRefs) != 1 || b.pendingRefs[0].Number != 2 {
 		t.Fatalf("pendingRefs = %+v, want 1 entry for #2", b.pendingRefs)
@@ -98,7 +99,7 @@ func TestReferenceNav_AlwaysActsOnCurrentlySelectedCardBody(t *testing.T) {
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 
 	b = sendKey(t, b, keyMsg("j")) // cursor now on card 2
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 
 	if len(b.pendingRefs) != 1 || b.pendingRefs[0].Number != 3 {
 		t.Fatalf("pendingRefs = %+v, want 1 entry for #3 (card 2's own reference, not card 1's)", b.pendingRefs)
@@ -113,7 +114,7 @@ func TestReferenceNav_NoReferencesIsNoOpWithMessage(t *testing.T) {
 	}
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 
 	if len(b.pendingRefs) != 0 {
 		t.Errorf("pendingRefs = %+v, want empty (no references in body)", b.pendingRefs)
@@ -138,7 +139,7 @@ func TestReferenceNav_EscCancelsPendingAndRestoresHints(t *testing.T) {
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 	hintsBefore := b.statusBar.hints
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
 	if len(b.pendingRefs) != 0 {
@@ -159,7 +160,7 @@ func TestReferenceNav_EscFromDetailFocusOnlyCancelsPending(t *testing.T) {
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 
 	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
 	if len(b.pendingRefs) != 0 {
@@ -182,7 +183,7 @@ func TestReferenceNav_UnmatchedContinuationCancelsWithWarningAndDoesNotFallThrou
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 	cursorBefore := b.Columns[b.ActiveTab].Cursor
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	// Only label "a" is bound; "j" is unmatched and is also the built-in
 	// down-cursor key -- it must NOT fall through and move the cursor.
 	b = sendKey(t, b, keyMsg("j"))
@@ -212,7 +213,7 @@ func TestReferenceNav_SelectLabelJumpsToOnBoardVisibleCard(t *testing.T) {
 	}
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, keyMsg("a"))
 
 	if b.ActiveTab != 1 {
@@ -238,7 +239,7 @@ func TestReferenceNav_SelectLabelJumpsFromDetailFocused(t *testing.T) {
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 
 	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, keyMsg("a"))
 
 	if b.ActiveTab != 1 {
@@ -266,7 +267,7 @@ func TestReferenceNav_JumpFromDetailFocusedExitsDetailFocus(t *testing.T) {
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 
 	b = sendKey(t, b, keyMsg("l"))
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, keyMsg("a"))
 
 	if b.detailFocused {
@@ -289,13 +290,13 @@ func TestReferenceNav_SelectLabelHiddenByFilterClearsFilterThenJumps(t *testing.
 	b.activeFilterValue = "bug"
 
 	// Precondition: the filter hides #3 (target) but not #1 (source, which
-	// must stay selectable since "m" acts on it).
+	// must stay selectable since "g r" acts on it).
 	visible := b.visibleCards()
 	if len(visible) != 2 {
 		t.Fatalf("precondition: visibleCards() = %d, want 2 (filter hides #3)", len(visible))
 	}
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, keyMsg("a"))
 
 	if b.activeFilterType != filterTypeNone {
@@ -326,7 +327,7 @@ func TestReferenceNav_SelectLabelHiddenBySearchClearsSearchThenJumps(t *testing.
 		t.Fatalf("precondition: visibleCards() = %d, want 1 (search hides #2 and #3)", len(visible))
 	}
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, keyMsg("a"))
 
 	if b.searchQuery != "" {
@@ -347,7 +348,7 @@ func TestReferenceNav_SelectLabelNotOnBoardOpensConstructedURL(t *testing.T) {
 	}
 	b, fe := newActionTestBoardWithColumns(t, nil, columns)
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, keyMsg("a"))
 
 	wantURL := "https://github.com/owner/repo/issues/999"
@@ -371,7 +372,7 @@ func TestReferenceNav_NotOnBoardOpenURLErrorSurfacesAsStatusMessage(t *testing.T
 	b, fe := newActionTestBoardWithColumns(t, nil, columns)
 	fe.OpenURLErr = errors.New("no browser configured")
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, keyMsg("a"))
 
 	if b.statusBar.level != StatusError {
@@ -400,7 +401,7 @@ func TestReferenceNav_NotOnBoardNoValidURLSurfacesURLNotAvailable(t *testing.T) 
 			}
 			b, fe := newActionTestBoardWithColumns(t, nil, columns)
 
-			b = sendKey(t, b, keyMsg("m"))
+			b = sendKeys(t, b, "g", "r")
 			b = sendKey(t, b, keyMsg("a"))
 
 			if len(fe.OpenURLCalls) != 0 {
@@ -427,7 +428,7 @@ func TestReferenceNav_BoardRefreshCancelsPending(t *testing.T) {
 	}
 	b, fe := newActionTestBoardWithColumns(t, nil, columns)
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	b = simulateRefresh(t, b)
 
 	if len(b.pendingRefs) != 0 {
@@ -460,7 +461,7 @@ func TestReferenceNav_AsyncCardRemovalCancelsPending(t *testing.T) {
 			b, fe := newActionTestBoardWithColumns(t, nil, columns)
 			removedCard := b.selectedCard()
 
-			b = sendKey(t, b, keyMsg("m"))
+			b = sendKeys(t, b, "g", "r")
 			b = sendKey(t, b, tt.msg(removedCard))
 
 			if len(b.pendingRefs) != 0 {
@@ -504,7 +505,7 @@ func TestReferenceNav_MouseCursorMoveCancelsPending(t *testing.T) {
 	}
 	b := newMouseEnabledRefNavBoard(t, columns)
 
-	b = sendKey(t, b, keyMsg("m"))
+	b = sendKeys(t, b, "g", "r")
 	if len(b.pendingRefs) != 1 {
 		t.Fatalf("precondition: pendingRefs = %+v, want 1 entry", b.pendingRefs)
 	}

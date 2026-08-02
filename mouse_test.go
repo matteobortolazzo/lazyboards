@@ -460,10 +460,10 @@ func newMouseEnabledPRListBoard(t *testing.T) Board {
 	t.Helper()
 	b, _ := newBoardWithPRsAndExecutor(t)
 	b.mouseEnabled = true
-	m, _ := b.Update(keyMsg("v"))
+	m, _ := b.Update(keyMsg("P"))
 	board, ok := m.(Board)
 	if !ok {
-		t.Fatalf("Update(v) returned %T, want Board", m)
+		t.Fatalf("Update(P) returned %T, want Board", m)
 	}
 	return board
 }
@@ -475,10 +475,10 @@ func newMouseEnabledAgentListBoard(t *testing.T) Board {
 	fe := &action.FakeExecutor{}
 	b := newAgentListBoard(t, fe, threeWindows())
 	b.mouseEnabled = true
-	m, _ := b.Update(keyMsg("w"))
+	m, _ := b.Update(keyMsg("A"))
 	board, ok := m.(Board)
 	if !ok {
-		t.Fatalf("Update(w) returned %T, want Board", m)
+		t.Fatalf("Update(A) returned %T, want Board", m)
 	}
 	return board
 }
@@ -503,10 +503,10 @@ func newMouseEnabledGitPanelBoard(t *testing.T) Board {
 	t.Helper()
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 	b.mouseEnabled = true
-	m, _ := b.Update(keyMsg("g"))
+	m, _ := b.Update(keyMsg("G"))
 	board, ok := m.(Board)
 	if !ok {
-		t.Fatalf("Update(g) returned %T, want Board", m)
+		t.Fatalf("Update(G) returned %T, want Board", m)
 	}
 	return board
 }

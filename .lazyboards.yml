@@ -28,12 +28,6 @@ keymaps:
           type: shell,
           command: "cenci run refine {number} --model sonnet -- {comment}",
         }
-      G:
-        {
-          name: Jump to agent,
-          type: shell,
-          command: 'tmux switch-client -t "={window}"',
-        }
 
     Refined:
       D:
@@ -47,12 +41,6 @@ keymaps:
           name: Implement,
           type: shell,
           command: "cenci run implement {number} --model sonnet -- {comment}",
-        }
-      G:
-        {
-          name: Jump to agent,
-          type: shell,
-          command: 'tmux switch-client -t "={window}"',
         }
 
     Planned:
@@ -73,12 +61,6 @@ keymaps:
           name: View plan,
           type: shell,
           command: 'f=$(ls .plans/{number}-*.md 2>/dev/null | head -1); [ -n "$f" ] && tmux new-window -n plan-{number} "${PAGER:-less} \"$f\""',
-        }
-      G:
-        {
-          name: Jump to agent,
-          type: shell,
-          command: 'tmux switch-client -t "={window}"',
         }
 
     In Review:

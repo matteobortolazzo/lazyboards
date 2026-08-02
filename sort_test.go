@@ -101,22 +101,22 @@ func TestSortColumns_TogglingFieldFlipsOrder(t *testing.T) {
 	assertCardOrder(t, b.Columns[0].Cards, []int{2, 1})
 }
 
-// --- 'u' toggle (#412) ---
+// --- 's' toggle (#412) ---
 //
-// The 'u' key itself stays a built-in normal-mode command with a persistent
+// The 's' key itself stays a built-in normal-mode command with a persistent
 // sort-order effect, but its hint is intentionally omitted from the status
 // bar (#443) to reduce bottom-bar clutter; it remains documented in the '?'
 // help modal (generated from the registry -- see keymap_help.go).
 
-func TestNormalMode_U_HintHiddenFromStatusBar(t *testing.T) {
+func TestNormalMode_S_HintHiddenFromStatusBar(t *testing.T) {
 	b := newLoadedTestBoard(t)
 
-	if idx := hintIndex(b.normalHints, "u"); idx != -1 {
-		t.Errorf("normalHints should not contain a %q hint (#443), got: %+v", "u", b.normalHints)
+	if idx := hintIndex(b.normalHints, "s"); idx != -1 {
+		t.Errorf("normalHints should not contain a %q hint (#443), got: %+v", "s", b.normalHints)
 	}
 }
 
-func TestNormalMode_U_TogglesSortOrder_FlipsOrder(t *testing.T) {
+func TestNormalMode_S_TogglesSortOrder_FlipsOrder(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "Oldest", CreatedAt: sortTestOlder},
 		{Number: 2, Title: "Newest", CreatedAt: sortTestNewest},
@@ -125,39 +125,39 @@ func TestNormalMode_U_TogglesSortOrder_FlipsOrder(t *testing.T) {
 	b := newBoardWithInlineCards(t, cards, 120, 40)
 	assertCardOrder(t, b.Columns[0].Cards, []int{1, 3, 2}) // precondition: oldest-first
 
-	m, cmd := b.Update(keyMsg("u"))
+	m, cmd := b.Update(keyMsg("s"))
 	updated, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if cmd != nil {
-		t.Error("'u' toggle should return a nil cmd when no state path is configured (the re-sort is synchronous; only persistence is async, #503)")
+		t.Error("'s' toggle should return a nil cmd when no state path is configured (the re-sort is synchronous; only persistence is async, #503)")
 	}
 
 	assertCardOrder(t, updated.Columns[0].Cards, []int{2, 3, 1}) // newest-first
 
-	if idx := hintIndex(updated.normalHints, "u"); idx != -1 {
-		t.Errorf("normalHints should not contain a %q hint after toggle (#443), got: %+v", "u", updated.normalHints)
+	if idx := hintIndex(updated.normalHints, "s"); idx != -1 {
+		t.Errorf("normalHints should not contain a %q hint after toggle (#443), got: %+v", "s", updated.normalHints)
 	}
 }
 
-func TestNormalMode_U_TogglingTwiceRestoresOldestFirst(t *testing.T) {
+func TestNormalMode_S_TogglingTwiceRestoresOldestFirst(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "Oldest", CreatedAt: sortTestOlder},
 		{Number: 2, Title: "Newest", CreatedAt: sortTestNewest},
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
 
-	b = sendKey(t, b, keyMsg("u"))
-	b = sendKey(t, b, keyMsg("u"))
+	b = sendKey(t, b, keyMsg("s"))
+	b = sendKey(t, b, keyMsg("s"))
 
 	assertCardOrder(t, b.Columns[0].Cards, []int{1, 2})
-	if idx := hintIndex(b.normalHints, "u"); idx != -1 {
-		t.Errorf("after toggling twice, normalHints should still not contain a %q hint (#443), got: %+v", "u", b.normalHints)
+	if idx := hintIndex(b.normalHints, "s"); idx != -1 {
+		t.Errorf("after toggling twice, normalHints should still not contain a %q hint (#443), got: %+v", "s", b.normalHints)
 	}
 }
 
-func TestNormalMode_U_PreservesCursorIdentity_Unfiltered(t *testing.T) {
+func TestNormalMode_S_PreservesCursorIdentity_Unfiltered(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "Oldest", CreatedAt: sortTestOlder},
 		{Number: 2, Title: "Newest", CreatedAt: sortTestNewest},
@@ -171,22 +171,22 @@ func TestNormalMode_U_PreservesCursorIdentity_Unfiltered(t *testing.T) {
 		t.Fatalf("precondition: cursor card = %d, want 2", b.Columns[0].Cards[b.Columns[0].Cursor].Number)
 	}
 
-	m, cmd := b.Update(keyMsg("u"))
+	m, cmd := b.Update(keyMsg("s"))
 	updated, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if cmd != nil {
-		t.Error("'u' toggle should return a nil cmd when no state path is configured (the re-sort is synchronous; only persistence is async, #503)")
+		t.Error("'s' toggle should return a nil cmd when no state path is configured (the re-sort is synchronous; only persistence is async, #503)")
 	}
 
 	col := updated.Columns[updated.ActiveTab]
 	if col.Cards[col.Cursor].Number != 2 {
-		t.Errorf("cursor card = %d after 'u' toggle, want 2 (cursor should follow the same card by identity)", col.Cards[col.Cursor].Number)
+		t.Errorf("cursor card = %d after 's' toggle, want 2 (cursor should follow the same card by identity)", col.Cards[col.Cursor].Number)
 	}
 }
 
-func TestNormalMode_U_PreservesCursorIdentity_Filtered(t *testing.T) {
+func TestNormalMode_S_PreservesCursorIdentity_Filtered(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "Bug old", Labels: []provider.Label{{Name: "bug"}}, CreatedAt: sortTestOlder},
 		{Number: 2, Title: "Feature newest", Labels: []provider.Label{{Name: "feature"}}, CreatedAt: sortTestNewest},
@@ -202,19 +202,19 @@ func TestNormalMode_U_PreservesCursorIdentity_Filtered(t *testing.T) {
 		t.Fatalf("precondition: filtered visible cards = %+v, cursor = %d, want cursor on card #3", visible, b.Columns[0].Cursor)
 	}
 
-	m, cmd := b.Update(keyMsg("u"))
+	m, cmd := b.Update(keyMsg("s"))
 	updated, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if cmd != nil {
-		t.Error("'u' toggle should return a nil cmd when no state path is configured (the re-sort is synchronous; only persistence is async, #503)")
+		t.Error("'s' toggle should return a nil cmd when no state path is configured (the re-sort is synchronous; only persistence is async, #503)")
 	}
 
 	col := updated.Columns[updated.ActiveTab]
 	newVisible := updated.visibleCards()
 	if col.Cursor >= len(newVisible) || newVisible[col.Cursor].Number != 3 {
-		t.Errorf("filtered visible cards after 'u' toggle = %+v, cursor = %d, want cursor on card #3 (identity preserved under active filter)", newVisible, col.Cursor)
+		t.Errorf("filtered visible cards after 's' toggle = %+v, cursor = %d, want cursor on card #3 (identity preserved under active filter)", newVisible, col.Cursor)
 	}
 }
 
