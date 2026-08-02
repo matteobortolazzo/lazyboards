@@ -2,6 +2,11 @@
 
 Rules for `internal/keymap`, `internal/config`, and related config-handling code.
 
+See also [`keymaps.md`](keymaps.md) for the registry architecture and config
+schema reference (layers, resolution/precedence, load-time validation, how to
+add a command id) — this file is the append-only lessons log for the same
+subsystem.
+
 ## Rules
 
 - When emitting a deprecation notice for a legacy config block, gate it on the block's *presence* in the loaded config, not on whether migration actually inserted any entries. If every legacy-derived key collides with an existing `keymaps:` entry and nothing is inserted, the notice must still fire — the user's stale config block needs to be nudged for removal. Spec AC wording like "loading a legacy block emits a deprecation notice" is presence-based; don't conflate "did the translation succeed" with "was the block present."
