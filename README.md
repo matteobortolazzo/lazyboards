@@ -16,7 +16,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Search cards by title and filter by label, assignee, or milestone
 - PR linking with picker modal
 - Milestones modal: every open milestone in the repository with progress bar, counts, and due date, `Enter` to filter the board by milestone (`i`)
-- Custom actions: open URLs or run shell commands bound to Shift+key or multi-key sequences (neovim-style prefix keys), with column cleanup on departure
+- Custom actions: open URLs or run shell commands bound to any key (not just Shift+key — see [Keymaps](#keymaps)) or multi-key sequences (neovim-style prefix keys), with column cleanup on departure
 - Mouse support: scroll, click tabs, click cards
 - Auto-detection of provider and repo from git remote
 - In-app configuration UI (first-launch flow or press `c`)
@@ -33,6 +33,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - [Quick Start](#quick-start)
 - [How It Works](#how-it-works)
 - [Configuration](#configuration)
+  - [Keymaps](#keymaps)
 - [Editing Cards](#editing-cards)
 - [Custom Actions](#custom-actions)
 - [Keybindings](#keybindings)
@@ -177,8 +178,36 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `cleanup` | string | — | Default cleanup command applied to every column that doesn't set its own (see [Column Cleanup](#column-cleanup)) |
 | `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, actions, cleanup) |
 | `actions` | map | — | Global custom actions (see [Custom Actions](#custom-actions)) |
+| `keymaps` | map | — | Per-mode key bindings: command ids, inline actions, or `~` to unbind (see [Keymaps](#keymaps)) |
 
 **Note on remembered state:** pressing `u` to flip the sort order writes your choice to `~/.config/lazyboards/state.yml`, so it survives a restart. That file is written by lazyboards alone — your config files are never rewritten — and a remembered direction takes precedence over `sort_order`. Delete it to go back to the configured default.
+
+### Keymaps
+
+Every key press in lazyboards resolves through a single `keymaps:` namespace: one table per mode, plus per-column overlays. Each entry is `keymaps.<mode>.<key>`, where the right-hand side is one of:
+
+```yaml
+keymaps:
+  normal:
+    q: app.quit          # a built-in command id (see the per-mode tables in Keybindings)
+    O:                   # an inline action mapping, same shape as top-level actions:
+      name: Open issue
+      type: url
+      url: "https://github.com/{repo_owner}/{repo_name}/issues/{number}"
+    n: ~                 # explicit unbind: `~` (or `null`, or an empty value)
+```
+
+A key is any BubbleTea key notation exactly as shown in the Keybindings tables (`q`, `ctrl+a`, `alt+enter`, `shift+tab`, ...). A key **sequence** is space-separated (`"g d"`), the canonical form of a neovim-style prefix binding — this replaces the legacy `actions:` sequence notation (`Rf`), which concatenated keys with no separator; see [Key Sequences (Prefix Keys)](#key-sequences-prefix-keys) below. A bound key that is a strict prefix of another bound key in the same table (e.g. `R` and `R f` both bound) is a load-time config error, since the shorter key could never dispatch — Lookup always waits for a continuation key once a prefix is pending.
+
+Bindable modes: `normal`, `detail`, `create`, `config`, `pr_picker`, `search`, `help`, `label_confirm`, `close_confirm`, `comment`, `delete`, `filter`, `assign`, `git_panel`, `dispatch`, `pr_list`, `milestone_list`, `agent_list`. See [Keybindings](#keybindings) for each mode's shipped command-id table.
+
+**Merge and precedence:** local config (`.lazyboards.yml`) merges over global config (`~/.config/lazyboards/config.yml`) per key, mirroring the `actions:`/`columns[].actions:` merge rules above — a mode or column the local file never mentions at all inherits the global table wholesale; an explicitly empty local table (`keymaps.normal: {}`) means "inherit nothing from global," not "unbind the built-in defaults" — unbinding a specific built-in still requires an explicit `~` entry for that key. Once merged, the resulting user config always wins over the built-in defaults, key by key — a user binding overrides a default with the same key, and every default key the user config doesn't mention is left untouched.
+
+**Column overlays:** `keymaps.columns.<name>` binds keys scoped to one column, matched case-insensitively. Column overlays apply to `normal` and `detail` only — no other mode can be overlaid per column. The full precedence for a bound key inside a column is `default-mode < default-column < user-mode < user-column`: a column's own user binding wins over everything, then a mode-wide user binding, then a column's own default, then the mode-wide default.
+
+**`ctrl+c` is special:** binding *or* unbinding `ctrl+c` anywhere in a key or sequence, in any mode or column table, is a load-time config error. `ctrl+c` always force-quits regardless of table contents — it is checked before any table lookup runs, so nothing can ever intercept it.
+
+**Security warning:** `.lazyboards.yml` is repo-local and is typically checked into the repository, so it is attacker-controlled the moment you clone someone else's repo. Any key — including built-in lowercase keys like `j`, `k`, or `q` — can be rebound to an inline `type: shell` action, and a user binding always wins over a default. Review a repo's `.lazyboards.yml` before running lazyboards inside it if you don't control that repo. This documents pre-existing behavior from before this ticket (#484), not a new vulnerability.
 
 ## Editing Cards
 
@@ -196,7 +225,7 @@ Save and close to apply changes. Leave the title blank to cancel. If you add lab
 
 ## Custom Actions
 
-> **Deprecated:** the top-level `actions:` block is deprecated in favor of the `keymaps:` namespace (`keymaps.normal`/`keymaps.detail`).
+> **Deprecated:** the top-level `actions:` block is deprecated in favor of the [`keymaps:`](#keymaps) namespace (`keymaps.normal`/`keymaps.detail`).
 
 Bind keys to URL or shell actions in your config. Any key can bind a built-in command or an inline action — a user binding always wins over a default. The shipped defaults happen to use only lowercase keys in normal mode (see [Normal Mode](#normal-mode)), leaving uppercase and every other key free for your own bindings (the built-in git shortcuts live inside the [Git Menu](#git-menu), scoped to their own modal rather than normal mode). The dispatch panel's own cenci controls (enroll, dispatch-once, loop on/off) are built in — see the [Dispatch Panel](#dispatch-panel) — so you only need custom actions for cenci commands the panel doesn't cover:
 
@@ -240,6 +269,8 @@ actions:
 Press `R` and the status bar switches to a which-key style list of everything the prefix can complete to, rendered in canonical, space-separated form (`R f: Run frontend | R b: Run backend | R w: Run worker | esc: cancel`); press the next key to run it. While a sequence is pending it owns the keyboard — built-in keys like `j`/`k` act as continuation keys, not navigation. `Esc` cancels, as does any key that doesn't match a bound sequence. Holding `Alt` on any key of the sequence gives the same [comment-first flow](#comment-mode) as `Alt+Shift+key` on a single-key action.
 
 Sequences can be any length (`R`, `Rf`, `RFa1`, ...) and follow all the usual action rules: scopes, template variables, per-column overrides, and gating (a prefix whose only completions are `pr`-scope won't even open on a card with no linked PRs). One constraint is validated at startup: a key can't be a strict prefix of another key that can be active at the same time — a standalone `P` action plus a `Pf` sequence is a config error, because `P` could then never fire.
+
+The legacy `actions:` notation above concatenates a sequence's keys with no separator (`Rf`); the canonical [`keymaps:`](#keymaps) form space-separates them instead (`"R f"`) — this is the form `legacySequence` translates a legacy key into internally, and the form the which-key hint bar and `keymaps.<mode>` tables always use.
 
 ### Template Variables
 
@@ -328,7 +359,7 @@ If lazyboards panics, the stack trace is normally printed to stderr as the termi
 
 ### Column-Specific Actions
 
-> **Deprecated:** `columns[].actions` is deprecated in favor of `keymaps.columns.<name>` in the `keymaps:` namespace.
+> **Deprecated:** `columns[].actions` is deprecated in favor of `keymaps.columns.<name>` in the [`keymaps:`](#keymaps) namespace.
 
 Define actions under a column to override global actions for that column:
 
