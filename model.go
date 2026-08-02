@@ -743,7 +743,6 @@ type Board struct {
 	loadErr            string
 	statusBar          StatusBar
 	loaded             bool
-	actions            map[string]config.Action
 	defaultActions     map[string]config.Action
 	columnConfigs      []config.ColumnConfig
 	executor           action.Executor
@@ -900,7 +899,6 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		mode:               loadingMode,
 		provider:           p,
 		spinner:            s,
-		actions:            actions,
 		defaultActions:     defaultActions,
 		columnConfigs:      columnConfigs,
 		executor:           executor,
