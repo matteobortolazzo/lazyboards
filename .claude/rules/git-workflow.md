@@ -67,5 +67,10 @@ child ticket (a `### Branch` section), so an implementing agent never has to inf
 **Worktree base must match plan's `### Branch`**: When a child ticket's plan names an
 epic integration branch as its base, verify the worktree was created off that branch
 (not `main`). The `cenci pipeline worktree` CLI defaults to `main` and will not respect
-the plan's `### Branch` section — manually verify or recreate the worktree with the
-correct base (e.g., `git worktree remove .worktrees/<id>-<desc>; git worktree add .worktrees/<id>-<desc> -b feature/<id>-<desc> origin/feature/<epic-id>-<desc>`). A mismatched base causes `cenci pipeline plan-check` to diff against the wrong branch, potentially showing the plan as "stale and safe" when the actual target branch has already landed conflicting structural changes.
+the plan's `### Branch` section — verify after creation (e.g., `git log --oneline -5` to
+check for epic-branch-specific commits), or recreate: `git worktree remove .worktrees/<id>-<desc>;
+git branch -D feature/<id>-<desc>; git worktree add .worktrees/<id>-<desc> -b feature/<id>-<desc> origin/feature/<epic-id>-<desc>`, then
+re-register the worktree with the pipeline: `cenci pipeline worktree <id> --attach .worktrees/<id>-<desc>`.
+A mismatched base causes `cenci pipeline plan-check` to diff against the wrong branch, potentially
+showing the plan as "stale and safe" when the actual target branch has already landed conflicting
+structural changes.
