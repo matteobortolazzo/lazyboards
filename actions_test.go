@@ -1405,16 +1405,19 @@ columns:
 }
 
 // TestAction_HintBar_MultiKeyLegacyActionUsesCanonicalLabel covers A2: a
-// legacy multi-key action key ("Pf") must reach the normal-mode hint bar
-// under its canonical, space-separated form ("P f"), not the bare
+// legacy multi-key action key ("Zf") must reach the normal-mode hint bar
+// under its canonical, space-separated form ("Z f"), not the bare
 // rune-concatenated legacy key -- exercised end to end through the real
 // config.Load()/translateLegacyActions pipeline, mirroring
 // key_sequence_test.go's which-key label assertion for the same format.
+// Uses "Z" (unused by any default binding, #502) rather than "P" (now an
+// exact-match built-in after #502's remap) so the legacy-translated
+// sequence doesn't trip the prefix-conflict validator instead.
 func TestAction_HintBar_MultiKeyLegacyActionUsesCanonicalLabel(t *testing.T) {
 	localYAML := `provider: github
 repo: matteobortolazzo/lazyboards
 actions:
-  Pf:
+  Zf:
     name: PR frontend
     type: url
     scope: board
@@ -1423,12 +1426,12 @@ actions:
 	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
 
 	hints := b.normalHints
-	if hintIndex(hints, "Pf") != -1 {
-		t.Errorf("normalHints should not contain the bare legacy key %q, want the canonical space-separated form", "Pf")
+	if hintIndex(hints, "Zf") != -1 {
+		t.Errorf("normalHints should not contain the bare legacy key %q, want the canonical space-separated form", "Zf")
 	}
-	idx := hintIndex(hints, "P f")
+	idx := hintIndex(hints, "Z f")
 	if idx == -1 || hints[idx].Desc != "PR frontend" {
-		t.Errorf("normalHints missing canonical multi-key hint %q with Desc %q, got: %+v", "P f", "PR frontend", hints)
+		t.Errorf("normalHints missing canonical multi-key hint %q with Desc %q, got: %+v", "Z f", "PR frontend", hints)
 	}
 }
 

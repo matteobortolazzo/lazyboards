@@ -32,7 +32,7 @@ func driveDispatchStatus(t *testing.T, fe *action.FakeExecutor) Board {
 	t.Helper()
 	b := newDispatchTestBoardWithExecutor(t, fe)
 
-	m, cmd := b.Update(keyMsg("d"))
+	m, cmd := b.Update(keyMsg("D"))
 	b2, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)

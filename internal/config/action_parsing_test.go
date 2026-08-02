@@ -158,8 +158,11 @@ actions:
 func TestLoad_ActionKeySequence_Valid(t *testing.T) {
 	// Multi-character keys are key sequences (neovim-style prefix bindings):
 	// the first key must stay in the reserved uppercase A-Z namespace, the
-	// continuation keys may be any letter or digit.
-	sequenceKeys := []string{"Pf", "Pb", "OPEN", "Da1"}
+	// continuation keys may be any letter or digit. Uses "Z" (unused by any
+	// default binding, #502) rather than "P"/"D" (now exact-match built-ins
+	// after #502's remap) so the translated sequence doesn't trip the
+	// prefix-conflict validator instead.
+	sequenceKeys := []string{"Zf", "Zb", "OPEN", "Za1"}
 
 	for _, key := range sequenceKeys {
 		t.Run("key_"+key, func(t *testing.T) {
@@ -283,15 +286,16 @@ columns:
 }
 
 func TestLoad_ActionKeySequences_NoConflict_NoError(t *testing.T) {
-	// Sibling sequences sharing a prefix ("Pf"/"Pb"), an unrelated single
-	// key, and a column overriding the SAME sequence key are all fine.
+	// Sibling sequences sharing a prefix ("Zf"/"Zb", #502: migrated off "P",
+	// now an exact-match built-in), an unrelated single key, and a column
+	// overriding the SAME sequence key are all fine.
 	yamlContent := `provider: github
 actions:
-  Pf:
+  Zf:
     name: PR frontend
     type: url
     url: "https://example.com/frontend"
-  Pb:
+  Zb:
     name: PR backend
     type: url
     url: "https://example.com/backend"
@@ -302,7 +306,7 @@ actions:
 columns:
   - name: Implementing
     actions:
-      Pf:
+      Zf:
         name: PR frontend override
         type: url
         url: "https://example.com/frontend-implementing"
@@ -312,8 +316,8 @@ columns:
 	if len(result.Actions) != 3 {
 		t.Fatalf("Actions count = %d, want 3", len(result.Actions))
 	}
-	if result.Columns[0].Actions["Pf"].Name != "PR frontend override" {
-		t.Errorf("Columns[0].Actions[Pf].Name = %q, want %q", result.Columns[0].Actions["Pf"].Name, "PR frontend override")
+	if result.Columns[0].Actions["Zf"].Name != "PR frontend override" {
+		t.Errorf("Columns[0].Actions[Zf].Name = %q, want %q", result.Columns[0].Actions["Zf"].Name, "PR frontend override")
 	}
 }
 

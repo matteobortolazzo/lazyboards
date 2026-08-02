@@ -566,9 +566,9 @@ func TestKeymapModals_PRList_InlineActionWithScopePRDispatchesAgainstSelectedRow
 			"w": keymap.ActionBinding(keymap.Action{Name: "Review", Type: "url", URL: "https://example.com/{number}/{pr_number}", Scope: "pr"}),
 		},
 	}, nil)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	if b.mode != prListMode {
-		t.Fatalf("test setup: expected prListMode after 'v', got %d", b.mode)
+		t.Fatalf("test setup: expected prListMode after 'P', got %d", b.mode)
 	}
 
 	m, cmd := b.Update(keyMsg("w"))
@@ -598,9 +598,9 @@ func TestKeymapModals_PRList_InlineActionWithoutScopePRDoesNotDispatch(t *testin
 			"b": keymap.ActionBinding(keymap.Action{Name: "Board thing", Type: "url", URL: "https://example.com/board", Scope: "board"}),
 		},
 	}, nil)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	if b.mode != prListMode {
-		t.Fatalf("test setup: expected prListMode after 'v', got %d", b.mode)
+		t.Fatalf("test setup: expected prListMode after 'P', got %d", b.mode)
 	}
 
 	m, cmd := b.Update(keyMsg("b"))
@@ -624,9 +624,9 @@ func TestKeymapModals_PRList_OutcomePendingPrefixIsNoOp(t *testing.T) {
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
 		keymap.ModePRList: {"z a": keymap.CommandBinding(keymap.CommandPRListOpen)},
 	}, nil)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	if b.mode != prListMode {
-		t.Fatalf("test setup: expected prListMode after 'v', got %d", b.mode)
+		t.Fatalf("test setup: expected prListMode after 'P', got %d", b.mode)
 	}
 	initialCursor := b.prList.cursor
 
@@ -654,9 +654,9 @@ func TestKeymapModals_PRList_UnrecognizedCommandIsNoOp(t *testing.T) {
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
 		keymap.ModePRList: {"z": keymap.CommandBinding(keymap.CommandBoardRefresh)},
 	}, nil)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	if b.mode != prListMode {
-		t.Fatalf("test setup: expected prListMode after 'v', got %d", b.mode)
+		t.Fatalf("test setup: expected prListMode after 'P', got %d", b.mode)
 	}
 	initialCursor := b.prList.cursor
 
@@ -687,7 +687,7 @@ func TestKeymapModals_PRList_MultiKeyInlineActionExcludedFromHints(t *testing.T)
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
 		keymap.ModePRList: {
 			"z a": keymap.ActionBinding(keymap.Action{Name: "Multi key", Type: "url", URL: "https://example.com/multi", Scope: "pr"}),
-			"w":    keymap.ActionBinding(keymap.Action{Name: "Single key", Type: "url", URL: "https://example.com/single", Scope: "pr"}),
+			"w":   keymap.ActionBinding(keymap.Action{Name: "Single key", Type: "url", URL: "https://example.com/single", Scope: "pr"}),
 		},
 	}, nil)
 
@@ -857,9 +857,9 @@ func TestKeymapModals_AgentList_EmptyAndLoadedHintsStayDistinct(t *testing.T) {
 
 	fe := &action.FakeExecutor{}
 	b = newAgentListBoard(t, fe, threeWindows())
-	b = sendKey(t, b, keyMsg("w"))
+	b = sendKey(t, b, keyMsg("A"))
 	if b.mode != agentListMode {
-		t.Fatalf("test setup: expected agentListMode after 'w', got %d", b.mode)
+		t.Fatalf("test setup: expected agentListMode after 'A', got %d", b.mode)
 	}
 
 	loadedStatus := b.statusBar.View(200, 0, 0)

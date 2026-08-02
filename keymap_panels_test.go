@@ -173,9 +173,9 @@ func TestKeymapPanels_GitPanel_DefaultParity_NavRunCloseKeysResolveToExpectedCom
 
 func TestKeymapPanels_GitPanel_Navigation_NextPrevViaRunGitPanelCommand(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 	initial := b.gitPanel.cursor
 
@@ -197,9 +197,9 @@ func TestKeymapPanels_GitPanel_Navigation_NextPrevViaRunGitPanelCommand(t *testi
 
 func TestKeymapPanels_GitPanel_CloseViaRunGitPanelCommand(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	m, _ := b.runGitPanelCommand(keymap.CommandGitPanelClose)
@@ -212,9 +212,9 @@ func TestKeymapPanels_GitPanel_CloseViaRunGitPanelCommand(t *testing.T) {
 
 func TestKeymapPanels_GitPanel_RunViaRunGitPanelCommand_DispatchesBuiltinAction(t *testing.T) {
 	b, fe := newGitPanelTestBoard(t, nil, nil)
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 	idx := gitPanelItemIndex(b, "f")
 	if idx == -1 {
@@ -259,7 +259,7 @@ func TestKeymapPanels_GitPanel_DefaultParity_AllBuiltinActionsMatchLegacyDispatc
 			}
 
 			b, fe := newGitPanelTestBoard(t, nil, nil)
-			b = sendKey(t, b, keyMsg("g"))
+			b = sendKey(t, b, keyMsg("G"))
 			binding, ok := b.panelBinding(keymap.ModeGitPanel, keyMsg(key))
 			if !ok || binding.Kind != keymap.BindingAction {
 				t.Fatalf("panelBinding(ModeGitPanel, %q) = (%+v, %v), want a resolved BindingAction", key, binding, ok)
@@ -296,9 +296,9 @@ func TestKeymapPanels_GitPanel_OverrideWinsOverBuiltinAction(t *testing.T) {
 			"P": keymap.ActionBinding(keymap.Action{Name: "Custom Push", Type: "shell", Command: "git push --force-with-lease", Scope: "board"}),
 		},
 	}, nil)
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	binding, ok := b.panelBinding(keymap.ModeGitPanel, keyMsg("P"))
@@ -349,9 +349,9 @@ func TestKeymapPanels_GitPanel_MultiKeySequenceItemKeepsRowBlanksKeyLabel(t *tes
 			"g d": keymap.ActionBinding(keymap.Action{Name: "Custom Diff", Type: "shell", Command: "git diff", Scope: "board"}),
 		},
 	}, nil)
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	items := b.gitPanelItemsFromKeymap()
@@ -389,9 +389,9 @@ func TestKeymapPanels_GitPanel_UnbindIsNoOpAndRemovesMenuRow(t *testing.T) {
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
 		keymap.ModeGitPanel: {"P": keymap.UnboundBinding()},
 	}, nil)
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	if _, ok := b.panelBinding(keymap.ModeGitPanel, keyMsg("P")); ok {
@@ -441,9 +441,9 @@ func TestKeymapPanels_GitPanel_HintKeysAlwaysDispatch(t *testing.T) {
 			if tc.modes != nil {
 				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
 			}
-			b = sendKey(t, b, keyMsg("g"))
+			b = sendKey(t, b, keyMsg("G"))
 			if b.mode != gitPanelMode {
-				t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+				t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 			}
 
 			hints := b.gitPanelHints()

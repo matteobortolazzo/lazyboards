@@ -78,21 +78,25 @@ keymaps:
 }
 
 func TestLoad_KeymapAltCommentShadow_SequenceVariant_ReturnsError(t *testing.T) {
+	// Uses "Z" (unused by any default binding, #502) rather than "G" (now an
+	// exact-match built-in after #502's remap): a "Z f"/"alt+Z f" pair
+	// exercises the alt/{comment}-shadow check in isolation, without also
+	// tripping the prefix-conflict check against default "G" -> view.git_panel.
 	yamlContent := `provider: github
 keymaps:
   normal:
-    "G f":
+    "Z f":
       name: Comment action
       type: shell
       command: "echo {comment}"
-    "alt+G f": board.refresh
+    "alt+Z f": board.refresh
 `
 	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {
-		t.Fatal("Load() returned nil error, want error for \"alt+G f\" shadowing \"G f\"'s implicit {comment} Alt-overload")
+		t.Fatal("Load() returned nil error, want error for \"alt+Z f\" shadowing \"Z f\"'s implicit {comment} Alt-overload")
 	}
-	if !strings.Contains(err.Error(), `"G f"`) || !strings.Contains(err.Error(), `"alt+G f"`) {
-		t.Errorf("error = %q, want it to reference both keys \"G f\" and \"alt+G f\"", err.Error())
+	if !strings.Contains(err.Error(), `"Z f"`) || !strings.Contains(err.Error(), `"alt+Z f"`) {
+		t.Errorf("error = %q, want it to reference both keys \"Z f\" and \"alt+Z f\"", err.Error())
 	}
 }
 

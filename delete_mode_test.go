@@ -104,7 +104,7 @@ func waitClearedWithin(t *testing.T, cmd tea.Cmd, timeout time.Duration) bool {
 
 // --- PR-linked gating ---
 
-func TestDeleteMode_TKey_PRCardGated_StaysNormalModeShowsError(t *testing.T) {
+func TestDeleteMode_DKey_PRCardGated_StaysNormalModeShowsError(t *testing.T) {
 	b, fe := newBoardWithPRsAndExecutor(t)
 	// Card #2 "One PR" has 1 LinkedPR -- must block deletion.
 	b.Columns[b.ActiveTab].Cursor = 1
@@ -113,11 +113,11 @@ func TestDeleteMode_TKey_PRCardGated_StaysNormalModeShowsError(t *testing.T) {
 		t.Fatal("test precondition: selected card must have >=1 LinkedPR")
 	}
 
-	m, cmd := b.Update(keyMsg("t"))
+	m, cmd := b.Update(keyMsg("d"))
 	b = m.(Board)
 
 	if b.mode != normalMode {
-		t.Fatalf("mode = %d after 't' on a card with linked PRs, want normalMode", b.mode)
+		t.Fatalf("mode = %d after 'd' on a card with linked PRs, want normalMode", b.mode)
 	}
 	if b.delete.card.Number != 0 {
 		t.Errorf("delete.card.Number = %d, want 0 (delete state untouched by gated attempt)", b.delete.card.Number)
@@ -132,16 +132,16 @@ func TestDeleteMode_TKey_PRCardGated_StaysNormalModeShowsError(t *testing.T) {
 	}
 }
 
-// --- Entering deleteMode via 't' ---
+// --- Entering deleteMode via 'd' ---
 
-func TestDeleteMode_TKey_EntersDeleteModeWithCommentStep(t *testing.T) {
+func TestDeleteMode_DKey_EntersDeleteModeWithCommentStep(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 	wantCard := b.selectedCard()
 	if len(wantCard.LinkedPRs) != 0 {
 		t.Fatal("test precondition: selected card must have 0 LinkedPRs")
 	}
 
-	m, _ := b.Update(keyMsg("t"))
+	m, _ := b.Update(keyMsg("d"))
 	b = m.(Board)
 
 	if b.mode != deleteMode {
@@ -168,7 +168,7 @@ func TestDeleteMode_CommentStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.
 	b, _ := newDeleteTestBoard(t)
 	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "line one\nline two"
 
-	m, _ := b.Update(keyMsg("t"))
+	m, _ := b.Update(keyMsg("d"))
 	b = m.(Board)
 	if b.delete.step != deleteStepComment {
 		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
@@ -186,7 +186,7 @@ func TestDeleteMode_ConfirmStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.
 	b, _ := newDeleteTestBoard(t)
 	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "line one\nline two"
 
-	m, _ := b.Update(keyMsg("t"))
+	m, _ := b.Update(keyMsg("d"))
 	b = m.(Board)
 	m, _ = b.Update(arrowMsg(tea.KeyEnter))
 	b = m.(Board)
@@ -200,7 +200,7 @@ func TestDeleteMode_ConfirmStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.
 	}
 }
 
-func TestDeleteMode_TKey_NoColumns_DoesNothing(t *testing.T) {
+func TestDeleteMode_DKey_NoColumns_DoesNothing(t *testing.T) {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	msg := boardFetchedMsg{board: provider.Board{Columns: nil}}
@@ -209,18 +209,18 @@ func TestDeleteMode_TKey_NoColumns_DoesNothing(t *testing.T) {
 	b.Width = 120
 	b.Height = 40
 
-	m, cmd := b.Update(keyMsg("t"))
+	m, cmd := b.Update(keyMsg("d"))
 	b = m.(Board)
 
 	if cmd != nil {
-		t.Error("expected nil cmd from 't' key when board has no columns")
+		t.Error("expected nil cmd from 'd' key when board has no columns")
 	}
 	if b.mode == deleteMode {
 		t.Error("should not enter deleteMode when board has no columns")
 	}
 }
 
-func TestDeleteMode_TKey_NoVisibleCards_DoesNothing(t *testing.T) {
+func TestDeleteMode_DKey_NoVisibleCards_DoesNothing(t *testing.T) {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	msg := boardFetchedMsg{board: provider.Board{
@@ -233,35 +233,35 @@ func TestDeleteMode_TKey_NoVisibleCards_DoesNothing(t *testing.T) {
 	b.Width = 120
 	b.Height = 40
 
-	m, cmd := b.Update(keyMsg("t"))
+	m, cmd := b.Update(keyMsg("d"))
 	b = m.(Board)
 
 	if cmd != nil {
-		t.Error("expected nil cmd from 't' key when the active column has no cards")
+		t.Error("expected nil cmd from 'd' key when the active column has no cards")
 	}
 	if b.mode == deleteMode {
 		t.Error("should not enter deleteMode when the active column has no cards")
 	}
 }
 
-func TestDeleteMode_TKey_DetailFocused_IsNoOp(t *testing.T) {
-	// 't' is a normal-mode-only keybinding (per CLAUDE.md convention, mirroring
+func TestDeleteMode_DKey_DetailFocused_IsNoOp(t *testing.T) {
+	// 'd' is a normal-mode-only keybinding (per CLAUDE.md convention, mirroring
 	// 'x'/Close) and must not be duplicated into the detail-focused sub-mode.
 	b, _ := newDeleteTestBoard(t)
 	b.detailFocused = true
 
-	m, _ := b.Update(keyMsg("t"))
+	m, _ := b.Update(keyMsg("d"))
 	b = m.(Board)
 
 	if b.mode == deleteMode {
-		t.Error("'t' pressed while detail-focused should not enter deleteMode")
+		t.Error("'d' pressed while detail-focused should not enter deleteMode")
 	}
 	if !b.detailFocused {
-		t.Error("'t' pressed while detail-focused should leave detailFocused unchanged (unhandled key)")
+		t.Error("'d' pressed while detail-focused should leave detailFocused unchanged (unhandled key)")
 	}
 }
 
-func TestDeleteMode_TKey_FilterActive_TargetsFilteredCard(t *testing.T) {
+func TestDeleteMode_DKey_FilterActive_TargetsFilteredCard(t *testing.T) {
 	// Regression guard for #234: card resolution under an active filter must
 	// go through selectedCard(), not the raw (unfiltered) column index.
 	b := newBoardWithFilterableCards(t)
@@ -272,7 +272,7 @@ func TestDeleteMode_TKey_FilterActive_TargetsFilteredCard(t *testing.T) {
 	b.activeFilterValue = "bug"
 	b.Columns[b.ActiveTab].Cursor = 1 // second bug card in the filtered list -> #3
 
-	m, _ := b.Update(keyMsg("t"))
+	m, _ := b.Update(keyMsg("d"))
 	b = m.(Board)
 
 	if b.mode != deleteMode {
@@ -289,7 +289,7 @@ func TestDeleteMode_EscAtCommentStep_CancelsToNormalModeNoProviderCalls(t *testi
 	b, p := newDeleteTestBoard(t)
 	card := b.selectedCard()
 
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	if b.mode != deleteMode {
 		t.Fatalf("precondition: mode = %d, want deleteMode", b.mode)
 	}
@@ -321,7 +321,7 @@ func TestDeleteMode_EscAtCommentStep_CancelsToNormalModeNoProviderCalls(t *testi
 func TestDeleteMode_EnterAtCommentStep_BlankComment_AdvancesToConfirmStep(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	m, _ := b.Update(arrowMsg(tea.KeyEnter))
 	b = m.(Board)
 
@@ -340,7 +340,7 @@ func TestDeleteMode_EscAtConfirmStep_DiscardsCommentAndCancels(t *testing.T) {
 	b, p := newDeleteTestBoard(t)
 	card := b.selectedCard()
 
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	for _, ch := range "a comment that should be discarded" {
 		b = sendKey(t, b, keyMsg(string(ch)))
 	}
@@ -379,7 +379,7 @@ func TestDeleteMode_ConfirmStep_MismatchStaysInStepThenCorrectRetryProceeds(t *t
 	b, _ := newDeleteTestBoard(t)
 	card := b.selectedCard()
 
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // blank comment -> confirm step
 
 	wrong := strconv.Itoa(card.Number + 999)
@@ -427,7 +427,7 @@ func TestDeleteMode_HappyPath_NoComment_RemovesCardAndShowsSuccess(t *testing.T)
 	b, _ := newDeleteTestBoard(t)
 	card := b.selectedCard()
 
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // blank comment -> confirm step
 	if b.delete.step != deleteStepConfirm {
 		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
@@ -468,7 +468,7 @@ func TestDeleteMode_HappyPath_WithComment_PostsCommentBeforeDelete(t *testing.T)
 	b, p := newDeleteTestBoard(t)
 	card := b.selectedCard()
 
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	const commentText = "cleaning up before delete"
 	for _, ch := range commentText {
 		b = sendKey(t, b, keyMsg(string(ch)))
@@ -790,7 +790,7 @@ func TestDeleteMode_HappyPath_WithComment_DeleteFailsAfterCommentPosted_ShowsPar
 	b, fd := newDeleteTestBoardWithFailingDelete(t, deleteErr)
 	card := b.selectedCard()
 
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	const commentText = "cleaning up before delete"
 	for _, ch := range commentText {
 		b = sendKey(t, b, keyMsg(string(ch)))
@@ -873,7 +873,7 @@ func TestDeleteMode_HappyPath_NoComment_DeleteFails_ShowsGenericErrorWithShortDu
 	b, _ := newDeleteTestBoardWithFailingDelete(t, deleteErr)
 	card := b.selectedCard()
 
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // blank comment -> confirm step
 	if b.delete.step != deleteStepConfirm {
 		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
@@ -1020,7 +1020,7 @@ func TestDeleteMode_CardDeleted_WorkingLabel_SkipsCleanupButRemovesCard(t *testi
 func TestDeleteMode_CardDeleted_BypassesMissingCardDebounce(t *testing.T) {
 	// Unlike a card vanishing during a background fetch -- which requires two
 	// consecutive misses before cleanup fires -- an explicit delete via
-	// 't'/retype-confirm must clean up on the very first cardDeletedMsg, with
+	// 'd'/retype-confirm must clean up on the very first cardDeletedMsg, with
 	// no debounce.
 	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
 
@@ -1068,7 +1068,7 @@ func TestDeleteMode_ViewShowsCardNumberAndStepPrompt(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 	card := b.selectedCard()
 
-	m, _ := b.Update(keyMsg("t"))
+	m, _ := b.Update(keyMsg("d"))
 	b = m.(Board)
 
 	view := b.View()
@@ -1096,7 +1096,7 @@ func TestDeleteMode_ViewSanitizesControlSequencesInTitle(t *testing.T) {
 	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "\x1b[31mRED\x1b[0m title\x07"
 
 	// Comment step (deleteStepComment).
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	if b.delete.step != deleteStepComment {
 		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
 	}
@@ -1150,7 +1150,7 @@ func TestDeleteMode_RemapSubmitKey_CommentStep_DispatchAndHintStaySync(t *testin
 			"tab":   keymap.CommandBinding(keymap.CommandDeleteSubmit),
 		},
 	}, nil)
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	if b.mode != deleteMode || b.delete.step != deleteStepComment {
 		t.Fatalf("precondition: mode=%d step=%d, want deleteMode/deleteStepComment", b.mode, b.delete.step)
 	}
@@ -1209,7 +1209,7 @@ func TestDeleteMode_RemapSubmitKey_ConfirmStep_DispatchAndHintStaySync(t *testin
 			"tab":   keymap.CommandBinding(keymap.CommandDeleteSubmit),
 		},
 	}, nil)
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	b = sendKey(t, b, arrowMsg(tea.KeyTab)) // advance comment -> confirm via the remapped key
 	if b.delete.step != deleteStepConfirm {
 		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
@@ -1270,7 +1270,7 @@ func TestDeleteMode_CommentStep_UnboundEnter_FallsThroughToTextinput(t *testing.
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
 		keymap.ModeDelete: {"enter": keymap.UnboundBinding()},
 	}, nil)
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	if b.delete.step != deleteStepComment {
 		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
 	}
@@ -1297,7 +1297,7 @@ func TestDeleteMode_CommentStep_UnboundEsc_FallsThroughToTextinputNotCancel(t *t
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
 		keymap.ModeDelete: {"esc": keymap.UnboundBinding()},
 	}, nil)
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	if b.delete.step != deleteStepComment {
 		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
 	}
@@ -1322,7 +1322,7 @@ func TestDeleteMode_ConfirmStep_UnboundEnter_FallsThroughToTextinputNotConfirm(t
 	// Reach the confirm step via the default table (enter is still bound),
 	// then unbind it -- rather than constructing deleteState mid-flow -- so
 	// this exercises the real handler's step-advance path too.
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 	if b.delete.step != deleteStepConfirm {
 		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
@@ -1354,7 +1354,7 @@ func TestDeleteMode_ConfirmStep_UnboundEsc_FallsThroughToTextinputNotCancel(t *t
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
 		keymap.ModeDelete: {"esc": keymap.UnboundBinding()},
 	}, nil)
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // enter is still bound by default -> confirm step
 	if b.delete.step != deleteStepConfirm {
 		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
@@ -1389,7 +1389,7 @@ func TestDeleteMode_CommentStep_EscBoundToAction_FallsThroughToTextinputNotDispa
 			"esc": keymap.ActionBinding(keymap.Action{Name: "Noop", Type: "url", URL: "https://example.com/{number}"}),
 		},
 	}, nil)
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	if b.delete.step != deleteStepComment {
 		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
 	}
@@ -1414,7 +1414,7 @@ func TestDeleteMode_ConfirmStep_EnterBoundToAction_FallsThroughToTextinputNotDis
 	// delete.submit), then rebind enter to a non-command action -- rather
 	// than constructing deleteState mid-flow -- so this exercises the real
 	// handler's step-advance path too.
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 	if b.delete.step != deleteStepConfirm {
 		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
@@ -1456,7 +1456,7 @@ func TestDeleteMode_CommentStep_ForeignCommandIDBoundToKey_FallsThroughToTextinp
 			"f1": keymap.CommandBinding(keymap.CommandCloseConfirmConfirm),
 		},
 	}, nil)
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	if b.delete.step != deleteStepComment {
 		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
 	}
@@ -1481,7 +1481,7 @@ func TestDeleteMode_ConfirmStep_ForeignCommandIDBoundToKey_FallsThroughToTextinp
 	// delete.submit), then rebind a named key to a foreign command id --
 	// rather than constructing deleteState mid-flow -- so this exercises the
 	// real handler's step-advance path too.
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 	if b.delete.step != deleteStepConfirm {
 		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
@@ -1514,7 +1514,7 @@ func TestDeleteMode_ConfirmStep_ForeignCommandIDBoundToKey_FallsThroughToTextinp
 // delete mode's comment textinput.
 func TestDeleteMode_TypedCommentPassesThroughLiteralRunes_NoDispatch(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	if b.delete.step != deleteStepComment {
 		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
 	}
@@ -1538,7 +1538,7 @@ func TestDeleteMode_ConfirmStep_MismatchThenEnter_FiresNoCommand(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 	card := b.selectedCard()
 
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // blank comment -> confirm step
 
 	wrong := strconv.Itoa(card.Number + 999)
@@ -1568,7 +1568,7 @@ func TestDeleteMode_ConfirmStep_MismatchThenEnter_FiresNoCommand(t *testing.T) {
 func TestDeleteMode_EscAtConfirmStep_RestoresNormalHints(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // -> confirm step
 	if b.delete.step != deleteStepConfirm {
 		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
@@ -1600,7 +1600,7 @@ func TestDeleteMode_CtrlCQuits_EvenWithOverriddenKeymap(t *testing.T) {
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
 		keymap.ModeDelete: {"ctrl+c": keymap.CommandBinding(keymap.CommandDeleteSubmit)},
 	}, nil)
-	b = sendKey(t, b, keyMsg("t"))
+	b = sendKey(t, b, keyMsg("d"))
 	if b.mode != deleteMode {
 		t.Fatalf("precondition: mode = %d, want deleteMode", b.mode)
 	}
