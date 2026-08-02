@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime/debug"
@@ -153,6 +154,15 @@ func parseVersionComponents(s string) (parts []int, ok bool) {
 // meaningful to compare), and never when the config has disabled it.
 func shouldCheckForUpdate(version string, enabled bool) bool {
 	return version != "dev" && enabled
+}
+
+// printDeprecations surfaces any legacy-config deprecation notices (e.g.
+// actions:/ columns[].actions translated onto keymaps:, #510) once per run,
+// before BubbleTea takes over the terminal.
+func printDeprecations(w io.Writer, notices []string) {
+	for _, notice := range notices {
+		fmt.Fprintln(w, sanitizeSingleLine(notice))
+	}
 }
 
 func main() {
@@ -346,12 +356,7 @@ func main() {
 	}
 	board.sortNewestFirst = config.ResolveSortNewestFirst(cfg, state)
 
-	// Surface any legacy-config deprecation notices (e.g. actions:/
-	// columns[].actions translated onto keymaps:, #510) once per run, before
-	// BubbleTea takes over the terminal.
-	for _, notice := range cfg.Deprecations {
-		fmt.Fprintln(os.Stderr, sanitizeSingleLine(notice))
-	}
+	printDeprecations(os.Stderr, cfg.Deprecations)
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.MouseValue() {
