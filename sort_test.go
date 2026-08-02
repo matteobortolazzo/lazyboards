@@ -106,7 +106,7 @@ func TestSortColumns_TogglingFieldFlipsOrder(t *testing.T) {
 // The 'u' key itself stays a built-in normal-mode command with a persistent
 // sort-order effect, but its hint is intentionally omitted from the status
 // bar (#443) to reduce bottom-bar clutter; it remains documented in the '?'
-// help modal (see helpSections in view.go).
+// help modal (generated from the registry -- see keymap_help.go).
 
 func TestNormalMode_U_HintHiddenFromStatusBar(t *testing.T) {
 	b := newLoadedTestBoard(t)

@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
 // --- Help Mode: Open/Close ---
@@ -421,21 +422,57 @@ func TestHelpContent_NormalModeIncludesSearchAndAssign(t *testing.T) {
 	}
 }
 
+// TestHelpMode_ViewShowsCustomActions previously asserted a global-only
+// custom action rendered under a "Custom Actions" header. #550 Phase B
+// (Q4) makes that section column-only: a global action (translated into
+// keymaps.normal by config.KeymapFromLegacy) now renders inline in the
+// Normal Mode section instead, and "Custom Actions" is omitted entirely
+// when no configured column has its own differing binding.
 func TestHelpMode_ViewShowsCustomActions(t *testing.T) {
 	actions := map[string]config.Action{
 		"X": {Name: "Deploy App", Type: "url", URL: "https://example.com/{number}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
-	b.Height = 170 // Tall enough that full help content (incl. the Delete section) renders without scrolling.
+	b.Height = 220 // Tall enough that the full, registry-generated help content renders without scrolling.
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()
 
-	if !strings.Contains(view, "Custom Actions") {
-		t.Error("View() in helpMode should contain 'Custom Actions' section header")
+	if strings.Contains(view, "Custom Actions") {
+		t.Error("View() in helpMode should NOT contain a 'Custom Actions' header for a global-only action (Q4: it now renders inline in Normal Mode)")
 	}
 	if !strings.Contains(view, "Deploy App") {
-		t.Error("View() in helpMode should contain custom action name 'Deploy App'")
+		t.Error("View() in helpMode should contain custom action name 'Deploy App' inline in Normal Mode")
+	}
+}
+
+// TestHelpMode_GlobalCustomAction_DuplicatedAcrossNormalAndDetailSections
+// pins an intentional consequence of the legacy-action translation flagged
+// in #550's plan Risks section: translateLegacyActions
+// (config.KeymapFromLegacy) inserts a legacy global action into both
+// ModeNormal and ModeDetail (and ModePRList for scope: pr), so the action
+// now appears in up to three help sections instead of once under a single
+// Custom Actions table. That's intended under generation -- each section
+// is its own truthful rendering of that mode's registry entries -- not a
+// bug. TestHelpMode_ViewShowsCustomActions only asserts the action's name
+// appears somewhere in the view, which holds whether it renders once or in
+// every section, so it doesn't actually pin the duplication; this test
+// checks both section bodies explicitly.
+func TestHelpMode_GlobalCustomAction_DuplicatedAcrossNormalAndDetailSections(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Deploy App", Type: "url", URL: "https://example.com/{number}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+
+	content := b.buildHelpContent()
+	normal := helpSectionBody(t, content, "Normal Mode")
+	detail := helpSectionBody(t, content, "Detail Panel")
+
+	if !strings.Contains(normal, "Deploy App") {
+		t.Errorf("Normal Mode section missing the global custom action 'Deploy App', got:\n%s", normal)
+	}
+	if !strings.Contains(detail, "Deploy App") {
+		t.Errorf("Detail Panel section missing the global custom action 'Deploy App', got:\n%s", detail)
 	}
 }
 
@@ -463,6 +500,11 @@ func TestHelpMode_ViewShowsColumnActions(t *testing.T) {
 	}
 }
 
+// TestHelpContent_GlobalActionsAreSortedByKey previously asserted ordering
+// inside a dedicated "Custom Actions" block. #550 Phase B (Q4) moves global
+// inline actions into the Normal Mode section itself (rendered via
+// helpActionRows' sortByActionOrder, same as every other inline action), so
+// the ordering assertion is scoped there instead.
 func TestHelpContent_GlobalActionsAreSortedByKey(t *testing.T) {
 	actions := map[string]config.Action{
 		"Z": {Name: "Zebra Deploy", Type: "url", URL: "https://example.com/{number}"},
@@ -471,15 +513,16 @@ func TestHelpContent_GlobalActionsAreSortedByKey(t *testing.T) {
 	}
 	b, _ := newActionTestBoard(t, actions)
 	content := b.buildHelpContent()
+	section := helpSectionBody(t, content, "Normal Mode")
 
-	aIdx := strings.Index(content, "Alpha Deploy")
-	mIdx := strings.Index(content, "Mid Deploy")
-	zIdx := strings.Index(content, "Zebra Deploy")
+	aIdx := strings.Index(section, "Alpha Deploy")
+	mIdx := strings.Index(section, "Mid Deploy")
+	zIdx := strings.Index(section, "Zebra Deploy")
 	if aIdx == -1 || mIdx == -1 || zIdx == -1 {
-		t.Fatal("buildHelpContent() should list all global custom actions")
+		t.Fatalf("Normal Mode section should list all global custom actions, got:\n%s", section)
 	}
 	if aIdx >= mIdx || mIdx >= zIdx {
-		t.Errorf("global custom actions should be sorted by key (A, M, Z), got order at indices A=%d M=%d Z=%d", aIdx, mIdx, zIdx)
+		t.Errorf("global custom actions should be sorted by key (A, M, Z) via sortByActionOrder, got order at indices A=%d M=%d Z=%d", aIdx, mIdx, zIdx)
 	}
 }
 
@@ -512,7 +555,7 @@ func TestHelpContent_ColumnActionsAreSortedByKey(t *testing.T) {
 func TestHelpMode_ViewShowsUsageSection(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
-	b.Height = 170 // Tall enough that full help content (incl. Status Bar section) renders without scrolling.
+	b.Height = 220 // Tall enough that the full, registry-generated help content (all 19 mode sections plus Status Bar) renders without scrolling.
 
 	b = sendKey(t, b, keyMsg("?"))
 	view := b.View()
@@ -729,74 +772,60 @@ func TestHelpContent_ContainsLabelConfirmSection(t *testing.T) {
 	}
 }
 
+// TestHelpContent_SearchSectionDocumentsColumnSwitch, ...CreateCardDocumentsAssigneeCycle,
+// ...GitMenuDocumentsOpenTrigger and ...DispatchOpenTriggerMatchesDeleteConvention
+// were written against the old hardcoded helpSections wording ("tab/s-tab",
+// "Cycle assignee", "Open (from Normal Mode)"). #550 replaces that table
+// with a generator whose every label is the catalogued command's own Desc
+// (AC2) -- so these assertions are migrated to derive their expected text
+// from keymap.FindCommand instead of a copied literal
+// (.claude/rules/testing.md), rather than pinning wording the generator no
+// longer produces.
+
 func TestHelpContent_SearchSectionDocumentsColumnSwitch(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	content := b.buildHelpContent()
+	section := helpSectionBody(t, content, "Search")
 
-	idx := strings.Index(content, "\nSearch\n")
-	if idx == -1 {
-		t.Fatal("buildHelpContent() should contain 'Search' section header")
-	}
-	sectionContent := content[idx:]
-	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
-		sectionContent = sectionContent[:nextSection+1]
-	}
-
-	if !strings.Contains(sectionContent, "tab/s-tab") {
-		t.Error("Search section should document tab/shift-tab column switching (handleSearchModeKey handles both)")
+	desc := mustFindCommand(t, keymap.CommandSearchNextColumn).Desc
+	for _, want := range []string{"tab", "shift+tab", desc} {
+		if !strings.Contains(section, want) {
+			t.Errorf("Search section should document tab/shift+tab column switching (handleSearchModeKey handles both); missing %q, got:\n%s", want, section)
+		}
 	}
 }
 
 func TestHelpContent_CreateCardDocumentsAssigneeCycle(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	content := b.buildHelpContent()
+	section := helpSectionBody(t, content, "Create Card")
 
-	idx := strings.Index(content, "\nCreate Card\n")
-	if idx == -1 {
-		t.Fatal("buildHelpContent() should contain 'Create Card' section header")
-	}
-	sectionContent := content[idx:]
-	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
-		sectionContent = sectionContent[:nextSection+1]
-	}
-
-	if !strings.Contains(sectionContent, "Cycle assignee") {
-		t.Error("Create Card section should document left/right cycling the assignee field (handleCreateModeKey)")
+	desc := mustFindCommand(t, keymap.CommandCreateAssigneeNext).Desc
+	if !strings.Contains(section, desc) {
+		t.Errorf("Create Card section should document left/right cycling the assignee field (handleCreateModeKey) via desc %q, got:\n%s", desc, section)
 	}
 }
 
 func TestHelpContent_GitMenuDocumentsOpenTrigger(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	content := b.buildHelpContent()
+	section := helpSectionBody(t, content, "Git Menu")
 
-	idx := strings.Index(content, "\nGit Menu\n")
-	if idx == -1 {
-		t.Fatal("buildHelpContent() should contain 'Git Menu' section header")
-	}
-	sectionContent := content[idx:]
-	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
-		sectionContent = sectionContent[:nextSection+1]
-	}
-
-	if !strings.Contains(sectionContent, "g") || !strings.Contains(sectionContent, "Open") {
-		t.Errorf("Git Menu section should document 'g' as the open trigger (consistent with Delete/Filter/Dispatch), got:\n%s", sectionContent)
+	desc := mustFindCommand(t, keymap.CommandViewGitPanel).Desc
+	re := regexp.MustCompile(`(?m)^  g\s+` + regexp.QuoteMeta(desc) + `$`)
+	if !re.MatchString(section) {
+		t.Errorf("Git Menu section should document 'g' as the open trigger (consistent with Delete/Filter/Dispatch) via desc %q, got:\n%s", desc, section)
 	}
 }
 
 func TestHelpContent_DispatchOpenTriggerMatchesDeleteConvention(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	content := b.buildHelpContent()
+	section := helpSectionBody(t, content, "Dispatch (cenci)")
 
-	idx := strings.Index(content, "\nDispatch (cenci)\n")
-	if idx == -1 {
-		t.Fatal("buildHelpContent() should contain 'Dispatch' section header")
-	}
-	sectionContent := content[idx:]
-	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
-		sectionContent = sectionContent[:nextSection+1]
-	}
-
-	if !strings.Contains(sectionContent, "(from Normal Mode)") {
-		t.Error("Dispatch section's open trigger should note '(from Normal Mode)', consistent with the Delete section")
+	desc := mustFindCommand(t, keymap.CommandViewDispatch).Desc
+	re := regexp.MustCompile(`(?m)^  d\s+` + regexp.QuoteMeta(desc) + `$`)
+	if !re.MatchString(section) {
+		t.Errorf("Dispatch section's open trigger (key 'd') should carry the view.dispatch catalogue desc %q, consistent with the Delete section's own openedBy row, got:\n%s", desc, section)
 	}
 }

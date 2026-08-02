@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"github.com/muesli/termenv"
 )
@@ -824,7 +825,11 @@ func TestHelp_ListsAgentListKeybindings(t *testing.T) {
 	if nextSection := strings.Index(sectionContent[1:], "\n\n"); nextSection != -1 {
 		sectionContent = sectionContent[:nextSection+1]
 	}
-	for _, want := range []string{"w", "Go to tmux window", "Navigate", "Cancel", "Go to agent"} {
+	openDesc := mustFindCommand(t, keymap.CommandViewAgentList).Desc
+	goToWindowDesc := mustFindCommand(t, keymap.CommandAgentListGoToWindow).Desc
+	navigateDesc := mustFindCommand(t, keymap.CommandAgentListNext).Desc
+	cancelDesc := mustFindCommand(t, keymap.CommandAgentListClose).Desc
+	for _, want := range []string{"w", openDesc, goToWindowDesc, navigateDesc, cancelDesc} {
 		if !strings.Contains(sectionContent, want) {
 			t.Errorf("Agents help section missing %q", want)
 		}
