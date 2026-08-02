@@ -198,7 +198,7 @@ Save and close to apply changes. Leave the title blank to cancel. If you add lab
 
 > **Deprecated:** the top-level `actions:` block is deprecated in favor of the `keymaps:` namespace (`keymaps.normal`/`keymaps.detail`).
 
-Bind uppercase keys (A-Z) to URL or shell actions in your config. The uppercase namespace is fully yours — no built-in ever claims an uppercase key in normal mode (the built-in git shortcuts live inside the [Git Menu](#git-menu)). The dispatch panel's own cenci controls (enroll, dispatch-once, loop on/off) are built in — see the [Dispatch Panel](#dispatch-panel) — so you only need custom actions for cenci commands the panel doesn't cover:
+Bind keys to URL or shell actions in your config. Any key can bind a built-in command or an inline action — a user binding always wins over a default. The shipped defaults happen to use only lowercase keys in normal mode (see [Normal Mode](#normal-mode)), leaving uppercase and every other key free for your own bindings (the built-in git shortcuts live inside the [Git Menu](#git-menu), scoped to their own modal rather than normal mode). The dispatch panel's own cenci controls (enroll, dispatch-once, loop on/off) are built in — see the [Dispatch Panel](#dispatch-panel) — so you only need custom actions for cenci commands the panel doesn't cover:
 
 ```yaml
 actions:
@@ -216,7 +216,7 @@ Press the key to execute the action on the selected card. Custom actions and `Al
 
 ### Key Sequences (Prefix Keys)
 
-When single keys run out — a monorepo where you want to run several projects from a PR, say — bind multi-key sequences, neovim-style. A key is a sequence when it's longer than one character; every key of the sequence, including the first, can be any letter or digit (uppercase or lowercase) — built-in commands can participate in a sequence too, not just custom actions:
+When single keys run out — a monorepo where you want to run several projects from a PR, say — bind multi-key sequences, neovim-style. A key is a sequence when it's longer than one character; every key of the sequence, including the first, can be any letter or digit (uppercase or lowercase) — not just uppercase, since any key can bind a built-in command or an inline action, and built-in commands can participate in a sequence too, not just custom actions:
 
 ```yaml
 actions:
@@ -302,7 +302,7 @@ Inside a git repository with a remote, press `g` to open the **Git Menu** — si
 | `s` | Stash push | `git stash push` |
 | `S` | Stash pop | `git stash pop` |
 
-Inside the menu, press an action's key to run it immediately (like lazygit), or navigate with `j`/`k` and press `Enter`; `Esc` cancels. The keys are scoped to the menu: they do nothing in normal mode, so the normal-mode uppercase namespace stays fully reserved for your [custom actions](#custom-actions) (a custom `P` and the menu's Push coexist without conflict). The menu is also listed in the `?` help popup and only opens inside a git repo.
+Inside the menu, press an action's key to run it immediately (like lazygit), or navigate with `j`/`k` and press `enter`; `esc` cancels. The keys are scoped to the menu: they do nothing in normal mode, so a custom `P` [action](#custom-actions) bound in normal mode and the menu's Push coexist without conflict — any key, uppercase or not, can bind a normal-mode custom action independently of what the Git Menu binds inside its own modal. The menu is also listed in the `?` help popup and only opens inside a git repo.
 
 ### Status Bar Prefix (agent + PR counts)
 
@@ -344,6 +344,8 @@ columns:
 ```
 
 Within one column, local and global actions merge by key: local keys win, global-only keys are kept, and a bare `- name:` entry (no `actions`) inherits the matching global column's actions in full (columns match by name, case-insensitively). An explicit empty `actions: {}` disables all actions for that column. But remember the list itself doesn't merge — a local `columns:` replaces the global list, so re-list every column you want to keep (see [Global Config](#global-config)).
+
+Any key — one that binds a built-in command by default, or an inline action — can be overridden per column via `keymaps.columns.<name>`; a column-scoped binding wins over both the global default and the global user binding for that key.
 
 ### Column Cleanup
 
@@ -420,87 +422,100 @@ Press `?` at any time to open the in-app help popup.
 
 ### Normal Mode
 
-| Key | Action |
-|-----|--------|
-| `?` | Help |
-| `q` | Quit |
-| `Ctrl+C` | Force quit |
-| `n` | New card |
-| `e` | Edit card |
-| `c` | Configuration |
-| `o` | Open ticket |
-| `m` | Go to referenced issue |
-| `r` | Refresh board |
-| `p` | Open PR |
-| `x` | Close card (with confirmation) |
-| `t` | Delete card permanently (with two-step confirmation) |
-| `v` | Open PRs (all open PRs in the repo) |
-| `i` | Milestones (all open milestones in the repo) |
-| `w` | (cenci) Agents (cenci-watch windows in this instance's tmux session, labeled `session:index`; `Enter` jumps to the tmux window) |
-| `s` | (cenci) Go to agent (jumps straight to the selected card's agent window in this session when there's exactly one; opens a picker when there are several) |
-| `/` | Search |
-| `a` | Assign collaborator |
-| `g` | Git menu |
-| `d` | (cenci) Dispatch |
-| `u` | Toggle sort order (oldest/newest created first; board-wide, applies to all columns; remembered across restarts) |
-| `f` | Filter (toggle) |
-| `l` / `→` | Detail panel |
-| `j` / `↓` | Next card |
-| `k` / `↑` | Previous card |
-| `Tab` / `Shift+Tab` | Switch columns |
-| `1-9` | Jump to column |
-| `A-Z` | Custom action (uppercase is fully user-owned) |
-| `A-Z` `…` | Custom action [key sequence](#key-sequences-prefix-keys) (`Esc` cancels a pending sequence) |
-| `Alt+Shift+key` | Comment action |
+Every row below is a shipped default; any key (including the ones already
+listed here) can also be rebound, unbound, or given a [custom
+action](#custom-actions) or [key sequence](#key-sequences-prefix-keys) via
+`keymaps.normal` — a user binding always wins over a default. The shipped
+defaults happen to use only lowercase keys, leaving uppercase and every
+other key free for your own bindings.
+
+| Key | Command | Action |
+|-----|---------|--------|
+| `?` | `app.help` | Help |
+| `q` | `app.quit` | Quit |
+| `ctrl+c` | — | Force quit (always active; cannot be rebound or unbound) |
+| `n` | `card.new` | New card |
+| `e` | `card.edit` | Edit card |
+| `c` | `app.config` | Configuration |
+| `o` | `card.open_ticket` | Open ticket |
+| `m` | `nav.reference` | Go to referenced issue |
+| `r` | `board.refresh` | Refresh board |
+| `p` | `card.open_pr` | Open PR |
+| `x` | `card.close` | Close card (with confirmation) |
+| `t` | `card.delete` | Delete card permanently (with two-step confirmation) |
+| `v` | `view.pr_list` | Open PRs (all open PRs in the repo) |
+| `i` | `view.milestone_list` | Milestones (all open milestones in the repo) |
+| `w` | `view.agent_list` | (cenci) Agents (cenci-watch windows in this instance's tmux session, labeled `session:index`; `enter` jumps to the tmux window) |
+| `s` | `nav.agent` | (cenci) Go to agent (jumps straight to the selected card's agent window in this session when there's exactly one; opens a picker when there are several) |
+| `/` | `board.search` | Search |
+| `a` | `card.assign` | Assign collaborator |
+| `g` | `view.git_panel` | Git menu |
+| `d` | `view.dispatch` | (cenci) Dispatch |
+| `u` | `board.sort_order` | Toggle sort order (oldest/newest created first; board-wide, applies to all columns; remembered across restarts) |
+| `f` | `board.filter` | Filter (toggle) |
+| `l` / `right` (→) | `nav.detail_focus` | Detail panel |
+| `j` / `down` (↓) | `nav.cursor_down` | Next card |
+| `k` / `up` (↑) | `nav.cursor_up` | Previous card |
+| `tab` | `nav.column_next` | Next column |
+| `shift+tab` | `nav.column_prev` | Previous column |
+| `1`-`9` | `nav.column_1` … `nav.column_9` | Jump to column |
+| `alt+shift+key` | — | Comment action |
 
 ### Detail Panel
 
-Labels and assignees display alphabetically (case-insensitive).
+Labels and assignees display alphabetically (case-insensitive). Any key can
+also be rebound, unbound, or given a [custom action](#custom-actions) or [key
+sequence](#key-sequences-prefix-keys) via `keymaps.detail`, same as [Normal
+Mode](#normal-mode).
 
-| Key | Action |
-|-----|--------|
-| `e` | Edit card |
-| `j` / `k` | Scroll body |
-| `h` / `←` / `Esc` | Back to card list |
-| `Tab` / `Shift+Tab` | Switch columns |
-| `o` | Open ticket |
-| `m` | Go to referenced issue |
-| `p` | Open PR |
-| `r` | Refresh |
-| `q` | Quit |
-| `?` | Help |
-| `A-Z` | Custom action |
-| `A-Z` `…` | Custom action [key sequence](#key-sequences-prefix-keys) |
-| `Alt+Shift+key` | Comment action |
+| Key | Command | Action |
+|-----|---------|--------|
+| `e` | `card.edit` | Edit card |
+| `h` / `left` (←) / `esc` | `detail.blur` | Back to card list |
+| `j` / `down` (↓) | `detail.scroll_down` | Scroll body down |
+| `k` / `up` (↑) | `detail.scroll_up` | Scroll body up |
+| `tab` | `nav.column_next` | Next column |
+| `shift+tab` | `nav.column_prev` | Previous column |
+| `1`-`9` | `nav.column_1` … `nav.column_9` | Jump to column |
+| `o` | `card.open_ticket` | Open ticket |
+| `m` | `nav.reference` | Go to referenced issue |
+| `p` | `card.open_pr` | Open PR |
+| `r` | `board.refresh` | Refresh |
+| `q` | `app.quit` | Quit |
+| `?` | `app.help` | Help |
+| `alt+shift+key` | — | Comment action |
 
 ### Create Mode
 
 The assignee field cycles through `(none)`, then you (`<user> (me)`), then the
 remaining collaborators sorted alphabetically (case-insensitive).
 
-| Key | Action |
-|-----|--------|
-| `Esc` | Cancel |
-| `Tab` | Next field |
-| `←` / `→` | Cycle assignee |
-| `Enter` | Submit |
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` | `create.cancel` | Cancel |
+| `tab` | `create.next_field` | Next field |
+| `left` (←) | `create.assignee_prev` | Previous assignee |
+| `right` (→) | `create.assignee_next` | Next assignee |
+| `enter` | `create.submit` | Submit |
 
 ### Config Mode
 
-| Key | Action |
-|-----|--------|
-| `Esc` | Cancel (quit on first launch) |
-| `Tab` | Next field |
-| `←` / `→` | Cycle provider |
-| `Enter` | Save |
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` | `config.cancel` | Cancel (quit on first launch) |
+| `tab` | `config.next_field` | Next field |
+| `left` (←) | `config.provider_prev` | Previous provider |
+| `right` (→) | `config.provider_next` | Next provider |
+| `enter` | `config.save` | Save |
 
 ### PR Picker
 
-| Key | Action |
-|-----|--------|
-| `←` / `→` | Cycle PR |
-| `Enter` | Select |
-| `Esc` | Cancel |
+| Key | Command | Action |
+|-----|---------|--------|
+| `left` (←) | `pr_picker.prev` | Previous PR |
+| `right` (→) | `pr_picker.next` | Next PR |
+| `enter` | `pr_picker.select` | Select |
+| `esc` | `pr_picker.close` | Cancel |
 
 ### Pull Requests
 
@@ -512,19 +527,24 @@ the fetch fails, that fallback is kept with an explicit note. PRs linked to
 a card show the owning column and card next to the title; unlinked PRs are
 listed plainly.
 
-Uppercase keys run your global `scope: pr` [custom actions](#custom-actions)
-against the selected PR, with the same template variables as a normal-mode
-dispatch. On a PR with no linked card, the card-derived variables
-(`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) expand to empty
-strings. Per-column action overrides and the `Alt` comment variant are not
-available inside the modal.
+Keys bound via `keymaps.pr_list` run your global `scope: pr` [custom
+actions](#custom-actions) against the selected PR, with the same template
+variables as a normal-mode dispatch (legacy `actions:` entries only
+translate into `pr_list` bindings for uppercase single-letter keys, mirroring
+the pre-registry behavior). On a PR with no linked card, the card-derived
+variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) expand
+to empty strings. Per-column action overrides and the `Alt` comment variant
+are not available inside the modal.
 
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate |
-| `Enter` | Open selected PR |
-| `A-Z` | Custom action (`scope: pr`) on selected PR |
-| `Esc` | Cancel |
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` | `pr_list.close` | Cancel |
+| `enter` | `pr_list.open` | Open selected PR |
+| `j` / `down` (↓) | `pr_list.next` | Navigate |
+| `k` / `up` (↑) | `pr_list.prev` | Navigate |
+
+Any key bound to a `scope: pr` custom action via `keymaps.pr_list` also runs
+that action against the selected PR.
 
 ### Milestones
 
@@ -534,16 +554,17 @@ repository** on one line each: title, a block progress bar, percentage,
 Three states: `Loading milestones...` while the fetch is in flight, the list
 on success, and `Couldn't load milestones` (no rows) on error.
 
-`Enter` sets the selected milestone as the active board filter and closes the
+`enter` sets the selected milestone as the active board filter and closes the
 modal, exactly like the filter picker; `f` clears it. `o` opens the
 milestone's GitHub URL in your browser without closing the modal.
 
-| Key | Action |
-|-----|--------|
-| `esc` | Cancel |
-| `j` / `k` | Navigate |
-| `enter` | Filter board |
-| `o` | Open in browser |
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` | `milestone_list.close` | Cancel |
+| `enter` | `milestone_list.filter` | Filter board |
+| `j` / `down` (↓) | `milestone_list.next` | Navigate |
+| `k` / `up` (↑) | `milestone_list.prev` | Navigate |
+| `o` | `milestone_list.open` | Open in browser |
 
 ### Agents
 
@@ -554,20 +575,19 @@ matching windows shows a status message, exactly one switches the tmux
 client directly (no modal), and several open this same modal scoped to just
 that card's windows.
 
-| Key | Action |
-|-----|--------|
-| `w` | Open (every cenci-watch window in this instance's tmux session) |
-| `s` | Open, scoped to the selected card (from normal mode; only when it has several agent windows) |
-| `j` / `k` | Navigate |
-| `Enter` | Go to tmux window |
-| `Esc` | Cancel |
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` | `agent_list.close` | Cancel |
+| `enter` | `agent_list.go_to_window` | Go to tmux window |
+| `j` / `down` (↓) | `agent_list.next` | Navigate |
+| `k` / `up` (↑) | `agent_list.prev` | Navigate |
 
 ### Comment Mode
 
-| Key | Action |
-|-----|--------|
-| `Esc` | Cancel |
-| `Enter` | Submit |
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` | `comment.cancel` | Cancel |
+| `enter` | `comment.submit` | Submit |
 
 ### Delete
 
@@ -576,14 +596,16 @@ the provider (not a column move) after a two-step confirmation. Cards with
 any linked PR cannot be deleted — the status bar shows an error and the card
 list stays unchanged. Step 1 accepts an optional comment (blank is fine);
 step 2 requires retyping the card's number exactly before the delete fires.
-A mismatched retype shows an inline error and stays on the confirm step;
-`Esc` at either step cancels the whole flow, discarding any comment typed.
+`enter` resolves to the same `delete.submit` command at both steps — step 1
+continues to the confirm step, step 2 fires the delete once the retyped
+number matches. A mismatched retype shows an inline error and stays on the
+confirm step; `esc` at either step cancels the whole flow, discarding any
+comment typed.
 
-| Key | Action |
-|-----|--------|
-| `Enter` (comment step) | Continue to confirm step |
-| `Enter` (confirm step) | Confirm delete (must match the card number) |
-| `Esc` | Cancel |
+| Key | Command | Action |
+|-----|---------|--------|
+| `enter` | `delete.submit` | Continue to confirm step / confirm delete (must match the card number) |
+| `esc` | `delete.cancel` | Cancel |
 
 ### Close Confirm
 
@@ -591,10 +613,10 @@ Opened with `x` from normal mode. A lighter one-step confirmation than
 Delete — it moves the card to the closed state via the provider rather than
 deleting it outright.
 
-| Key | Action |
-|-----|--------|
-| `y` | Confirm close |
-| `n` / `Esc` | Cancel |
+| Key | Command | Action |
+|-----|---------|--------|
+| `y` | `close_confirm.confirm` | Confirm close |
+| `n` / `esc` | `close_confirm.cancel` | Cancel |
 
 ### Label Confirm
 
@@ -602,11 +624,10 @@ Entered automatically after saving an [edited card](#editing-cards) that adds
 labels lazyboards doesn't already know about. Confirms one unknown label at a
 time; once every unknown label is resolved, the edit is applied.
 
-| Key | Action |
-|-----|--------|
-| `y` | Create this label, continue to the next unknown label (or apply the edit if none remain) |
-| `n` | Cancel the whole edit |
-| `Esc` | Cancel the whole edit |
+| Key | Command | Action |
+|-----|---------|--------|
+| `y` | `label_confirm.create` | Create this label, continue to the next unknown label (or apply the edit if none remain) |
+| `n` / `esc` | `label_confirm.cancel` | Cancel the whole edit |
 
 ### Filter
 
@@ -614,21 +635,23 @@ The picker lists Labels, Assignees, and Milestones sections (only sections with
 at least one value are shown), built from the cards currently on the board.
 Entries within each section are sorted alphabetically (case-insensitive).
 
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate |
-| `Enter` | Select |
-| `Esc` | Cancel |
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` | `filter.close` | Cancel |
+| `enter` | `filter.select` | Select |
+| `j` / `down` (↓) | `filter.next` | Navigate |
+| `k` / `up` (↑) | `filter.prev` | Navigate |
 
 ### Search
 
-| Key | Action |
-|-----|--------|
-| `↑` / `↓` | Navigate results |
-| `Ctrl+N` / `Ctrl+P` | Navigate results |
-| `Tab` / `Shift+Tab` | Exit search and switch columns |
-| `Enter` | Apply search |
-| `Esc` | Clear search |
+| Key | Command | Action |
+|-----|---------|--------|
+| `enter` | `search.apply` | Apply search |
+| `esc` | `search.cancel` | Clear search |
+| `down` (↓) / `ctrl+n` | `search.next_result` | Navigate results |
+| `up` (↑) / `ctrl+p` | `search.prev_result` | Navigate results |
+| `tab` | `search.next_column` | Exit search and switch to next column |
+| `shift+tab` | `search.prev_column` | Exit search and switch to previous column |
 
 All letters and digits type into the query (queries match titles, labels, and card numbers).
 
@@ -637,49 +660,61 @@ All letters and digits type into the query (queries match titles, labels, and ca
 You stay pinned first in the list; the remaining collaborators are sorted
 alphabetically (case-insensitive) below.
 
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Navigate |
-| `Enter` | Toggle assignee |
-| `Esc` | Cancel |
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` | `assign.close` | Cancel |
+| `enter` | `assign.toggle` | Toggle assignee |
+| `j` / `down` (↓) | `assign.next` | Navigate |
+| `k` / `up` (↑) | `assign.prev` | Navigate |
 
 ### Git Menu
 
 Opened with `g` from normal mode.
 
-| Key | Action |
-|-----|--------|
-| `g` | Open (from normal mode) |
-| `P` | Push |
-| `p` | Pull (rebase) |
-| `f` | Fetch |
-| `m` | Mergetool |
-| `s` | Stash push |
-| `S` | Stash pop |
-| `j` / `k` | Navigate |
-| `Enter` | Run selected |
-| `Esc` | Cancel |
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` | `git_panel.close` | Cancel |
+| `enter` | `git_panel.run` | Run selected |
+| `j` / `down` (↓) | `git_panel.next` | Navigate |
+| `k` / `up` (↑) | `git_panel.prev` | Navigate |
+| `P` | — (inline action) | Push |
+| `p` | — (inline action) | Pull (rebase) |
+| `f` | — (inline action) | Fetch |
+| `m` | — (inline action) | Mergetool |
+| `s` | — (inline action) | Stash push |
+| `S` | — (inline action) | Stash pop |
 
 ### Dispatch (cenci)
 
 Opened with `d` from normal mode. See [Dispatch Panel](#dispatch-panel) for
 what enrollment and a dispatch run actually do.
 
-| Key | Action |
-|-----|--------|
-| `d` | Open (from normal mode) |
-| `Enter` | Enroll/Unenroll current repo |
-| `o` | Dispatch once (all enrolled repos) |
-| `l` | Toggle dispatch loop on/off (all enrolled repos) |
-| `y` / `n`,`Esc` | Confirm / cancel the loop toggle |
-| `Esc` | Close |
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` | `dispatch.close` | Close |
+| `enter` | `dispatch.toggle_enroll` | Enroll/Unenroll current repo |
+| `o` | `dispatch.once` | Dispatch once (all enrolled repos) |
+| `l` | `dispatch.toggle_loop` | Toggle dispatch loop on/off (all enrolled repos) |
+| `y` | `dispatch.confirm_loop` | Confirm the loop toggle (only while a loop-toggle confirmation is pending) |
+| `n` | `dispatch.cancel_loop` | Cancel the loop toggle (only while a loop-toggle confirmation is pending) |
+
+### Help
+
+Opened with `?` from normal mode or the detail panel.
+
+| Key | Command | Action |
+|-----|---------|--------|
+| `esc` / `?` | `help.close` | Close |
+| `j` / `down` (↓) | `help.scroll_down` | Scroll down |
+| `k` / `up` (↑) | `help.scroll_up` | Scroll up |
+| `q` | `app.quit` | Quit |
 
 ### Error Mode
 
-| Key | Action |
-|-----|--------|
-| `r` | Retry loading |
-| `q` | Quit |
+| Key | Command | Action |
+|-----|---------|--------|
+| `r` | `error.retry` | Retry loading |
+| `q` | `app.quit` | Quit |
 
 ## Mouse Support
 
