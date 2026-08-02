@@ -478,6 +478,41 @@ func newConfigLoadedActionTestBoard(t *testing.T, localYAML string) (Board, *act
 	return loadFromFakeProvider(t, b, p), fe
 }
 
+// newKeymapConfigLoadedTestBoard writes localYAML to a temp .lazyboards.yml
+// and wires the resulting Board exactly like main.go's real startup sequence
+// does: config.Load() -> NewBoard(cfg.Actions, cfg.Columns) ->
+// config.ResolveKeymap(&cfg) -> withKeymap(). newConfigLoadedActionTestBoard
+// (above) stops at NewBoard, so its Board's active keymap is derived only
+// from cfg.Actions/cfg.Columns (config.KeymapFromLegacy) -- a keymaps:-only
+// config (no legacy actions:/columns[].actions: block at all) would resolve
+// to the built-in defaults only and could never exercise AC4's "a keymaps:-
+// only config's custom actions appear" guarantee. This builder is the one
+// test path that can.
+func newKeymapConfigLoadedTestBoard(t *testing.T, localYAML string) Board {
+	t.Helper()
+	dir := t.TempDir()
+	localPath := filepath.Join(dir, "local.yml")
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+	globalPath := filepath.Join(dir, "nonexistent-global.yml")
+
+	cfg, err := config.Load(globalPath, localPath)
+	if err != nil {
+		t.Fatalf("config.Load() returned unexpected error: %v", err)
+	}
+
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, cfg.Actions, nil, cfg.Columns, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b = loadFromFakeProvider(t, b, p)
+
+	km, err := config.ResolveKeymap(&cfg)
+	if err != nil {
+		t.Fatalf("config.ResolveKeymap() returned unexpected error: %v", err)
+	}
+	return b.withKeymap(km)
+}
+
 // prFixtureColumns returns the shared three-card PR fixture used by
 // newBoardWithPRsAndExecutor and newPRActionTestBoard:
 // - Card 1: "No PRs", no LinkedPRs

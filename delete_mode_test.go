@@ -1691,16 +1691,12 @@ func TestDeleteMode_HintKeysAlwaysDispatch_BothStepsDefaultAndRemappedTables(t *
 // --- Keybinding hint registration (CLAUDE.md hard rule) ---
 
 func TestHelpSections_NormalMode_ContainsDeleteCardHint(t *testing.T) {
-	for _, section := range helpSections {
-		if section.title != "Normal Mode" {
-			continue
-		}
-		for _, kv := range section.keys {
-			if kv[0] == "t" {
-				return
-			}
-		}
-		t.Fatalf("helpSections[%q] does not contain an entry for key %q", "Normal Mode", "t")
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+	section := helpSectionBody(t, content, "Normal Mode")
+
+	desc := mustFindCommand(t, keymap.CommandCardDelete).Desc
+	if !strings.Contains(section, desc) {
+		t.Fatalf("generated Normal Mode section does not contain the card.delete desc %q, got:\n%s", desc, section)
 	}
-	t.Fatal(`helpSections has no "Normal Mode" section`)
 }
