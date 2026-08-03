@@ -1,7 +1,7 @@
 package keymap
 
 // helpDefaults is the default ModeHelp table, transcribed from
-// handleHelpModeKey (mode_handlers.go:944). "q" reuses CommandQuit
+// handleHelpModeKey (mode_handlers.go). "q" reuses CommandQuit
 // (command.go) rather than a help-specific id (Q5).
 var helpDefaults = Table{
 	"esc":  CommandBinding(CommandHelpClose),
@@ -14,7 +14,7 @@ var helpDefaults = Table{
 }
 
 // errorDefaults is the default ModeError table, transcribed from
-// errorMode's key switch (update.go:326-334). "q" reuses CommandQuit
+// errorMode's key switch (update.go). "q" reuses CommandQuit
 // (command.go) rather than an error-specific id (Q3/Q5).
 var errorDefaults = Table{
 	"q": CommandBinding(CommandQuit),

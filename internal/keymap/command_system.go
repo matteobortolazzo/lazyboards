@@ -15,9 +15,7 @@ const (
 )
 
 // systemCommands is the Command catalogue entries for the help modal and
-// errorMode, sourced from helpModeHints (model.go:212) and the "Error"
-// helpSections entry (view.go:1311) so hint/help wording matches today's
-// text exactly. CommandQuit's own "Quit" desc (catalog.go) already covers
+// errorMode. CommandQuit's own "Quit" desc (catalog.go) already covers
 // both modes' reused "q" binding, so it is not re-registered here. catalog.go
 // merges this into the package-level catalog.
 var systemCommands = []Command{

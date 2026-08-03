@@ -1,13 +1,14 @@
 package keymap
 
 // gitPanelDefaults is the default ModeGitPanel table, transcribed from
-// handleGitPanelKey (mode_handlers.go:526). The six action entries mirror
-// config.DefaultGitActions() (internal/config/config.go:161) field-for-
-// field, with Order set to each key's 1-based position in
-// gitPanelBuiltinOrder (model.go:1088, ["P","p","f","m","s","S"]).
-// internal/keymap must not import internal/config (binding.go), so these
-// literals are duplicated by hand; the root git_keymap_defaults_test.go
-// drift guard holds them in sync with the real config values.
+// handleGitPanelKey (mode_handlers.go). The six action entries mirror
+// config.DefaultGitActions() (internal/config/config.go) field-for-field,
+// with Order set to each key's 1-based position in the git menu's fixed
+// display order (gitPanelBuiltinOrder, the git_keymap_defaults_test.go
+// fixture). internal/keymap must not import internal/config (binding.go),
+// so these literals are duplicated by hand; the root
+// git_keymap_defaults_test.go drift guard holds them in sync with the real
+// config values.
 var gitPanelDefaults = Table{
 	"esc":   CommandBinding(CommandGitPanelClose),
 	"enter": CommandBinding(CommandGitPanelRun),
@@ -25,7 +26,7 @@ var gitPanelDefaults = Table{
 }
 
 // dispatchDefaults is the default ModeDispatch table, transcribed from
-// handleDispatchModeKey (mode_handlers.go:561). y/n resolve unconditionally
+// handleDispatchModeKey (mode_handlers.go). y/n resolve unconditionally
 // at this layer -- the confirmingLoop state gate that scopes them to the
 // loop confirm stays in the handler (docs/view-state-consistency.md), not
 // the table.
