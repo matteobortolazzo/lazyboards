@@ -82,7 +82,14 @@ func (b Board) dispatchExpandedAction(act config.Action, vars map[string]string)
 		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
 		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
 	}
-	return b, nil
+	// Defensive-only: validateActionValue (internal/config/config.go) rejects
+	// any action.Type other than "url"/"shell" at config load time, so this
+	// branch is unreachable from a validated config. It exists to surface
+	// feedback (instead of silently no-oping) if a hand-built fixture ever
+	// bypasses that validation.
+	debuglog.Errorf("action %q has unresolved type %q (config validation bypassed)", act.Name, act.Type)
+	cmd := b.statusBar.SetTimedMessage("Unknown action type", StatusWarning, statusMessageDuration)
+	return b, cmd
 }
 
 func (b Board) handleActionKeyWithComment(act config.Action, card Card, comment string) (tea.Model, tea.Cmd) {
