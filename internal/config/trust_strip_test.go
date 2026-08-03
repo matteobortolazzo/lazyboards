@@ -555,8 +555,12 @@ keymaps:
 	if !cfg.SortNewestFirstValue() {
 		t.Fatalf("cfg.SortNewestFirstValue() = false, want true (sort_order: newest must still apply)")
 	}
-	if got := cfg.CleanupValue(); got != "echo cleanup survives" {
-		t.Fatalf("cfg.CleanupValue() = %q, want %q: cleanup: is out of scope for this PR (#569 strips it) and must survive untouched", got, "echo cleanup survives")
+	// cleanup: IS in scope for #569 (3/4): it's the zero-keystroke shell sink
+	// this ticket closes, so an untrusted local cleanup: with no global
+	// fallback must now resolve empty, not survive (inverted from #567/#568's
+	// "out of scope" fixture).
+	if got := cfg.CleanupValue(); got != "" {
+		t.Fatalf("cfg.CleanupValue() = %q, want empty: #569 strips untrusted local cleanup: with no global fallback", got)
 	}
 	if len(cfg.Columns) != 1 || cfg.Columns[0].Name != "Alpha" {
 		t.Fatalf("cfg.Columns = %+v, want a single %q column", cfg.Columns, "Alpha")
@@ -967,4 +971,385 @@ columns:
 		t.Fatalf("ResolveKeymap() (trusted) returned unexpected error: %v", err)
 	}
 	assertIdenticalLookup(t, km, kmTrusted, keymap.ModeNormal, "Refined", keymap.Sequence{keymap.Key("h")})
+}
+
+// --- #569 (3/4): close the last local-origin shell sink -- cleanup:/
+// columns[].cleanup -- and make the whole strip mechanism visible via
+// Config.Notices. ---
+
+// --- AC7: untrusted local top-level cleanup: and columns[].cleanup are
+// stripped when there is no matching global fallback. ---
+
+func TestLoad_Untrusted_TopLevelCleanupStripped(t *testing.T) {
+	localYAML := `
+provider: github
+repo: owner/repo
+cleanup: "rm -rf /"
+`
+	globalPath, localPath := writeTempConfigs(t, "", localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if got := cfg.CleanupValue(); got != "" {
+		t.Fatalf("cfg.CleanupValue() = %q, want empty: untrusted local top-level cleanup: must be stripped with no global fallback", got)
+	}
+}
+
+func TestLoad_Untrusted_ColumnCleanupStripped(t *testing.T) {
+	localYAML := `
+provider: github
+repo: owner/repo
+columns:
+  - name: Refined
+    cleanup: "rm -rf /"
+`
+	globalPath, localPath := writeTempConfigs(t, "", localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(cfg.Columns) != 1 {
+		t.Fatalf("cfg.Columns = %+v, want a single Refined column", cfg.Columns)
+	}
+	if got := cfg.Columns[0].CleanupValue(); got != "" {
+		t.Fatalf("cfg.Columns[0].CleanupValue() = %q, want empty: untrusted local columns[].cleanup must be stripped with no global fallback", got)
+	}
+}
+
+// --- AC9 (cleanup scope): global cleanup: is never stripped and must be the
+// resolved value after a local strip -- the highest-risk case, proving
+// globalCleanup is a value-copied snapshot rather than a pointer alias that
+// yaml.v3's second Unmarshal silently overwrote. ---
+
+func TestLoad_Untrusted_GlobalTopLevelCleanupSurvivesLocalStrip(t *testing.T) {
+	globalYAML := `
+cleanup: "echo global-safe"
+`
+	localYAML := `
+provider: github
+repo: owner/repo
+cleanup: "rm -rf /"
+`
+	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if got := cfg.CleanupValue(); got != "echo global-safe" {
+		t.Fatalf("cfg.CleanupValue() = %q, want the global cleanup to resolve after the untrusted local override is stripped (proves globalCleanup is a value-copied snapshot, not a pointer alias yaml.v3 silently overwrote)", got)
+	}
+}
+
+func TestLoad_Untrusted_GlobalColumnCleanupSurvives_LocalDeclaresColumns(t *testing.T) {
+	globalYAML := `
+columns:
+  - name: Refined
+    cleanup: "echo global-refined"
+`
+	localYAML := `
+provider: github
+repo: owner/repo
+columns:
+  - name: Refined
+    cleanup: "rm -rf /"
+`
+	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(cfg.Columns) != 1 {
+		t.Fatalf("cfg.Columns = %+v, want a single Refined column", cfg.Columns)
+	}
+	if got := cfg.Columns[0].CleanupValue(); got != "echo global-refined" {
+		t.Fatalf("cfg.Columns[0].CleanupValue() = %q, want the global column cleanup to resolve after the untrusted local column override is stripped", got)
+	}
+}
+
+// TestLoad_Untrusted_GlobalColumnCleanupSurvives_LocalDeclaresNoColumns is the
+// aliasing trap: when the local document declares no columns: block at all,
+// cfg.Columns still IS globalColumns (same backing array) at strip time. An
+// unconditional nil-out of cfg.Columns[i].Cleanup would blank the aliased
+// global column's cleanup instead of a genuinely local one (AC9 violation).
+func TestLoad_Untrusted_GlobalColumnCleanupSurvives_LocalDeclaresNoColumns(t *testing.T) {
+	globalYAML := `
+columns:
+  - name: Refined
+    cleanup: "echo global-refined"
+`
+	localYAML := `
+provider: github
+repo: owner/repo
+`
+	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(cfg.Columns) != 1 || cfg.Columns[0].Name != "Refined" {
+		t.Fatalf("cfg.Columns = %+v, want the global Refined column inherited (cfg.Columns aliases globalColumns here since local declares no columns: block at all)", cfg.Columns)
+	}
+	if got := cfg.Columns[0].CleanupValue(); got != "echo global-refined" {
+		t.Fatalf("cfg.Columns[0].CleanupValue() = %q, want the global column cleanup untouched -- an unconditional nil-out here would blank the aliased global column's cleanup, not just a stripped local one", got)
+	}
+}
+
+// TestLoad_Untrusted_NoGlobalCleanup_EveryColumnResolvesEmpty covers the case
+// where neither a top-level nor any per-column global cleanup exists at all:
+// every column (whether it declared its own untrusted override or not) must
+// resolve to "".
+func TestLoad_Untrusted_NoGlobalCleanup_EveryColumnResolvesEmpty(t *testing.T) {
+	localYAML := `
+provider: github
+repo: owner/repo
+cleanup: "rm -rf /"
+columns:
+  - name: Alpha
+  - name: Beta
+    cleanup: "rm -rf /beta"
+`
+	globalPath, localPath := writeTempConfigs(t, "", localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if got := cfg.CleanupValue(); got != "" {
+		t.Fatalf("cfg.CleanupValue() = %q, want empty: no global cleanup to fall back to", got)
+	}
+	for _, col := range cfg.Columns {
+		if got := col.CleanupValue(); got != "" {
+			t.Fatalf("cfg.Columns[%q].CleanupValue() = %q, want empty: with no global cleanup at any level, every column must resolve to \"\"", col.Name, got)
+		}
+	}
+}
+
+// --- AC10 (trusted load unchanged): a trusted local cleanup override
+// resolves exactly as authored, at both top level and per-column, with no
+// notice. ---
+
+func TestLoad_Trusted_CleanupResolvesUnstripped(t *testing.T) {
+	localYAML := `
+provider: github
+repo: owner/repo
+cleanup: "echo trusted-top"
+columns:
+  - name: Refined
+    cleanup: "echo trusted-col"
+`
+	globalPath, localPath := writeTempConfigs(t, "", localYAML)
+	trust := Trust{Trusted: []TrustEntry{{Hash: mustHashLocal(t, localPath)}}}
+
+	cfg, err := Load(globalPath, localPath, trust)
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if got := cfg.CleanupValue(); got != "echo trusted-top" {
+		t.Fatalf("cfg.CleanupValue() = %q, want the trusted local top-level cleanup to resolve unstripped", got)
+	}
+	if len(cfg.Columns) != 1 || cfg.Columns[0].CleanupValue() != "echo trusted-col" {
+		t.Fatalf("cfg.Columns = %+v, want the trusted local column cleanup to resolve unstripped", cfg.Columns)
+	}
+	if len(cfg.Notices) != 0 {
+		t.Fatalf("cfg.Notices = %v, want empty for a trusted load", cfg.Notices)
+	}
+}
+
+// --- Spurious-notice guard: a local cleanup byte-identical to global's is
+// not a strip, so it must neither change the resolved value nor raise a
+// notice. ---
+
+func TestLoad_Untrusted_LocalCleanupByteIdenticalToGlobal_NoStripNoNotice(t *testing.T) {
+	globalYAML := `
+cleanup: "echo same"
+`
+	localYAML := `
+provider: github
+repo: owner/repo
+cleanup: "echo same"
+`
+	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if got := cfg.CleanupValue(); got != "echo same" {
+		t.Fatalf("cfg.CleanupValue() = %q, want %q", got, "echo same")
+	}
+	if len(cfg.Notices) != 0 {
+		t.Fatalf("cfg.Notices = %v, want empty: a local cleanup byte-identical to global's is not a strip, so it must not raise a notice either", cfg.Notices)
+	}
+}
+
+// --- Q1: an explicit cleanup: "" (a disable directive, never executing) is
+// left alone and must never be stripped/restored to the global value, at
+// both top level and per-column. ---
+
+func TestLoad_Untrusted_EmptyTopLevelCleanupLeftAlone(t *testing.T) {
+	globalYAML := `
+cleanup: "echo global-safe"
+`
+	localYAML := `
+provider: github
+repo: owner/repo
+cleanup: ""
+`
+	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if got := cfg.CleanupValue(); got != "" {
+		t.Fatalf("cfg.CleanupValue() = %q, want empty: an explicit local cleanup: \"\" is a disable directive, never stripped -- stripping it would restore the global command, making an untrusted load run STRICTLY MORE commands than a trusted load of the same bytes", got)
+	}
+	if len(cfg.Notices) != 0 {
+		t.Fatalf("cfg.Notices = %v, want empty: cleanup: \"\" is left alone, not a strip", cfg.Notices)
+	}
+}
+
+func TestLoad_Untrusted_EmptyColumnCleanupLeftAlone(t *testing.T) {
+	globalYAML := `
+columns:
+  - name: Refined
+    cleanup: "echo global-refined"
+`
+	localYAML := `
+provider: github
+repo: owner/repo
+columns:
+  - name: Refined
+    cleanup: ""
+`
+	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(cfg.Columns) != 1 {
+		t.Fatalf("cfg.Columns = %+v, want a single Refined column", cfg.Columns)
+	}
+	if got := cfg.Columns[0].CleanupValue(); got != "" {
+		t.Fatalf("cfg.Columns[0].CleanupValue() = %q, want empty: an explicit local columns[].cleanup: \"\" disables cleanup and must never be stripped/restored to the global value", got)
+	}
+}
+
+// --- AC11: Config carries a notice entry exactly when at least one local
+// sink was stripped (keymap, legacy, or cleanup), always naming the literal
+// ".lazyboards.yml" (never the local path argument passed to Load, per Q2)
+// and the exact `lazyboards trust` invocation; absent when nothing was
+// stripped. ---
+
+func TestLoad_Untrusted_CleanupStripEmitsSingleNoticeNamingLocalConfigFile(t *testing.T) {
+	globalYAML := `
+cleanup: "echo global-safe"
+`
+	localYAML := `
+provider: github
+repo: owner/repo
+cleanup: "rm -rf /"
+`
+	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(cfg.Notices) != 1 {
+		t.Fatalf("cfg.Notices = %v, want exactly one notice for a single stripped cleanup: sink", cfg.Notices)
+	}
+	notice := cfg.Notices[0]
+	if !strings.Contains(notice, ".lazyboards.yml") {
+		t.Fatalf("cfg.Notices[0] = %q, want it to name the literal \".lazyboards.yml\", never the (possibly long/temp) localPath argument passed to Load", notice)
+	}
+	if !strings.Contains(notice, "lazyboards trust") {
+		t.Fatalf("cfg.Notices[0] = %q, want it to name the exact `lazyboards trust` invocation", notice)
+	}
+	if !strings.Contains(notice, "cleanup") {
+		t.Fatalf("cfg.Notices[0] = %q, want it to name the stripped sink kind (\"cleanup\")", notice)
+	}
+}
+
+func TestLoad_NothingStripped_NoNotice(t *testing.T) {
+	localYAML := `
+provider: github
+repo: owner/repo
+`
+	globalPath, localPath := writeTempConfigs(t, "", localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(cfg.Notices) != 0 {
+		t.Fatalf("cfg.Notices = %v, want empty when nothing was stripped", cfg.Notices)
+	}
+}
+
+func TestLoad_Untrusted_KeymapOnlyStripEmitsSingleNotice(t *testing.T) {
+	localYAML := `
+provider: github
+repo: owner/repo
+keymaps:
+  normal:
+    q: { name: Evil, type: shell, command: "rm -rf /" }
+`
+	globalPath, localPath := writeTempConfigs(t, "", localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(cfg.Notices) != 1 {
+		t.Fatalf("cfg.Notices = %v, want exactly one notice for a keymap-only strip (AC11: keymap, legacy, or cleanup)", cfg.Notices)
+	}
+	if !strings.Contains(cfg.Notices[0], ".lazyboards.yml") {
+		t.Fatalf("cfg.Notices[0] = %q, want it to name the literal \".lazyboards.yml\"", cfg.Notices[0])
+	}
+}
+
+func TestLoad_Untrusted_LegacyOnlyStripEmitsSingleNotice(t *testing.T) {
+	localYAML := `
+provider: github
+repo: owner/repo
+actions:
+  L:
+    name: Local Legacy Shell
+    type: shell
+    command: "rm -rf /"
+`
+	globalPath, localPath := writeTempConfigs(t, "", localYAML)
+
+	cfg, err := Load(globalPath, localPath, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(cfg.Notices) != 1 {
+		t.Fatalf("cfg.Notices = %v, want exactly one notice for a legacy-action-only strip (AC11: keymap, legacy, or cleanup)", cfg.Notices)
+	}
+	if !strings.Contains(cfg.Notices[0], ".lazyboards.yml") {
+		t.Fatalf("cfg.Notices[0] = %q, want it to name the literal \".lazyboards.yml\"", cfg.Notices[0])
+	}
 }

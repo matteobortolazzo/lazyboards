@@ -487,6 +487,79 @@ actions:
 	}
 }
 
+// --- #569 AC19: Save must never write stripped content back to disk. ---
+
+// TestSave_AfterUntrustedLoad_ShellActionAndCleanupSurviveOnDisk is the AC19
+// regression guard: config.Save re-reads the file itself (os.ReadFile) rather
+// than serializing a Config that Load() stripped, so an untrusted local
+// config's inline shell action and cleanup: must survive an in-app Save()
+// intact, and the re-read raw file must carry no notices:/deprecations: key
+// (both are derived, yaml:"-" fields -- writing them would be a data leak of
+// Load()'s internal bookkeeping into the user's file).
+func TestSave_AfterUntrustedLoad_ShellActionAndCleanupSurviveOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	initialYAML := `provider: github
+repo: owner/repo
+cleanup: "rm -rf /"
+actions:
+  L:
+    name: Local Legacy Shell
+    type: shell
+    command: "rm -rf /"
+`
+	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	// Load with a zero-value (untrusted) Trust: both the legacy shell action
+	// and the cleanup: command must be stripped from the in-memory Config.
+	nonexistentGlobal := filepath.Join(dir, "nonexistent-global.yml")
+	cfg, err := Load(nonexistentGlobal, path, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+	if _, exists := cfg.Actions["L"]; exists {
+		t.Fatalf("cfg.Actions[%q] survived untrusted stripping: %+v", "L", cfg.Actions["L"])
+	}
+	if got := cfg.CleanupValue(); got != "" {
+		t.Fatalf("cfg.CleanupValue() = %q, want empty after untrusted stripping", got)
+	}
+
+	if err := Save(path, "github", "owner/repo"); err != nil {
+		t.Fatalf("Save() returned unexpected error: %v", err)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved config: %v", err)
+	}
+	afterStr := string(after)
+
+	if !strings.Contains(afterStr, "rm -rf /") {
+		t.Fatalf("saved file = %q, want the untrusted local shell action and cleanup: command still present on disk -- Save() must never persist a Load()-stripped Config", afterStr)
+	}
+	if strings.Contains(afterStr, "notices:") {
+		t.Errorf("saved file = %q, want no \"notices:\" key written (Notices is a derived, yaml:\"-\" field)", afterStr)
+	}
+	if strings.Contains(afterStr, "deprecations:") {
+		t.Errorf("saved file = %q, want no \"deprecations:\" key written (Deprecations is a derived, yaml:\"-\" field)", afterStr)
+	}
+
+	var reloaded Config
+	if err := yaml.Unmarshal(after, &reloaded); err != nil {
+		t.Fatalf("saved file is not valid YAML: %v", err)
+	}
+	if reloaded.CleanupValue() != "rm -rf /" {
+		t.Errorf("reloaded raw file's Cleanup = %v, want the original untrusted cleanup: command preserved", reloaded.Cleanup)
+	}
+	action, ok := reloaded.Actions["L"]
+	if !ok || action.Command != "rm -rf /" {
+		t.Errorf("reloaded raw file's Actions[L] = %+v, want the original untrusted shell action preserved", reloaded.Actions["L"])
+	}
+}
+
 // findMappingValue returns the value node for key within a YAML mapping
 // node, failing the test if key is not found or node is not a mapping.
 func findMappingValue(t *testing.T, node *yaml.Node, key string) *yaml.Node {
