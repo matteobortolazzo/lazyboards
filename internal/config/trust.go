@@ -94,6 +94,48 @@ func LoadTrust(path string) (Trust, error) {
 	return t, nil
 }
 
+// carryTrustForward carries trust forward across a Save()-initiated rewrite:
+// if the pre-write content (preHash) was already trusted, the post-write
+// content (postHash) becomes trusted too, so editing a config exclusively
+// through the app's own Save() path never silently drops back to untrusted.
+// If preHash was not trusted -- including because the store is empty,
+// missing, or malformed -- this never grants new trust; it only ever carries
+// forward trust that already existed. An empty trustPath means trust-carry
+// is disabled entirely (no I/O). Any error loading or saving the store is
+// swallowed: a broken trust store must never fail the config write itself,
+// it only means the carry-forward step is skipped this time.
+func carryTrustForward(trustPath, preHash, postHash string) error {
+	if trustPath == "" {
+		return nil
+	}
+
+	store, err := LoadTrust(trustPath)
+	if err != nil {
+		// Fail closed: a malformed/unreadable store is never rewritten.
+		return nil
+	}
+	if !store.Trusts(preHash) {
+		return nil
+	}
+
+	updated := make([]TrustEntry, 0, len(store.Trusted))
+	seenPost := false
+	for _, entry := range store.Trusted {
+		if entry.Hash == preHash {
+			entry.Hash = postHash
+		}
+		if entry.Hash == postHash {
+			if seenPost {
+				continue // dedupe against a pre-existing postHash entry
+			}
+			seenPost = true
+		}
+		updated = append(updated, entry)
+	}
+
+	return SaveTrust(trustPath, Trust{Trusted: updated})
+}
+
 // SaveTrust writes t to path, creating the parent directory if needed. It
 // explicitly tightens the directory to 0700 even when it pre-existed with
 // looser permissions -- a trust store is more security-sensitive than
