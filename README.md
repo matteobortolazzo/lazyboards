@@ -34,6 +34,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - [How It Works](#how-it-works)
 - [Configuration](#configuration)
   - [Keymaps](#keymaps)
+  - [Trust Model](#trust-model)
 - [Editing Cards](#editing-cards)
 - [Custom Actions](#custom-actions)
 - [Keybindings](#keybindings)
@@ -210,7 +211,20 @@ Bindable modes: `normal`, `detail`, `create`, `config`, `pr_picker`, `search`, `
 
 **`ctrl+c` is special:** binding *or* unbinding `ctrl+c` anywhere in a key or sequence, in any mode or column table, is a load-time config error. `ctrl+c` always force-quits regardless of table contents — it is checked before any table lookup runs, so nothing can ever intercept it.
 
-**Security warning:** `.lazyboards.yml` is repo-local and is typically checked into the repository, so it is attacker-controlled the moment you clone someone else's repo. Any key — including built-in lowercase keys like `j`, `k`, or `q` — can be rebound to an inline `type: shell` action, and a user binding always wins over a default. Review a repo's `.lazyboards.yml` before running lazyboards inside it if you don't control that repo. This documents pre-existing behavior from before this ticket (#484), not a new vulnerability.
+**Security note:** `.lazyboards.yml` is repo-local and is typically checked into the repository, so it is attacker-controlled the moment you clone someone else's repo. Any key — including built-in lowercase keys like `j`, `k`, or `q` — can be rebound to an inline action. A `type: url` action, or a rebind onto a catalogued built-in command id, applies immediately regardless of trust. A `type: shell` action is inert until you explicitly run `lazyboards trust` for that exact file content — an untrusted repo's `.lazyboards.yml` loads and applies its non-executing settings normally, but every shell-executing construct it declares (inline `keymaps:` shell bindings, legacy `actions:`/`columns[].actions:` shell entries, `cleanup:`/`columns[].cleanup`) is silently stripped before it can run. See [Trust Model](#trust-model) for the full mechanism, and note that this does not cover a rebind of a destructive built-in (e.g. `card.delete`) onto an innocuous key — every destructive built-in still sits behind its own confirm step.
+
+### Trust Model
+
+`lazyboards trust` marks the current directory's `.lazyboards.yml` (by exact
+content hash) as trusted, so its `type: shell` constructs are honored; `lazyboards
+untrust` revokes that. Both are argument-free, idempotent, and never touch
+your global `~/.config/lazyboards/config.yml`. The trust store lives at
+`~/.config/lazyboards/trust.yml`. Editing and saving a trusted config through
+the in-app config modal (`c`) carries its trust forward automatically — it
+never grants trust on its own, only preserves it across the rewrite. See
+[`docs/trust-model.md`](docs/trust-model.md) for the full mechanism (what
+counts as a sink, hash identity, store format, and the residual risk this
+model deliberately doesn't cover).
 
 ## Editing Cards
 

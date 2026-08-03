@@ -41,6 +41,7 @@ The main BubbleTea model is split by responsibility:
 | `statusbar.go` | `StatusBar` component (hints, timed messages) |
 | `references.go` | `#N` reference parsing (`parseCardRefs`, `annotateBodyRefs`) and the `nav.reference` (default `g r`) reference-navigation trigger (`handleReferenceNavKey`, `handlePendingRefKey`, `resolveReference`, `refIssueURL`) |
 | `main.go` | Entry point, config loading, provider setup |
+| `cli_trust.go` | `lazyboards trust`/`untrust` CLI verbs (#568): `trustVerb` (arg parsing, mirrors `versionRequested`), `runTrustVerb` (hashes the local config, adds/removes a matching `config.TrustEntry` in the trust store) |
 
 Tests are split by domain to mirror production code:
 
@@ -87,7 +88,9 @@ Tests are split by domain to mirror production code:
 | `key_sequence_test.go` | Custom-action key sequences (prefix keys, pending state, which-key hints, cancellation) |
 | `search_mode_test.go` | Search mode (enter/exit, query clearing); `#540` (PR 2/2) adds registry-routing coverage: default-parity `enter`/`esc`/`tab`/`shift+tab`/`down`/`ctrl+n`/`up`/`ctrl+p` dispatch, printable-rune passthrough, remap/unbind of the Navigate pair and cancel key, `searchHints()` default-parity (arrow-preferred `↑/↓` glyph under defaults, raw key names after a non-arrow remap) and the per-keystroke hint refresh, the hint<->dispatch invariant, `ctrl+c` quits, and the non-command-`BindingAction`/foreign-command-id fallthrough cases |
 | `version_test.go` | App version injection/fallback, `--version` flag handling |
-| `main_test.go` | `printDeprecations` (writer-injected deprecation-notice printing): notices print one per line in order, nil/empty slice writes nothing, control-byte/embedded-newline notices flatten to one clean line |
+| `main_test.go` | `printNotices` (renamed from `printDeprecations`, #568, to reflect that it now prints both legacy-deprecation and trust-strip notice groups): writer-injected notice printing across one or more groups, one entry per line in order, nil/empty groups write nothing without disrupting surrounding groups' order, control-byte/embedded-newline notices flatten to one clean line |
+| `cli_trust_test.go` | `lazyboards trust`/`untrust` CLI verbs (#568): `trustVerb` arg-parsing (bare verb only, no flags), `runTrustVerb` add/idempotent-re-add/remove/idempotent-no-op-remove, missing-local-config and malformed-trust-store non-zero exit paths (store left byte-identical on the latter), and the guard that it never touches the sibling global config path |
+| `trust_warning_test.go` | Startup trust-strip notice wiring (#568): `Board.startupWarning` applied as a timed status-bar warning and cleared on the first successful board fetch (both the initial-load and refreshing-existing-board branches of `handleBoardFetched`), no warning shown for an already-trusted config, and `config.Save`'s trust carry-forward makes a previously-stripped local shell binding resolve unstripped after a save through the config modal |
 | `git_keymap_defaults_test.go` | Drift guard: `internal/keymap`'s git panel default `ActionBinding` entries vs. `config.DefaultGitActions()`/`gitPanelBuiltinOrder` |
 | `keymap_dispatch_test.go` | Registry dispatch (user override wins, explicit unbind, lowercase custom-action dispatch, built-ins in pending sequences, per-column overlay scoping, Alt-strip-and-retry fallback incl. the required built-in-must-not-fire negative case, pending-sequence which-key hint label sanitization) |
 | `keymap_hints_test.go` | Registry-derived hint bar (default table parity, remap/unbind reflection, canonical multi-key labels, column-scoped built-in rebind reflection, card-scope hint gate uses the raw active-column card count not the filter/search-aware visible list, untrusted action-name hint label sanitization) |
@@ -125,3 +128,4 @@ See `docs/` for lessons and conventions scoped to a specific subsystem — read 
 - `keymaps.md` — `internal/keymap`/`internal/config` registry architecture, schema, and resolution/precedence rules
 - `keymap-conventions.md` — lessons for `internal/keymap`/`internal/config` and related config-handling code
 - `yaml-parsing.md` — custom `UnmarshalYAML` implementations in `internal/config`
+- `trust-model.md` — the content-hash trust store gating repo-local shell sinks, `lazyboards trust`/`untrust`, and `Save`'s carry-forward

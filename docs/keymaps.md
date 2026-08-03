@@ -108,11 +108,14 @@ keymaps:
 
 **Security note:** `.lazyboards.yml` is repo-local and is typically checked
 into the repository, so any key — including built-in lowercase keys like
-`j`/`k`/`q` — can be rebound to an inline `type: shell` action by whoever
-controls that repo, and a user binding always wins over a default. Review
-a repo's `.lazyboards.yml` before running lazyboards inside a repo you
-don't control (pre-existing behavior from #484, see the README's
-[`### Keymaps`](../README.md#keymaps) warning).
+`j`/`k`/`q` — can be rebound to an inline action by whoever controls that
+repo, and a user binding always wins over a default. A rebind onto a
+catalogued built-in command id, or an inline `type: url` action, applies
+immediately regardless of trust. An inline `type: shell` action is inert
+until you explicitly run `lazyboards trust` for that exact file content —
+see [`docs/trust-model.md`](trust-model.md) for the full mechanism (what
+counts as a shell sink, hash identity, store format) and the README's
+[`### Trust Model`](../README.md#trust-model) for the user-facing summary.
 
 `KeymapBinding` (`keymaps.go:19-27`) is the parsed right-hand side, and its
 `Kind` mirrors `keymap.BindingKind` (`binding.go:25-40`) one-for-one:
