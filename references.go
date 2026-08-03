@@ -196,11 +196,11 @@ func (b *Board) restoreRefHints() {
 	b.statusBar.SetActionHints(b.normalHints)
 }
 
-// handleReferenceNavKey is the shared "m" trigger for normal mode and
-// detail-focused mode: it parses the selected card's body for #N references
-// and, if any exist, enters the pending reference-navigation state with one
-// which-key hint per reference. A card with no references is a no-op with a
-// status message.
+// handleReferenceNavKey is the shared nav.reference (default "g r") trigger
+// for normal mode and detail-focused mode: it parses the selected card's
+// body for #N references and, if any exist, enters the pending
+// reference-navigation state with one which-key hint per reference. A card
+// with no references is a no-op with a status message.
 func (b Board) handleReferenceNavKey() (tea.Model, tea.Cmd) {
 	if len(b.Columns) == 0 || len(b.visibleCards()) == 0 {
 		return b, nil

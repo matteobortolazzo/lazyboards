@@ -7,33 +7,13 @@ package keymap
 // create.submit, ...), matching the convention modalCommands/systemCommands
 // established. See defaults_text.go for the matching default Table entries.
 //
-// desc sourcing (status-bar hint wins, helpSections is the fallback only
-// where no status-bar hint exists -- same rule #508 PR 1 used):
-//   - close_confirm.confirm/.cancel: helpSections "Close Confirm" (view.go,
-//     no dedicated *Hints var exists for this mode)
-//   - label_confirm.create/.cancel: helpSections "Label Confirm" (view.go,
-//     no dedicated *Hints var exists for this mode)
-//   - delete.submit: helpSections "Delete" ("Continue / Confirm") -- a
-//     single id cannot carry the two per-step status-bar wordings
-//     ("Continue" vs "Confirm"); those stay in deleteCommentHints/
-//     deleteConfirmHints (model.go) and drive the hint bar directly until
-//     the sibling conversion ticket. delete.cancel: deleteCommentHints/
-//     deleteConfirmHints agree on "Cancel" for esc.
-//   - create.submit/.cancel/.next_field/.assignee_prev/.assignee_next:
-//     inline hints literal in viewCreateModal (view.go)
-//   - config.save/.cancel/.next_field: inline hints literal in
-//     viewConfigModal (view.go)
-//   - config.provider_prev/.provider_next: helpSections fallback ("Cycle
-//     provider") -- no status-bar hint exists for left/right in
-//     viewConfigModal, same fallback #508 PR 1 used for error.retry/
-//     dispatch.*. Deliberately longer than create.assignee_prev/next's
-//     "Cycle" -- today's UI is itself inconsistent here.
-//   - search.apply/.cancel/.next_result/.prev_result: searchModeHints
-//     (model.go)
-//   - search.next_column/.prev_column: helpSections fallback ("Switch
-//     columns (clears search)") -- no status-bar hint exists for tab/
-//     shift+tab in search mode.
-//   - comment.submit/.cancel: commentModeHints (model.go)
+// Two desc choices are deliberate rather than mechanical:
+//   - delete.submit reads "Continue / Confirm": one id cannot carry the delete
+//     flow's two per-step status-bar wordings ("Continue" on the comment step,
+//     "Confirm" on the retype step), which the delete handler renders per step.
+//   - config.provider_prev/.provider_next read "Cycle provider", deliberately
+//     longer than create.assignee_prev/.assignee_next's "Cycle" -- today's UI
+//     is itself inconsistent here and the catalogue preserves that.
 const (
 	CommandCloseConfirmConfirm CommandID = "close_confirm.confirm"
 	CommandCloseConfirmCancel  CommandID = "close_confirm.cancel"
@@ -68,9 +48,8 @@ const (
 )
 
 // textCommands is the Command catalogue entries (id + desc) for the seven
-// confirm/text-input modes, sourced per the doc comment above so hint/help
-// wording matches today's UI text exactly. catalog.go merges this into the
-// package-level catalog.
+// confirm/text-input modes. catalog.go merges this into the package-level
+// catalog.
 var textCommands = []Command{
 	{CommandCloseConfirmConfirm, "Confirm close"},
 	{CommandCloseConfirmCancel, "Cancel"},

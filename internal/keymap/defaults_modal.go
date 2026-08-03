@@ -1,7 +1,7 @@
 package keymap
 
 // prListDefaults is the default ModePRList table, transcribed from
-// handlePRListModeKey (mode_handlers.go:776).
+// handlePRListModeKey (mode_handlers.go).
 var prListDefaults = Table{
 	"esc":   CommandBinding(CommandPRListClose),
 	"enter": CommandBinding(CommandPRListOpen),
@@ -12,7 +12,7 @@ var prListDefaults = Table{
 }
 
 // milestoneListDefaults is the default ModeMilestoneList table, transcribed
-// from handleMilestoneListModeKey (mode_handlers.go:830).
+// from handleMilestoneListModeKey (mode_handlers.go).
 var milestoneListDefaults = Table{
 	"esc":   CommandBinding(CommandMilestoneListClose),
 	"enter": CommandBinding(CommandMilestoneListFilter),
@@ -24,7 +24,7 @@ var milestoneListDefaults = Table{
 }
 
 // agentListDefaults is the default ModeAgentList table, transcribed from
-// handleAgentListModeKey (mode_handlers.go:913).
+// handleAgentListModeKey (mode_handlers.go).
 var agentListDefaults = Table{
 	"esc":   CommandBinding(CommandAgentListClose),
 	"enter": CommandBinding(CommandAgentListGoToWindow),
@@ -35,7 +35,7 @@ var agentListDefaults = Table{
 }
 
 // filterDefaults is the default ModeFilter table, transcribed from
-// handleFilterModeKey (mode_handlers.go:459).
+// handleFilterModeKey (mode_handlers.go).
 var filterDefaults = Table{
 	"esc":   CommandBinding(CommandFilterClose),
 	"enter": CommandBinding(CommandFilterSelect),
@@ -46,7 +46,7 @@ var filterDefaults = Table{
 }
 
 // assignDefaults is the default ModeAssign table, transcribed from
-// handleAssignModeKey (mode_handlers.go:484).
+// handleAssignModeKey (mode_handlers.go).
 var assignDefaults = Table{
 	"esc":   CommandBinding(CommandAssignClose),
 	"enter": CommandBinding(CommandAssignToggle),
@@ -57,7 +57,7 @@ var assignDefaults = Table{
 }
 
 // prPickerDefaults is the default ModePRPicker table, transcribed from
-// handlePRPickerModeKey (mode_handlers.go:709).
+// handlePRPickerModeKey (mode_handlers.go).
 var prPickerDefaults = Table{
 	"esc":   CommandBinding(CommandPRPickerClose),
 	"left":  CommandBinding(CommandPRPickerPrev),

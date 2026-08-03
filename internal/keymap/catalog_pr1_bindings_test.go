@@ -5,10 +5,13 @@ import "testing"
 // modalBindingCase pins one (mode, key) -> resolved Binding default, per the
 // #508 PR 1 Command Set table (navigable modals, git panel, dispatch, help,
 // error). Transcribed directly from the current handler switch statements
-// (mode_handlers.go:459, :484, :526, :561, :709, :776, :830, :913, :944;
-// update.go:326) -- never from a production keymap data file, so a bug in
-// the catalogue/defaults data can't also corrupt the expectation, mirroring
-// boardDefaultCase (defaults_board_test.go).
+// (handleFilterModeKey, handleAssignModeKey, handleGitPanelKey,
+// handleDispatchModeKey, handlePRPickerModeKey, handlePRListModeKey,
+// handleMilestoneListModeKey, handleAgentListModeKey, handleHelpModeKey in
+// mode_handlers.go; errorMode's key switch in update.go) -- never from a
+// production keymap data file, so a bug in the catalogue/defaults data
+// can't also corrupt the expectation, mirroring boardDefaultCase
+// (defaults_board_test.go).
 //
 // wantKind distinguishes a resolved built-in command (BindingCommand) from
 // an inline action (BindingAction, used only by the git panel's six
@@ -26,7 +29,7 @@ type modalBindingCase struct {
 }
 
 var modalBindingCases = []modalBindingCase{
-	// pr_list (handlePRListModeKey, mode_handlers.go:776)
+	// pr_list (handlePRListModeKey, mode_handlers.go)
 	{"pr_list/esc", ModePRList, "esc", BindingCommand, "pr_list.close", Action{}},
 	{"pr_list/enter", ModePRList, "enter", BindingCommand, "pr_list.open", Action{}},
 	{"pr_list/j", ModePRList, "j", BindingCommand, "pr_list.next", Action{}},
@@ -34,7 +37,7 @@ var modalBindingCases = []modalBindingCase{
 	{"pr_list/k", ModePRList, "k", BindingCommand, "pr_list.prev", Action{}},
 	{"pr_list/up", ModePRList, "up", BindingCommand, "pr_list.prev", Action{}},
 
-	// milestone_list (handleMilestoneListModeKey, mode_handlers.go:830)
+	// milestone_list (handleMilestoneListModeKey, mode_handlers.go)
 	{"milestone_list/esc", ModeMilestoneList, "esc", BindingCommand, "milestone_list.close", Action{}},
 	{"milestone_list/enter", ModeMilestoneList, "enter", BindingCommand, "milestone_list.filter", Action{}},
 	{"milestone_list/j", ModeMilestoneList, "j", BindingCommand, "milestone_list.next", Action{}},
@@ -43,7 +46,7 @@ var modalBindingCases = []modalBindingCase{
 	{"milestone_list/up", ModeMilestoneList, "up", BindingCommand, "milestone_list.prev", Action{}},
 	{"milestone_list/o", ModeMilestoneList, "o", BindingCommand, "milestone_list.open", Action{}},
 
-	// agent_list (handleAgentListModeKey, mode_handlers.go:913)
+	// agent_list (handleAgentListModeKey, mode_handlers.go)
 	{"agent_list/esc", ModeAgentList, "esc", BindingCommand, "agent_list.close", Action{}},
 	{"agent_list/enter", ModeAgentList, "enter", BindingCommand, "agent_list.go_to_window", Action{}},
 	{"agent_list/j", ModeAgentList, "j", BindingCommand, "agent_list.next", Action{}},
@@ -51,7 +54,7 @@ var modalBindingCases = []modalBindingCase{
 	{"agent_list/k", ModeAgentList, "k", BindingCommand, "agent_list.prev", Action{}},
 	{"agent_list/up", ModeAgentList, "up", BindingCommand, "agent_list.prev", Action{}},
 
-	// filter (handleFilterModeKey, mode_handlers.go:459)
+	// filter (handleFilterModeKey, mode_handlers.go)
 	{"filter/esc", ModeFilter, "esc", BindingCommand, "filter.close", Action{}},
 	{"filter/enter", ModeFilter, "enter", BindingCommand, "filter.select", Action{}},
 	{"filter/j", ModeFilter, "j", BindingCommand, "filter.next", Action{}},
@@ -59,7 +62,7 @@ var modalBindingCases = []modalBindingCase{
 	{"filter/k", ModeFilter, "k", BindingCommand, "filter.prev", Action{}},
 	{"filter/up", ModeFilter, "up", BindingCommand, "filter.prev", Action{}},
 
-	// assign (handleAssignModeKey, mode_handlers.go:484)
+	// assign (handleAssignModeKey, mode_handlers.go)
 	{"assign/esc", ModeAssign, "esc", BindingCommand, "assign.close", Action{}},
 	{"assign/enter", ModeAssign, "enter", BindingCommand, "assign.toggle", Action{}},
 	{"assign/j", ModeAssign, "j", BindingCommand, "assign.next", Action{}},
@@ -67,13 +70,13 @@ var modalBindingCases = []modalBindingCase{
 	{"assign/k", ModeAssign, "k", BindingCommand, "assign.prev", Action{}},
 	{"assign/up", ModeAssign, "up", BindingCommand, "assign.prev", Action{}},
 
-	// pr_picker (handlePRPickerModeKey, mode_handlers.go:709)
+	// pr_picker (handlePRPickerModeKey, mode_handlers.go)
 	{"pr_picker/esc", ModePRPicker, "esc", BindingCommand, "pr_picker.close", Action{}},
 	{"pr_picker/left", ModePRPicker, "left", BindingCommand, "pr_picker.prev", Action{}},
 	{"pr_picker/right", ModePRPicker, "right", BindingCommand, "pr_picker.next", Action{}},
 	{"pr_picker/enter", ModePRPicker, "enter", BindingCommand, "pr_picker.select", Action{}},
 
-	// git_panel navigation (handleGitPanelKey, mode_handlers.go:526)
+	// git_panel navigation (handleGitPanelKey, mode_handlers.go)
 	{"git_panel/esc", ModeGitPanel, "esc", BindingCommand, "git_panel.close", Action{}},
 	{"git_panel/enter", ModeGitPanel, "enter", BindingCommand, "git_panel.run", Action{}},
 	{"git_panel/j", ModeGitPanel, "j", BindingCommand, "git_panel.next", Action{}},
@@ -82,7 +85,7 @@ var modalBindingCases = []modalBindingCase{
 	{"git_panel/up", ModeGitPanel, "up", BindingCommand, "git_panel.prev", Action{}},
 
 	// git_panel action keys, seeded from config.DefaultGitActions()
-	// (internal/config/config.go:161); duplicated here per binding.go's
+	// (internal/config/config.go); duplicated here per binding.go's
 	// no-import rule and cross-checked by git_keymap_defaults_test.go.
 	{"git_panel/P", ModeGitPanel, "P", BindingAction, "", Action{Name: "Push", Type: "shell", Command: "git push", Scope: "board"}},
 	{"git_panel/p", ModeGitPanel, "p", BindingAction, "", Action{Name: "Pull (rebase)", Type: "shell", Command: "git pull --rebase", Scope: "board"}},
@@ -91,7 +94,7 @@ var modalBindingCases = []modalBindingCase{
 	{"git_panel/s", ModeGitPanel, "s", BindingAction, "", Action{Name: "Stash push", Type: "shell", Command: "git stash push", Scope: "board"}},
 	{"git_panel/S", ModeGitPanel, "S", BindingAction, "", Action{Name: "Stash pop", Type: "shell", Command: "git stash pop", Scope: "board"}},
 
-	// dispatch (handleDispatchModeKey, mode_handlers.go:561); y/n resolve
+	// dispatch (handleDispatchModeKey, mode_handlers.go); y/n resolve
 	// unconditionally at the keymap layer -- the confirmingLoop state gate
 	// stays in the handler (docs/view-state-consistency.md), not the table.
 	{"dispatch/esc", ModeDispatch, "esc", BindingCommand, "dispatch.close", Action{}},
@@ -101,7 +104,7 @@ var modalBindingCases = []modalBindingCase{
 	{"dispatch/y", ModeDispatch, "y", BindingCommand, "dispatch.confirm_loop", Action{}},
 	{"dispatch/n", ModeDispatch, "n", BindingCommand, "dispatch.cancel_loop", Action{}},
 
-	// help (handleHelpModeKey, mode_handlers.go:944); q reuses the
+	// help (handleHelpModeKey, mode_handlers.go); q reuses the
 	// already-catalogued app.quit id (allow-listed, Q5).
 	{"help/esc", ModeHelp, "esc", BindingCommand, "help.close", Action{}},
 	{"help/?", ModeHelp, "?", BindingCommand, "help.close", Action{}},
@@ -111,7 +114,8 @@ var modalBindingCases = []modalBindingCase{
 	{"help/up", ModeHelp, "up", BindingCommand, "help.scroll_up", Action{}},
 	{"help/q", ModeHelp, "q", BindingCommand, CommandQuit, Action{}},
 
-	// error (update.go:326-334); q reuses app.quit (allow-listed, Q3/Q5).
+	// error (errorMode's key switch, update.go); q reuses app.quit
+	// (allow-listed, Q3/Q5).
 	{"error/q", ModeError, "q", BindingCommand, CommandQuit, Action{}},
 	{"error/r", ModeError, "r", BindingCommand, "error.retry", Action{}},
 }
