@@ -119,9 +119,9 @@ func SaveTrust(path string, t Trust) error {
 		return fmt.Errorf("trust file %s: create temp: %w", path, err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath) // no-op once the rename below succeeds
+	defer func() { _ = os.Remove(tmpPath) }() // no-op once the rename below succeeds
 	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("trust file %s: write temp: %w", path, err)
 	}
 	if err := tmp.Close(); err != nil {
