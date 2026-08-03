@@ -216,6 +216,11 @@ func TestTrustCleanup_CardClosed_UntrustedLocalOnly_NoCommandRuns(t *testing.T) 
 	if len(fe.RunShellCalls) != 0 {
 		t.Fatalf("expected no RunShell calls: untrusted local cleanup must be stripped with no global fallback, got: %v", fe.RunShellCalls)
 	}
+	for _, c := range b.Columns[0].Cards {
+		if c.Number == 1 {
+			t.Fatal("expected card removed from Columns after cardClosedMsg")
+		}
+	}
 }
 
 func TestTrustCleanup_CardClosed_UntrustedLocalWithGlobal_GlobalCommandRuns(t *testing.T) {
@@ -242,6 +247,11 @@ func TestTrustCleanup_CardClosed_UntrustedLocalWithGlobal_GlobalCommandRuns(t *t
 	if !found {
 		t.Fatalf("expected a RunShell call containing the global cleanup command, got: %v", fe.RunShellCalls)
 	}
+	for _, c := range b.Columns[0].Cards {
+		if c.Number == 1 {
+			t.Fatal("expected card removed from Columns after cardClosedMsg")
+		}
+	}
 }
 
 // --- handleCardDeleted (update.go, no breaker/debounce) ---
@@ -255,6 +265,11 @@ func TestTrustCleanup_CardDeleted_UntrustedLocalOnly_NoCommandRuns(t *testing.T)
 
 	if len(fe.RunShellCalls) != 0 {
 		t.Fatalf("expected no RunShell calls: untrusted local cleanup must be stripped with no global fallback, got: %v", fe.RunShellCalls)
+	}
+	for _, c := range b.Columns[0].Cards {
+		if c.Number == 1 {
+			t.Fatal("expected card removed from Columns after cardDeletedMsg")
+		}
 	}
 }
 
@@ -281,5 +296,10 @@ func TestTrustCleanup_CardDeleted_UntrustedLocalWithGlobal_GlobalCommandRuns(t *
 	}
 	if !found {
 		t.Fatalf("expected a RunShell call containing the global cleanup command, got: %v", fe.RunShellCalls)
+	}
+	for _, c := range b.Columns[0].Cards {
+		if c.Number == 1 {
+			t.Fatal("expected card removed from Columns after cardDeletedMsg")
+		}
 	}
 }
