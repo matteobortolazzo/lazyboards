@@ -91,7 +91,11 @@ func TestLegacyRestoreSnippet_LoadsCleanlyAndRestoresOldKeys(t *testing.T) {
 	}
 	globalPath := filepath.Join(dir, "nonexistent-global.yml")
 
-	cfg, err := Load(globalPath, localPath)
+	// Self-trusting: the snippet contains only command bindings (no shell
+	// actions), so trust state is behaviorally irrelevant here, but this is
+	// explicit for clarity per #567.
+	trust := Trust{Trusted: []TrustEntry{{Hash: mustHashLocal(t, localPath)}}}
+	cfg, err := Load(globalPath, localPath, trust)
 	if err != nil {
 		t.Fatalf("config.Load() of the README's legacy-keymaps-restore snippet returned unexpected error: %v", err)
 	}

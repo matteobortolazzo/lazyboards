@@ -278,6 +278,24 @@ func newBoardWithEmptyColumn(t *testing.T, actions map[string]config.Action) (Bo
 	return board, fe
 }
 
+// trustingLocal returns a config.Trust that self-trusts the local config
+// file at path, hashed via the real config.HashLocalConfig so a test never
+// hand-copies a hash literal that could drift from what config.Load itself
+// computes. Shared by every test board/config builder below that writes a
+// local config file to disk and loads it through the real config.Load
+// pipeline (#567): these builders exist to exercise trusted local-file
+// behavior (action/keymap scope resolution, custom actions, etc.), not
+// untrusted-stripping, which has its own dedicated coverage in
+// internal/config/trust_strip_test.go and shipped_config_test.go.
+func trustingLocal(t *testing.T, path string) config.Trust {
+	t.Helper()
+	hash, err := config.HashLocalConfig(path)
+	if err != nil {
+		t.Fatalf("config.HashLocalConfig(%q) returned unexpected error: %v", path, err)
+	}
+	return config.Trust{Trusted: []config.TrustEntry{{Hash: hash}}}
+}
+
 // mustLoadTestConfig writes yamlContent to a temp local config file and loads
 // it via config.Load, failing the test on error. This exercises action scope
 // resolution (defaulting/inference) through the real parsing/validation path
@@ -291,7 +309,7 @@ func mustLoadTestConfig(t *testing.T, yamlContent string) config.Config {
 		t.Fatalf("failed to write test config: %v", err)
 	}
 	globalPath := filepath.Join(dir, "nonexistent-global.yml")
-	cfg, err := config.Load(globalPath, localPath)
+	cfg, err := config.Load(globalPath, localPath, trustingLocal(t, localPath))
 	if err != nil {
 		t.Fatalf("config.Load() failed: %v", err)
 	}
@@ -480,7 +498,7 @@ func newConfigLoadedActionTestBoard(t *testing.T, localYAML string) (Board, *act
 	}
 	globalPath := filepath.Join(dir, "nonexistent-global.yml")
 
-	cfg, err := config.Load(globalPath, localPath)
+	cfg, err := config.Load(globalPath, localPath, trustingLocal(t, localPath))
 	if err != nil {
 		t.Fatalf("config.Load() returned unexpected error: %v", err)
 	}
@@ -510,7 +528,7 @@ func newKeymapConfigLoadedTestBoard(t *testing.T, localYAML string) Board {
 	}
 	globalPath := filepath.Join(dir, "nonexistent-global.yml")
 
-	cfg, err := config.Load(globalPath, localPath)
+	cfg, err := config.Load(globalPath, localPath, trustingLocal(t, localPath))
 	if err != nil {
 		t.Fatalf("config.Load() returned unexpected error: %v", err)
 	}
