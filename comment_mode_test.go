@@ -131,6 +131,38 @@ func TestCommentMode_ViewShowsModal(t *testing.T) {
 	}
 }
 
+// TestCommentMode_ViewSanitizesHostileActionName pins #547's real gap:
+// b.comment.pendingAction.Name is a config.Action.Name, repo-local
+// .lazyboards.yml data -- the same untrusted type #511 already sanitizes at
+// the git menu and help modal render sites, but viewCommentModal renders it
+// raw. An action name embedding a newline, an ANSI SGR escape sequence, and
+// a bidi-override rune must render through sanitizeSingleLine as a single
+// flattened line with the control content removed, not verbatim.
+func TestCommentMode_ViewSanitizesHostileActionName(t *testing.T) {
+	hostileName := "Annotate\n\x1b[31mHACKED\x1b[0m \u202eRTL"
+	actions := map[string]config.Action{
+		"X": {Name: hostileName, Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+	b.Width = 120
+	b.Height = 40
+
+	// Enter comment mode.
+	b = sendKey(t, b, altKeyMsg("X"))
+
+	view := b.View()
+	if strings.Contains(view, "\x1b[31m") {
+		t.Errorf("View() in commentMode contains a raw ANSI escape sequence from the action name: %q", view)
+	}
+	if strings.Contains(view, "\u202e") {
+		t.Errorf("View() in commentMode contains a raw bidi-override rune from the action name: %q", view)
+	}
+	want := "Annotate HACKED RTL"
+	if !strings.Contains(view, want) {
+		t.Errorf("View() in commentMode should render the flattened, sanitized action name %q; view = %q", want, view)
+	}
+}
+
 func TestCommentMode_ViewShowsHints(t *testing.T) {
 	actions := map[string]config.Action{
 		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},

@@ -129,7 +129,11 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b, cmd
 		}
 		b.mode = errorMode
-		b.loadErr = provider.SanitizeError(msg.err)
+		// provider.SanitizeError classifies rate-limit/GitHub errors but
+		// falls through to raw err.Error() for anything else, which can
+		// carry untrusted server/network text -- flatten before storing so
+		// view.go's error screen never renders it raw.
+		b.loadErr = sanitizeSingleLine(provider.SanitizeError(msg.err))
 		b.statusBar.SetActionHints(b.errorHints())
 		return b, nil
 
@@ -137,7 +141,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.handleCardCreated(msg)
 
 	case cardCreateErrorMsg:
-		b.validationErr = provider.SanitizeError(msg.err)
+		// See the boardFetchErrorMsg case above for why this needs
+		// sanitizeSingleLine.
+		b.validationErr = sanitizeSingleLine(provider.SanitizeError(msg.err))
 		b.mode = createMode
 		b.recalcCreateInputs()
 		cmd := b.create.titleInput.Focus()
@@ -153,7 +159,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 
 	case configSaveErrorMsg:
-		b.validationErr = provider.SanitizeError(msg.err)
+		// See the boardFetchErrorMsg case above for why this needs
+		// sanitizeSingleLine.
+		b.validationErr = sanitizeSingleLine(provider.SanitizeError(msg.err))
 		b.mode = configMode
 		return b, nil
 
