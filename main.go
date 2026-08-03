@@ -171,13 +171,37 @@ func main() {
 		return
 	}
 
+	// Open the debug log before anything else that might need to log to it
+	// (e.g. the trust-store fallback below) -- Init only opens a file handle
+	// keyed off an env var, so moving it ahead of config/trust resolution is
+	// side-effect-free for everything after it.
+	if err := debuglog.Init(os.Getenv("LAZYBOARDS_DEBUG_LOG")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening debug log: %v\n", err)
+	}
+
 	globalPath, err := config.DefaultGlobalPath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error resolving config path: %v\n", err)
 		os.Exit(1)
 	}
 
-	cfg, err := config.Load(globalPath, config.DefaultLocalPath)
+	// Resolve the trust store once and reuse it for every config.Load call
+	// below. Any error resolving/reading/parsing it (missing home dir,
+	// unreadable or malformed trust.yml) fails closed to a zero-value Trust
+	// -- which trusts nothing -- rather than aborting startup: a broken
+	// trust store must never block the app, it must only ever narrow what
+	// the local config is allowed to execute.
+	trustPath, err := config.DefaultTrustPath()
+	var trust config.Trust
+	if err == nil {
+		trust, err = config.LoadTrust(trustPath)
+	}
+	if err != nil {
+		debuglog.Log(fmt.Sprintf("trust: falling back to zero-value trust store (nothing trusted): %v", err))
+		trust = config.Trust{}
+	}
+
+	cfg, err := config.Load(globalPath, config.DefaultLocalPath, trust)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %s\n", sanitizeSingleLine(err.Error()))
 		os.Exit(1)
@@ -220,8 +244,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Configuration required. Exiting.\n")
 			os.Exit(1)
 		}
-		// Reload config with saved values
-		cfg, err = config.Load(globalPath, config.DefaultLocalPath)
+		// Reload config with saved values, reusing the same trust decision
+		// resolved above (never reload the trust store twice).
+		cfg, err = config.Load(globalPath, config.DefaultLocalPath, trust)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading config: %s\n", sanitizeSingleLine(err.Error()))
 			os.Exit(1)
@@ -302,10 +327,6 @@ func main() {
 	if gitInfo.Repo != "" {
 		defaultGitActions = config.DefaultGitActions()
 		gitReader = gitdetect.ExecReader{}
-	}
-
-	if err := debuglog.Init(os.Getenv("LAZYBOARDS_DEBUG_LOG")); err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening debug log: %v\n", err)
 	}
 
 	// Always-on crash reporting: a panic while BubbleTea owns the terminal

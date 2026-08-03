@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -73,6 +74,11 @@ type Config struct {
 	// namespace (see legacy_actions.go, #510). Never read from or written
 	// to the YAML file -- purely derived, like Action.Order.
 	Deprecations []string `yaml:"-"`
+	// LocalHash is the content hash of the local config file Load() read
+	// (in "sha256:<hex>" form, see HashLocalConfig), or "" if no local file
+	// was ever read. Never read from or written to the YAML file -- purely
+	// derived, like Action.Order and Deprecations.
+	LocalHash string `yaml:"-"`
 }
 
 // Card sort directions accepted by the sort_order config field.
@@ -207,7 +213,13 @@ func DefaultCrashLogPath() (string, error) {
 
 // Load reads configuration from globalPath and localPath YAML files.
 // Local config merges on top of global. Returns defaults if no files exist.
-func Load(globalPath, localPath string) (Config, error) {
+// trust gates whether the local file's keystroke-triggered shell-executing
+// constructs (inline keymaps: shell bindings and legacy actions:/
+// columns[].actions: shell entries) are honored: when the local file's
+// content hash isn't in trust, they are silently stripped before the merge
+// (see stripLocalShellSinks, trust_strip.go) -- global-declared shell
+// constructs are never affected, whatever trust says (AC9).
+func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	var cfg Config
 
 	// Read global config file.
@@ -236,13 +248,19 @@ func Load(globalPath, localPath string) (Config, error) {
 	// the original global-only slice untouched by the local load below.
 	// Actions is NOT a frozen snapshot the same way: yaml.v3 reuses an
 	// existing non-nil map field and merges new/overridden keys into it in
-	// place, so globalActions ends up aliasing cfg.Actions once the local
-	// unmarshal runs. That's why the key-existence-based Order offset below
-	// can't rely on map identity/length here the way the column-level merge
-	// (mergeColumnActions) can — it instead tracks which keys the local
-	// document itself declared (localActionKeys, from assignActionOrder's
-	// return value) to know which entries are genuinely global-only.
-	globalActions := cfg.Actions
+	// place, so cfg.Actions itself gains the local document's keys once the
+	// local unmarshal runs below -- that's why the key-existence-based Order
+	// offset further down can't rely on map identity/length here the way the
+	// column-level merge (mergeColumnActions) can; it instead tracks which
+	// keys the local document itself declared (decls.ActionKeys, from
+	// assignActionOrder's return value) to know which entries are genuinely
+	// global-only. globalActions itself DOES need to be a real copy
+	// (maps.Clone, not a plain alias): an untrusted local shell action gets
+	// deleted from cfg.Actions entirely (see stripShellFromActions,
+	// trust_strip.go) so the merge loop below can fall back to the matching
+	// global entry -- an alias would have nothing left to fall back to, since
+	// deleting from cfg.Actions would delete from the "global" snapshot too.
+	globalActions := maps.Clone(cfg.Actions)
 	globalColumns := cfg.Columns
 
 	// Snapshot the global Keymaps by value and reset cfg.Keymaps to nil
@@ -262,16 +280,33 @@ func Load(globalPath, localPath string) (Config, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Config{}, err
 	}
-	var localActionKeys map[string]bool
+	var decls localDecls
 	if err == nil {
 		if err := yaml.Unmarshal(localData, &cfg); err != nil {
 			return Config{}, err
 		}
-		keys, err := assignActionOrder(localData, &cfg)
+		d, err := assignActionOrder(localData, &cfg)
 		if err != nil {
 			return Config{}, err
 		}
-		localActionKeys = keys
+		decls = d
+
+		// LocalHash/trust gate whether this local document's own
+		// keystroke-triggered shell-executing constructs are honored.
+		// cfg.Keymaps is purely local at this point (global was already
+		// snapshotted above and reset to nil), and cfg.Columns/cfg.Actions
+		// still hold only what the local unmarshal just produced (the
+		// global-preserving merge steps below haven't run yet) -- exactly
+		// the provenance window stripLocalShellSinks needs to strip only
+		// local-declared shell entries and never a global one (AC9).
+		// stripLocalShellSinks compares against the globalActions/
+		// globalColumns snapshots by value rather than consulting decls --
+		// see stripShellFromActions (trust_strip.go) for why the raw-node
+		// walk decls carries isn't a safe strip-eligibility gate.
+		cfg.LocalHash = hashConfigBytes(localData)
+		if !trust.Trusts(cfg.LocalHash) {
+			stripLocalShellSinks(&cfg, decls, globalActions, globalColumns)
+		}
 	}
 
 	// Merge actions: preserve global-only entries as defaults, local entries take priority.
@@ -287,11 +322,14 @@ func Load(globalPath, localPath string) (Config, error) {
 	}
 
 	// Push every key the local document didn't declare itself (i.e.
-	// inherited unchanged from global) after all locally-declared keys,
-	// preserving each group's relative order.
-	if localCount := len(localActionKeys); localCount > 0 {
+	// inherited unchanged from global, or fallen back to global after an
+	// untrusted local shell entry was stripped -- stripShellFromActions
+	// removes a stripped key from decls.ActionKeys for exactly this reason)
+	// after all locally-declared keys, preserving each group's relative
+	// order.
+	if localCount := len(decls.ActionKeys); localCount > 0 {
 		for k, v := range cfg.Actions {
-			if !localActionKeys[k] {
+			if !decls.ActionKeys[k] {
 				v.Order += localCount
 				cfg.Actions[k] = v
 			}
@@ -370,6 +408,26 @@ func Load(globalPath, localPath string) (Config, error) {
 	return cfg, nil
 }
 
+// localDecls records which top-level action keys a document's own raw YAML
+// declared, distinguishing genuinely-declared-by-this-document entries from
+// ones merely inherited from another document (global vs local) once the
+// two are merged together. assignActionOrder populates it as a side effect
+// of its own document-position walk; Load()'s Order-offset logic is its
+// only consumer (a purely cosmetic rendering concern, never a security
+// control) -- stripLocalShellSinks/stripShellFromActions (trust_strip.go)
+// do NOT consume it: a raw-node "was this key mentioned in the document"
+// walk can't see a YAML merge-key-smuggled entry, so it isn't a safe
+// strip-eligibility gate (see stripShellFromActions for the full
+// explanation). This struct used to also carry a HasColumns bool for the
+// analogous columns: gate; that field was removed for the same reason once
+// stripShellFromActions stopped consuming it.
+type localDecls struct {
+	// ActionKeys is the set of top-level action keys this document's own
+	// actions: mapping declares (nil if the document has none, or declares
+	// no actions: block at all).
+	ActionKeys map[string]bool
+}
+
 // assignActionOrder parses data a second time as a yaml.Node tree and stamps
 // each entry in cfg.Actions (and each column's own actions, and every
 // keymaps mode/column table) with its 1-based position in the raw document,
@@ -384,21 +442,24 @@ func Load(globalPath, localPath string) (Config, error) {
 // later concern handled by mergeColumnActions/columnsByNameLower (and, for
 // keymaps, mergeKeymaps).
 //
-// It returns the set of top-level action keys this document's own actions:
-// mapping declares (nil if the document has none), which Load() uses to tell
-// genuinely local keys apart from keys merely inherited unchanged from
-// another document (see the comment on globalActions in Load()).
-func assignActionOrder(data []byte, cfg *Config) (declaredKeys map[string]bool, err error) {
+// It returns a localDecls describing which top-level action keys this
+// document's own raw YAML declares, which Load()'s Order-offset logic uses
+// to tell genuinely local declarations apart from values merely inherited
+// unchanged from another document (see the comment on globalActions in
+// Load()) -- a purely cosmetic rendering concern; it is deliberately never
+// consumed by stripLocalShellSinks/stripShellFromActions (trust_strip.go)
+// as a strip-eligibility gate (see that function's comment for why).
+func assignActionOrder(data []byte, cfg *Config) (localDecls, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return nil, err
+		return localDecls{}, err
 	}
 	if len(root.Content) == 0 {
-		return nil, nil
+		return localDecls{}, nil
 	}
 	docNode := root.Content[0]
 	if docNode.Kind != yaml.MappingNode {
-		return nil, nil
+		return localDecls{}, nil
 	}
 
 	var actionsNode, columnsNode, keymapsNode *yaml.Node
@@ -415,8 +476,10 @@ func assignActionOrder(data []byte, cfg *Config) (declaredKeys map[string]bool, 
 		}
 	}
 
+	var decls localDecls
+
 	if actionsNode != nil {
-		declaredKeys = stampActionOrder(actionsNode, cfg.Actions)
+		decls.ActionKeys = stampActionOrder(actionsNode, cfg.Actions)
 	}
 
 	if columnsNode != nil && columnsNode.Kind == yaml.SequenceNode {
@@ -438,7 +501,7 @@ func assignActionOrder(data []byte, cfg *Config) (declaredKeys map[string]bool, 
 		stampKeymapsOrder(keymapsNode, cfg.Keymaps)
 	}
 
-	return declaredKeys, nil
+	return decls, nil
 }
 
 // nodeKeysInOrder returns node's top-level mapping keys in document order,
