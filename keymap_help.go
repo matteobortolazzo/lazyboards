@@ -63,16 +63,19 @@ var helpModeSections = []helpModeSectionSpec{
 }
 
 // normalDetailStaticRows are the rows appended to Normal Mode/Detail Panel
-// that describe implicit overloads rather than any single catalogued
-// command: the user-owned A-Z custom-action key space (any lowercase or
-// uppercase key not claimed by a built-in can be bound to a custom action;
-// A-Z is the conventional default range) and the Alt+key comment-action
-// overload dispatchActionWithAlt implements for every {comment}-templated
-// action. Neither is backed by a keymap.CommandID, so they stay curated
-// static rows (help_test.go:547 depends on the alt+shift+key row).
+// that describe an implicit overload rather than any single catalogued
+// command: the Alt+key comment-action overload dispatchActionWithAlt
+// implements for every {comment}-templated action. It is not backed by a
+// keymap.CommandID, so it stays a curated static row.
+//
+// #484 dropped the two "A-Z"/"A-Z.." custom-action rows that used to sit
+// above it: they advertised the deleted uppercase-is-yours convention,
+// which the redesigned defaults contradict (P/A/D/G are built-ins now) and
+// which no longer bounds custom actions at all -- any key of either case
+// binds either kind. A user's actual bindings need no namespace legend:
+// helpActionRows already renders every configured inline action as its own
+// row, under its real key.
 var normalDetailStaticRows = [][2]string{
-	{"A-Z", "Custom action"},
-	{"A-Z..", "Custom action key sequence"},
 	{"alt+shift+key", "Comment action"},
 }
 
