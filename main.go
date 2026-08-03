@@ -156,12 +156,17 @@ func shouldCheckForUpdate(version string, enabled bool) bool {
 	return version != "dev" && enabled
 }
 
-// printDeprecations surfaces any legacy-config deprecation notices (e.g.
-// actions:/ columns[].actions translated onto keymaps:, #510) once per run,
-// before BubbleTea takes over the terminal.
-func printDeprecations(w io.Writer, notices []string) {
-	for _, notice := range notices {
-		_, _ = fmt.Fprintln(w, sanitizeSingleLine(notice))
+// printNotices surfaces stderr notice groups (e.g. legacy-config deprecation
+// notices from actions:/columns[].actions translated onto keymaps: (#510),
+// and untrusted-local-config strip notices (#568)) once per run, before
+// BubbleTea takes over the terminal. Each group's lines are printed in order,
+// one sanitized line per entry; nil/empty groups contribute zero lines
+// without disrupting the ordering of the surrounding groups.
+func printNotices(w io.Writer, groups ...[]string) {
+	for _, notices := range groups {
+		for _, notice := range notices {
+			_, _ = fmt.Fprintln(w, sanitizeSingleLine(notice))
+		}
 	}
 }
 
@@ -356,6 +361,15 @@ func main() {
 
 	// Scope the agents list to this instance's own tmux session (#410).
 	board.tmuxSession = resolveTmuxSession(action.DefaultExecutor{})
+	// trustPath lets in-app config Save() carry trust forward across a
+	// rewrite of the local config file (#568, AC18).
+	board.trustPath = trustPath
+	// startupWarning is a one-shot hand-off: any untrusted-local-config strip
+	// notices are surfaced as a timed status-bar warning on the first
+	// successful board fetch, then cleared (handleBoardFetched, update.go).
+	if len(cfg.Notices) > 0 {
+		board.startupWarning = strings.Join(cfg.Notices, "; ")
+	}
 	// Seed the board-wide card sort direction: a previously toggled direction
 	// (runtime state) wins over the configured default (#503). Cards are
 	// fetched asynchronously, so no sort can run before this assignment.
@@ -377,7 +391,7 @@ func main() {
 	}
 	board.sortNewestFirst = config.ResolveSortNewestFirst(cfg, state)
 
-	printDeprecations(os.Stderr, cfg.Deprecations)
+	printNotices(os.Stderr, cfg.Deprecations, cfg.Notices)
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.MouseValue() {

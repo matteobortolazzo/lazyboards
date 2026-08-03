@@ -550,6 +550,12 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 			cmd = b.statusBar.SetTimedMessage(b.cleanupBreakerWarning, StatusWarning, statusMessageDuration)
 			b.cleanupBreakerWarning = ""
 		}
+		if b.startupWarning != "" {
+			// Applied last so it isn't clobbered by the messages above --
+			// SetTimedMessage mutates the status bar synchronously.
+			cmd = b.statusBar.SetTimedMessage(b.startupWarning, StatusWarning, statusMessageDuration)
+			b.startupWarning = ""
+		}
 		if cleanupCmd != nil {
 			cmd = tea.Batch(cmd, cleanupCmd)
 		}
@@ -594,6 +600,12 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		// clobbered -- SetTimedMessage mutates the status bar synchronously.
 		cmd = b.statusBar.SetTimedMessage(b.cleanupBreakerWarning, StatusWarning, statusMessageDuration)
 		b.cleanupBreakerWarning = ""
+	}
+	if b.startupWarning != "" {
+		// Applied last so it isn't clobbered by the messages above --
+		// SetTimedMessage mutates the status bar synchronously.
+		cmd = b.statusBar.SetTimedMessage(b.startupWarning, StatusWarning, statusMessageDuration)
+		b.startupWarning = ""
 	}
 	b.loaded = true
 	if cleanupCmd != nil {

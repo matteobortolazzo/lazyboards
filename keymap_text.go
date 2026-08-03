@@ -404,9 +404,7 @@ func (b Board) runConfigCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		b.validationErr = ""
-		// trustPath is threaded as "" for now -- Commit 2 (#568) wires the
-		// real board.trustPath field through here.
-		return b, saveConfigCmd(b.config.localPath, provider, repo, "")
+		return b, saveConfigCmd(b.config.localPath, provider, repo, b.trustPath)
 	case keymap.CommandConfigNextField:
 		if b.config.focus == 0 {
 			b.config.focus = 1
