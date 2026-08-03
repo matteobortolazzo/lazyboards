@@ -746,3 +746,44 @@ keymaps:
 		t.Errorf("expected the native keymaps.columns override action to appear under Custom Actions, got:\n%s", content)
 	}
 }
+
+// --- No stale A-Z custom-action namespace rows (#484) ---
+//
+// Before the registry, custom actions were confined to the uppercase A-Z
+// namespace and the help modal advertised that convention with two curated
+// static rows. #484 deleted the case split: any key of either case binds
+// either a built-in or a custom action, and the shipped defaults claim
+// uppercase keys (view.pr_list, view.agent_list, view.dispatch,
+// view.git_panel). Advertising an "A-Z" custom-action space is now false --
+// and the actually-configured actions already render as their own rows via
+// helpActionRows. The alt+shift+key comment overload is a real implicit
+// overload with no CommandID behind it, so it stays.
+
+func TestHelpContent_NoUppercaseCustomActionNamespaceRows(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	if strings.Contains(content, "A-Z") {
+		t.Errorf("buildHelpContent() must not advertise the deleted A-Z custom-action namespace, got:\n%s", content)
+	}
+}
+
+// The uppercase keys the redesigned defaults claim must render in Normal
+// Mode as their built-in command's catalogue Desc -- the concrete reason
+// the "A-Z is fully yours" rows above are wrong.
+func TestHelpContent_UppercaseDefaultsRenderAsBuiltins(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	body := helpSectionBody(t, b.buildHelpContent(), "Normal Mode")
+
+	for _, id := range []keymap.CommandID{
+		keymap.CommandViewPRList,
+		keymap.CommandViewAgentList,
+		keymap.CommandViewDispatch,
+		keymap.CommandViewGitPanel,
+	} {
+		cmd := mustFindCommand(t, id)
+		if !strings.Contains(body, cmd.Desc) {
+			t.Errorf("Normal Mode section missing built-in %q (desc %q), got:\n%s", id, cmd.Desc, body)
+		}
+	}
+}
