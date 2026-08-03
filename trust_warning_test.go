@@ -13,17 +13,11 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
-// --- #568 (commit 2/3): in-app status-bar startup warning for a
-// Config.Notices strip notice, and the AC18 regression guard that trust
-// survives an in-app config Save() rewrite. ---
-//
-// This is the RED-phase file: it targets a not-yet-existing Board.startupWarning
-// field (mirroring the established cleanupBreakerWarning transient hand-off
-// precedent, model.go) and a not-yet-existing Board.trustPath field (Commit 1
-// deliberately threaded "" through keymap_text.go's runConfigCommand, see the
-// comment there). The package will not compile until commit 3 adds both
-// fields and wires them through main.go/update.go -- that compile failure IS
-// the expected red state here.
+// --- #568: in-app status-bar startup warning for a Config.Notices strip
+// notice (Board.startupWarning, mirroring the established
+// cleanupBreakerWarning transient hand-off precedent in model.go), and the
+// AC18 regression guard that trust survives an in-app config Save() rewrite
+// via Board.trustPath. ---
 
 // shellKeymapYAML declares a single inline keymaps: normal shell binding on
 // "z", the shape stripLocalShellSinks strips when untrusted (see
