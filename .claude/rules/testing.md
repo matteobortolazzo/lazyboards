@@ -41,6 +41,12 @@ When writing a parity/regression test during a refactor that will delete a legac
 ## Provider Layer Fields
 - When adding a new field to `provider.Card` in `internal/provider/github.go`'s `FetchBoard`, add a dedicated unit test in `github_fetchboard_test.go` following the established `TestGitHubFetchBoard_<FieldName>` pattern (e.g., `TestGitHubFetchBoard_CardCreatedAtPopulated`, `TestGitHubFetchBoard_AssigneesPopulated`). Do not assume higher-level integration tests (like detail-panel tests that construct `Card{}` literals directly) validate the provider layer's field extraction — the IPC boundary between GitHub GraphQL and `provider.Card` must be tested explicitly at the source.
 
+## Test File Cleanup Before Submission
+Remove TDD-process narration (RED-phase descriptions, "expected state" comments, TODO-for-implementation notes) from test file headers before marking work done. These are internal working notes that describe *how* tests were discovered, not *what* they specify or cover. They should not appear in permanent code.
+
+## Verifying Claimed Code Path Coverage
+When a test fixture or helper includes a comment claiming to exercise a specific code path — especially one the plan's `### Risks` section identifies as high-risk — verify the claim via mutation testing before submission. Temporarily remove, break, or invert that code path and confirm the test fails. Passing tests don't prove they exercise the intended path; unverified claims create false confidence that code review must later catch. Without explicit verification, a test's comment and its actual behavior can silently drift.
+
 ## Collision Guards for Parallel Merges
 When a package merges multiple data groups into single keyed structures via parallel operations (e.g., appending multiple slices into one, or assigning multiple maps into one with different key types), write a dedicated collision-guard test for each merge operation — don't assume that a guard on one (e.g., slice-uniqueness) covers the other (e.g., map-key collisions). A package's `init()` that concatenates `catalog = append(catalog, group1...); append(catalog, group2...)` needs `TestCommands_IDsAreUnique`, and if it also merges `defaultTables = map[Mode]Table{...}; for mode, table := range modalGroup { defaultTables[mode] = table }...`, it needs a separate `TestDefaultModeTableGroups_NoModeCollisions` guard. Silent overwrites in map assignments leave no trace — the second group's entry will silently replace the first with no panic or error.
 
