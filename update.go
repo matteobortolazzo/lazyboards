@@ -130,10 +130,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		b.mode = errorMode
 		b.loadErr = provider.SanitizeError(msg.err)
-		b.statusBar.SetActionHints([]Hint{
-			{Key: "r", Desc: "Retry"},
-			{Key: "q", Desc: "Quit"},
-		})
+		b.statusBar.SetActionHints(b.errorHints())
 		return b, nil
 
 	case cardCreatedMsg:
@@ -326,15 +323,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case loadingMode, creatingMode:
 			return b, nil
 		case errorMode:
-			switch msg.String() {
-			case "q":
-				return b, tea.Quit
-			case "r":
-				b.mode = loadingMode
-				b.loadErr = ""
-				return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
-			}
-			return b, nil
+			return b.handleErrorModeKey(msg)
 		case createMode:
 			return b.handleCreateModeKey(msg)
 		case configMode:

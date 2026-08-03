@@ -911,6 +911,17 @@ func (b Board) handleHelpModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return b.runHelpCommand(binding.Command)
 }
 
+// handleErrorModeKey handles key presses while errorMode is active,
+// dispatching through the ModeError registry table (keymap_panels.go's
+// panelBinding/runErrorCommand, #557), mirroring handleHelpModeKey's shape.
+func (b Board) handleErrorModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	binding, ok := b.panelBinding(keymap.ModeError, msg)
+	if !ok || binding.Kind != keymap.BindingCommand {
+		return b, nil
+	}
+	return b.runErrorCommand(binding.Command)
+}
+
 // handleLabelConfirmModeKey routes a key press in labelConfirmMode through
 // the ModeLabelConfirm registry (textBinding, keymap_text.go), mirroring
 // handleHelpModeKey's binding->dispatch->run shape (#539 PR 1/2). Unlike the
