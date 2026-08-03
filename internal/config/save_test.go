@@ -16,7 +16,7 @@ func TestSave_WritesValidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yml")
 
-	err := Save(path, "github", "owner/repo")
+	err := Save(path, "github", "owner/repo", "")
 	if err != nil {
 		t.Fatalf("Save() returned unexpected error: %v", err)
 	}
@@ -44,13 +44,13 @@ func TestSave_OverwritesExistingFile(t *testing.T) {
 	path := filepath.Join(dir, "config.yml")
 
 	// Write initial config.
-	err := Save(path, "github", "old-owner/old-repo")
+	err := Save(path, "github", "old-owner/old-repo", "")
 	if err != nil {
 		t.Fatalf("first Save() returned unexpected error: %v", err)
 	}
 
 	// Overwrite with new values.
-	err = Save(path, "ado", "new-owner/new-repo")
+	err = Save(path, "ado", "new-owner/new-repo", "")
 	if err != nil {
 		t.Fatalf("second Save() returned unexpected error: %v", err)
 	}
@@ -91,7 +91,7 @@ actions:
 	}
 
 	// Save with new provider/repo values.
-	err := Save(path, "ado", "new-owner/new-repo")
+	err := Save(path, "ado", "new-owner/new-repo", "")
 	if err != nil {
 		t.Fatalf("Save() returned unexpected error: %v", err)
 	}
@@ -146,7 +146,7 @@ columns:
 		t.Fatalf("failed to write initial config: %v", err)
 	}
 
-	err := Save(path, "ado", "new-owner/new-repo")
+	err := Save(path, "ado", "new-owner/new-repo", "")
 	if err != nil {
 		t.Fatalf("Save() returned unexpected error: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestSave_RejectsNonYAMLExtension(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, tc.filename)
 
-			err := Save(path, "github", "owner/repo")
+			err := Save(path, "github", "owner/repo", "")
 			if err == nil {
 				t.Fatalf("Save(%q) returned nil error, want error for non-YAML extension", tc.filename)
 			}
@@ -218,7 +218,7 @@ func TestSave_AcceptsYAMLExtension(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, tc.filename)
 
-			err := Save(path, "github", "owner/repo")
+			err := Save(path, "github", "owner/repo", "")
 			if err != nil {
 				t.Fatalf("Save(%q) returned unexpected error: %v", tc.filename, err)
 			}
@@ -285,7 +285,7 @@ keymaps:
 		t.Fatalf("failed to write initial config: %v", err)
 	}
 
-	if err := Save(path, "ado", "new-owner/new-repo"); err != nil {
+	if err := Save(path, "ado", "new-owner/new-repo", ""); err != nil {
 		t.Fatalf("Save() returned unexpected error: %v", err)
 	}
 
@@ -331,7 +331,7 @@ keymaps:
 		t.Fatalf("failed to write initial config: %v", err)
 	}
 
-	if err := Save(path, "ado", "new-owner/new-repo"); err != nil {
+	if err := Save(path, "ado", "new-owner/new-repo", ""); err != nil {
 		t.Fatalf("Save() returned unexpected error: %v", err)
 	}
 
@@ -371,7 +371,7 @@ repo: owner/repo
 		t.Fatalf("failed to write initial config: %v", err)
 	}
 
-	if err := Save(path, "ado", "new-owner/new-repo"); err != nil {
+	if err := Save(path, "ado", "new-owner/new-repo", ""); err != nil {
 		t.Fatalf("Save() returned unexpected error: %v", err)
 	}
 
@@ -416,7 +416,7 @@ keymaps:
 		t.Fatalf("failed to read initial config: %v", err)
 	}
 
-	err = Save(path, "ado", "new-owner/new-repo")
+	err = Save(path, "ado", "new-owner/new-repo", "")
 	if err == nil {
 		t.Fatal("Save() returned nil error, want error for a structurally invalid existing keymaps: block")
 	}
@@ -455,7 +455,7 @@ actions:
 		t.Fatalf("failed to write initial config: %v", err)
 	}
 
-	if err := Save(path, "ado", "new-owner/new-repo"); err != nil {
+	if err := Save(path, "ado", "new-owner/new-repo", ""); err != nil {
 		t.Fatalf("Save() returned unexpected error: %v", err)
 	}
 
@@ -527,7 +527,7 @@ actions:
 		t.Fatalf("cfg.CleanupValue() = %q, want empty after untrusted stripping", got)
 	}
 
-	if err := Save(path, "github", "owner/repo"); err != nil {
+	if err := Save(path, "github", "owner/repo", ""); err != nil {
 		t.Fatalf("Save() returned unexpected error: %v", err)
 	}
 
@@ -557,6 +557,148 @@ actions:
 	action, ok := reloaded.Actions["L"]
 	if !ok || action.Command != "rm -rf /" {
 		t.Errorf("reloaded raw file's Actions[L] = %+v, want the original untrusted shell action preserved", reloaded.Actions["L"])
+	}
+}
+
+// --- Save() trust-carry (#568) ---
+//
+// Save's signature grows a trailing trustPath parameter: Save(path, provider,
+// repo, trustPath string) error. When the file at path was already trusted
+// before the write (its pre-write bytes hash to a trusted entry), Save must
+// carry that trust forward onto the post-write hash so a config edited only
+// through the app's own Save() path never silently drops back to untrusted.
+// When it was untrusted (or unreadable/missing/malformed) before the write,
+// Save must never grant new trust as a side effect of writing.
+
+// readTrustEntries is a small helper reading back the trust store at
+// trustPath, failing the test on any read/parse error.
+func readTrustEntries(t *testing.T, trustPath string) []TrustEntry {
+	t.Helper()
+	store, err := LoadTrust(trustPath)
+	if err != nil {
+		t.Fatalf("LoadTrust(%q) returned unexpected error: %v", trustPath, err)
+	}
+	return store.Trusted
+}
+
+func TestSave_TrustedPreWrite_CarriesTrustForwardToPostWriteHash(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	trustPath := filepath.Join(dir, "trust.yml")
+
+	preWriteYAML := "provider: github\nrepo: owner/repo\n"
+	if err := os.WriteFile(path, []byte(preWriteYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+	preHash := hashConfigBytes([]byte(preWriteYAML))
+	if err := SaveTrust(trustPath, Trust{Trusted: []TrustEntry{{Hash: preHash, Note: "owner/repo"}}}); err != nil {
+		t.Fatalf("SaveTrust() returned unexpected error: %v", err)
+	}
+
+	if err := Save(path, "ado", "new-owner/new-repo", trustPath); err != nil {
+		t.Fatalf("Save() returned unexpected error: %v", err)
+	}
+
+	postWrite, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved config: %v", err)
+	}
+	wantHash := hashConfigBytes(postWrite)
+
+	entries := readTrustEntries(t, trustPath)
+	if len(entries) != 1 {
+		t.Fatalf("Trusted count = %d, want exactly 1", len(entries))
+	}
+	if entries[0].Hash != wantHash {
+		t.Errorf("Trusted[0].Hash = %q, want post-write hash %q", entries[0].Hash, wantHash)
+	}
+	if entries[0].Note != "owner/repo" {
+		t.Errorf("Trusted[0].Note = %q, want the original entry's Note %q preserved", entries[0].Note, "owner/repo")
+	}
+}
+
+func TestSave_UntrustedPreWrite_NeverGrantsTrust(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	trustPath := filepath.Join(dir, "trust.yml")
+
+	preWriteYAML := "provider: github\nrepo: owner/repo\n"
+	if err := os.WriteFile(path, []byte(preWriteYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+	// No SaveTrust call -- trustPath has no store yet, so the pre-write
+	// content is untrusted.
+
+	if err := Save(path, "ado", "new-owner/new-repo", trustPath); err != nil {
+		t.Fatalf("Save() returned unexpected error: %v", err)
+	}
+
+	entries := readTrustEntries(t, trustPath)
+	if len(entries) != 0 {
+		t.Errorf("Trusted count = %d, want 0 (Save must never grant trust for an untrusted pre-write file)", len(entries))
+	}
+}
+
+func TestSave_MissingFilePreWrite_StoreUnchangedAndSaveSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	trustPath := filepath.Join(dir, "trust.yml")
+	// path does not exist yet -- mirrors the first-launch flow, where Save()
+	// creates the file from scratch with no pre-write content to hash.
+
+	if err := Save(path, "github", "owner/repo", trustPath); err != nil {
+		t.Fatalf("Save() returned unexpected error: %v", err)
+	}
+
+	entries := readTrustEntries(t, trustPath)
+	if len(entries) != 0 {
+		t.Errorf("Trusted count = %d, want 0 (no pre-write file means nothing to carry forward)", len(entries))
+	}
+}
+
+func TestSave_MalformedTrustStoreAtWriteTime_StoreUnchangedAndSaveSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	trustPath := filepath.Join(dir, "trust.yml")
+
+	preWriteYAML := "provider: github\nrepo: owner/repo\n"
+	if err := os.WriteFile(path, []byte(preWriteYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+	malformed := []byte("trusted: \"this is not a list\"\n")
+	if err := os.WriteFile(trustPath, malformed, 0600); err != nil {
+		t.Fatalf("failed to write malformed trust store: %v", err)
+	}
+
+	if err := Save(path, "ado", "new-owner/new-repo", trustPath); err != nil {
+		t.Fatalf("Save() returned unexpected error: %v, want nil (config write itself must still succeed)", err)
+	}
+
+	after, err := os.ReadFile(trustPath)
+	if err != nil {
+		t.Fatalf("failed to read trust store after Save(): %v", err)
+	}
+	if string(after) != string(malformed) {
+		t.Errorf("trust store bytes changed after Save() with a malformed store\nbefore: %q\nafter:  %q", malformed, after)
+	}
+}
+
+func TestSave_EmptyTrustPath_SkipsCarryForwardEntirely(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	preWriteYAML := "provider: github\nrepo: owner/repo\n"
+	if err := os.WriteFile(path, []byte(preWriteYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	if err := Save(path, "ado", "new-owner/new-repo", ""); err != nil {
+		t.Fatalf("Save() returned unexpected error: %v, want nil when trustPath is empty", err)
+	}
+
+	// No trust store should have been created anywhere as a side effect.
+	if _, statErr := os.Stat(filepath.Join(dir, "trust.yml")); !os.IsNotExist(statErr) {
+		t.Errorf("a trust.yml file was created despite an empty trustPath argument")
 	}
 }
 

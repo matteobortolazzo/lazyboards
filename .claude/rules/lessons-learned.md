@@ -12,5 +12,9 @@ Current topic docs, by subsystem:
 - `docs/view-state-consistency.md` — keeping event-handler guards and view renderers in sync
 - `docs/git-integration.md` — `internal/git` background-poll and subprocess-result conventions
 - `docs/cenciwatch-integration.md` — `internal/cenciwatch` reconnect/backoff and wire-format status matching
+- `docs/keymaps.md` — `internal/keymap`/`internal/config` registry architecture, schema, and resolution/precedence rules
+- `docs/keymap-conventions.md` — lessons for `internal/keymap`/`internal/config` and related config-handling code
+- `docs/yaml-parsing.md` — custom `UnmarshalYAML` implementations in `internal/config`
+- `docs/trust-model.md` — the content-hash trust store gating repo-local shell sinks, `lazyboards trust`/`untrust`, and `Save`'s carry-forward
 
 For test-methodology lessons (discarded assertions, test-forced production shapes, etc.), see `.claude/rules/testing.md`.

@@ -794,7 +794,14 @@ type Board struct {
 	// message right after "Board refreshed"/"Filter has no matches" (which
 	// would otherwise clobber it, since SetTimedMessage mutates the status
 	// bar synchronously), then clears it. Empty means no trip occurred.
-	cleanupBreakerWarning       string
+	cleanupBreakerWarning string
+	// startupWarning holds a status-bar warning seeded from Config.Notices at
+	// startup (e.g. an untrusted-local-config strip notice, #568). It's a
+	// one-shot transient hand-off mirroring cleanupBreakerWarning: consumed
+	// as a timed status message on the first successful board fetch
+	// (handleBoardFetched, update.go), then cleared. Empty means nothing to
+	// show.
+	startupWarning              string
 	searchQuery                 string
 	searchInput                 textinput.Model
 	helpScrollOffset            int
@@ -841,6 +848,11 @@ type Board struct {
 	// direction to (config.DefaultStatePath, #503). Empty means "nowhere to
 	// save": toggling still works, it just won't survive a restart.
 	statePath string
+	// trustPath is the resolved trust-store file path (config.DefaultTrustPath,
+	// #568), threaded into saveConfigCmd so an in-app config Save() carries
+	// trust forward across the local config file rewrite (config.Save's
+	// carry-forward). Empty means no trust store is available to update.
+	trustPath string
 	// updateCheckEnabled mirrors config.Config.UpdateCheckValue(): whether
 	// Init() should kick off the startup version-update check (#444).
 	updateCheckEnabled bool
