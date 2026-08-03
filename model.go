@@ -549,6 +549,10 @@ type assigneesUpdateErrorMsg struct {
 // CommandGitPanelRun can dispatch the cursor-selected entry without a second
 // keymap lookup by key.
 type gitPanelItem struct {
+	// key is exempt from sanitizeSingleLine: every key value originates
+	// from a ParseSequence-canonicalized Entry.Sequence table key (same
+	// exemption rationale as Hint.Key in statusbar.go), so it can never
+	// carry hostile content.
 	key    string
 	name   string
 	action config.Action

@@ -179,7 +179,7 @@ func main() {
 
 	cfg, err := config.Load(globalPath, config.DefaultLocalPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error loading config: %s\n", sanitizeSingleLine(err.Error()))
 		os.Exit(1)
 	}
 
@@ -223,7 +223,7 @@ func main() {
 		// Reload config with saved values
 		cfg, err = config.Load(globalPath, config.DefaultLocalPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error loading config: %s\n", sanitizeSingleLine(err.Error()))
 			os.Exit(1)
 		}
 		prov = cfg.Provider

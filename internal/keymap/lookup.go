@@ -3,6 +3,7 @@ package keymap
 import (
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Outcome is the result of a Lookup call.
@@ -45,6 +46,19 @@ type Result struct {
 // rebinds ctrl+c, and regardless of seq's earlier keys, so a pending
 // prefix can never strand a user without a way to quit.
 //
+// Next, Lookup rejects seq to OutcomeNoMatch if any individual Key in seq
+// contains a unicode.IsSpace rune, checked per-Key -- never against
+// seq.String(), whose space-joined canonical form legitimately reuses " "
+// as the multi-key separator. This guard sits AFTER the ctrl+c
+// short-circuit above (which only inspects seq's last key) specifically so
+// a whitespace-bearing earlier key can never strand a user without a quit
+// path. The guard is behavior-neutral for every real table binding: every
+// canonical key reaches the table via ParseSequence's strings.Fields split,
+// which is itself unicode.IsSpace-based, so no table key can ever contain a
+// unicode.IsSpace rune -- this only rejects Sequences built directly from
+// unvalidated runtime input (e.g. a single Key whose own text collides with
+// a bound multi-key canonical string, or a bracketed-paste-shaped Key).
+//
 // Otherwise Lookup canonicalizes seq via seq.String() and resolves the
 // effective table for (mode, column): the column-overlaid table when mode
 // is ModeNormal or ModeDetail and column matches (case-insensitively) an
@@ -58,6 +72,12 @@ type Result struct {
 func (k *Keymap) Lookup(mode Mode, column string, seq Sequence) Result {
 	if len(seq) > 0 && seq[len(seq)-1] == Key("ctrl+c") {
 		return Result{Outcome: OutcomeMatch, Binding: CommandBinding(CommandQuit)}
+	}
+
+	for _, key := range seq {
+		if strings.ContainsFunc(string(key), unicode.IsSpace) {
+			return Result{Outcome: OutcomeNoMatch}
+		}
 	}
 
 	table := k.effectiveTable(mode, column)

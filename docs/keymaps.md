@@ -158,6 +158,15 @@ effective table:
   `OutcomeMatch(CommandBinding(CommandQuit))` before consulting any table —
   unconditionally, regardless of table contents or earlier keys in the
   sequence.
+- Next, if any individual key in the sequence contains a whitespace rune
+  (checked per-key, never against the sequence's space-joined canonical
+  string), `Lookup` returns `OutcomeNoMatch` without consulting the table.
+  This guard sits after the `ctrl+c` short-circuit so a whitespace-bearing
+  earlier key can never strand a user without a way to quit, and it is
+  behavior-neutral for every real table binding — canonical keys reach the
+  table through a whitespace-based split, so none can ever contain a
+  whitespace rune. It only rejects sequences built directly from
+  unvalidated runtime input.
 - Otherwise: an exact canonical match with a resolved binding (not
   `BindingUnbound`/`BindingInvalid`) is `OutcomeMatch`. Failing that, every
   table entry whose canonical key extends the query by further

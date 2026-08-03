@@ -373,10 +373,10 @@ func classifyCenciError(err error, stderr string) string {
 	}
 
 	if stderr != "" {
-		return "cenci: " + truncateOutput(strings.TrimSpace(stderr), maxErrorOutputLen)
+		return "cenci: " + truncateOutput(sanitizeSingleLine(strings.TrimSpace(stderr)), maxErrorOutputLen)
 	}
 	if err != nil {
-		return "cenci: " + truncateOutput(err.Error(), maxErrorOutputLen)
+		return "cenci: " + truncateOutput(sanitizeSingleLine(err.Error()), maxErrorOutputLen)
 	}
 	return "cenci: unknown error"
 }
