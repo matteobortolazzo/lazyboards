@@ -43,13 +43,13 @@ func trustVerbExtraArgs(args []string) bool {
 // (read/write) -- no global config is read or written.
 func runTrustVerb(verb, localPath, trustPath, note string, out io.Writer) int {
 	if !config.LocalExists(localPath) {
-		fmt.Fprintf(out, "No local config found at %s -- nothing to %s.\n", localPath, verb)
+		_, _ = fmt.Fprintf(out, "No local config found at %s -- nothing to %s.\n", localPath, verb)
 		return 1
 	}
 
 	hash, err := config.HashLocalConfig(localPath)
 	if err != nil {
-		fmt.Fprintf(out, "Error reading local config %s: %v\n", localPath, err)
+		_, _ = fmt.Fprintf(out, "Error reading local config %s: %v\n", localPath, err)
 		return 1
 	}
 
@@ -57,7 +57,7 @@ func runTrustVerb(verb, localPath, trustPath, note string, out io.Writer) int {
 	if err != nil {
 		// Fail closed: a malformed/unreadable trust store is never
 		// rewritten -- surface the error and leave it untouched.
-		fmt.Fprintf(out, "Error reading trust store %s: %v\n", trustPath, err)
+		_, _ = fmt.Fprintf(out, "Error reading trust store %s: %v\n", trustPath, err)
 		return 1
 	}
 
@@ -78,7 +78,7 @@ func runTrustVerb(verb, localPath, trustPath, note string, out io.Writer) int {
 	}
 
 	if err := config.SaveTrust(trustPath, store); err != nil {
-		fmt.Fprintf(out, "Error writing trust store %s: %v\n", trustPath, err)
+		_, _ = fmt.Fprintf(out, "Error writing trust store %s: %v\n", trustPath, err)
 		return 1
 	}
 	return 0
