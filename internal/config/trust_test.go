@@ -5,7 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 )
 
 // --- HashLocalConfig (AC3) ---
@@ -333,6 +336,41 @@ func TestTrust_Trusts_EmptyHash_ReturnsFalseEvenWithEmptyHashEntry(t *testing.T)
 
 	if trust.Trusts("") {
 		t.Error("Trusts(\"\") = true, want false; an empty hash must never match, even against an empty-hash entry")
+	}
+}
+
+// carryTrustForward fails closed on a malformed trust store (never rewrites
+// it), but that error must not vanish without a trace: main.go's own
+// startup LoadTrust call logs via debuglog before falling back, and
+// carryTrustForward must do the same so a broken trust store is debuggable
+// instead of silently degrading Save()'s carry-forward every time.
+func TestCarryTrustForward_MalformedTrustStore_LogsSwallowedError(t *testing.T) {
+	dir := t.TempDir()
+	trustPath := filepath.Join(dir, "trust.yml")
+	if err := os.WriteFile(trustPath, []byte("trusted: \"this is not a list\"\n"), 0600); err != nil {
+		t.Fatalf("failed to write malformed trust store: %v", err)
+	}
+
+	logPath := filepath.Join(dir, "debug.log")
+	if err := debuglog.Init(logPath); err != nil {
+		t.Fatalf("debuglog.Init() returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = debuglog.Init("") })
+
+	if err := carryTrustForward(trustPath, "sha256:pre", "sha256:post"); err != nil {
+		t.Fatalf("carryTrustForward() returned error: %v, want nil (fail closed, never fails the caller)", err)
+	}
+
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("failed to read debug log: %v", err)
+	}
+	logged := string(logBytes)
+	if !strings.Contains(logged, trustPath) {
+		t.Errorf("debug log = %q, want it to mention the trust store path %q", logged, trustPath)
+	}
+	if !strings.Contains(strings.ToLower(logged), "carry-forward") {
+		t.Errorf("debug log = %q, want it to mention the carry-forward skip", logged)
 	}
 }
 

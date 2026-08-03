@@ -164,3 +164,13 @@ close-confirm, etc.), so the worst case is an unpleasant surprise requiring a
 `.lazyboards.yml` before running lazyboards inside it remains good practice
 for this reason (see the README's [Keymaps](../README.md#keymaps) security
 note), but it is not a gap the trust store is meant to close.
+
+Trust is also keyed on the local config file's **content only** ("Hash
+identity" above), never on `(path, content)` or `(repo, content)`. A
+byte-identical `.lazyboards.yml` in a different repo inherits the exact same
+trust grant — e.g. an org-wide templated config trusted once in one repo
+covers every other repo checking out that same template unchanged. The
+impact is limited (identical bytes can only ever produce identical commands,
+so this never grants anything beyond what was already reviewed and trusted),
+but the property is non-obvious: trusting a file does not scope that trust to
+"this repo," only to "this exact content," wherever it's found.

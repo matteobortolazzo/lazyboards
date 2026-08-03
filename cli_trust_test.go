@@ -12,9 +12,12 @@ import (
 // --- trustVerb (#568) ---
 //
 // trustVerb mirrors versionRequested's shape: it inspects os.Args-style
-// arguments and reports which trust-store verb (if any) was requested. Only
-// a bare "trust"/"untrust" as args[1] matches -- no flags are supported, so
-// "trust --force" must NOT match.
+// arguments and reports which trust-store verb (if any) was requested. A
+// bare "trust"/"untrust" as args[1] matches regardless of what follows it --
+// extra positional args or flags (e.g. "trust --force") still match, so
+// main() recognizes the invocation and rejects it with a usage error
+// (trustVerbExtraArgs) instead of silently falling through to a normal board
+// launch. Only an unrelated or missing args[1] fails to match at all.
 
 func TestTrustVerb(t *testing.T) {
 	tests := []struct {
@@ -25,7 +28,9 @@ func TestTrustVerb(t *testing.T) {
 	}{
 		{"trust", []string{"lazyboards", "trust"}, "trust", true},
 		{"untrust", []string{"lazyboards", "untrust"}, "untrust", true},
-		{"trust with flag not supported", []string{"lazyboards", "trust", "--force"}, "", false},
+		{"trust with extra flag is still recognized", []string{"lazyboards", "trust", "--force"}, "trust", true},
+		{"untrust with extra positional arg is still recognized", []string{"lazyboards", "untrust", "extra-arg"}, "untrust", true},
+		{"trust with unsupported flag is still recognized", []string{"lazyboards", "trust", "--all"}, "trust", true},
 		{"no args", []string{"lazyboards"}, "", false},
 		{"unrelated first arg", []string{"lazyboards", "serve"}, "", false},
 	}
@@ -34,6 +39,35 @@ func TestTrustVerb(t *testing.T) {
 			gotVerb, gotOK := trustVerb(tt.args)
 			if gotVerb != tt.wantVerb || gotOK != tt.wantOK {
 				t.Errorf("trustVerb(%v) = (%q, %v), want (%q, %v)", tt.args, gotVerb, gotOK, tt.wantVerb, tt.wantOK)
+			}
+		})
+	}
+}
+
+// --- trustVerbExtraArgs (#568) ---
+//
+// A "trust"/"untrust" invocation carrying anything beyond the bare verb --
+// extra positional args or flags -- must be recognized as a trust-verb
+// invocation (trustVerb matches it) but rejected as invalid, so main() never
+// silently falls through to launching the board when a user typos or
+// over-specifies a trust command.
+
+func TestTrustVerbExtraArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"bare trust", []string{"lazyboards", "trust"}, false},
+		{"bare untrust", []string{"lazyboards", "untrust"}, false},
+		{"trust with extra flag", []string{"lazyboards", "trust", "--force"}, true},
+		{"untrust with extra positional arg", []string{"lazyboards", "untrust", "extra-arg"}, true},
+		{"trust with unsupported flag", []string{"lazyboards", "trust", "--all"}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := trustVerbExtraArgs(tt.args); got != tt.want {
+				t.Errorf("trustVerbExtraArgs(%v) = %v, want %v", tt.args, got, tt.want)
 			}
 		})
 	}

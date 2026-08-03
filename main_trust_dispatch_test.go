@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/matteobortolazzo/lazyboards/internal/config"
@@ -104,5 +105,53 @@ func TestMain_TrustDispatch_EndToEnd(t *testing.T) {
 	}
 	if _, ok := err.(*exec.ExitError); !ok {
 		t.Fatalf("`lazyboards untrust` failed to run: %v", err)
+	}
+}
+
+// TestMain_TrustDispatch_ExtraArgsRejectedNotBoardLaunch proves that
+// "lazyboards untrust extra-arg" is recognized as a trust-verb invocation and
+// rejected with a usage error, rather than silently falling through to a
+// normal board launch (#568) -- a unit test on trustVerb alone would not
+// catch a wiring gap where main() fails to reject the extra-arg case before
+// dispatch, exactly the class of bug this ticket's dispatch test already
+// guards for the missing-dispatch case above.
+func TestMain_TrustDispatch_ExtraArgsRejectedNotBoardLaunch(t *testing.T) {
+	binDir := t.TempDir()
+	binPath := filepath.Join(binDir, "lazyboards")
+	build := exec.Command("go", "build", "-o", binPath, ".")
+	build.Dir, _ = os.Getwd()
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("failed to build lazyboards binary: %v\n%s", err, out)
+	}
+
+	repoDir := t.TempDir()
+	localConfigPath := filepath.Join(repoDir, config.DefaultLocalPath)
+	if err := os.WriteFile(localConfigPath, []byte("provider: github\nrepo: owner/repo\n"), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+
+	home := t.TempDir()
+	trustPath := filepath.Join(home, ".config", "lazyboards", "trust.yml")
+
+	cmd := exec.Command(binPath, "untrust", "extra-arg")
+	cmd.Dir = repoDir
+	cmd.Env = []string{"HOME=" + home}
+	out, err := cmd.CombinedOutput()
+
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("`lazyboards untrust extra-arg` did not exit with an error (want a usage-error exit): %v; output: %s", err, out)
+	}
+	if exitErr.ExitCode() == 0 {
+		t.Fatalf("`lazyboards untrust extra-arg` exited 0, want non-zero")
+	}
+	if !strings.Contains(string(out), "Usage: lazyboards untrust") {
+		t.Errorf("`lazyboards untrust extra-arg` output = %q, want it to contain a usage message proving the extra arg was rejected by trust dispatch, not by e.g. provider detection", out)
+	}
+
+	// The trust store must never have been touched: the invocation was
+	// rejected before runTrustVerb ever ran.
+	if _, statErr := os.Stat(trustPath); !os.IsNotExist(statErr) {
+		t.Errorf("trust store %q was created despite the invocation being rejected", trustPath)
 	}
 }

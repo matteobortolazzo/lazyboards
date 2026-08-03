@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	"gopkg.in/yaml.v3"
 )
 
@@ -111,7 +112,11 @@ func carryTrustForward(trustPath, preHash, postHash string) error {
 
 	store, err := LoadTrust(trustPath)
 	if err != nil {
-		// Fail closed: a malformed/unreadable store is never rewritten.
+		// Fail closed: a malformed/unreadable store is never rewritten. Log
+		// it (mirroring main.go's own startup LoadTrust fallback) so a
+		// broken trust store is debuggable instead of silently degrading
+		// every Save() carry-forward with no trace.
+		debuglog.Log(fmt.Sprintf("trust: carry-forward skipped, could not load trust store %s: %v", trustPath, err))
 		return nil
 	}
 	if !store.Trusts(preHash) {

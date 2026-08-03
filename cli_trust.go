@@ -8,11 +8,14 @@ import (
 )
 
 // trustVerb mirrors versionRequested's shape: it inspects os.Args-style
-// arguments and reports which trust-store verb (if any) was requested. Only
-// a bare "trust"/"untrust" as args[1] matches -- no flags are supported, so
-// "trust --force" does not match.
+// arguments and reports which trust-store verb (if any) was requested. A
+// bare "trust"/"untrust" as args[1] matches regardless of what (if anything)
+// follows it -- extra positional args or flags (e.g. "trust --force",
+// "untrust extra-arg") still match here so main() recognizes the invocation
+// and can reject it with a clear usage error (see trustVerbExtraArgs) instead
+// of silently falling through to a normal board launch (#568).
 func trustVerb(args []string) (string, bool) {
-	if len(args) != 2 {
+	if len(args) < 2 {
 		return "", false
 	}
 	switch args[1] {
@@ -21,6 +24,14 @@ func trustVerb(args []string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// trustVerbExtraArgs reports whether args -- already matched by trustVerb --
+// carries anything beyond the bare verb (extra positional args and/or
+// flags). main() uses this to reject such an invocation with a usage error
+// rather than dispatching it to runTrustVerb.
+func trustVerbExtraArgs(args []string) bool {
+	return len(args) > 2
 }
 
 // runTrustVerb runs the "trust"/"untrust" CLI verb against the local config

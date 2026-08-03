@@ -182,6 +182,10 @@ func main() {
 	// debuglog.Init/config.DefaultGlobalPath/config.Load below, not thread
 	// through the normal startup flow.
 	if verb, ok := trustVerb(os.Args); ok {
+		if trustVerbExtraArgs(os.Args) {
+			fmt.Fprintf(os.Stderr, "Usage: lazyboards %s\n\n%q does not accept any extra arguments or flags.\n", verb, verb)
+			os.Exit(1)
+		}
 		dispatchTrustPath, err := config.DefaultTrustPath()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error resolving trust store path: %v\n", err)

@@ -217,7 +217,8 @@ func TestConfigSave_TrustSurvivesRewrite_LocalShellBindingResolvesUnstripped(t *
 	// Both fields already match localPath's provider/repo, so no retyping is
 	// needed for a byte-different-but-semantically-unchanged rewrite.
 	b = sendKey(t, b, keyMsg("c"))
-	_, saveCmd := b.Update(arrowMsg(tea.KeyEnter))
+	m, saveCmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
 	if saveCmd == nil {
 		t.Fatal("Enter in configMode should return a non-nil cmd (config save)")
 	}
