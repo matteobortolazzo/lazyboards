@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/matteobortolazzo/lazyboards/internal/config"
@@ -33,6 +34,14 @@ func TestShippedConfig_MigratedToKeymaps(t *testing.T) {
 
 	if len(cfg.Deprecations) != 0 {
 		t.Fatalf("cfg.Deprecations = %v, want empty (shipped .lazyboards.yml should use keymaps:, not legacy actions:/columns[].actions)", cfg.Deprecations)
+	}
+	// #569 AC10: a trusted load of this repo's own cleanup: must resolve
+	// unstripped, with zero strip notices.
+	if got := cfg.CleanupValue(); got == "" {
+		t.Fatalf("cfg.CleanupValue() = %q, want the shipped .lazyboards.yml's top-level cleanup: to resolve non-empty on a trusted load", got)
+	}
+	if len(cfg.Notices) != 0 {
+		t.Fatalf("cfg.Notices = %v, want empty on a trusted load of the shipped .lazyboards.yml", cfg.Notices)
 	}
 
 	km, err := config.ResolveKeymap(&cfg)
@@ -118,4 +127,33 @@ func TestShippedConfig_Untrusted_StripsInlineShellBindings(t *testing.T) {
 	assertNotAction(t, keymap.ModeNormal, "In Review", "W")
 	// detail/C ("Claude") is a top-level keymaps.detail shell binding.
 	assertNotAction(t, keymap.ModeDetail, "", "C")
+}
+
+// TestShippedConfig_Untrusted_StripsCleanupAndEmitsNotice is #569's (3/4)
+// untrusted-load counterpart to TestShippedConfig_MigratedToKeymaps: this
+// repo's own .lazyboards.yml declares a top-level cleanup: with no global
+// config present in this test (globalPath is ""), so an untrusted load must
+// strip it to empty and surface exactly one notice naming both the literal
+// ".lazyboards.yml" (never the real relative path passed to Load) and the
+// exact `lazyboards trust` invocation (Q2).
+func TestShippedConfig_Untrusted_StripsCleanupAndEmitsNotice(t *testing.T) {
+	cfg, err := config.Load("", ".lazyboards.yml", config.Trust{})
+	if err != nil {
+		t.Fatalf("config.Load() returned unexpected error: %v", err)
+	}
+
+	if got := cfg.CleanupValue(); got != "" {
+		t.Fatalf("cfg.CleanupValue() = %q, want empty: untrusted load must strip the shipped .lazyboards.yml's top-level cleanup: with no global fallback", got)
+	}
+
+	if len(cfg.Notices) != 1 {
+		t.Fatalf("cfg.Notices = %v, want exactly one notice", cfg.Notices)
+	}
+	notice := cfg.Notices[0]
+	if !strings.Contains(notice, ".lazyboards.yml") {
+		t.Fatalf("cfg.Notices[0] = %q, want it to name the literal \".lazyboards.yml\"", notice)
+	}
+	if !strings.Contains(notice, "lazyboards trust") {
+		t.Fatalf("cfg.Notices[0] = %q, want it to name the exact `lazyboards trust` invocation", notice)
+	}
 }

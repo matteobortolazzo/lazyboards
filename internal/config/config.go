@@ -79,6 +79,15 @@ type Config struct {
 	// was ever read. Never read from or written to the YAML file -- purely
 	// derived, like Action.Order and Deprecations.
 	LocalHash string `yaml:"-"`
+	// Notices holds human-readable messages surfaced to the user when
+	// Load() strips an untrusted local file's shell-executing constructs
+	// (inline keymaps: shell bindings, legacy actions:/columns[].actions:
+	// shell entries, or cleanup:/columns[].cleanup commands -- see
+	// stripLocalShellSinks, trust_strip.go). Populated with at most one
+	// entry per Load() call, naming every stripped sink kind together.
+	// Never read from or written to the YAML file -- purely derived, like
+	// Action.Order and Deprecations.
+	Notices []string `yaml:"-"`
 }
 
 // Card sort directions accepted by the sort_order config field.
@@ -214,11 +223,14 @@ func DefaultCrashLogPath() (string, error) {
 // Load reads configuration from globalPath and localPath YAML files.
 // Local config merges on top of global. Returns defaults if no files exist.
 // trust gates whether the local file's keystroke-triggered shell-executing
-// constructs (inline keymaps: shell bindings and legacy actions:/
-// columns[].actions: shell entries) are honored: when the local file's
-// content hash isn't in trust, they are silently stripped before the merge
-// (see stripLocalShellSinks, trust_strip.go) -- global-declared shell
-// constructs are never affected, whatever trust says (AC9).
+// constructs (inline keymaps: shell bindings, legacy actions:/
+// columns[].actions: shell entries, and cleanup:/columns[].cleanup commands)
+// are honored: when the local file's content hash isn't in trust, they are
+// silently stripped before the merge (see stripLocalShellSinks,
+// trust_strip.go) -- global-declared shell constructs are never affected,
+// whatever trust says (AC9). Each stripped sink is not silently dropped: it
+// is recorded in the returned Config's Notices field (see buildStripNotice),
+// naming every stripped kind together in a single entry per Load() call.
 func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	var cfg Config
 
@@ -263,6 +275,23 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	globalActions := maps.Clone(cfg.Actions)
 	globalColumns := cfg.Columns
 
+	// globalCleanup MUST be a value copy, never a pointer alias
+	// (globalCleanup := cfg.Cleanup would NOT do this): empirically, yaml.v3's
+	// second Unmarshal into the same struct reuses the existing *string
+	// pointer for a Cleanup field and overwrites its pointee in place when
+	// the local document also declares a cleanup: key. An alias snapshot
+	// would therefore already hold the local value by the time
+	// stripLocalCleanup (trust_strip.go) compares against it, silently
+	// letting an untrusted local override "restore" itself as if it were
+	// global -- the same pointer-reuse trap globalKeymaps/cfg.Keymaps = nil
+	// works around below, and the map analog of maps.Clone(cfg.Actions)
+	// above.
+	var globalCleanup *string
+	if cfg.Cleanup != nil {
+		v := *cfg.Cleanup
+		globalCleanup = &v
+	}
+
 	// Snapshot the global Keymaps by value and reset cfg.Keymaps to nil
 	// before the local unmarshal below. Keymaps has a custom UnmarshalYAML
 	// on a pointer field: if cfg.Keymaps were left non-nil here, a second
@@ -305,7 +334,10 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 		// walk decls carries isn't a safe strip-eligibility gate.
 		cfg.LocalHash = hashConfigBytes(localData)
 		if !trust.Trusts(cfg.LocalHash) {
-			stripLocalShellSinks(&cfg, decls, globalActions, globalColumns)
+			counts := stripLocalShellSinks(&cfg, decls, globalActions, globalColumns, globalCleanup)
+			if notice := buildStripNotice(counts); notice != "" {
+				cfg.Notices = append(cfg.Notices, notice)
+			}
 		}
 	}
 
