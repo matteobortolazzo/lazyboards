@@ -13,9 +13,9 @@ var helpDefaults = Table{
 	"q":    CommandBinding(CommandQuit),
 }
 
-// errorDefaults is the default ModeError table, transcribed from
-// errorMode's key switch (update.go). "q" reuses CommandQuit
-// (command.go) rather than an error-specific id (Q3/Q5).
+// errorDefaults is the default ModeError table, dispatched by
+// handleErrorModeKey/runErrorCommand. "q" reuses CommandQuit rather
+// than an error-specific id (Q3/Q5).
 var errorDefaults = Table{
 	"q": CommandBinding(CommandQuit),
 	"r": CommandBinding(CommandErrorRetry),

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
+	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 // --- Route the git panel through the registry (#511, PR 1/2) ---
@@ -1522,5 +1524,292 @@ func TestKeymapPanels_Help_HintKeysAlwaysDispatch(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// --- Route errorMode through the registry (#557) ---
+//
+// This is the RED step: it targets an API surface that does not exist yet --
+// b.errorHints, b.runErrorCommand -- so this file (and thus the package) is
+// expected to fail to compile until keymap_panels.go grows these building
+// blocks and mode_handlers.go grows handleErrorModeKey (a separate, later
+// delegation). Every test below enters errorMode the real way (a
+// boardFetchErrorMsg through b.Update, never a raw b.mode assignment) and
+// dispatches through the real b.Update()/sendKey path -- unlike PR 2/2's
+// dispatch/help-modal tests above, handleErrorModeKey is small enough (and
+// errorMode's boardFetchErrorMsg entry point simple enough) to exercise
+// end-to-end rather than by calling runErrorCommand directly.
+//
+// Per the plan's caveat: boardWithOverrideKeymap must be applied BEFORE
+// sending boardFetchErrorMsg -- withKeymap (keymap_dispatch.go) rebuilds and
+// re-sets normal hints, and applying it after entering errorMode would
+// clobber whatever error hints boardFetchErrorMsg's handler set. errorMode
+// is not in keymap's textInputModes, so remapping onto a printable letter
+// (e.g. "x") is safe.
+
+// enterErrorMode drives b through the real boardFetchErrorMsg transition
+// into errorMode, mirroring model_test.go's TestLoading_FetchError_*
+// pattern -- never a raw b.mode assignment.
+func enterErrorMode(t *testing.T, b Board) Board {
+	t.Helper()
+	m, _ := b.Update(boardFetchErrorMsg{err: errors.New("fail")})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update(boardFetchErrorMsg) returned %T, want Board", m)
+	}
+	return updated
+}
+
+// --- Error mode: panelBinding default-table resolution ---
+
+func TestKeymapPanels_Error_PanelBinding_DefaultKeysResolveToExpectedCommands(t *testing.T) {
+	b := enterErrorMode(t, newTestBoard(t))
+
+	cases := []struct {
+		msg  tea.KeyMsg
+		want keymap.CommandID
+	}{
+		{keyMsg("q"), keymap.CommandQuit},
+		{keyMsg("r"), keymap.CommandErrorRetry},
+	}
+	for _, tc := range cases {
+		binding, ok := b.panelBinding(keymap.ModeError, tc.msg)
+		if !ok {
+			t.Errorf("panelBinding(ModeError, %q) = not found, want command %v", tc.msg.String(), tc.want)
+			continue
+		}
+		if binding.Kind != keymap.BindingCommand || binding.Command != tc.want {
+			t.Errorf("panelBinding(ModeError, %q) = %+v, want command %v", tc.msg.String(), binding, tc.want)
+		}
+	}
+}
+
+// --- Error mode: errorHints() default parity ---
+//
+// The literal fixture below is transcribed from update.go's pre-#557 inline
+// []Hint{} literal (SetActionHints call in the boardFetchErrorMsg handler).
+var errorModalHintsDefault = []Hint{
+	{Key: "r", Desc: "Retry"},
+	{Key: "q", Desc: "Quit"},
+}
+
+func TestKeymapPanels_Error_DefaultParity_Hints(t *testing.T) {
+	b := enterErrorMode(t, newTestBoard(t))
+
+	assertHintsEqual(t, b.errorHints(), errorModalHintsDefault)
+}
+
+// --- Error mode: end-to-end default-key dispatch through b.Update ---
+
+func TestKeymapPanels_Error_EndToEnd_RetryTransitionsToLoadingMode(t *testing.T) {
+	b := enterErrorMode(t, newTestBoard(t))
+
+	m, cmd := b.Update(keyMsg("r"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != loadingMode {
+		t.Errorf("mode = %v after 'r' in errorMode, want loadingMode", b2.mode)
+	}
+	if cmd == nil {
+		t.Error("'r' in errorMode should return a non-nil Cmd (spinner tick + fetch)")
+	}
+	if b2.loadErr != "" {
+		t.Errorf("loadErr = %q after retry, want empty", b2.loadErr)
+	}
+}
+
+func TestKeymapPanels_Error_EndToEnd_QuitReturnsQuitCmd(t *testing.T) {
+	b := enterErrorMode(t, newTestBoard(t))
+
+	_, cmd := b.Update(keyMsg("q"))
+	if cmd == nil {
+		t.Error("'q' in errorMode should return a non-nil Cmd (tea.Quit)")
+	}
+}
+
+// --- Error mode: remap/unbind ---
+
+func TestKeymapPanels_Error_RemapRetryKey_OldDefaultKeyBecomesNoop(t *testing.T) {
+	b := boardWithOverrideKeymap(t, newTestBoard(t), map[keymap.Mode]keymap.Table{
+		keymap.ModeError: {
+			"r": keymap.UnboundBinding(),
+			"x": keymap.CommandBinding(keymap.CommandErrorRetry),
+		},
+	}, nil)
+	b = enterErrorMode(t, b)
+
+	m, _ := b.Update(keyMsg("r"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != errorMode {
+		t.Errorf("mode = %v after pressing the explicitly unbound 'r', want unchanged errorMode", b2.mode)
+	}
+
+	m, cmd := b2.Update(keyMsg("x"))
+	b3, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b3.mode != loadingMode {
+		t.Errorf("mode = %v after the remapped retry key 'x', want loadingMode", b3.mode)
+	}
+	if cmd == nil {
+		t.Error("the remapped retry key should return a non-nil Cmd")
+	}
+
+	hints := b2.errorHints()
+	foundNewKey := false
+	for _, h := range hints {
+		if strings.Contains(h.Key, "x") {
+			foundNewKey = true
+		}
+		if strings.Contains(h.Key, "r") {
+			t.Errorf("errorHints() Key = %q still advertises the unbound 'r', want it gone", h.Key)
+		}
+	}
+	if !foundNewKey {
+		t.Errorf("errorHints() = %+v, want a hint advertising the remapped key 'x'", hints)
+	}
+}
+
+// --- Error mode: hint<->dispatch invariant ---
+
+func TestKeymapPanels_Error_HintKeysAlwaysDispatch(t *testing.T) {
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{
+			name: "remapped and unbound table",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeError: {
+					"r": keymap.UnboundBinding(),
+					"x": keymap.CommandBinding(keymap.CommandErrorRetry),
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newTestBoard(t)
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+			b = enterErrorMode(t, b)
+
+			hints := b.errorHints()
+			if len(hints) == 0 {
+				t.Fatal("errorHints() returned no hints")
+			}
+			for _, h := range hints {
+				for _, key := range strings.Split(h.Key, "/") {
+					if key == "" {
+						continue
+					}
+					result := b.keys.Lookup(keymap.ModeError, "", keymap.Sequence{keymap.Key(key)})
+					if result.Outcome != keymap.OutcomeMatch {
+						t.Errorf("hint %+v: Lookup(ModeError, %q) outcome = %v, want OutcomeMatch (every rendered hint key must actually dispatch)", h, key, result.Outcome)
+					}
+				}
+			}
+		})
+	}
+}
+
+// --- Error mode: negative cases (Q4 explicit-risk coverage) ---
+//
+// Table-driven to control line count, mirroring keymap_modals_test.go's
+// filter-mode negative cases (:107-167): a pending-sequence prefix key, a
+// command id valid elsewhere in the catalogue but foreign to errorMode, and
+// an inline BindingAction (which errorMode has no dispatch path for) must
+// all be silent no-ops.
+
+func TestKeymapPanels_Error_PendingPrefixKeyIsNoOp(t *testing.T) {
+	b := boardWithOverrideKeymap(t, newTestBoard(t), map[keymap.Mode]keymap.Table{
+		keymap.ModeError: {"g x": keymap.CommandBinding(keymap.CommandErrorRetry)},
+	}, nil)
+	b = enterErrorMode(t, b)
+	loadErrBefore := b.loadErr
+
+	m, _ := b.Update(keyMsg("g"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != errorMode {
+		t.Errorf("mode = %v after pressing a pending-sequence prefix key, want errorMode (OutcomePending must be a no-op)", b2.mode)
+	}
+	if b2.loadErr != loadErrBefore {
+		t.Errorf("loadErr = %q after pressing a pending prefix key, want unchanged %q", b2.loadErr, loadErrBefore)
+	}
+}
+
+func TestKeymapPanels_Error_ForeignCommandIDIsNoOp(t *testing.T) {
+	b := boardWithOverrideKeymap(t, newTestBoard(t), map[keymap.Mode]keymap.Table{
+		keymap.ModeError: {"z": keymap.CommandBinding(keymap.CommandBoardRefresh)},
+	}, nil)
+	b = enterErrorMode(t, b)
+
+	m, _ := b.Update(keyMsg("z"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != errorMode {
+		t.Errorf("mode = %v after pressing a key bound to an out-of-domain command, want errorMode", b2.mode)
+	}
+	if b2.refreshing {
+		t.Error("refreshing = true after pressing a key bound to board.refresh inside errorMode, want false -- an unrecognized command id must not dispatch")
+	}
+}
+
+func TestKeymapPanels_Error_InlineActionBindingDoesNotDispatch(t *testing.T) {
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeError: {"z": keymap.ActionBinding(keymap.Action{Name: "Pwn", Type: "shell", Command: "echo pwned", Scope: "board"})},
+	}, nil)
+	b = enterErrorMode(t, b)
+
+	m, cmd := b.Update(keyMsg("z"))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	execCmds(cmd)
+
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("RunShell called %d times after pressing a key bound to an inline shell action inside errorMode, want 0 -- errorMode has no inline-action dispatch path and must not fire it: %v", len(fe.RunShellCalls), fe.RunShellCalls)
+	}
+	if b2.mode != errorMode {
+		t.Errorf("mode = %v after pressing a key bound to an inline action inside errorMode, want unchanged errorMode", b2.mode)
+	}
+}
+
+// --- Error mode: ctrl+c always quits, even under a fully overridden table ---
+
+func TestKeymapPanels_Error_CtrlCQuits_EvenWithFullyOverriddenTable(t *testing.T) {
+	b := boardWithOverrideKeymap(t, newTestBoard(t), map[keymap.Mode]keymap.Table{
+		keymap.ModeError: {
+			"r":      keymap.UnboundBinding(),
+			"q":      keymap.UnboundBinding(),
+			"ctrl+c": keymap.CommandBinding(keymap.CommandErrorRetry),
+		},
+	}, nil)
+	b = enterErrorMode(t, b)
+
+	// Attempt to steal ctrl+c for something else above -- update.go's global
+	// ctrl+c-always-quits check runs before any mode dispatch, so this must
+	// have no effect.
+	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Error("ctrl+c in errorMode should return a non-nil Cmd (tea.Quit), even with a fully overridden ModeError table")
 	}
 }

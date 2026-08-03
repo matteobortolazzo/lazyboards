@@ -3,10 +3,9 @@ package keymap
 import "fmt"
 
 // Mode identifies a resolvable key surface: a distinct handler in the
-// running app that owns a `switch msg.String()` dispatch today and will
-// route through Lookup once #489 wires this package in. Each constant's
-// doc comment names the handler it corresponds to (all in mode_handlers.go
-// unless noted).
+// running app that dispatches through Lookup. Each constant's doc comment
+// names the handler it corresponds to (all in mode_handlers.go unless
+// noted).
 type Mode string
 
 const (
@@ -22,8 +21,8 @@ const (
 	// ModeCreate is handleCreateModeKey, the card-creation form.
 	ModeCreate Mode = "create"
 
-	// ModeError is the errorMode key surface (update.go), reserved for
-	// future q/r bindings; it has no handler-side dispatch yet.
+	// ModeError is the errorMode key surface, handled by
+	// handleErrorModeKey.
 	ModeError Mode = "error"
 
 	// ModeConfig is handleConfigModeKey, the first-launch/config form.

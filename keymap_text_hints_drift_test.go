@@ -55,6 +55,11 @@ func TestTextCommandDescs_MatchHintBarWording(t *testing.T) {
 		// rather than hardcoded as "Continue / Confirm" -- renaming either
 		// step's hint must fail this test.
 		{"delete.submit", hintDesc(t, b.deleteCommentHints(), "enter") + " / " + hintDesc(t, b.deleteConfirmHints(), "enter")},
+
+		// #557: errorHints() is the registry-derived producer for errorMode's
+		// hint bar (keymap_panels_test.go).
+		{"error.retry", hintDesc(t, b.errorHints(), "r")},
+		{"app.quit", hintDesc(t, b.errorHints(), "q")},
 	}
 
 	for _, tc := range cases {

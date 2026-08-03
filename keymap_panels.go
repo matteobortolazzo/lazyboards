@@ -11,7 +11,8 @@ import (
 // (#511): the git menu (this PR, PR 1/2), and the dispatch/help modals (PR
 // 2/2). panelEntries/panelBinding/panelHintKey below are the shared,
 // mode-generic building blocks every command-panel mode dispatches through;
-// everything under "Git panel" is git-panel-specific.
+// everything under "Git panel" is git-panel-specific. #557 extends the seam
+// with the error mode ("Error mode" section at the end of this file).
 
 // panelEntries returns every resolved (sequence, binding) entry for mode's
 // global table -- command-panel modes are never column-scoped, so this is
@@ -369,4 +370,37 @@ func (b Board) runHelpCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 	return b, nil
+}
+
+// --- Error mode (#557) ---
+
+// errorHintSpecs curates the error mode's status-bar hints -- Retry, Quit --
+// transcribed from the pre-#557 inline []Hint literal in update.go's
+// boardFetchErrorMsg handler.
+var errorHintSpecs = []hintSpec{
+	{desc: "Retry", commands: []keymap.CommandID{keymap.CommandErrorRetry}},
+	{desc: "Quit", commands: []keymap.CommandID{keymap.CommandQuit}},
+}
+
+// errorHints derives the error mode's status-bar hint bar from the active
+// ModeError registry table, reusing builtinHints (shared with every other
+// command-panel mode in this file).
+func (b Board) errorHints() []Hint {
+	return builtinHints(b.panelEntries(keymap.ModeError), errorHintSpecs)
+}
+
+// runErrorCommand runs the error-mode command id resolves to. Case bodies
+// are transcribed verbatim from the pre-#557 errorMode switch msg.String()
+// (update.go), guard for guard.
+func (b Board) runErrorCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	switch id {
+	case keymap.CommandQuit:
+		return b, tea.Quit
+	case keymap.CommandErrorRetry:
+		b.mode = loadingMode
+		b.loadErr = ""
+		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
+	default:
+		return b, nil
+	}
 }
