@@ -623,7 +623,15 @@ func LocalExists(path string) bool {
 
 // Save writes provider and repo to the config file at path.
 // If the file already exists, it preserves existing fields (like actions).
-func Save(path, provider, repo string) error {
+//
+// trustPath, if non-empty, carries trust forward across the rewrite (#568):
+// when the pre-write file content was already trusted, the post-write
+// content is trusted too, so editing a config exclusively through the app's
+// own Save() path never silently drops back to untrusted. An untrusted (or
+// missing/malformed) pre-write file never gains trust as a side effect of
+// saving. Any error in that carry-forward step is swallowed -- the config
+// write itself has already succeeded and must not be failed by it.
+func Save(path, provider, repo, trustPath string) error {
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext != ".yml" && ext != ".yaml" {
 		return fmt.Errorf("config path %q must have .yml or .yaml extension", path)
@@ -634,15 +642,16 @@ func Save(path, provider, repo string) error {
 	// as an error avoids silently rewriting a truncated config (e.g. one
 	// whose keymaps: block failed to parse).
 	var cfg Config
-	data, err := os.ReadFile(path)
+	preData, err := os.ReadFile(path)
 	if err == nil {
-		if err := yaml.Unmarshal(data, &cfg); err != nil {
+		if err := yaml.Unmarshal(preData, &cfg); err != nil {
 			return fmt.Errorf("config %q: %w", path, err)
 		}
-		if _, err := assignActionOrder(data, &cfg); err != nil {
+		if _, err := assignActionOrder(preData, &cfg); err != nil {
 			return fmt.Errorf("config %q: %w", path, err)
 		}
 	}
+	hadPreData := err == nil
 
 	// Update provider and repo.
 	cfg.Provider = provider
@@ -653,7 +662,17 @@ func Save(path, provider, repo string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, out, 0600)
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		return err
+	}
+
+	if hadPreData && trustPath != "" {
+		preHash := hashConfigBytes(preData)
+		postHash := hashConfigBytes(out)
+		_ = carryTrustForward(trustPath, preHash, postHash)
+	}
+
+	return nil
 }
 
 // columnsByNameLower builds a lookup map of columns keyed by their

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	"gopkg.in/yaml.v3"
 )
 
@@ -92,6 +93,52 @@ func LoadTrust(path string) (Trust, error) {
 		return Trust{}, fmt.Errorf("trust file %s: %w", path, err)
 	}
 	return t, nil
+}
+
+// carryTrustForward carries trust forward across a Save()-initiated rewrite:
+// if the pre-write content (preHash) was already trusted, the post-write
+// content (postHash) becomes trusted too, so editing a config exclusively
+// through the app's own Save() path never silently drops back to untrusted.
+// If preHash was not trusted -- including because the store is empty,
+// missing, or malformed -- this never grants new trust; it only ever carries
+// forward trust that already existed. An empty trustPath means trust-carry
+// is disabled entirely (no I/O). Any error loading or saving the store is
+// swallowed: a broken trust store must never fail the config write itself,
+// it only means the carry-forward step is skipped this time.
+func carryTrustForward(trustPath, preHash, postHash string) error {
+	if trustPath == "" {
+		return nil
+	}
+
+	store, err := LoadTrust(trustPath)
+	if err != nil {
+		// Fail closed: a malformed/unreadable store is never rewritten. Log
+		// it (mirroring main.go's own startup LoadTrust fallback) so a
+		// broken trust store is debuggable instead of silently degrading
+		// every Save() carry-forward with no trace.
+		debuglog.Log(fmt.Sprintf("trust: carry-forward skipped, could not load trust store %s: %v", trustPath, err))
+		return nil
+	}
+	if !store.Trusts(preHash) {
+		return nil
+	}
+
+	updated := make([]TrustEntry, 0, len(store.Trusted))
+	seenPost := false
+	for _, entry := range store.Trusted {
+		if entry.Hash == preHash {
+			entry.Hash = postHash
+		}
+		if entry.Hash == postHash {
+			if seenPost {
+				continue // dedupe against a pre-existing postHash entry
+			}
+			seenPost = true
+		}
+		updated = append(updated, entry)
+	}
+
+	return SaveTrust(trustPath, Trust{Trusted: updated})
 }
 
 // SaveTrust writes t to path, creating the parent directory if needed. It
