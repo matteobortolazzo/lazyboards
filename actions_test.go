@@ -1507,3 +1507,31 @@ func TestAction_DetailFocused_PRScope_MultiplePRsOpensPicker(t *testing.T) {
 		t.Errorf("expected no RunShell calls yet (action pending PR selection), got %d", len(fe.RunShellCalls))
 	}
 }
+
+// TestDispatchExpandedAction_UnknownType_ShowsStatusMessage covers the
+// defensive fallthrough in dispatchExpandedAction's switch act.Type: neither
+// "url" nor "shell" is unreachable through a validated config (per
+// validateActionValue) but is reachable via a hand-built fixture (e.g.
+// config.KeymapFromLegacy) that bypasses validateActions. Mirrors
+// TestAction_PRActionKeyWithComment_ZeroPRs_ShowsStatusMessage's shape: call
+// the leaf handler directly to exercise the defensive branch and confirm it
+// surfaces the same kind of user-facing feedback as every other guard in
+// dispatchExpandedAction's family, instead of silently no-oping.
+func TestDispatchExpandedAction_UnknownType_ShowsStatusMessage(t *testing.T) {
+	act := config.Action{Name: "Mystery", Type: "not-a-real-type"}
+	b, fe := newActionTestBoard(t, nil)
+
+	m, cmd := b.dispatchExpandedAction(act, nil)
+	b = m.(Board)
+	execCmds(cmd)
+
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("expected no OpenURL calls for an unknown action type, got %d", len(fe.OpenURLCalls))
+	}
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("expected no RunShell calls for an unknown action type, got %d", len(fe.RunShellCalls))
+	}
+	if got := b.statusBar.View(200, 0, 0); !strings.Contains(got, "Unknown action type") {
+		t.Errorf("statusBar.View(200, 0, 0) = %q, want it to contain %q", got, "Unknown action type")
+	}
+}
