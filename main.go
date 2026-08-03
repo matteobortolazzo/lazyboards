@@ -176,6 +176,25 @@ func main() {
 		return
 	}
 
+	// Dispatch "trust"/"untrust" before any config load or provider setup
+	// (#568): these verbs only ever touch the local config file (read) and
+	// the trust store (read/write), so they must run ahead of
+	// debuglog.Init/config.DefaultGlobalPath/config.Load below, not thread
+	// through the normal startup flow.
+	if verb, ok := trustVerb(os.Args); ok {
+		dispatchTrustPath, err := config.DefaultTrustPath()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error resolving trust store path: %v\n", err)
+			os.Exit(1)
+		}
+		note, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error resolving working directory: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(runTrustVerb(verb, config.DefaultLocalPath, dispatchTrustPath, note, os.Stderr))
+	}
+
 	// Open the debug log before anything else that might need to log to it
 	// (e.g. the trust-store fallback below) -- Init only opens a file handle
 	// keyed off an env var, so moving it ahead of config/trust resolution is
