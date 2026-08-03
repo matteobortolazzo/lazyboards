@@ -13,7 +13,14 @@ import (
 
 // Hint represents a single key-description pair shown in the status bar.
 type Hint struct {
-	Key  string
+	// Key is exempt from sanitizeSingleLine: every Key value originates
+	// from a ParseKey-validated table entry (normalizeTable ->
+	// ParseSequence -> ParseKey), and a hostile key is rejected at startup
+	// (config.ResolveKeymap -> main.go's exit-1 path) before it can ever
+	// reach a hint bar.
+	Key string
+	// Desc can carry untrusted repo-local data (e.g. a config.Action.Name)
+	// and requires sanitizeSingleLine at its producers.
 	Desc string
 }
 

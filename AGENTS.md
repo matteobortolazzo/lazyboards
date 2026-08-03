@@ -47,7 +47,7 @@ Tests are split by domain to mirror production code:
 |-----------|----------|
 | `helpers_test.go` | Shared test infrastructure (board builders, key helpers, `execCmds`) |
 | `model_test.go` | Board init, structure, loading/error modes |
-| `update_test.go` | Quit, resize, config hint, number hint, status bar |
+| `update_test.go` | Quit, resize, config hint, number hint, status bar; `#547` adds `TestErrorHandlers_SanitizeUnclassifiedErrorText`, a table-driven test over `boardFetchErrorMsg`/`cardCreateErrorMsg`/`configSaveErrorMsg` asserting the stored `loadErr`/`validationErr` is flattened via `sanitizeSingleLine` (no newline, no ANSI escape byte) when `provider.SanitizeError` falls through to raw `err.Error()` |
 | `navigation_test.go` | Tab/item navigation, card list scroll, resize clamp, number keys |
 | `refresh_test.go` | Manual refresh, background refresh |
 | `metadata_cache_test.go` | Metadata refresh TTL gating logic |
@@ -67,7 +67,7 @@ Tests are split by domain to mirror production code:
 | `assign_mode_test.go` | Assign mode (assignee picker modal, collaborator list) |
 | `cenciwatch_test.go` | Agent status matching (window→card), badge rendering, agent counts, wire-format decoding |
 | `close_mode_test.go` | Close mode (close-confirm flow, target card resolution) |
-| `comment_mode_test.go` | Comment mode (alt-key trigger, immediate vs. deferred action execution); `#540` (PR 2/2) adds registry-routing coverage: default-parity `enter`/`esc` dispatch, remap/unbind, printable-rune passthrough, `commentHints()` default-parity and remap reflection, the hint<->dispatch invariant, `ctrl+c` quits, and the non-command-`BindingAction`/foreign-command-id fallthrough cases |
+| `comment_mode_test.go` | Comment mode (alt-key trigger, immediate vs. deferred action execution); `#540` (PR 2/2) adds registry-routing coverage: default-parity `enter`/`esc` dispatch, remap/unbind, printable-rune passthrough, `commentHints()` default-parity and remap reflection, the hint<->dispatch invariant, `ctrl+c` quits, and the non-command-`BindingAction`/foreign-command-id fallthrough cases; `#547` adds `TestCommentMode_ViewSanitizesHostileActionName`, asserting a `config.Action.Name` embedding a newline, an ANSI SGR escape, and a bidi-override rune renders through `viewCommentModal` as a single flattened, sanitized line |
 | `filter_mode_test.go` | Filter picker modal (collecting/deduplicating label & assignee filter items) |
 | `filter_test.go` | Active filter application (label/assignee matching, case sensitivity) |
 | `git_actions_test.go` | Git default actions vs. custom action resolution/hints |

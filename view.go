@@ -1284,7 +1284,10 @@ func (b Board) viewHelpModal() string {
 func (b Board) viewCommentModal() string {
 	modalWidth := b.createModalWidth()
 	commentHints := NewStatusBar(b.commentHints())
-	modalContent := b.comment.pendingAction.Name + "\n\n" +
+	// pendingAction.Name is a config.Action.Name -- repo-local .lazyboards.yml
+	// data, the same untrusted type #511 sanitizes at the git menu and help
+	// modal render sites.
+	modalContent := sanitizeSingleLine(b.comment.pendingAction.Name) + "\n\n" +
 		b.comment.input.View() + "\n\n" +
 		commentHints.View(modalWidth, 0, 0)
 	return b.renderModal(modalContent, modalWidth)

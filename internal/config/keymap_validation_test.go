@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -218,6 +219,53 @@ keymaps:
 	}
 	if !strings.Contains(err.Error(), "ctrl+c") {
 		t.Errorf("error = %q, want it to mention ctrl+c", err.Error())
+	}
+}
+
+// --- #547: hostile .lazyboards.yml keys fail startup, not silently render ---
+//
+// These pin the already-closed startup guarantee that makes Hint.Key exempt
+// from sanitization: every canonical table key passes through the single
+// construction boundary normalizeTable -> ParseSequence -> ParseKey, so a
+// hostile key never survives long enough to reach a rendered hint bar --
+// config.Load (and thus ResolveKeymap) fails first.
+
+// TestLoad_HostileKeymapKey_ControlByte_ReturnsError uses the standard YAML
+// double-quoted \xXX escape (rather than embedding a raw ESC byte in the Go
+// source or the YAML content) so the test file stays free of literal control
+// bytes.
+func TestLoad_HostileKeymapKey_ControlByte_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+keymaps:
+  normal:
+    "\x1B": board.refresh
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for a control-byte keymap key")
+	}
+	want := fmt.Sprintf("%q", "\x1b")
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to name the offending key as %s", err.Error(), want)
+	}
+}
+
+// TestLoad_HostileKeymapKey_BidiOverride_ReturnsError mirrors the
+// control-byte case above for a Unicode bidi-override key (U+202E), via the
+// YAML double-quoted \uXXXX escape.
+func TestLoad_HostileKeymapKey_BidiOverride_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+keymaps:
+  normal:
+    "\u202E": board.refresh
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for a bidi-override keymap key")
+	}
+	want := fmt.Sprintf("%q", "\u202e")
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to name the offending key as %s", err.Error(), want)
 	}
 }
 

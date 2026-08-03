@@ -329,6 +329,81 @@ func TestLookup_CtrlCOnlyShortCircuitsAsLastKey(t *testing.T) {
 	}
 }
 
+// TestLookup_BracketedPasteShapedKeyIsNoMatch pins the #547 whitespace
+// guard: a Key shaped like bubbletea's bracketed-paste wrapping ("[g d]",
+// a single Key containing an embedded space) can never appear in a
+// validated table -- ParseKey rejects any key containing a space -- but a
+// runtime Sequence is built directly from msg.String() with no validation
+// (keymap_panels.go, keymap_text.go). Lookup itself must refuse to resolve
+// such a Key rather than relying on the fact that no table entry could ever
+// match it by construction.
+func TestLookup_BracketedPasteShapedKeyIsNoMatch(t *testing.T) {
+	defaults := Tables{Modes: map[Mode]Table{
+		ModeNormal: {"g d": CommandBinding("go.down")},
+	}}
+	km := resolveOrFatal(t, defaults, Tables{})
+
+	result := km.Lookup(ModeNormal, "", Sequence{Key("[g d]")})
+	if result.Outcome != OutcomeNoMatch {
+		t.Fatalf("Lookup(Sequence{\"[g d]\"}) outcome = %v, want OutcomeNoMatch", result.Outcome)
+	}
+}
+
+// TestLookup_UnbracketedSpaceKeyNeverCollidesWithMultiKeySequence pins the
+// concrete collision the AC's "checked per-Key (never against
+// seq.String())" clause guards against, and is the case that actually fails
+// without the guard (unlike the bracket-wrapped case above, which can never
+// collide with a real canonical key by construction): a single Key whose
+// own string happens to equal a bound two-key canonical sequence --
+// Sequence{Key("g d")}, one Key containing an embedded space, as opposed to
+// the legitimate Sequence{Key("g"), Key("d")} -- must not resolve via
+// seq.String()'s naive space-join producing the same "g d" text a real
+// two-keypress sequence would. Today, before the guard, Lookup's
+// query := seq.String() collapses this one-Key sequence to the exact string
+// "g d" and incorrectly returns OutcomeMatch on the bound "go.down" command.
+func TestLookup_UnbracketedSpaceKeyNeverCollidesWithMultiKeySequence(t *testing.T) {
+	defaults := Tables{Modes: map[Mode]Table{
+		ModeNormal: {"g d": CommandBinding("go.down")},
+	}}
+	km := resolveOrFatal(t, defaults, Tables{})
+
+	result := km.Lookup(ModeNormal, "", Sequence{Key("g d")})
+	if result.Outcome != OutcomeNoMatch {
+		t.Fatalf("Lookup(Sequence{\"g d\"} as a single whitespace-bearing Key) outcome = %v, want OutcomeNoMatch (it must never collide with the bound two-key sequence \"g\" \"d\")", result.Outcome)
+	}
+}
+
+// TestLookup_WhitespaceBearingEarlierKeyStillQuitsOnCtrlC pins the mandatory
+// risk-coverage guard: the whitespace guard must sit AFTER the ctrl+c
+// short-circuit (which only inspects the sequence's last key), so a
+// whitespace-bearing key earlier in the sequence can never strand a user
+// without a way to quit.
+func TestLookup_WhitespaceBearingEarlierKeyStillQuitsOnCtrlC(t *testing.T) {
+	km := resolveOrFatal(t, Tables{}, Tables{})
+
+	result := km.Lookup(ModeNormal, "", Sequence{Key("[g d]"), Key("ctrl+c")})
+	if result.Outcome != OutcomeMatch || result.Binding.Command != CommandQuit {
+		t.Errorf("Lookup(Sequence{\"[g d]\", \"ctrl+c\"}) = %+v, want CommandBinding(CommandQuit)", result)
+	}
+}
+
+// TestLookup_LegitimateTwoKeySequenceStillResolves confirms the whitespace
+// guard is scoped to per-Key whitespace (never Sequence.String(), whose
+// space-joined canonical form is expected and legitimate): an ordinary
+// two-key sequence with no whitespace inside either individual Key still
+// resolves normally.
+func TestLookup_LegitimateTwoKeySequenceStillResolves(t *testing.T) {
+	defaults := Tables{Modes: map[Mode]Table{
+		ModeNormal: {"g r": CommandBinding("go.right")},
+	}}
+	km := resolveOrFatal(t, defaults, Tables{})
+
+	result := km.Lookup(ModeNormal, "", Sequence{Key("g"), Key("r")})
+	if result.Outcome != OutcomeMatch || result.Binding.Command != "go.right" {
+		t.Errorf("Lookup(Sequence{\"g\", \"r\"}) = %+v, want CommandBinding(\"go.right\")", result)
+	}
+}
+
 // TestLookup_PendingCandidatesStructurallyIdenticalForActionAndCommand pins
 // the outcome-purity design decision: a pending result mixing an
 // action-rhs and a command-rhs candidate under the same prefix carries no

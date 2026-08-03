@@ -402,3 +402,74 @@ func TestKeyPress_NoStickyMessage_NoOpDismiss(t *testing.T) {
 		t.Error("keypress 'q' should still perform its normal action (a non-nil tea.Quit cmd)")
 	}
 }
+
+// --- #547: error sinks flatten unclassified error text before storage ---
+//
+// boardFetchErrorMsg, cardCreateErrorMsg, and configSaveErrorMsg each store
+// provider.SanitizeError's output verbatim today: SanitizeError falls
+// through to raw err.Error() for any error type it doesn't classify, so
+// server-/network-controlled text (a newline plus an ANSI escape, here)
+// reaches b.loadErr/b.validationErr unsanitized and is later rendered
+// verbatim (view.go's error screen and the create/config modals).
+
+func TestErrorHandlers_SanitizeUnclassifiedErrorText(t *testing.T) {
+	hostileErr := errors.New("boom\n\x1b[31mred\x1b[0m")
+
+	cases := []struct {
+		name       string
+		msg        tea.Msg
+		getField   func(b Board) string
+		wantCmdNil bool
+	}{
+		{
+			name:     "boardFetchErrorMsg",
+			msg:      boardFetchErrorMsg{err: hostileErr},
+			getField: func(b Board) string { return b.loadErr },
+			// The non-refreshing branch (update.go) sets b.loadErr and
+			// returns nil -- no async follow-up work.
+			wantCmdNil: true,
+		},
+		{
+			name:     "cardCreateErrorMsg",
+			msg:      cardCreateErrorMsg{err: hostileErr},
+			getField: func(b Board) string { return b.validationErr },
+			// This handler returns the titleInput.Focus() cmd, so a non-nil
+			// cmd is the expected (and asserted) shape here.
+			wantCmdNil: false,
+		},
+		{
+			name:       "configSaveErrorMsg",
+			msg:        configSaveErrorMsg{err: hostileErr},
+			getField:   func(b Board) string { return b.validationErr },
+			wantCmdNil: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newLoadedTestBoard(t)
+			b.refreshing = false
+
+			m, cmd := b.Update(tc.msg)
+			updated, ok := m.(Board)
+			if !ok {
+				t.Fatalf("Update(%s) returned %T, want Board", tc.name, m)
+			}
+
+			if tc.wantCmdNil && cmd != nil {
+				t.Errorf("Update(%s) cmd = %v, want nil", tc.name, cmd)
+			}
+			if !tc.wantCmdNil && cmd == nil {
+				t.Errorf("Update(%s) cmd = nil, want a non-nil cmd", tc.name)
+			}
+
+			got := tc.getField(updated)
+			if strings.Contains(got, "\n") {
+				t.Errorf("%s stored field = %q, want no newline (sanitizeSingleLine must flatten it)", tc.name, got)
+			}
+			if strings.Contains(got, "\x1b") {
+				t.Errorf("%s stored field = %q, want no ANSI escape byte", tc.name, got)
+			}
+		})
+	}
+}

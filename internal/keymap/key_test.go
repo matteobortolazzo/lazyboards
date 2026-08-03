@@ -219,6 +219,43 @@ func assertParseKeyRejectsFormatRune(t *testing.T, s string) {
 	}
 }
 
+// AC1's ParseKey rejection threat set has six cases: control byte, ANSI CSI
+// escape sequence, bidi override (U+202E), zero-width space (U+200B),
+// invalid UTF-8, and a lone space (including the alt+-prefixed variant).
+// Bidi override and zero-width space are covered above by
+// TestParseKey_RejectsBidiOverride and TestParseKey_RejectsZeroWidthSpace;
+// invalid UTF-8 is covered below by TestParseKey_RejectsInvalidUTF8LeadByte
+// and TestParseKey_RejectsInvalidUTF8ContinuationByte; lone space is covered
+// by TestParseKey_RejectsLoneSpace and TestParseKey_RejectsAltSpace. This
+// ticket adds only the two remaining cases: control byte
+// (TestParseKey_RejectsControlByte) and ANSI CSI sequence
+// (TestParseKey_RejectsANSICSISequence).
+
+// TestParseKey_RejectsControlByte pins that a raw control byte -- here
+// \x1b (ESC), the introducer for both C0 escape sequences and standalone
+// C1-range bytes -- is rejected the same way as the other invisible/format
+// runes above, so it can never be canonicalized into a Key later rendered
+// in help/which-key labels.
+//
+// Uses assertParseKeyRejectsFormatRune (the %q-escaping variant), not
+// assertParseKeyRejects: the plain helper's raw strings.Contains check
+// against the unescaped "\x1b" byte would fail here, since the error
+// message embeds the key via %q, which escapes ESC rather than including
+// it literally.
+func TestParseKey_RejectsControlByte(t *testing.T) {
+	assertParseKeyRejectsFormatRune(t, "\x1b")
+}
+
+// TestParseKey_RejectsANSICSISequence pins that a full ANSI CSI escape
+// sequence -- here "\x1b[31m", an SGR color-setting sequence -- is rejected
+// as a whole, not just its leading ESC byte: ParseKey's single-rune branch
+// never matches a multi-byte string in the first place, so the multi-rune
+// rejection path covers this case the same as any other multi-character
+// non-notation string.
+func TestParseKey_RejectsANSICSISequence(t *testing.T) {
+	assertParseKeyRejectsFormatRune(t, "\x1b[31m")
+}
+
 // TestParseKey_AcceptsPrintableRune pins that an ordinary printable,
 // non-format rune still passes the single-rune branch after the
 // printability/Cf-category guard is added.
