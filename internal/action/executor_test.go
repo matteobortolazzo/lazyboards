@@ -218,22 +218,88 @@ func TestDefaultExecutor_OpenURL_RejectsInvalidScheme(t *testing.T) {
 }
 
 func TestDefaultExecutor_OpenURL_AcceptsHTTPAndHTTPSSchemes(t *testing.T) {
-	d := DefaultExecutor{}
-
+	// Asserts against the validator directly, not OpenURL: calling OpenURL
+	// with a real accepted URL actually spawns xdg-open (or the platform
+	// equivalent) and pops a real browser tab on a dev machine.
 	validURLs := []string{
 		"http://example.com",
 		"https://example.com/issues/42",
 	}
 
 	for _, u := range validURLs {
-		err := d.OpenURL(u)
-		// The underlying open/xdg-open/cmd binary may not exist in the test
-		// environment, so err may be non-nil -- what matters is that it is
-		// NOT the scheme-validation error, i.e. valid schemes reach the exec
-		// call instead of being rejected up front.
-		if errors.Is(err, errInvalidURLScheme) {
-			t.Errorf("OpenURL(%q) error = %v, want scheme validation to pass", u, err)
+		got, err := validateOpenURL(u)
+		if err != nil {
+			t.Errorf("validateOpenURL(%q) error = %v, want nil", u, err)
+			continue
 		}
+		if got != u {
+			t.Errorf("validateOpenURL(%q) = %q, want unmodified input %q", u, got, u)
+		}
+	}
+}
+
+// TestValidateOpenURL is the table-driven validator matrix for
+// validateOpenURL: exact case-insensitive http/https scheme, non-empty
+// hostname, and fail-closed on anything net/url.Parse can't make sense of.
+// This is the guard for the ticket's actual repro -- a repo-local keymap
+// action binding a URL containing shell metacharacters (&, |, ^, %, quotes)
+// must still be treated as inert data, never re-interpreted by a shell.
+func TestValidateOpenURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		// Accept: valid http/https URLs, including ones carrying shell
+		// metacharacters as inert path/query data.
+		{name: "http scheme", input: "http://example.com", wantErr: false},
+		{name: "https scheme with path", input: "https://example.com/issues/42", wantErr: false},
+		{name: "uppercase HTTPS scheme", input: "HTTPS://example.com", wantErr: false},
+		{name: "mixed-case scheme and host", input: "HtTp://Example.COM/x", wantErr: false},
+		{name: "ticket repro: shell metacharacters as inert path data", input: "https://example.invalid/&calc.exe", wantErr: false},
+		{name: "percent-encoded path and query", input: "https://example.com/p%20q?a=1&b=2#frag", wantErr: false},
+		{name: "shell metacharacters in path", input: "https://example.com/^|&", wantErr: false},
+		{name: "quotes in path", input: `https://example.com/"q"`, wantErr: false},
+		{name: "raw space in path", input: "https://example.com/a b", wantErr: false},
+		{name: "valid percent-escape reaching as data", input: "https://example.invalid/?x=%25TEMP%25", wantErr: false},
+		{name: "IDN unicode host", input: "https://exämple.de/ünicode", wantErr: false},
+		{name: "IDN punycode host", input: "https://xn--exmple-cua.de/x", wantErr: false},
+		{name: "userinfo in authority", input: "https://user:pass@example.com/x", wantErr: false},
+
+		// Reject: wrong/missing scheme, missing host, or malformed syntax.
+		{name: "file scheme", input: "file:///etc/passwd", wantErr: true},
+		{name: "javascript scheme", input: "javascript:alert(1)", wantErr: true},
+		{name: "protocol-relative", input: "//example.com", wantErr: true},
+		{name: "http missing host", input: "http://", wantErr: true},
+		{name: "https missing host", input: "https://", wantErr: true},
+		{name: "port-only authority", input: "http://:8080", wantErr: true},
+		{name: "opaque https (no authority)", input: "https:example.com", wantErr: true},
+		{name: "not a url", input: "not-a-url", wantErr: true},
+		{name: "flag-like string", input: "-rf", wantErr: true},
+		{name: "leading whitespace", input: " https://example.com", wantErr: true},
+		{name: "malformed percent-escape", input: "https://example.invalid/%TEMP%", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := validateOpenURL(tt.input)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("validateOpenURL(%q) error = nil, want non-nil", tt.input)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("validateOpenURL(%q) error = %v, want nil", tt.input, err)
+			}
+			// Locks in no-normalization: the validator must pass the URL
+			// through byte-for-byte, not rewrite/re-encode it.
+			if got != tt.input {
+				t.Errorf("validateOpenURL(%q) = %q, want unmodified input %q", tt.input, got, tt.input)
+			}
+		})
 	}
 }
 
