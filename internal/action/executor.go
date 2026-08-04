@@ -4,9 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/url"
 	"os/exec"
-	"runtime"
-	"strings"
 )
 
 // Executor defines methods for executing actions.
@@ -20,30 +19,33 @@ type Executor interface {
 type DefaultExecutor struct{}
 
 // errInvalidURLScheme is returned by OpenURL when the URL does not use the
-// http or https scheme.
+// http or https scheme, or does not carry a non-empty host.
 var errInvalidURLScheme = errors.New("invalid URL scheme")
 
-// isValidURLScheme reports whether url starts with http:// or https://.
-// Action templates can embed untrusted values (e.g. GitHub issue/PR URLs),
-// so OpenURL must reject anything else before shelling out to
-// open/xdg-open/cmd start.
-func isValidURLScheme(url string) bool {
-	return strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")
+// validateOpenURL parses raw and requires an exact (case-insensitive)
+// http or https scheme plus a non-empty hostname. Action templates can
+// embed untrusted values (e.g. GitHub issue/PR URLs), so OpenURL must
+// reject anything else before handing the URL to the platform opener. On
+// success it returns raw unmodified -- never u.String(), which would
+// re-encode IDN hosts and rewrite spaces, regressing Unicode domains.
+func validateOpenURL(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("%w: %q", errInvalidURLScheme, raw)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return "", fmt.Errorf("%w: %q", errInvalidURLScheme, raw)
+	}
+	return raw, nil
 }
 
 // OpenURL opens a URL in the system browser.
-func (d DefaultExecutor) OpenURL(url string) error {
-	if !isValidURLScheme(url) {
-		return fmt.Errorf("%w: %q", errInvalidURLScheme, url)
+func (d DefaultExecutor) OpenURL(rawURL string) error {
+	validated, err := validateOpenURL(rawURL)
+	if err != nil {
+		return err
 	}
-	switch runtime.GOOS {
-	case "darwin":
-		return exec.Command("open", url).Start()
-	case "windows":
-		return exec.Command("cmd", "/c", "start", "", url).Start()
-	default:
-		return exec.Command("xdg-open", url).Start()
-	}
+	return openBrowser(validated)
 }
 
 // RunShell executes a command via sh -c and returns stderr and error.
