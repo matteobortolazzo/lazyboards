@@ -30,7 +30,11 @@ tallied and stripped independently by `internal/config/trust_strip.go`'s
 
 `type: url` actions, and keymap bindings to a catalogued built-in command id,
 are never candidates for stripping — only `type: shell` is an executing
-construct. Stripping is decided by comparing the local value against a
+construct. That claim is sound only because `internal/action.OpenURL` is
+itself a non-shell sink on every platform (see `docs/shell-and-url-safety.md`;
+#576) — if it ever regressed to shelling out, an untrusted `type: url`
+binding would reopen the exact command-injection gap this trust model exists
+to close. Stripping is decided by comparing the local value against a
 snapshot of the *global* document taken before the local file was merged in:
 anything byte-identical to its global counterpart is genuinely global
 (inherited, not locally declared) and is left alone, whatever the local file's
