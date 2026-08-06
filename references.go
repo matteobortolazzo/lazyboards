@@ -185,17 +185,6 @@ func (b *Board) clearPendingRefs() {
 	b.pendingRefs = nil
 }
 
-// restoreRefHints restores the hint bar for the focus state the reference
-// navigation was triggered from (card list vs detail panel), mirroring
-// restoreSeqHints (action_dispatch.go).
-func (b *Board) restoreRefHints() {
-	if b.detailFocused {
-		b.rebuildDetailHints()
-		return
-	}
-	b.statusBar.SetActionHints(b.normalHints)
-}
-
 // handleReferenceNavKey is the shared nav.reference (default "g r") trigger
 // for normal mode and detail-focused mode: it parses the selected card's
 // body for #N references and, if any exist, enters the pending
@@ -224,12 +213,12 @@ func (b Board) handleReferenceNavKey() (tea.Model, tea.Cmd) {
 func (b Board) handlePendingRefKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyEsc {
 		b.clearPendingRefs()
-		b.restoreRefHints()
+		b.restoreFocusHints()
 		return b, nil
 	}
 	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
 		b.clearPendingRefs()
-		b.restoreRefHints()
+		b.restoreFocusHints()
 		cmd := b.statusBar.SetTimedMessage("Reference selection cancelled", StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
@@ -246,7 +235,7 @@ func (b Board) handlePendingRefKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	b.clearPendingRefs()
 	if !found {
-		b.restoreRefHints()
+		b.restoreFocusHints()
 		cmd := b.statusBar.SetTimedMessage("No reference bound to "+string(label), StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
