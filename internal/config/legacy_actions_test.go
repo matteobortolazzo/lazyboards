@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
@@ -570,6 +571,192 @@ repo: owner/repo
 	}
 }
 
+// TestLoad_Deprecations_SyntaxPresenceMatrix covers #585: the legacy
+// deprecation notice must trigger on legacy actions:/columns[].actions:
+// SYNTAX PRESENCE at the raw-YAML level, independently of whether any
+// derived binding survives translation or trust stripping -- not on
+// post-strip/post-merge map length, which is what today's
+// len(cfg.Actions) > 0 / len(col.Actions) > 0 checks actually measure.
+func TestLoad_Deprecations_SyntaxPresenceMatrix(t *testing.T) {
+	tests := []struct {
+		name             string
+		globalYAML       string
+		localYAML        string
+		wantDeprecations int
+	}{
+		{
+			name: "local actions: {} emits the notice (AC1)",
+			localYAML: `actions: {}
+`,
+			wantDeprecations: 1,
+		},
+		{
+			name: "local columns[].actions: {} emits the notice (AC3)",
+			localYAML: `columns:
+  - name: New
+    actions: {}
+`,
+			wantDeprecations: 1,
+		},
+		{
+			name: "local actions: (null) emits no notice (AC2)",
+			localYAML: `actions:
+`,
+			wantDeprecations: 0,
+		},
+		{
+			name: "local actions: ~ (null) emits no notice (AC2)",
+			localYAML: `actions: ~
+`,
+			wantDeprecations: 0,
+		},
+		{
+			name: "local columns[].actions: (null) emits no notice (AC2)",
+			localYAML: `columns:
+  - name: New
+    actions:
+`,
+			wantDeprecations: 0,
+		},
+		{
+			name: "global actions: {} with no local config emits the notice (pins the previously-discarded global assignActionOrder walk result)",
+			globalYAML: `actions: {}
+`,
+			wantDeprecations: 1,
+		},
+		{
+			name: "global non-empty actions: + local keymaps: shadowing every derived key in normal/detail still emits the notice (AC5)",
+			globalYAML: `actions:
+  P:
+    name: Push
+    type: shell
+    command: "git push"
+    scope: board
+`,
+			localYAML: `keymaps:
+  normal:
+    P: card.new
+  detail:
+    P: card.new
+`,
+			wantDeprecations: 1,
+		},
+		{
+			name: "global actions: {} + local columns[].actions: {} emits exactly one notice, not two (AC7)",
+			globalYAML: `actions: {}
+`,
+			localYAML: `columns:
+  - name: New
+    actions: {}
+`,
+			wantDeprecations: 1,
+		},
+		{
+			name: "local merge-key-smuggled actions: still emits the notice via the decoded-map half of the presence union",
+			localYAML: `.x: &b
+  actions:
+    X: {name: Smuggled, type: url, url: "https://example.com"}
+<<: *b
+`,
+			wantDeprecations: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := loadConfigFromStrings(t, tc.globalYAML, tc.localYAML)
+			if err != nil {
+				t.Fatalf("Load() returned unexpected error: %v", err)
+			}
+			if len(cfg.Deprecations) != tc.wantDeprecations {
+				t.Errorf("Deprecations = %v (len %d), want len %d", cfg.Deprecations, len(cfg.Deprecations), tc.wantDeprecations)
+			}
+		})
+	}
+}
+
+// TestLoad_Deprecations_UntrustedShellOnlyLegacyBlockEmitsStripAndDeprecation
+// covers AC4: an untrusted top-level actions: block containing only
+// type: shell entries gets emptied by trust stripping before translation,
+// but the legacy actions: SYNTAX was still present in the raw local
+// document -- the user must still learn to migrate it, not just that a
+// shell command was stripped. Both notices must be present, and distinct:
+// the strip notice explains why the action is gone, the deprecation notice
+// explains that the syntax itself needs migrating.
+func TestLoad_Deprecations_UntrustedShellOnlyLegacyBlockEmitsStripAndDeprecation(t *testing.T) {
+	localYAML := `provider: github
+repo: owner/repo
+actions:
+  L:
+    name: Local Legacy Shell
+    type: shell
+    command: "rm -rf /"
+`
+	cfg, err := loadConfigFromStringsWithTrust(t, "", localYAML, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(cfg.Deprecations) != 1 {
+		t.Fatalf("Deprecations = %v, want exactly 1: an untrusted shell-only legacy actions: block is still deprecated syntax even after trust stripping empties it (AC4)", cfg.Deprecations)
+	}
+	if len(cfg.Notices) != 1 {
+		t.Fatalf("Notices = %v, want exactly 1 (the trust-strip notice)", cfg.Notices)
+	}
+	if strings.Contains(cfg.Deprecations[0], cfg.Notices[0]) || strings.Contains(cfg.Notices[0], cfg.Deprecations[0]) {
+		t.Errorf("Deprecations[0] = %q and Notices[0] = %q, want textually distinct messages", cfg.Deprecations[0], cfg.Notices[0])
+	}
+	if _, exists := cfg.Actions["L"]; exists {
+		t.Error("cfg.Actions[\"L\"] survived untrusted stripping: the stripped shell action must not be resurrected to fake presence")
+	}
+}
+
+// TestLoad_Deprecations_UntrustedShellOnlyColumnActionsEmitsStripAndDeprecation
+// is the per-column analog: stripShellFromActions resets a column's
+// Actions field to nil (not an empty map) once stripping empties it
+// entirely, so this exercises a distinct code path from the top-level case
+// above -- the column's post-strip len(Actions) == 0 with Actions == nil,
+// exactly like a column that never declared actions: at all.
+func TestLoad_Deprecations_UntrustedShellOnlyColumnActionsEmitsStripAndDeprecation(t *testing.T) {
+	localYAML := `provider: github
+repo: owner/repo
+columns:
+  - name: Refined
+    actions:
+      L:
+        name: Local Column Legacy Shell
+        type: shell
+        command: "rm -rf /"
+`
+	cfg, err := loadConfigFromStringsWithTrust(t, "", localYAML, Trust{})
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+
+	if len(cfg.Deprecations) != 1 {
+		t.Fatalf("Deprecations = %v, want exactly 1: an untrusted shell-only columns[].actions: block is still deprecated syntax even after trust stripping resets it to nil (AC4)", cfg.Deprecations)
+	}
+	if len(cfg.Notices) != 1 {
+		t.Fatalf("Notices = %v, want exactly 1 (the trust-strip notice)", cfg.Notices)
+	}
+	if strings.Contains(cfg.Deprecations[0], cfg.Notices[0]) || strings.Contains(cfg.Notices[0], cfg.Deprecations[0]) {
+		t.Errorf("Deprecations[0] = %q and Notices[0] = %q, want textually distinct messages", cfg.Deprecations[0], cfg.Notices[0])
+	}
+
+	var refined *ColumnConfig
+	for i := range cfg.Columns {
+		if cfg.Columns[i].Name == "Refined" {
+			refined = &cfg.Columns[i]
+		}
+	}
+	if refined == nil {
+		t.Fatalf("cfg.Columns has no %q entry: %+v", "Refined", cfg.Columns)
+	}
+	if _, exists := refined.Actions["L"]; exists {
+		t.Error("Refined column's Actions[\"L\"] survived untrusted stripping: the stripped shell action must not be resurrected to fake presence")
+	}
+}
+
 // --- A4: insertLegacyActions must stamp the top-level KeymapBinding.Order too ---
 
 // TestInsertLegacyActions_StampsKeymapBindingOrder pins the config-layer
@@ -659,7 +846,10 @@ func TestKeymapFromLegacy_EquivalentToResolveKeymapOfSameConfig(t *testing.T) {
 	}
 
 	cfg := &Config{Actions: actions, Columns: columns}
-	translateLegacyActions(cfg)
+	// No YAML document backs this literal Config, so legacyDeclared is
+	// false here too -- mirroring KeymapFromLegacy's own call, which this
+	// test compares against.
+	translateLegacyActions(cfg, false)
 	wantKM, err := ResolveKeymap(cfg)
 	if err != nil {
 		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)

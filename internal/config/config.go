@@ -239,13 +239,16 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Config{}, err
 	}
+	var globalDecls localDecls
 	if err == nil {
 		if err := yaml.Unmarshal(globalData, &cfg); err != nil {
 			return Config{}, err
 		}
-		if _, err := assignActionOrder(globalData, &cfg); err != nil {
+		d, err := assignActionOrder(globalData, &cfg)
+		if err != nil {
 			return Config{}, err
 		}
+		globalDecls = d
 	}
 
 	// Identity fields (provider, repo, project) only come from local config,
@@ -396,7 +399,7 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 		return Config{}, err
 	}
 
-	translateLegacyActions(&cfg)
+	translateLegacyActions(&cfg, globalDecls.LegacyBlock || decls.LegacyBlock)
 
 	// validateKeymapActions must run before validateScopeConflicts: it
 	// infers and writes back the default scope for natively-declared
@@ -458,6 +461,15 @@ type localDecls struct {
 	// actions: mapping declares (nil if the document has none, or declares
 	// no actions: block at all).
 	ActionKeys map[string]bool
+	// LegacyBlock reports whether this document's own raw YAML declares a
+	// legacy actions: or columns[].actions: block at all -- a real mapping
+	// node (including an explicit, empty `actions: {}`), never a `!!null`
+	// scalar (`actions:`/`actions: ~`). This is a cosmetic notice signal
+	// only (see legacyDeprecationNotice, legacy_actions.go): it feeds
+	// translateLegacyActions' deprecation-notice presence check and must
+	// never be consulted as a strip/security gate the way ActionKeys
+	// explicitly is not (see stripShellFromActions, trust_strip.go).
+	LegacyBlock bool
 }
 
 // assignActionOrder parses data a second time as a yaml.Node tree and stamps
@@ -514,6 +526,13 @@ func assignActionOrder(data []byte, cfg *Config) (localDecls, error) {
 		decls.ActionKeys = stampActionOrder(actionsNode, cfg.Actions)
 	}
 
+	// Legacy-block presence (decls.LegacyBlock) is a separate concern from
+	// the Order-stamping this loop otherwise performs: it's about raw-syntax
+	// presence (did this document write a real actions: mapping node at all,
+	// including an explicit empty one), not about stamping Action.Order onto
+	// already-decoded map entries. Both concerns walk the same columns tree,
+	// so they share this one pass rather than each re-walking it separately.
+	decls.LegacyBlock = isLegacyActionsBlock(actionsNode)
 	if columnsNode != nil && columnsNode.Kind == yaml.SequenceNode {
 		for i, colNode := range columnsNode.Content {
 			if i >= len(cfg.Columns) || colNode.Kind != yaml.MappingNode {
@@ -524,6 +543,9 @@ func assignActionOrder(data []byte, cfg *Config) (localDecls, error) {
 				value := colNode.Content[j+1]
 				if key.Value == "actions" {
 					stampActionOrder(value, cfg.Columns[i].Actions)
+					if isLegacyActionsBlock(value) {
+						decls.LegacyBlock = true
+					}
 				}
 			}
 		}
@@ -534,6 +556,15 @@ func assignActionOrder(data []byte, cfg *Config) (localDecls, error) {
 	}
 
 	return decls, nil
+}
+
+// isLegacyActionsBlock reports whether node is a real, declared actions:
+// mapping node -- true for an explicit empty block (`actions: {}`) as well
+// as a populated one, but false for a `!!null` scalar node (`actions:` or
+// `actions: ~`, which is never a declaration) or a nil node (key absent
+// entirely).
+func isLegacyActionsBlock(node *yaml.Node) bool {
+	return node != nil && node.Kind == yaml.MappingNode
 }
 
 // nodeKeysInOrder returns node's top-level mapping keys in document order,
