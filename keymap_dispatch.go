@@ -260,7 +260,10 @@ func (b Board) eligibleCandidates(cands []keymap.Candidate) []keymap.Candidate {
 
 // seqHints builds the which-key style hint bar for a pending sequence: one
 // hint per eligible candidate (full canonical key sequence + description),
-// then esc to cancel.
+// then esc to cancel. The trailing "esc" hint is an intentional hard-wired
+// exception (#583 audit) -- handlePendingSeqKey branches on tea.KeyEsc
+// directly with no catalogued command behind it, the same class of hard-wire
+// as Lookup's ctrl+c short-circuit (internal/keymap/lookup.go).
 func seqHints(cands []keymap.Candidate) []Hint {
 	hints := make([]Hint, 0, len(cands)+1)
 	for _, c := range cands {
@@ -450,6 +453,18 @@ func commandHintKeys(entries []keymap.Entry, id keymap.CommandID) []string {
 		return filtered[i] < filtered[j]
 	})
 	return filtered
+}
+
+// commandInstructionKey returns the single best display key bound to id,
+// glyph-substituted, or "" when unbound. Unlike textHintKey it does NOT drop
+// multi-key sequences: normal mode's pending-sequence which-key flow can
+// dispatch them, so a "g f" remap is a truthful instruction here.
+func commandInstructionKey(entries []keymap.Entry, id keymap.CommandID) string {
+	keys := commandHintKeys(entries, id)
+	if len(keys) == 0 {
+		return ""
+	}
+	return glyphOrKey(keys[0])
 }
 
 // builtinHints renders specs against entries into their Hint entries, in
