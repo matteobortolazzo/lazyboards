@@ -381,6 +381,32 @@ func (b Board) helpColumnActionRows() string {
 	return "\nCustom Actions\n" + sb.String()
 }
 
+// helpUsageDetailFocusLine renders "  Press l or → to view card details.\n"
+// from nav.detail_focus resolved against the effective normal-mode table for
+// the active column, or "" when nothing is bound. Keys stay lowercase and
+// glyph-substituted via helpKeysForCommand, matching every other help-modal
+// row -- with one historical exception: this sentence's shipped default
+// wording (AC8, byte-identical output) predates arrowGlyphs and rendered a
+// right-bound key as U+2192 "→", not arrowGlyphs' "▶" (the glyph every other
+// help row renders for the same nav.detail_focus command, e.g. the Normal
+// Mode section's "l/▶" row). Substituting "▶" back to "→" here is what keeps
+// this one sentence byte-identical to today; no other help surface gets it.
+func (b Board) helpUsageDetailFocusLine() string {
+	entries := b.keys.Entries(keymap.ModeNormal, b.activeColumnTitle())
+	keys := helpKeysForCommand(entries, keymap.CommandNavDetailFocus)
+	if len(keys) == 0 {
+		return ""
+	}
+	rendered := make([]string, len(keys))
+	for i, k := range keys {
+		if k == arrowGlyphs["right"] {
+			k = "→"
+		}
+		rendered[i] = k
+	}
+	return "  Press " + strings.Join(rendered, " or ") + " to view card details.\n"
+}
+
 // buildHelpContent renders the full help modal body: one section per
 // helpModeSections entry (omitted when it has no rows at all -- e.g. every
 // binding in the mode was unbound), then the registry-derived Custom
@@ -422,7 +448,7 @@ func (b Board) buildHelpContent() string {
 	// Usage.
 	sb.WriteString("\nUsage\n")
 	sb.WriteString("  Columns represent board states (e.g., New, Implementing).\n")
-	sb.WriteString("  Press l or \u2192 to view card details.\n")
+	sb.WriteString(b.helpUsageDetailFocusLine())
 	sb.WriteString("  Custom actions are configured in .lazyboards.yml.\n")
 
 	return sb.String()
