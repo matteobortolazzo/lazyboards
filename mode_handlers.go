@@ -422,11 +422,13 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	case keymap.OutcomeMatch:
 		if result.Binding.Kind != keymap.BindingCommand {
-			// A user config can legally bind an inline action inside
-			// keymaps.filter (validation is not mode-scoped); this modal has
-			// no inline-action dispatch path, so treat anything that isn't a
-			// built-in command as a no-op instead of falling through to the
-			// zero-value Command case below.
+			// config load now rejects an inline action bound inside
+			// keymaps.filter (validateModeCapabilities, #577); this guard is
+			// defense-in-depth for hand-built keymaps that bypass config
+			// validation (e.g. boardWithOverrideKeymap in tests) -- this modal
+			// has no inline-action dispatch path, so treat anything that
+			// isn't a built-in command as a no-op instead of falling through
+			// to the zero-value Command case below.
 			return b, nil
 		}
 		if cmd, ok := b.universalDispatch(result.Binding); ok {
@@ -450,9 +452,11 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keymap.CommandFilterPrev:
 			b.filterMoveUp()
 		default:
-			// Q4: a command id from a different domain (e.g. a stray
-			// override binding board.refresh here) is not recognized inside
-			// filter mode and must not dispatch.
+			// Q4: config load now rejects a command id from a different
+			// domain (e.g. a stray override binding board.refresh here)
+			// inside keymaps.filter (validateModeCapabilities, #577); this
+			// default case is defense-in-depth for hand-built keymaps that
+			// bypass config validation and must not dispatch.
 		}
 	}
 	return b, nil
@@ -467,11 +471,13 @@ func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	case keymap.OutcomeMatch:
 		if result.Binding.Kind != keymap.BindingCommand {
-			// A user config can legally bind an inline action inside
-			// keymaps.assign (validation is not mode-scoped); this modal has
-			// no inline-action dispatch path, so treat anything that isn't a
-			// built-in command as a no-op instead of falling through to the
-			// zero-value Command case below.
+			// config load now rejects an inline action bound inside
+			// keymaps.assign (validateModeCapabilities, #577); this guard is
+			// defense-in-depth for hand-built keymaps that bypass config
+			// validation (e.g. boardWithOverrideKeymap in tests) -- this modal
+			// has no inline-action dispatch path, so treat anything that
+			// isn't a built-in command as a no-op instead of falling through
+			// to the zero-value Command case below.
 			return b, nil
 		}
 		if cmd, ok := b.universalDispatch(result.Binding); ok {
@@ -512,9 +518,11 @@ func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keymap.CommandAssignPrev:
 			b.assign.cursor = moveCursor(b.assign.cursor, len(b.assign.items), false)
 		default:
-			// Q4: a command id from a different domain (e.g. a stray
-			// override binding board.refresh here) is not recognized inside
-			// assign mode and must not dispatch.
+			// Q4: config load now rejects a command id from a different
+			// domain (e.g. a stray override binding board.refresh here)
+			// inside keymaps.assign (validateModeCapabilities, #577); this
+			// default case is defense-in-depth for hand-built keymaps that
+			// bypass config validation and must not dispatch.
 		}
 	}
 	return b, nil
@@ -629,8 +637,10 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	case keymap.OutcomeMatch:
 		if result.Binding.Kind != keymap.BindingCommand {
-			// A user config can legally bind an inline action inside
-			// keymaps.pr_picker (validation is not mode-scoped); this modal
+			// config load now rejects an inline action bound inside
+			// keymaps.pr_picker (validateModeCapabilities, #577); this guard
+			// is defense-in-depth for hand-built keymaps that bypass config
+			// validation (e.g. boardWithOverrideKeymap in tests) -- this modal
 			// has no inline-action dispatch path, so treat anything that
 			// isn't a built-in command as a no-op instead of falling through
 			// to the zero-value Command case below.
@@ -670,9 +680,11 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened PR #%d", pr.Number), StatusSuccess, statusMessageDuration)
 			return b, cmd
 		default:
-			// Q4: a command id from a different domain (e.g. a stray
-			// override binding board.refresh here) is not recognized inside
-			// the PR picker and must not dispatch.
+			// Q4: config load now rejects a command id from a different
+			// domain (e.g. a stray override binding board.refresh here)
+			// inside keymaps.pr_picker (validateModeCapabilities, #577); this
+			// default case is defense-in-depth for hand-built keymaps that
+			// bypass config validation and must not dispatch.
 		}
 	}
 	return b, nil
@@ -728,9 +740,11 @@ func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keymap.CommandPRListPrev:
 			b.prList.cursor = moveCursor(b.prList.cursor, len(b.prList.entries), false)
 		default:
-			// Q4: a command id from a different domain (e.g. a stray
-			// override binding board.refresh here) is not recognized inside
-			// the PR list and must not dispatch.
+			// Q4: config load now rejects a command id from a different
+			// domain (e.g. a stray override binding board.refresh here)
+			// inside keymaps.pr_list (validateModeCapabilities, #577); this
+			// default case is defense-in-depth for hand-built keymaps that
+			// bypass config validation and must not dispatch.
 		}
 	}
 	return b, nil
@@ -766,11 +780,13 @@ func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	case keymap.OutcomeMatch:
 		if result.Binding.Kind != keymap.BindingCommand {
-			// A user config can legally bind an inline action inside
-			// keymaps.milestone_list (validation is not mode-scoped); this
-			// modal has no inline-action dispatch path, so treat anything
-			// that isn't a built-in command as a no-op instead of falling
-			// through to the zero-value Command case below.
+			// config load now rejects an inline action bound inside
+			// keymaps.milestone_list (validateModeCapabilities, #577); this
+			// guard is defense-in-depth for hand-built keymaps that bypass
+			// config validation (e.g. boardWithOverrideKeymap in tests) --
+			// this modal has no inline-action dispatch path, so treat
+			// anything that isn't a built-in command as a no-op instead of
+			// falling through to the zero-value Command case below.
 			return b, nil
 		}
 		if cmd, ok := b.universalDispatch(result.Binding); ok {
@@ -813,9 +829,11 @@ func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened milestone %s", title), StatusSuccess, statusMessageDuration)
 			return b, cmd
 		default:
-			// Q4: a command id from a different domain (e.g. a stray
-			// override binding board.refresh here) is not recognized inside
-			// the Milestones modal and must not dispatch.
+			// Q4: config load now rejects a command id from a different
+			// domain (e.g. a stray override binding board.refresh here)
+			// inside keymaps.milestone_list (validateModeCapabilities, #577);
+			// this default case is defense-in-depth for hand-built keymaps
+			// that bypass config validation and must not dispatch.
 		}
 	}
 	return b, nil
@@ -875,8 +893,10 @@ func (b Board) handleAgentListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	case keymap.OutcomeMatch:
 		if result.Binding.Kind != keymap.BindingCommand {
-			// A user config can legally bind an inline action inside
-			// keymaps.agent_list (validation is not mode-scoped); this modal
+			// config load now rejects an inline action bound inside
+			// keymaps.agent_list (validateModeCapabilities, #577); this guard
+			// is defense-in-depth for hand-built keymaps that bypass config
+			// validation (e.g. boardWithOverrideKeymap in tests) -- this modal
 			// has no inline-action dispatch path, so treat anything that
 			// isn't a built-in command as a no-op instead of falling through
 			// to the zero-value Command case below.
@@ -908,9 +928,11 @@ func (b Board) handleAgentListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keymap.CommandAgentListPrev:
 			b.agentList.cursor = moveCursor(b.agentList.cursor, len(entries), false)
 		default:
-			// Q4: a command id from a different domain (e.g. a stray
-			// override binding board.refresh here) is not recognized inside
-			// the agents list and must not dispatch.
+			// Q4: config load now rejects a command id from a different
+			// domain (e.g. a stray override binding board.refresh here)
+			// inside keymaps.agent_list (validateModeCapabilities, #577);
+			// this default case is defense-in-depth for hand-built keymaps
+			// that bypass config validation and must not dispatch.
 		}
 	}
 	return b, nil

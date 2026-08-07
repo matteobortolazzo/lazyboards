@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -890,5 +892,65 @@ func TestHelpUsage_DetailFocusColumnOverridden_UsesActiveColumnTable(t *testing.
 	}
 	if strings.Contains(content, "Press l or → to view card details.") {
 		t.Errorf("buildHelpContent() Usage sentence still advertises the global default l/right keys after the active column overrode nav.detail_focus, got:\n%s", content)
+	}
+}
+
+// --- End-to-end: Help cannot show a binding config load rejects (#577, AC 9) ---
+//
+// #577's internal/config.validateModeCapabilities (keymap_semantic_validate.go)
+// hard-fails Load() for a keymaps.<mode>.<key> binding its mode can never
+// dispatch, before ResolveKeymap or buildHelpContent ever run. These two
+// tests prove that guarantee across the real package boundary main.go's
+// startup sequence crosses (config.Load -> config.ResolveKeymap ->
+// withKeymap -> buildHelpContent), not just within internal/config's own
+// unit tests (internal/config/keymap_capability_validation_test.go) --
+// mirroring the file header's stated RED-phase intent for this file (#550)
+// applied to #577's own AC.
+
+// TestHelpEndToEnd_RejectedBindingNeverReachesLoad is the negative half:
+// board.refresh is catalogued but foreign to keymaps.filter (filter's own
+// defaults table never binds it, and it isn't the universal app.quit), so
+// config.Load itself must fail -- proving Help can never even be asked to
+// render this binding, since newKeymapConfigLoadedTestBoard's whole
+// pipeline (config.Load -> NewBoard -> config.ResolveKeymap -> withKeymap)
+// never completes.
+func TestHelpEndToEnd_RejectedBindingNeverReachesLoad(t *testing.T) {
+	dir := t.TempDir()
+	localPath := filepath.Join(dir, "local.yml")
+	localYAML := `keymaps:
+  filter:
+    z: board.refresh
+`
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+	globalPath := filepath.Join(dir, "nonexistent-global.yml")
+
+	_, err := config.Load(globalPath, localPath, trustingLocal(t, localPath))
+	if err == nil {
+		t.Fatal("config.Load() returned nil error, want a mode-capability rejection for keymaps.filter.z: board.refresh (filter never dispatches board.refresh) -- Load must fail before ResolveKeymap/buildHelpContent ever see this binding")
+	}
+	if !strings.Contains(err.Error(), "keymaps.filter") {
+		t.Errorf("config.Load() error = %q, want it to name keymaps.filter", err.Error())
+	}
+}
+
+// TestHelpEndToEnd_AcceptedBindingReachesHelp is the positive control: a
+// filter-appropriate command (filter.select, rebound onto the named key
+// "f1" so its row is easy to isolate from the default "enter" binding)
+// loads cleanly through the same real pipeline and appears in the rendered
+// Filter section -- proving the negative test above isn't vacuously
+// passing for an unrelated reason (a YAML syntax error, a missing section,
+// etc.).
+func TestHelpEndToEnd_AcceptedBindingReachesHelp(t *testing.T) {
+	b := newKeymapConfigLoadedTestBoard(t, `keymaps:
+  filter:
+    f1: filter.select
+`)
+
+	content := b.buildHelpContent()
+	filterSection := helpSectionBody(t, content, "Filter")
+	if !strings.Contains(filterSection, "f1") {
+		t.Errorf("buildHelpContent() Filter section should render the accepted keymaps.filter.f1: filter.select binding, got:\n%s", filterSection)
 	}
 }
