@@ -62,6 +62,21 @@ func legacySequence(key string) string {
 // mere presence, not whether translation happened to insert anything; none
 // is appended for a keymaps:-only (or actions-free) config.
 //
+// Presence is a union of two independent sources, since neither alone
+// suffices (#585):
+//   - legacyDeclared, the caller-supplied raw-node-walk result
+//     (assignActionOrder's localDecls.LegacyBlock, unioned across the
+//     global and local documents in Load()) sees a legacy block whose
+//     decoded map ends up empty -- an explicit `actions: {}`/
+//     `columns[].actions: {}`, or an untrusted local shell-only block that
+//     stripLocalShellSinks has already emptied by the time this function
+//     runs -- cases the decoded map can no longer see;
+//   - len(cfg.Actions) > 0 (and, in the column loop below, a column's own
+//     len(col.Actions) > 0) sees a legacy block the raw-node walk can't:
+//     one smuggled in via a YAML merge key/alias (`base: &b {actions:...}`
+//     plus `<<: *b`), which never appears as a literal `actions:` key
+//     during a raw-node walk of the document.
+//
 // Precondition: this must run after validateActions/validateColumns (see
 // Load() in config.go), since legacySequence assumes every legacy key was
 // already validated to be non-empty with every continuation rune a letter
@@ -70,8 +85,8 @@ func legacySequence(key string) string {
 // not-yet-scope-inferred) keys. It must also run before validateKeymap, so
 // the unified prefix/ctrl+c checks see legacy-derived entries alongside
 // native keymaps: ones in the same resolved namespace.
-func translateLegacyActions(cfg *Config) {
-	legacyPresent := len(cfg.Actions) > 0
+func translateLegacyActions(cfg *Config, legacyDeclared bool) {
+	legacyPresent := legacyDeclared || len(cfg.Actions) > 0
 
 	if len(cfg.Actions) > 0 {
 		if cfg.Keymaps == nil {
@@ -193,6 +208,12 @@ func insertLegacyActions(table KeymapTable, legacyActions map[string]Action) {
 // pipeline main.go's config.Load() path uses, and returns the result.
 func KeymapFromLegacy(actions map[string]Action, columns []ColumnConfig) (*keymap.Keymap, error) {
 	cfg := &Config{Actions: actions, Columns: columns}
-	translateLegacyActions(cfg)
+	// No YAML document to walk here (actions/columns come from in-memory
+	// literals, not a loaded file), so there's no raw-node presence signal
+	// to pass; legacyDeclared is always false. The resulting cfg.Deprecations
+	// is discarded by this function's caller (it only wants the resolved
+	// *keymap.Keymap), so this can't under-report a deprecation notice to
+	// anyone.
+	translateLegacyActions(cfg, false)
 	return ResolveKeymap(cfg)
 }

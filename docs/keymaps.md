@@ -289,6 +289,20 @@ sequence is never overwritten by a legacy-derived one.
   derived key was shadowed by an existing `keymaps:` entry and nothing was
   actually inserted. `main.go:349-354` prints each notice to stderr once, ahead
   of BubbleTea taking over the terminal.
+  - Presence is a union of two sources, computed by `translateLegacyActions`'s
+    `legacyDeclared` parameter (set from `assignActionOrder`'s raw-node walk,
+    `isLegacyActionsBlock`) OR'd with the decoded map length: an explicit
+    empty block (`actions: {}`, or an empty `columns[].actions: {}`) emits
+    the notice, and so does a legacy block that trust-stripping emptied out
+    entirely (untrusted shell-only entries) — both are syntax declarations
+    even though no binding survives. A bare, `null`, or `~` value
+    (`actions:` / `actions: null` / `actions: ~`) never emits it — null means
+    unspecified, not declared, consistent with `mergeColumnActions`'s
+    existing nil-vs-empty-map convention. A merge-key/alias-smuggled block
+    (`base: &b {actions: ...}` + `<<: *b`) is covered by the decoded-map half
+    of the union when non-empty; an empty legacy block declared *only*
+    through a merge key or alias is a known, accepted gap neither source
+    catches (see `docs/yaml-parsing.md`).
 
 ## See also
 
