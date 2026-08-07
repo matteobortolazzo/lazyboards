@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"github.com/muesli/termenv"
@@ -2261,5 +2262,297 @@ func TestViewCardList_NonFocusedCard_MutesTitleKeepsGlyphColors(t *testing.T) {
 	}
 	if !strings.Contains(out, wantDot) {
 		t.Errorf("non-focused card's label dot lost its label color; want %q present; got:\n%s", wantDot, out)
+	}
+}
+
+// --- #519: borderTitleZones / borderTitleCounts (PR 1, RED) ---
+//
+// handleTabClick (mouse_handlers.go) reconstructs the tab-bar label layout
+// independently of buildBorderTitle (view.go), which actually renders it.
+// The two derivations can disagree (rung desync, count-suffix desync),
+// so clicks land on the wrong column. borderTitleZones is the single pure
+// function that must compute both the label text buildBorderTitle renders
+// AND the hit-zone geometry handleTabClick will hit-test against, for
+// whatever truncation rung the ladder actually selects. Neither
+// borderTitleZones nor (*Board).borderTitleCounts() exist yet -- this file
+// intentionally fails to compile until PR 1 (GREEN) adds them.
+
+// assertZonesMatchRenderedLabels is the shared invariant check: every zone
+// borderTitleZones returns must describe exactly the label text and cell
+// position/width buildBorderTitle actually rendered for the same inputs, at
+// the same rung. It re-derives the expected start/width from the real
+// ANSI-stripped rendered line (not from a parallel hand-computed formula),
+// per docs/terminal-rendering.md's "measure in cells, not len()" rule and
+// testing.md's "don't copy expected values from implementation" rule -- the
+// only implementation this borrows from is buildBorderTitle's own output,
+// which is exactly the thing borderTitleZones must stay in sync with.
+//
+// activeTab is passed only to buildBorderTitle (it selects label *style*,
+// which is zero-width SGR and has no effect on geometry) -- borderTitleZones
+// itself takes no activeTab param, per the plan's Q&A #2.
+func assertZonesMatchRenderedLabels(t *testing.T, columns []Column, activeTab, width int, filteredCounts ...[]int) {
+	t.Helper()
+
+	zones := borderTitleZones(columns, width, filteredCounts...)
+	title := buildBorderTitle(columns, activeTab, width, filteredCounts...)
+	stripped := ansi.Strip(title)
+
+	if len(zones) != len(columns) && len(zones) != 0 {
+		t.Fatalf("borderTitleZones() at width %d returned %d zones, want %d (one per column) or 0 (ladder dropped all labels)", width, len(zones), len(columns))
+	}
+
+	searchFrom := 0
+	for i, z := range zones {
+		if z.label == "" {
+			t.Fatalf("zone[%d] at width %d has empty label; every present zone must carry the rendered label text", i, width)
+		}
+		idx := strings.Index(stripped[searchFrom:], z.label)
+		if idx < 0 {
+			t.Fatalf("zone[%d].label %q at width %d not found (in order) in rendered title %q", i, z.label, width, stripped)
+		}
+		idx += searchFrom
+
+		wantStart := lipgloss.Width(stripped[:idx])
+		wantWidth := lipgloss.Width(z.label)
+
+		if z.start != wantStart {
+			t.Errorf("zone[%d].start at width %d = %d, want %d (cell position of %q in rendered title %q)", i, width, z.start, wantStart, z.label, stripped)
+		}
+		if z.width != wantWidth {
+			t.Errorf("zone[%d].width at width %d = %d, want %d (rendered cell width of %q)", i, width, z.width, wantWidth, z.label)
+		}
+
+		searchFrom = idx + len(z.label)
+	}
+}
+
+// TestBorderTitleZones_MatchesRenderedLayout_ASCII sweeps every rung of the
+// truncation ladder (full titles, truncated titles, numbers-only, and the
+// all-dropped fallback) for plain ASCII titles and asserts zone geometry
+// tracks the real render at every width.
+func TestBorderTitleZones_MatchesRenderedLayout_ASCII(t *testing.T) {
+	columns := []Column{
+		{Title: "New", Cards: make([]Card, 3)},
+		{Title: "Refined", Cards: make([]Card, 12)},
+		{Title: "Implementing", Cards: make([]Card, 1)},
+		{Title: "Implemented", Cards: make([]Card, 27)},
+	}
+	for width := 15; width <= 150; width++ {
+		assertZonesMatchRenderedLabels(t, columns, 1, width)
+	}
+}
+
+// TestBorderTitleZones_MatchesRenderedLayout_CJK covers the CJK/emoji rung-2
+// truncation case that motivated #501 (cell-width truncation, not rune
+// counting) -- the same under-truncation bug that produces a wrong rung also
+// produces wrong hit-zone geometry if handleTabClick's reconstruction
+// disagrees with the renderer.
+func TestBorderTitleZones_MatchesRenderedLayout_CJK(t *testing.T) {
+	columns := []Column{
+		{Title: "新規タスク", Cards: make([]Card, 3)},
+		{Title: "実装中のもの", Cards: make([]Card, 12)},
+		{Title: "🚀 リリース", Cards: make([]Card, 1)},
+		{Title: "完了済み", Cards: make([]Card, 27)},
+	}
+	for width := 40; width <= 90; width++ {
+		assertZonesMatchRenderedLabels(t, columns, 2, width)
+	}
+}
+
+// TestBorderTitleZones_MatchesRenderedLayout_WithFilteredCounts covers the
+// count-suffix desync half of #519: when a search or global filter is
+// active, buildBorderTitle renders "(f/total) ●" instead of "(total)"
+// for some columns, which changes every subsequent label's width and start.
+// borderTitleZones must be fed the same filteredCounts override
+// buildBorderTitle receives and produce geometry for the actual (longer)
+// rendered suffix.
+func TestBorderTitleZones_MatchesRenderedLayout_WithFilteredCounts(t *testing.T) {
+	columns := []Column{
+		{Title: "New", Cards: make([]Card, 5)},
+		{Title: "Refined", Cards: make([]Card, 12)},
+		{Title: "Implementing", Cards: make([]Card, 3)},
+	}
+	// Mirrors View()'s global-filter fc shape (model.go filteredCardsForColumn):
+	// every column gets its own non-negative filtered count.
+	fc := []int{2, 0, 1}
+	for width := 15; width <= 150; width++ {
+		assertZonesMatchRenderedLabels(t, columns, 0, width, fc)
+	}
+}
+
+// TestBorderTitleZones_EmptyAndNarrowWidth locks in the two risk areas the
+// #519 review flagged as untested even though the code already handles them
+// safely: len(columns) == 0 (nil/empty slice, guarded by the early return at
+// the top of borderTitleZones) and narrow/zero/negative totalWidth (which
+// must collapse to the ladder's rung-4 "drop everything" nil, never panic
+// via a negative-length ansi.Truncate or a divide-by-zero).
+//
+// The narrow-width sweep uses the same 4-column fixture as
+// TestBorderTitleZones_MatchesRenderedLayout_ASCII. For that fixture, the
+// numbers-only rung's combined label width (four "[N] (total)" texts plus
+// three " ─ " separators) is 39 cells, and the ladder's fixed frame/fill
+// overhead (prefix "╭─ " + suffix "╮" + the 2-cell minimum fill) is 6 cells,
+// so numbers-only first fits at totalWidth 39+6=45 -- confirmed empirically
+// against borderTitleZones itself (first non-empty result is exactly width
+// 45). Every width below that must return nil/empty.
+func TestBorderTitleZones_EmptyAndNarrowWidth(t *testing.T) {
+	t.Run("nil columns returns nil without panicking", func(t *testing.T) {
+		zones := borderTitleZones(nil, 80)
+		if zones != nil {
+			t.Fatalf("borderTitleZones(nil, 80) = %v, want nil", zones)
+		}
+	})
+
+	t.Run("empty columns returns nil without panicking", func(t *testing.T) {
+		zones := borderTitleZones([]Column{}, 80)
+		if zones != nil {
+			t.Fatalf("borderTitleZones([]Column{}, 80) = %v, want nil", zones)
+		}
+	})
+
+	columns := []Column{
+		{Title: "New", Cards: make([]Card, 3)},
+		{Title: "Refined", Cards: make([]Card, 12)},
+		{Title: "Implementing", Cards: make([]Card, 1)},
+		{Title: "Implemented", Cards: make([]Card, 27)},
+	}
+	// 45 is the first width at which the numbers-only rung fits for this
+	// fixture (see derivation above); every width below it -- down through
+	// 0 and into negative territory -- must collapse to nil/empty.
+	const firstFittingWidth = 45
+	for width := -5; width < firstFittingWidth; width++ {
+		zones := borderTitleZones(columns, width)
+		if len(zones) != 0 {
+			t.Fatalf("borderTitleZones(columns, %d) = %d zones, want 0 (nil/empty) below the ladder's floor of %d", width, len(zones), firstFittingWidth)
+		}
+	}
+}
+
+// TestBorderTitleZones_ActiveTabDoesNotAffectGeometry asserts the plan's
+// Q&A #2 decision directly: activeTab selects label *style* only
+// (activeBorderTitleStyle/inactiveBorderTitleStyle set Bold/Foreground,
+// zero-width SGR) and never affects geometry or the ladder's rung choice, so
+// borderTitleZones -- which takes no activeTab param at all -- must describe
+// the label text and hit-zone geometry of buildBorderTitle's render
+// identically regardless of which tab is active. This renders the SAME
+// columns/width through buildBorderTitle at activeTab=0 and activeTab=1 and
+// checks the single borderTitleZones() call's zones against both.
+func TestBorderTitleZones_ActiveTabDoesNotAffectGeometry(t *testing.T) {
+	columns := []Column{
+		{Title: "New", Cards: make([]Card, 3)},
+		{Title: "Refined", Cards: make([]Card, 12)},
+		{Title: "Implementing", Cards: make([]Card, 1)},
+		{Title: "Implemented", Cards: make([]Card, 27)},
+	}
+	const width = 90
+
+	zones := borderTitleZones(columns, width)
+
+	titleActive0 := ansi.Strip(buildBorderTitle(columns, 0, width))
+	titleActive1 := ansi.Strip(buildBorderTitle(columns, 1, width))
+
+	// The ANSI-stripped render itself must be identical across activeTab
+	// values -- styling is the only thing activeTab can change, and SGR
+	// codes vanish under ansi.Strip.
+	if titleActive0 != titleActive1 {
+		t.Fatalf("buildBorderTitle() ANSI-stripped output differs between activeTab=0 and activeTab=1; want identical unstyled text since activeTab only selects style:\nactiveTab=0: %q\nactiveTab=1: %q", titleActive0, titleActive1)
+	}
+
+	for _, rendered := range []struct {
+		label string
+		title string
+	}{
+		{"activeTab=0", titleActive0},
+		{"activeTab=1", titleActive1},
+	} {
+		searchFrom := 0
+		for i, z := range zones {
+			idx := strings.Index(rendered.title[searchFrom:], z.label)
+			if idx < 0 {
+				t.Fatalf("zone[%d].label %q not found (in order) in %s's rendered title %q", i, z.label, rendered.label, rendered.title)
+			}
+			idx += searchFrom
+			wantStart := lipgloss.Width(rendered.title[:idx])
+			wantWidth := lipgloss.Width(z.label)
+			if z.start != wantStart || z.width != wantWidth {
+				t.Errorf("zone[%d] = {start:%d width:%d}, want {start:%d width:%d} to match %s's render -- borderTitleZones geometry must not depend on which tab is active", i, z.start, z.width, wantStart, wantWidth, rendered.label)
+			}
+			searchFrom = idx + len(z.label)
+		}
+	}
+}
+
+// TestBorderTitleCounts_SearchWinsOverFilter verifies the first branch of
+// View()'s existing filteredCounts precedence (view.go, ~lines 162-178):
+// when a search query is active (even alongside a global filter), only the
+// active column gets a non-negative count -- and that count is
+// b.filteredCards() (filter-then-search combined), not the filter-only
+// count -- while every other column gets the -1 "no override" sentinel.
+func TestBorderTitleCounts_SearchWinsOverFilter(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b.ActiveTab = 0 // "Backlog": bug-labeled cards are #1, #3, #5
+
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+	b.searchQuery = "Specific" // narrows further to #5 "Specific bug"
+
+	fc := b.borderTitleCounts()
+
+	if len(fc) != len(b.Columns) {
+		t.Fatalf("borderTitleCounts() with search+filter: len = %d, want %d (one entry per column)", len(fc), len(b.Columns))
+	}
+
+	wantActive := len(b.filteredCards())
+	if fc[b.ActiveTab] != wantActive {
+		t.Errorf("borderTitleCounts()[activeTab] with search %q + filter %q = %d, want %d (b.filteredCards() count)", b.searchQuery, b.activeFilterValue, fc[b.ActiveTab], wantActive)
+	}
+	for i := range b.Columns {
+		if i == b.ActiveTab {
+			continue
+		}
+		if fc[i] != -1 {
+			t.Errorf("borderTitleCounts()[%d] with search active = %d, want -1 (sentinel; search only overrides the active column)", i, fc[i])
+		}
+	}
+}
+
+// TestBorderTitleCounts_GlobalFilterAppliesToAllColumns verifies the second
+// branch: with no search query but an active global filter, every column
+// (not just the active one) gets its own filtered count, matching
+// b.filteredCardsForColumn(i).
+func TestBorderTitleCounts_GlobalFilterAppliesToAllColumns(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+	b.searchQuery = ""
+
+	fc := b.borderTitleCounts()
+
+	if len(fc) != len(b.Columns) {
+		t.Fatalf("borderTitleCounts() with global filter only: len = %d, want %d (one entry per column)", len(fc), len(b.Columns))
+	}
+	for i := range b.Columns {
+		want := b.filteredCardsForColumn(i)
+		if fc[i] != want {
+			t.Errorf("borderTitleCounts()[%d] with filter %q = %d, want %d (b.filteredCardsForColumn(%d))", i, b.activeFilterValue, fc[i], want, i)
+		}
+	}
+}
+
+// TestBorderTitleCounts_NeitherActiveReturnsNil verifies the third branch:
+// with no search and no global filter, borderTitleCounts returns nil so
+// buildBorderTitle falls back to its plain "(total)" rung, matching
+// View()'s bare buildBorderTitle(b.Columns, b.ActiveTab, b.Width) call.
+func TestBorderTitleCounts_NeitherActiveReturnsNil(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	b.activeFilterType = filterTypeNone
+	b.searchQuery = ""
+
+	fc := b.borderTitleCounts()
+
+	if fc != nil {
+		t.Errorf("borderTitleCounts() with neither search nor filter active = %v, want nil", fc)
 	}
 }

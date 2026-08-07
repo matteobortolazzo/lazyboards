@@ -159,23 +159,7 @@ func (b Board) View() string {
 
 	// Render with normal outer border, then replace the top line with the border title.
 	rendered := outerStyle.Width(innerWidth).Render(inner)
-	var borderTitle string
-	if b.searchQuery != "" {
-		fc := make([]int, len(b.Columns))
-		for i := range fc {
-			fc[i] = -1
-		}
-		fc[b.ActiveTab] = len(filtered)
-		borderTitle = buildBorderTitle(b.Columns, b.ActiveTab, b.Width, fc)
-	} else if b.activeFilterType != filterTypeNone {
-		fc := make([]int, len(b.Columns))
-		for i := range b.Columns {
-			fc[i] = b.filteredCardsForColumn(i)
-		}
-		borderTitle = buildBorderTitle(b.Columns, b.ActiveTab, b.Width, fc)
-	} else {
-		borderTitle = buildBorderTitle(b.Columns, b.ActiveTab, b.Width)
-	}
+	borderTitle := buildBorderTitle(b.Columns, b.ActiveTab, b.Width, b.borderTitleCounts())
 	lines := strings.SplitN(rendered, "\n", 2)
 	if len(lines) == 2 {
 		return borderTitle + "\n" + lines[1]
@@ -183,17 +167,145 @@ func (b Board) View() string {
 	return rendered
 }
 
-// buildBorderTitle constructs the top border line with embedded column names.
-// Format: ╭─ [1] Name ─ [2] Name ─...──╮
-// When the terminal is too narrow, titles are progressively truncated with "…".
-// If even truncated titles don't fit, falls back to just [N] per column.
-// filteredCounts is optional: when non-nil, filteredCounts[i] >= 0 means show
-// "filteredCounts[i]/len(col.Cards)" instead of "(len(col.Cards))" for column i.
-func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCounts ...[]int) string {
+// tabZone describes one column's rendered tab-bar label: its text (exactly
+// as buildBorderTitle rendered it, at whatever truncation rung the ladder
+// selected) and its cell-position/width within the rendered border-title
+// line. It is the single source of truth shared by buildBorderTitle
+// (rendering) and handleTabClick (hit-testing) so the two can never disagree
+// about label text or geometry (#519).
+type tabZone struct {
+	label string
+	start int
+	width int
+}
+
+// borderTitleZones runs the same progressive-truncation ladder buildBorderTitle
+// uses and returns one zone per column with the label text it chose and that
+// label's cell start/width within the rendered border-title line (measured
+// from the left edge, i.e. including the "prefix" glyphs). Returns nil if the
+// ladder drops labels entirely (even numbers-only doesn't fit) or if columns
+// is empty. filteredCounts is optional: when non-nil, filteredCounts[i] >= 0
+// means show "filteredCounts[i]/len(col.Cards)" instead of "(len(col.Cards))"
+// for column i.
+func borderTitleZones(columns []Column, totalWidth int, filteredCounts ...[]int) []tabZone {
+	if len(columns) == 0 {
+		return nil
+	}
+
 	var fc []int
 	if len(filteredCounts) > 0 {
 		fc = filteredCounts[0]
 	}
+	borderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+
+	prefixWidth := lipgloss.Width(borderStyle.Render("╭─ "))
+	suffixWidth := lipgloss.Width(borderStyle.Render("╮"))
+	sepWidth := lipgloss.Width(borderStyle.Render(" ─ "))
+
+	// Minimum fill is 2 cells visual.
+	minFillWidth := 2
+	availableForLabels := totalWidth - prefixWidth - suffixWidth - minFillWidth
+
+	widthOf := func(texts []string) int {
+		w := 0
+		for i, text := range texts {
+			if i > 0 {
+				w += sepWidth
+			}
+			w += lipgloss.Width(text)
+		}
+		return w
+	}
+
+	// countSuffix returns "(filtered/total) ●" when a filtered count is set,
+	// or "(total)" otherwise.
+	countSuffix := func(i int, total int) string {
+		if fc != nil && i < len(fc) && fc[i] >= 0 {
+			return fmt.Sprintf("(%d/%d) ●", fc[i], total)
+		}
+		return fmt.Sprintf("(%d)", total)
+	}
+
+	// Try 1: Full titles.
+	// col.Title comes from the repo-local, untrusted .lazyboards.yml config,
+	// so it is sanitized here (before composition/truncation) and reused
+	// below wherever the raw title would otherwise be rendered (#500).
+	sanitizedTitles := make([]string, len(columns))
+	for i, col := range columns {
+		sanitizedTitles[i] = sanitizeSingleLine(col.Title)
+	}
+	texts := make([]string, len(columns))
+	for i, col := range columns {
+		texts[i] = fmt.Sprintf("[%d] %s %s", i+1, sanitizedTitles[i], countSuffix(i, len(col.Cards)))
+	}
+	textsWidth := widthOf(texts)
+
+	if textsWidth > availableForLabels {
+		// Try 2: Truncated titles.
+		// Compute how much space separators take.
+		totalSepWidth := 0
+		if len(columns) > 1 {
+			totalSepWidth = sepWidth * (len(columns) - 1)
+		}
+		perLabel := (availableForLabels - totalSepWidth) / len(columns)
+		// Each label has "[N] " prefix overhead (4 cells for single-digit, 5 for double-digit).
+		// Find max title cells after subtracting prefix overhead.
+		truncTexts := make([]string, len(columns))
+		canTruncate := true
+		for i, col := range columns {
+			numPrefix := fmt.Sprintf("[%d] ", i+1)
+			prefixCells := lipgloss.Width(numPrefix)
+			cntSuffix := " " + countSuffix(i, len(col.Cards))
+			suffixCells := lipgloss.Width(cntSuffix)
+			maxTitleCells := perLabel - prefixCells - suffixCells
+			if maxTitleCells < 1 {
+				canTruncate = false
+				break
+			}
+			truncTexts[i] = numPrefix + ansi.Truncate(sanitizedTitles[i], maxTitleCells, "…") + cntSuffix
+		}
+
+		if canTruncate {
+			texts = truncTexts
+			textsWidth = widthOf(texts)
+		}
+
+		// Try 3: Numbers only.
+		if !canTruncate || textsWidth > availableForLabels {
+			numTexts := make([]string, len(columns))
+			for i, col := range columns {
+				numTexts[i] = fmt.Sprintf("[%d] %s", i+1, countSuffix(i, len(col.Cards)))
+			}
+			texts = numTexts
+			textsWidth = widthOf(texts)
+		}
+
+		// Try 4: If even numbers-only exceeds available space, drop labels entirely.
+		if textsWidth > availableForLabels {
+			return nil
+		}
+	}
+
+	zones := make([]tabZone, len(texts))
+	pos := prefixWidth
+	for i, text := range texts {
+		if i > 0 {
+			pos += sepWidth
+		}
+		w := lipgloss.Width(text)
+		zones[i] = tabZone{label: text, start: pos, width: w}
+		pos += w
+	}
+	return zones
+}
+
+// buildBorderTitle constructs the top border line with embedded column names.
+// Format: prefix [1] Name sep [2] Name sep...fill suffix.
+// When the terminal is too narrow, titles are progressively truncated.
+// If even truncated titles don't fit, falls back to just [N] per column.
+// filteredCounts is optional: when non-nil, filteredCounts[i] >= 0 means show
+// "filteredCounts[i]/len(col.Cards)" instead of "(len(col.Cards))" for column i.
+func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCounts ...[]int) string {
 	borderFg := lipgloss.Color("240")
 	borderStyle := lipgloss.NewStyle().Foreground(borderFg)
 
@@ -201,10 +313,6 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCount
 	suffixChar := borderStyle.Render("╮")
 	prefixWidth := lipgloss.Width(prefixStr)
 	suffixWidth := lipgloss.Width(suffixChar)
-
-	// Minimum fill is " ─" (2 chars visual).
-	minFillWidth := 2
-	availableForLabels := totalWidth - prefixWidth - suffixWidth - minFillWidth
 
 	// renderLabels builds styled labels from text strings and joins them.
 	renderLabels := func(texts []string) (string, int) {
@@ -221,73 +329,12 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCount
 		return joined, lipgloss.Width(joined)
 	}
 
-	// countSuffix returns "(filtered/total) ●" when a filtered count is set,
-	// or "(total)" otherwise.
-	countSuffix := func(i int, total int) string {
-		if fc != nil && i < len(fc) && fc[i] >= 0 {
-			return fmt.Sprintf("(%d/%d) \u25cf", fc[i], total)
-		}
-		return fmt.Sprintf("(%d)", total)
+	zones := borderTitleZones(columns, totalWidth, filteredCounts...)
+	texts := make([]string, len(zones))
+	for i, z := range zones {
+		texts[i] = z.label
 	}
-
-	// Try 1: Full titles — "[N] Title (C)"
-	// col.Title comes from the repo-local, untrusted .lazyboards.yml config,
-	// so it is sanitized here (before composition/truncation) and reused
-	// below wherever the raw title would otherwise be rendered (#500).
-	sanitizedTitles := make([]string, len(columns))
-	for i, col := range columns {
-		sanitizedTitles[i] = sanitizeSingleLine(col.Title)
-	}
-	fullTexts := make([]string, len(columns))
-	for i, col := range columns {
-		fullTexts[i] = fmt.Sprintf("[%d] %s %s", i+1, sanitizedTitles[i], countSuffix(i, len(col.Cards)))
-	}
-	joined, joinedWidth := renderLabels(fullTexts)
-
-	if joinedWidth > availableForLabels {
-		// Try 2: Truncated titles — "[N] Ti…"
-		// Compute how much space separators take.
-		sepWidth := 0
-		if len(columns) > 1 {
-			sepWidth = lipgloss.Width(borderStyle.Render(" ─ ")) * (len(columns) - 1)
-		}
-		perLabel := (availableForLabels - sepWidth) / len(columns)
-		// Each label has "[N] " prefix overhead (4 cells for single-digit, 5 for double-digit).
-		// Find max title cells after subtracting prefix overhead.
-		truncTexts := make([]string, len(columns))
-		canTruncate := true
-		for i, col := range columns {
-			numPrefix := fmt.Sprintf("[%d] ", i+1)
-			prefixCells := lipgloss.Width(numPrefix)
-			cntSuffix := " " + countSuffix(i, len(col.Cards))
-			suffixCells := lipgloss.Width(cntSuffix)
-			maxTitleCells := perLabel - prefixCells - suffixCells
-			if maxTitleCells < 1 {
-				canTruncate = false
-				break
-			}
-			truncTexts[i] = numPrefix + ansi.Truncate(sanitizedTitles[i], maxTitleCells, "\u2026") + cntSuffix
-		}
-
-		if canTruncate {
-			joined, joinedWidth = renderLabels(truncTexts)
-		}
-
-		// Try 3: Numbers only — "[N] (C)"
-		if !canTruncate || joinedWidth > availableForLabels {
-			numTexts := make([]string, len(columns))
-			for i, col := range columns {
-				numTexts[i] = fmt.Sprintf("[%d] %s", i+1, countSuffix(i, len(col.Cards)))
-			}
-			joined, joinedWidth = renderLabels(numTexts)
-		}
-
-		// Try 4: If even numbers-only exceeds available space, drop labels entirely.
-		if joinedWidth > availableForLabels {
-			joined = ""
-			joinedWidth = 0
-		}
-	}
+	joined, joinedWidth := renderLabels(texts)
 
 	// Fill remaining width with ─.
 	fillWidth := totalWidth - prefixWidth - joinedWidth - suffixWidth - 1
@@ -297,6 +344,34 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCount
 	fill := borderStyle.Render(" " + strings.Repeat("─", fillWidth))
 
 	return prefixStr + joined + fill + suffixChar
+}
+
+// borderTitleCounts derives the filteredCounts override passed to
+// buildBorderTitle for the tab bar's "(N)"/"(f/N)" count suffix. Search wins
+// over a global filter: when a search query is active, only the active
+// column gets a non-negative count (b.filteredCards(), which combines any
+// active filter with the search), and every other column gets the -1
+// sentinel (no override). Otherwise, when a global filter is active (and no
+// search), every column gets its own filtered count via
+// b.filteredCardsForColumn. When neither is active, returns nil so
+// buildBorderTitle falls back to its plain "(total)" rung.
+func (b *Board) borderTitleCounts() []int {
+	if b.searchQuery != "" {
+		fc := make([]int, len(b.Columns))
+		for i := range fc {
+			fc[i] = -1
+		}
+		fc[b.ActiveTab] = len(b.filteredCards())
+		return fc
+	}
+	if b.activeFilterType != filterTypeNone {
+		fc := make([]int, len(b.Columns))
+		for i := range b.Columns {
+			fc[i] = b.filteredCardsForColumn(i)
+		}
+		return fc
+	}
+	return nil
 }
 
 // isHiddenLabel returns true if a label should be hidden from the colored dot display.
