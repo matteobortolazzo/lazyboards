@@ -26,11 +26,7 @@ import (
 func (b Board) withKeymap(keys *keymap.Keymap) Board {
 	b.keys = keys
 	b.rebuildNormalHints()
-	if b.detailFocused {
-		b.rebuildDetailHints()
-	} else {
-		b.statusBar.SetActionHints(b.normalHints)
-	}
+	b.restoreFocusHints()
 	return b
 }
 
@@ -134,7 +130,7 @@ func (b Board) handlePendingSeqKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch result.Outcome {
 	case keymap.OutcomeMatch:
 		b.clearPendingSeq()
-		b.restoreSeqHints()
+		b.restoreFocusHints()
 		return b.dispatchBinding(mode, result.Binding, alt)
 	case keymap.OutcomePending:
 		if cands := b.eligibleCandidates(result.Candidates); len(cands) > 0 {
@@ -146,7 +142,7 @@ func (b Board) handlePendingSeqKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	b.clearPendingSeq()
-	b.restoreSeqHints()
+	b.restoreFocusHints()
 	if msg.Type == tea.KeyEsc {
 		return b, nil
 	}
@@ -158,16 +154,6 @@ func (b Board) handlePendingSeqKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (b *Board) clearPendingSeq() {
 	b.pendingSeq = ""
 	b.pendingSeqAlt = false
-}
-
-// restoreSeqHints restores the hint bar for the focus state the sequence was
-// started from (card list vs detail panel).
-func (b *Board) restoreSeqHints() {
-	if b.detailFocused {
-		b.rebuildDetailHints()
-		return
-	}
-	b.statusBar.SetActionHints(b.normalHints)
 }
 
 // canonicalSequence splits a canonical, space-joined Sequence.String() form

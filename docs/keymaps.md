@@ -238,7 +238,17 @@ built-ins and user config together, exactly what a real `Lookup` would see.
    help modal; there is no second, help-only wording to keep in sync.
 2. Add its default binding to the matching `defaults_<group>.go` table.
 3. Add a dispatch `case` for the id in that mode's `run*Command` (e.g.
-   `runNormalCommand`, `runGitPanelCommand`, `runCreateCommand`).
+   `runNormalCommand`, `runGitPanelCommand`, `runCreateCommand`). A new
+   `normalDefaults` id needs no separate `case` in `runDetailCommand`:
+   its `default:` branch delegates every command id it doesn't explicitly
+   case to `runNormalCommand` (#588), so a new `ModeNormal` command becomes
+   dispatchable from the detail panel automatically, without blurring it.
+   This applies to `keymaps.columns.<name>` overrides too: `Resolve`
+   overlays a column table onto both `ModeNormal` and `ModeDetail`
+   (`keymap.go`), so a column-scoped binding now dispatches from the detail
+   panel the same way a `keymaps.detail` binding does, and — because the
+   column layer is applied last — it wins over any `keymaps.detail`
+   binding on the same key.
 4. Add (or extend) a `hintSpec` so the mode's `*Hints()` builder surfaces it
    in the status bar / help modal — the hint and the dispatch case must
    agree on the id, or the hint will advertise a key that silently no-ops.

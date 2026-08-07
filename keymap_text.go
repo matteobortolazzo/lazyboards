@@ -146,7 +146,7 @@ func (b Board) runDeleteCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	switch id {
 	case keymap.CommandDeleteCancel:
 		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+		b.restoreFocusHints()
 		cmd := b.statusBar.SetTimedMessage("Delete cancelled", StatusWarning, statusMessageDuration)
 		return b, cmd
 	case keymap.CommandDeleteSubmit:
@@ -167,7 +167,7 @@ func (b Board) runDeleteCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 				return b, nil
 			}
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			comment := strings.TrimSpace(b.delete.commentInput.Value())
 			if comment != "" {
 				return b, addCommentForDeleteCmd(b.provider, card, comment)
@@ -482,14 +482,14 @@ func (b Board) runSearchCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		b.clearSearch()
 		b.mode = normalMode
 		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
+		b.restoreFocusHints()
 		return b, nil
 	case keymap.CommandSearchApply:
 		b.searchInput.Blur()
 		b.mode = normalMode
 		b.clampScrollOffset()
 		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
+		b.restoreFocusHints()
 		return b, nil
 	case keymap.CommandSearchNextColumn:
 		b.clearSearch()
