@@ -88,6 +88,13 @@ func init() {
 	for mode, table := range textDefaultTables {
 		defaultModeTables[mode] = table
 	}
+
+	// buildCommandModeIndex (capability.go) is called from here, not from
+	// its own init in capability.go, because Go runs a package's init
+	// functions in filename order: capability.go sorts before catalog.go,
+	// so an init in capability.go itself would run first and read a nil
+	// defaultModeTables, silently building an empty (over-rejecting) index.
+	buildCommandModeIndex()
 }
 
 // Commands returns every catalogued Command, in declaration order. It

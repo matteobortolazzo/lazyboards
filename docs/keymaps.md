@@ -194,7 +194,7 @@ can only ever be an inline action, never a built-in command.
 
 ## Load-time validation
 
-Eight checks run before a resolved `*keymap.Keymap` is ever handed to the
+Nine checks run before a resolved `*keymap.Keymap` is ever handed to the
 runtime, in `Load`'s order:
 
 1. **Unknown mode name** — `Keymaps.UnmarshalYAML` (`keymaps.go:143`), via
@@ -204,28 +204,40 @@ runtime, in `Load`'s order:
    duplicate detection.
 3. **Unknown command id** — `validateCommandIDs` (`keymap_semantic_validate.go:54`),
    checked against `keymap.FindCommand`.
-4. **`ctrl+c` anywhere** — `validateNoCtrlC` (`keymap_validate.go:99`): a
+4. **Mode capability** — `validateModeCapabilities` (`keymap_semantic_validate.go`,
+   #577): a `BindingCommand` entry's command id must be in
+   `keymap.DispatchableCommands(mode)` (checked via
+   `keymap.CommandDispatchable`) — the mode's dispatch seam has to be able to
+   actually reach it, not merely recognize it as a catalogued id (check 3
+   above). A `BindingAction` (inline action) entry requires
+   `mode.DispatchesInlineActions()`, and, for `keymaps.pr_list` specifically,
+   additionally requires the action's already-inferred effective scope
+   (written back by check 8's `validateKeymapActions`-driven inference,
+   which runs before this check) to be exactly `"pr"`. An explicit unbind is
+   always skipped. `keymaps.columns.<name>` tables are checked against
+   `keymap.ModeColumns`'s own entry in the capability index.
+5. **`ctrl+c` anywhere** — `validateNoCtrlC` (`keymap_validate.go:99`): a
    `ctrl+c` token anywhere in a space-separated sequence is rejected
    regardless of binding kind, including an explicit unbind — `Lookup`'s
    short-circuit doesn't consult the table, so an unbind could never do
    anything anyway.
-5. **Prefix conflict** — `validateModePrefixes` (`keymap_validate.go:135`):
+6. **Prefix conflict** — `validateModePrefixes` (`keymap_validate.go:135`):
    over the fully *resolved* namespace (defaults + user together, via
    `ResolveKeymap`), a bound key that is a strict, whitespace-boundary prefix
    of another bound key in the same mode/column is rejected, mirroring
    `Lookup`'s own pending-match boundary check.
-6. **`alt+` shadowing a `{comment}` overload** — `validateModeAltCommentShadow`
+7. **`alt+` shadowing a `{comment}` overload** — `validateModeAltCommentShadow`
    (`keymap_validate.go:155`): an `alt+` modifier on *any* token of a bound
    sequence is rejected when that sequence's fully alt-free base (via
    `altFreeBaseSequence`, `keymap_semantic_validate.go`) is itself bound to a
    `{comment}`-bearing action — since holding Alt anywhere in the pending
    sequence already means "enter comment mode first" for that base.
-7. **Bare printable rune in a text-input mode** — `validatePrintableRuneBindings`
+8. **Bare printable rune in a text-input mode** — `validatePrintableRuneBindings`
    (`keymap_semantic_validate.go:92`): a bare printable-rune key bound in any
    mode where `Mode.ConsumesPrintableRunes()` is true is rejected — the
    mode's textinput swallows the keystroke before any lookup could see it.
    An `alt+<rune>` form is exempt.
-8. **Card/PR scope conflict** — `validateScopeConflicts` (`config.go`):
+9. **Card/PR scope conflict** — `validateScopeConflicts` (`config.go`):
    action keys are grouped by their canonical `keymap.ParseSequence(...).String()`
    form (not raw YAML spelling), so whitespace/spelling variants of the same
    physical sequence share one bucket; the same canonical sequence cannot be
@@ -234,9 +246,9 @@ runtime, in `Load`'s order:
    table. An action key that fails to parse is a contextual load error
    (naming the owning table and the raw key), not a silently skipped entry.
 
-Checks 1-2 run during YAML unmarshal itself; 3, 7, and 8 run over
+Checks 1-2 run during YAML unmarshal itself; 3, 4, 8, and 9 run over
 `cfg.Keymaps` directly (after `translateLegacyActions` has folded legacy
-entries in); 4, 5, and 6 run inside `validateKeymap` (`keymap_validate.go:45`),
+entries in); 5, 6, and 7 run inside `validateKeymap` (`keymap_validate.go:45`),
 which calls `ResolveKeymap` itself so the prefix/alt-shadow checks see
 built-ins and user config together, exactly what a real `Lookup` would see.
 
@@ -247,10 +259,11 @@ default. This exception is not derived from `keymap.Defaults()` — a
 per-mode allowed-set built from `Defaults()` would only see the four modes
 that happen to bind `app.quit` today and would wrongly reject it everywhere
 else. It is instead the `IsUniversalCommand` predicate over the
-`universalCommands` set in `internal/keymap/capability.go`, which #577's
-forthcoming mode-capability validation must consult directly for
-`app.quit`'s allowed-mode set rather than deriving it from `Defaults()` or a
-hand-written per-mode list.
+`universalCommands` set in `internal/keymap/capability.go`, which check 4's
+`validateModeCapabilities` consults directly (via the `commandModeIndex` it
+feeds `keymap.CommandDispatchable`/`keymap.DispatchableCommands`) for
+`app.quit`'s allowed-mode set, rather than deriving it from `Defaults()` or
+a hand-written per-mode list.
 
 ## Adding a command id
 

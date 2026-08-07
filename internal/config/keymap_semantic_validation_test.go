@@ -9,13 +9,28 @@ import (
 
 // --- Printable-rune rejection in text-input modes (Q4) ---
 
+// printableRuneModeCommand maps each ConsumesPrintableRunes() mode to one of
+// its own default-table command ids -- #577's validateModeCapabilities would
+// otherwise reject a foreign id (e.g. board.refresh, normal-only) before
+// validatePrintableRuneBindings ever got a chance to fire, breaking this
+// test for an unrelated reason. Picking a mode-appropriate id here keeps the
+// printable-rune rejection the operative failure regardless of which
+// validator runs first.
+var printableRuneModeCommand = map[string]string{
+	"create":  "create.submit",
+	"config":  "config.save",
+	"search":  "search.apply",
+	"comment": "comment.submit",
+	"delete":  "delete.submit",
+}
+
 func TestLoad_KeymapPrintableRune_TextInputMode_ReturnsError(t *testing.T) {
 	for _, mode := range []string{"create", "config", "search", "comment", "delete"} {
 		t.Run(mode, func(t *testing.T) {
 			yamlContent := `provider: github
 keymaps:
   ` + mode + `:
-    j: board.refresh
+    j: ` + printableRuneModeCommand[mode] + `
 `
 			_, err := loadConfigFromStrings(t, yamlContent, "")
 			if err == nil {
@@ -30,14 +45,19 @@ keymaps:
 
 func TestLoad_KeymapPrintableRune_AltAndNamedKeysInTextInputMode_LoadCleanly(t *testing.T) {
 	// Per Q4, only the bare printable-rune form is rejected: alt+<rune> and
-	// named (non-rune) keys are exempt in text-input modes.
+	// named (non-rune) keys are exempt in text-input modes. Uses
+	// search-appropriate command ids (app.quit is universal, the rest are
+	// searchDefaults' own ids) rather than normal-only ids like
+	// board.refresh/board.search/board.filter -- #577's validateModeCapabilities
+	// would otherwise reject those as foreign to search before this test's
+	// alt+/named-key exemption is ever reached.
 	yamlContent := `provider: github
 keymaps:
   search:
-    alt+j: board.refresh
+    alt+j: search.next_result
     esc: app.quit
-    enter: board.search
-    ctrl+s: board.filter
+    enter: search.apply
+    ctrl+s: search.next_column
 `
 	if _, err := loadConfigFromStrings(t, yamlContent, ""); err != nil {
 		t.Fatalf("Load() returned unexpected error for alt+/named keys in a text-input mode: %v", err)
@@ -536,4 +556,27 @@ func TestLoad_KeymapScopeConflict(t *testing.T) {
 			want:    []string{"keymaps.normal", `"nope-key"`},
 		},
 	})
+}
+
+// --- validateCapabilityTable: unrecognized binding kind (defense-in-depth) ---
+
+func TestValidateCapabilityTable_UnrecognizedBindingKind_ReturnsError(t *testing.T) {
+	// KeymapBinding.UnmarshalYAML (keymaps.go) never itself produces
+	// keymap.BindingInvalid -- every parsed binding is BindingCommand,
+	// BindingAction, or BindingUnbound -- so this constructs one directly,
+	// bypassing YAML parsing entirely, to pin validateCapabilityTable's
+	// default case as fail-closed rather than silently treating an
+	// unrecognized Kind as valid.
+	table := KeymapTable{
+		"z": KeymapBinding{Kind: keymap.BindingInvalid},
+	}
+	err := validateCapabilityTable(table, keymap.ModeNormal, "keymaps.normal")
+	if err == nil {
+		t.Fatal("validateCapabilityTable() returned nil error, want error for an unrecognized BindingKind")
+	}
+	for _, want := range []string{"keymaps.normal", `"z"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+		}
+	}
 }
