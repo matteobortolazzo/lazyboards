@@ -145,8 +145,6 @@ func (b Board) gitPanelItemsFromKeymap() []gitPanelItem {
 // (mode_handlers.go), guard for guard.
 func (b Board) runGitPanelCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	switch id {
-	case keymap.CommandQuit:
-		return b, tea.Quit
 	case keymap.CommandGitPanelClose:
 		b.mode = normalMode
 		b.restoreFocusHints()
@@ -310,6 +308,9 @@ func (b Board) handleDispatchModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !ok || binding.Kind != keymap.BindingCommand {
 			return b, nil
 		}
+		if cmd, ok := b.universalDispatch(binding); ok {
+			return b, cmd
+		}
 		switch binding.Command {
 		case keymap.CommandDispatchConfirmLoop, keymap.CommandDispatchCancelLoop:
 			return b.runDispatchCommand(binding.Command)
@@ -332,6 +333,9 @@ func (b Board) handleDispatchModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !ok || binding.Kind != keymap.BindingCommand {
 		return b, nil
 	}
+	if cmd, ok := b.universalDispatch(binding); ok {
+		return b, cmd
+	}
 	return b.runDispatchCommand(binding.Command)
 }
 
@@ -352,8 +356,6 @@ func (b Board) helpHints() []Hint {
 // transcribed verbatim from the pre-#511 handleHelpModeKey (mode_handlers.go).
 func (b Board) runHelpCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	switch id {
-	case keymap.CommandQuit:
-		return b, tea.Quit
 	case keymap.CommandHelpClose:
 		b.closeHelp()
 		return b, nil
@@ -394,8 +396,6 @@ func (b Board) errorHints() []Hint {
 // (update.go), guard for guard.
 func (b Board) runErrorCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	switch id {
-	case keymap.CommandQuit:
-		return b, tea.Quit
 	case keymap.CommandErrorRetry:
 		b.mode = loadingMode
 		b.loadErr = ""

@@ -160,7 +160,12 @@ effective table:
 - If the sequence's **last** key is `ctrl+c`, `Lookup` short-circuits to
   `OutcomeMatch(CommandBinding(CommandQuit))` before consulting any table —
   unconditionally, regardless of table contents or earlier keys in the
-  sequence.
+  sequence. This resolution-layer rule has a dispatch-layer twin (#589):
+  package main's `universalDispatch` (`keymap_dispatch.go`) achieves the
+  same "quit works everywhere" property for the user-configurable
+  `app.quit` command id, invoked at each of the 19 binding-resolution
+  consumer sites (after that mode's own precedence guards) — see the
+  Dispatch seams entry above.
 - Next, if any individual key in the sequence contains a whitespace rune
   (checked per-key, never against the sequence's space-joined canonical
   string), `Lookup` returns `OutcomeNoMatch` without consulting the table.
@@ -230,6 +235,18 @@ entries in); 4, 5, and 6 run inside `validateKeymap` (`keymap_validate.go:45`),
 which calls `ResolveKeymap` itself so the prefix/alt-shadow checks see
 built-ins and user config together, exactly what a real `Lookup` would see.
 
+**Universal-command exception (#589):** `app.quit` is valid and dispatchable
+in all 19 resolvable modes plus every `keymaps.columns.<name>` overlay, not
+just the four modes (`normal`, `detail`, `help`, `error`) that bind it by
+default. This exception is not derived from `keymap.Defaults()` — a
+per-mode allowed-set built from `Defaults()` would only see the four modes
+that happen to bind `app.quit` today and would wrongly reject it everywhere
+else. It is instead the `IsUniversalCommand` predicate over the
+`universalCommands` set in `internal/keymap/capability.go`, which #577's
+forthcoming mode-capability validation must consult directly for
+`app.quit`'s allowed-mode set rather than deriving it from `Defaults()` or a
+hand-written per-mode list.
+
 ## Adding a command id
 
 1. Add a `const CommandID` and a `Command{ID, Desc}` catalogue entry to the
@@ -248,7 +265,14 @@ built-ins and user config together, exactly what a real `Lookup` would see.
    (`keymap.go`), so a column-scoped binding now dispatches from the detail
    panel the same way a `keymaps.detail` binding does, and — because the
    column layer is applied last — it wins over any `keymaps.detail`
-   binding on the same key.
+   binding on the same key. This step applies to a **mode-scoped** id only.
+   A **universal** id — currently just `app.quit`/`CommandQuit`, tracked in
+   `internal/keymap/capability.go`'s `universalCommands` set — skips it
+   entirely: it gets no per-mode `run*Command` case at all, and instead
+   dispatches once from the shared `universalDispatch` seam
+   (`keymap_dispatch.go`), invoked at every binding-resolution consumer site
+   (after that mode's own precedence guards) so one source of truth covers
+   all 19 modes uniformly.
 4. Add (or extend) a `hintSpec` so the mode's `*Hints()` builder surfaces it
    in the status bar / help modal — the hint and the dispatch case must
    agree on the id, or the hint will advertise a key that silently no-ops.
@@ -257,6 +281,15 @@ built-ins and user config together, exactly what a real `Lookup` would see.
    hint<->dispatch invariant (see `keymap_dispatch_test.go`/
    `keymap_panels_test.go`/`keymap_modals_test.go`/`keymap_text_test.go` for
    the established shape per seam).
+
+**Single-key-only caveat (#589):** universal dispatch is single-key only
+outside `normal`/`detail`. Those two modes' `dispatchBinding`/
+`handlePendingSeqKey` seam is the only one with pending-sequence
+("which-key") machinery; the other 17 seams (`panelBinding`, `textBinding`,
+`lookupModalBinding`) resolve a single key by exact match only, treating a
+multi-key match as `OutcomePending` and no-oping on it. So a multi-key
+binding to a universal command (e.g. `keymaps.filter."g q": app.quit`) is a
+documented no-op in those 17 modes, not a bug.
 
 ## Legacy translation
 

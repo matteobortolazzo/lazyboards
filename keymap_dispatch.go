@@ -171,17 +171,49 @@ func canonicalSequence(s string) keymap.Sequence {
 	return seq
 }
 
+// universalDispatch is the single dispatch-layer source of truth for
+// universal commands (today, only app.quit -- internal/keymap/capability.go's
+// IsUniversalCommand): it reports (tea.Quit, true) when binding resolved via
+// an exact OutcomeMatch to a universal command id, and (nil, false)
+// otherwise, letting every one of the 19 mode seams share one two-line
+// `if cmd, ok := b.universalDispatch(binding); ok { return b, cmd }` check
+// instead of a per-mode `case keymap.CommandQuit:`. Universal commands are
+// deliberately never added to any mode's hintSpec/hint-bar list (nothing is
+// bound by default -- docs/view-state-consistency.md's "never advertise a
+// key that no-ops" rule cuts the other way here: there is nothing to
+// advertise until a user opts in, and the shared seam can't know which key a
+// user chose without re-deriving per-mode hint state it has no other reason
+// to touch). Single-key-only caveat: outside normal/detail (the only mode
+// with pending-sequence machinery -- handlePendingSeqKey above), every other
+// seam's resolver is single-key exact-match only, so a multi-key app.quit
+// binding (e.g. "g q") never reaches this function via those seams: their
+// OutcomePending never resolves to a Binding this function is called with,
+// and stays a documented no-op there (the "Q4" rule referenced throughout
+// mode_handlers.go).
+func (b Board) universalDispatch(binding keymap.Binding) (tea.Cmd, bool) {
+	if binding.Kind == keymap.BindingCommand && keymap.IsUniversalCommand(binding.Command) {
+		return tea.Quit, true
+	}
+	return nil, false
+}
+
 // dispatchBinding turns a resolved keymap.Binding into (Model, Cmd): a
-// BindingCommand runs through the mode-appropriate command runner
-// (runNormalCommand/runDetailCommand); a BindingAction is refused silently
-// when it is scope: pr and the selected card has no linked PR -- the
-// registry's own pr-scope gate (see eligibleCandidates below for the pending-
-// sequence equivalent), so a pr-scope action can never reach
-// dispatchActionWithAlt's downstream 0-linked-PR warning branch
-// through ordinary dispatch (that branch stays defensive-only, exercised
-// only by direct handler tests) -- then dispatches through
-// dispatchActionWithAlt exactly like every other action dispatch path.
+// universal command (app.quit) dispatches tea.Quit immediately, ahead of the
+// mode-appropriate command runner (see universalDispatch's doc comment) --
+// otherwise a BindingCommand runs through runNormalCommand/runDetailCommand;
+// a BindingAction is refused silently when it is scope: pr and the selected
+// card has no linked PR -- the registry's own pr-scope gate (see
+// eligibleCandidates below for the pending-sequence equivalent), so a
+// pr-scope action can never reach dispatchActionWithAlt's downstream
+// 0-linked-PR warning branch through ordinary dispatch (that branch stays
+// defensive-only, exercised only by direct handler tests) -- then dispatches
+// through dispatchActionWithAlt exactly like every other action dispatch
+// path.
 func (b Board) dispatchBinding(mode keymap.Mode, binding keymap.Binding, alt bool) (tea.Model, tea.Cmd) {
+	if cmd, ok := b.universalDispatch(binding); ok {
+		return b, cmd
+	}
+
 	switch binding.Kind {
 	case keymap.BindingCommand:
 		if mode == keymap.ModeDetail {
