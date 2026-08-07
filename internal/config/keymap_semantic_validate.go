@@ -120,14 +120,26 @@ func findBarePrintableRune(key string) (string, bool) {
 	return "", false
 }
 
-// baseSequenceWithoutLeadingAlt strips a leading "alt+" from seq's first
-// field and returns the result, e.g. "alt+G" -> "G", "alt+G f" -> "G f".
-// ok is false if seq's first field has no "alt+" prefix.
-func baseSequenceWithoutLeadingAlt(seq string) (base string, ok bool) {
-	fields := strings.Fields(seq)
-	if len(fields) == 0 || !strings.HasPrefix(fields[0], "alt+") {
-		return "", false
+// altFreeBaseSequence parses seq (via keymap.ParseSequence, the same
+// canonicalization normalizeTable, internal/keymap/keymap.go, already uses)
+// and strips "alt+" from every token, not just the first, e.g. "alt+G" ->
+// "G", "Z alt+f" -> "Z f", "alt+Z alt+f" -> "Z f", returning the alt-free
+// sequence in its canonical Sequence.String() form. hasAlt reports whether
+// any token carried an "alt+" prefix; parse errors from seq propagate.
+func altFreeBaseSequence(seq string) (base string, hasAlt bool, err error) {
+	parsed, err := keymap.ParseSequence(seq)
+	if err != nil {
+		return "", false, err
 	}
-	fields[0] = strings.TrimPrefix(fields[0], "alt+")
-	return strings.Join(fields, " "), true
+
+	stripped := make(keymap.Sequence, len(parsed))
+	for i, tok := range parsed {
+		s := string(tok)
+		trimmed := strings.TrimPrefix(s, "alt+")
+		if trimmed != s {
+			hasAlt = true
+		}
+		stripped[i] = keymap.Key(trimmed)
+	}
+	return stripped.String(), hasAlt, nil
 }

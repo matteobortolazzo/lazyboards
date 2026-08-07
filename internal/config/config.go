@@ -954,6 +954,16 @@ func IsSequenceKey(r rune) bool {
 // decision, only card<->pr conflicts are rejected; a key shared between
 // "board" and either "card" or "pr" across tables is unchanged, existing
 // behavior.
+//
+// The grouping key is the sequence's canonical form (keymap.ParseSequence,
+// then Sequence.String() -- the same normalization normalizeTable,
+// internal/keymap/keymap.go, already uses), not its raw YAML spelling, so
+// whitespace variants of the same physical key ("Z f", "Z  f", " Z f ")
+// collapse onto one bucket instead of hiding a real conflict. The scan still
+// reads the raw per-table maps (cfg.Keymaps.Modes/Columns), not the resolved
+// *keymap.Keymap, since resolution would collapse column overlays onto mode
+// entries and erase the cross-table pairs this check looks for; only the map
+// KEY is canonicalized, cfg.Keymaps itself is never mutated.
 func validateScopeConflicts(cfg *Config) error {
 	if cfg.Keymaps == nil {
 		return nil
@@ -961,24 +971,34 @@ func validateScopeConflicts(cfg *Config) error {
 
 	scopesBySequence := make(map[string]map[string]bool)
 
-	addScopes := func(table KeymapTable) {
-		for seq, binding := range table {
+	addScopes := func(table KeymapTable, label string) error {
+		for rawKey, binding := range table {
 			if binding.Kind != keymap.BindingAction {
 				continue
 			}
+			parsed, err := keymap.ParseSequence(rawKey)
+			if err != nil {
+				return fmt.Errorf("%s: key %q: %w", label, rawKey, err)
+			}
+			seq := parsed.String()
 			scope := DefaultScope(binding.Action.Scope)
 			if scopesBySequence[seq] == nil {
 				scopesBySequence[seq] = make(map[string]bool)
 			}
 			scopesBySequence[seq][scope] = true
 		}
+		return nil
 	}
 
-	for _, table := range cfg.Keymaps.Modes {
-		addScopes(table)
+	for mode, table := range cfg.Keymaps.Modes {
+		if err := addScopes(table, fmt.Sprintf("keymaps.%s", mode)); err != nil {
+			return err
+		}
 	}
-	for _, table := range cfg.Keymaps.Columns {
-		addScopes(table)
+	for column, table := range cfg.Keymaps.Columns {
+		if err := addScopes(table, fmt.Sprintf("keymaps.columns.%s", column)); err != nil {
+			return err
+		}
 	}
 
 	for seq, scopes := range scopesBySequence {
