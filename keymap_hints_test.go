@@ -359,7 +359,7 @@ func TestKeymapHints_EffectiveColumnOverlay_ColumnOnlyActionAppendedAfterGlobalO
 	if x == -1 || y == -1 || w == -1 {
 		t.Fatalf("expected hints for X, Y, W; got: %+v", hints)
 	}
-	if !(x < w && y < w) {
+	if x >= w || y >= w {
 		t.Errorf("column-only action W should be appended after every global-order key (X=%d Y=%d W=%d); got: %+v", x, y, w, hints)
 	}
 }
