@@ -318,7 +318,14 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.handleMouseMsg(msg)
 
 	case tea.KeyMsg:
-		// ctrl+c always quits regardless of mode.
+		// ctrl+c always quits regardless of mode. This pre-check is also the
+		// only quit path for loadingMode/creatingMode specifically: those
+		// two modes have no keymap.Mode constant and return b, nil
+		// immediately below, before any handler runs -- so the shared
+		// universalDispatch seam (keymap_dispatch.go, #589's dispatch-layer
+		// source of truth for app.quit) structurally cannot reach them.
+		// Removing this pre-check would strand a user with no way to quit
+		// during the initial board fetch.
 		if msg.String() == "ctrl+c" {
 			return b, tea.Quit
 		}
@@ -1342,8 +1349,6 @@ func (b Board) runDetailCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	}
 
 	switch id {
-	case keymap.CommandQuit:
-		return b, tea.Quit
 	case keymap.CommandCardEdit:
 		if len(b.visibleCards()) == 0 {
 			return b, nil
