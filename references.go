@@ -171,6 +171,10 @@ func refIssueURL(cardURL string, number int) (string, bool) {
 
 // refHints builds the which-key hint bar for a pending reference-navigation
 // prompt: one hint per reference label, plus a trailing "esc: cancel" hint.
+// The trailing "esc" hint is an intentional hard-wired exception (#583
+// audit) -- handlePendingRefKey branches on tea.KeyEsc directly with no
+// catalogued command behind it, the same class of hard-wire as Lookup's
+// ctrl+c short-circuit (internal/keymap/lookup.go).
 func refHints(refs []cardRef) []Hint {
 	hints := make([]Hint, 0, len(refs)+1)
 	for _, r := range refs {

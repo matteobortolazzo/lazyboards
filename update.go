@@ -414,6 +414,19 @@ func (b Board) scheduleCenciWatchRetry() tea.Cmd {
 	})
 }
 
+// filterNoMatchesMessage renders the active-filter no-matches warning with
+// board.filter's currently bound key, resolved against the effective
+// normal-mode table for the active column. When board.filter is unbound the
+// instruction clause is dropped entirely rather than advertising a dead key.
+func (b Board) filterNoMatchesMessage() string {
+	entries := b.keys.Entries(keymap.ModeNormal, b.activeColumnTitle())
+	key := commandInstructionKey(entries, keymap.CommandBoardFilter)
+	if key == "" {
+		return "Filter has no matches"
+	}
+	return fmt.Sprintf("Filter has no matches — press %s to clear", key)
+}
+
 func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	// A refresh can change columns/cards, invalidating a pending key
 	// sequence's candidates and its hint bar (which the rebuilt hints below
@@ -536,7 +549,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		// Show no-matches hint if filter is active and zero cards match across all columns.
 		var cmd tea.Cmd
 		if b.activeFilterType != filterTypeNone && b.totalFilteredCards() == 0 {
-			cmd = b.statusBar.SetTimedMessage("Filter has no matches \u2014 press f to clear", StatusWarning, statusMessageDuration)
+			cmd = b.statusBar.SetTimedMessage(b.filterNoMatchesMessage(), StatusWarning, statusMessageDuration)
 		} else {
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 		}
@@ -586,7 +599,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.statusBar.SetActionHints(b.normalHints)
 	if b.loaded {
 		if b.activeFilterType != filterTypeNone && b.totalFilteredCards() == 0 {
-			cmd = b.statusBar.SetTimedMessage("Filter has no matches \u2014 press f to clear", StatusWarning, statusMessageDuration)
+			cmd = b.statusBar.SetTimedMessage(b.filterNoMatchesMessage(), StatusWarning, statusMessageDuration)
 		} else {
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 		}
