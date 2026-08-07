@@ -265,6 +265,33 @@ func TestAgentList_View_NewlineInWindowFields_RendersOneRowWithAllFragments(t *t
 	assertOneRow(t, view, "sOne", "sTwo", "wOne", "wTwo", "aO", "aT", "cOne", "cTwo")
 }
 
+// TestAgentList_View_WideCJKWindowName_StaysOnSinglePhysicalLine is the #595
+// guard for entry.window.WindowName's truncation at this call site
+// (view.go's viewAgentListModal): the budget must bound the truncated
+// window name in terminal cells, not runes. A rune-based budget lets each
+// 2-cell-wide CJK rune count as only 1, so the truncated name can render far
+// wider than the fixed-width modal box and wrap the row's CJK run across a
+// second physical line -- the same "must stay on one physical row"
+// invariant TestAgentList_View_NewlineInWindowFields_RendersOneRowWithAllFragments
+// enforces for embedded newlines, applied here to an over-wide rune-based
+// truncation instead. The window name is pure CJK (no numeric prefix), so
+// it doesn't join to a card and the row carries no "— <column> #N" suffix --
+// isolating the window-name truncation budget.
+func TestAgentList_View_WideCJKWindowName_StaysOnSinglePhysicalLine(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	windows := []cenciwatch.WindowState{
+		{Session: "dev", WindowIndex: "1", WindowName: strings.Repeat("测", 60), Status: "idle"},
+	}
+	b := newAgentListBoard(t, fe, windows)
+	b = sendKey(t, b, keyMsg("w"))
+
+	view := b.View()
+	// "dev:1" (the agentWindowRef prefix) sits immediately before the window
+	// name in the row; both needles must land on the same physical line for
+	// the row to have stayed unwrapped.
+	assertOneRow(t, view, "dev:1", "测")
+}
+
 // TestAgentList_View_StatePrecedence locks the full cenciwatch state
 // precedence: watcher disabled -> daemon not connected -> no windows ->
 // list (with a stale note once the error threshold that clears the

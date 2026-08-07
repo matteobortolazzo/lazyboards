@@ -514,6 +514,32 @@ func TestPRList_View_TitleFitsModalWidth(t *testing.T) {
 	}
 }
 
+// TestPRList_View_WideCJKTitle_StaysOnSinglePhysicalLine is the #595 guard
+// for entry.pr.Title's truncation at this call site (view.go's
+// viewPRListModal): the budget must bound the truncated title in terminal
+// cells, not runes. A rune-based budget lets each 2-cell-wide CJK rune count
+// as only 1, so the truncated title can render far wider than the
+// fixed-width modal box and wrap the row's CJK run across a second physical
+// line -- this is the same "must stay on one physical row" invariant
+// TestPRList_View_NewlineInTitleAndColumnTitle_RendersOneRowWithSuffix
+// enforces for embedded newlines, applied here to an over-wide rune-based
+// truncation instead. PR #999 is not linked to any card, so the row carries
+// no "— <column> #N" suffix -- isolating the title's own truncation budget.
+func TestPRList_View_WideCJKTitle_StaysOnSinglePhysicalLine(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	title := strings.Repeat("测", 60)
+	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
+		{Number: 999, Title: title, URL: "https://github.com/owner/repo/pull/999"},
+	}})
+
+	view := b.viewPRListModal()
+	// "#999" sits immediately before the title in the row; both needles
+	// must land on the same physical line for the row to have stayed
+	// unwrapped.
+	assertOneRow(t, view, "#999", "测")
+}
+
 func TestPRList_View_KeepsSelectedRowVisibleWithinTerminal(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 	b.Height = 12
