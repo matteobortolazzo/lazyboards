@@ -177,11 +177,15 @@ keymaps:
 
 func TestLoad_KeymapCtrlC_DirectBinding_ReturnsError(t *testing.T) {
 	// A non-normal mode, per the ticket's explicit "in a non-normal mode
-	// too" requirement.
+	// too" requirement. Uses search.apply (a searchDefaults-bound id)
+	// rather than the normal-only board.refresh -- #577's
+	// validateModeCapabilities would otherwise reject board.refresh as
+	// foreign to search before validateNoCtrlC's own rejection (which this
+	// test targets) is ever reached.
 	yamlContent := `provider: github
 keymaps:
   search:
-    ctrl+c: board.refresh
+    ctrl+c: search.apply
 `
 	_, err := loadConfigFromStrings(t, yamlContent, "")
 	if err == nil {

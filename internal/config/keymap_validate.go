@@ -107,7 +107,7 @@ func validateNoCtrlC(keymaps *Keymaps) error {
 	}
 	for column, table := range keymaps.Columns {
 		if key, found := findCtrlC(table); found {
-			return fmt.Errorf("keymaps.columns.%s: key %q cannot bind ctrl+c: it always quits, regardless of table contents", column, key)
+			return fmt.Errorf("keymaps.columns.%q: key %q cannot bind ctrl+c: it always quits, regardless of table contents", column, key)
 		}
 	}
 	return nil

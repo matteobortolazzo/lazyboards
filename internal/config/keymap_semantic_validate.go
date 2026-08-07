@@ -1,7 +1,9 @@
 package config
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -25,7 +27,7 @@ func validateKeymapActions(keymaps *Keymaps) error {
 	}
 	for column, table := range keymaps.Columns {
 		if err := validateKeymapActionTable(table); err != nil {
-			return fmt.Errorf("keymaps.columns.%s: %w", column, err)
+			return fmt.Errorf("keymaps.columns.%q: %w", column, err)
 		}
 	}
 	return nil
@@ -62,7 +64,7 @@ func validateCommandIDs(keymaps *Keymaps) error {
 	}
 	for column, table := range keymaps.Columns {
 		if key, id, ok := findUnknownCommand(table); !ok {
-			return fmt.Errorf("keymaps.columns.%s: key %q: unknown command %q", column, key, id)
+			return fmt.Errorf("keymaps.columns.%q: key %q: unknown command %q", column, key, id)
 		}
 	}
 	return nil
@@ -142,4 +144,110 @@ func altFreeBaseSequence(seq string) (base string, hasAlt bool, err error) {
 		stripped[i] = keymap.Key(trimmed)
 	}
 	return stripped.String(), hasAlt, nil
+}
+
+// validateModeCapabilities checks that every keymaps.<mode>.<key> and
+// keymaps.columns.<name>.<key> binding is something the mode's dispatch
+// seam can actually reach:
+//   - a BindingCommand entry's command id must be in
+//     keymap.DispatchableCommands(mode) (checked via
+//     keymap.CommandDispatchable), erroring with the config path, the key,
+//     the offending id, and the full sorted list of valid ids (no cap, no
+//     elision) when it isn't;
+//   - a BindingAction (inline action) entry requires
+//     mode.DispatchesInlineActions(), and, for keymaps.pr_list
+//     specifically, additionally requires the binding's already-inferred
+//     effective scope (validateKeymapActions runs before this validator and
+//     writes it back) to be exactly "pr" -- enforced here, in
+//     internal/config, since keymap.Mode has no notion of an Action's
+//     scope;
+//   - a BindingUnbound entry is always skipped, nothing to check.
+//
+// keymaps.columns.<name> tables are checked against keymap.ModeColumns's
+// own entry in the capability index, not against ModeNormal/ModeDetail
+// directly.
+//
+// Walks keymaps.Modes then keymaps.Columns in sorted key order, and each
+// table's keys in sorted order too, so the reported failure is
+// deterministic (not Go's randomized map-iteration order) -- returns on the
+// first failing binding, matching every sibling validator's fail-fast
+// style.
+func validateModeCapabilities(keymaps *Keymaps) error {
+	if keymaps == nil {
+		return nil
+	}
+	for _, mode := range sortedKeys(keymaps.Modes) {
+		if err := validateCapabilityTable(keymaps.Modes[mode], mode, fmt.Sprintf("keymaps.%s", mode)); err != nil {
+			return err
+		}
+	}
+	for _, column := range sortedKeys(keymaps.Columns) {
+		if err := validateCapabilityTable(keymaps.Columns[column], keymap.ModeColumns, fmt.Sprintf("keymaps.columns.%q", column)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateCapabilityTable runs validateModeCapabilities' checks over one
+// table (a single mode's or column's), in sorted key order.
+func validateCapabilityTable(table KeymapTable, mode keymap.Mode, path string) error {
+	for _, key := range sortedKeys(table) {
+		binding := table[key]
+		switch binding.Kind {
+		case keymap.BindingCommand:
+			if !keymap.CommandDispatchable(mode, binding.Command) {
+				return capabilityCommandError(path, key, binding.Command, mode)
+			}
+		case keymap.BindingAction:
+			if err := validateCapabilityAction(mode, path, key, binding.Action); err != nil {
+				return err
+			}
+		case keymap.BindingUnbound:
+			continue
+		default:
+			return fmt.Errorf("%s: key %q: unrecognized binding kind %v", path, key, binding.Kind)
+		}
+	}
+	return nil
+}
+
+// validateCapabilityAction runs the inline-action half of
+// validateModeCapabilities' checks for one BindingAction entry.
+func validateCapabilityAction(mode keymap.Mode, path, key string, action Action) error {
+	if !mode.DispatchesInlineActions() {
+		return fmt.Errorf("%s: key %q: mode %q never dispatches inline actions", path, key, mode)
+	}
+	if mode == keymap.ModePRList {
+		if scope := DefaultScope(action.Scope); scope != "pr" {
+			return fmt.Errorf("%s: key %q: pr_list only dispatches inline actions with scope %q, got %q", path, key, "pr", scope)
+		}
+	}
+	return nil
+}
+
+// capabilityCommandError builds validateCapabilityTable's BindingCommand
+// rejection: the config path, the offending key, the offending command id,
+// and the full sorted list of ids mode can actually dispatch.
+func capabilityCommandError(path, key string, id keymap.CommandID, mode keymap.Mode) error {
+	valid := keymap.DispatchableCommands(mode)
+	names := make([]string, len(valid))
+	for i, v := range valid {
+		names[i] = string(v)
+	}
+	return fmt.Errorf("%s: key %q: command %q cannot dispatch in mode %q, want one of: %s", path, key, id, mode, strings.Join(names, ", "))
+}
+
+// sortedKeys returns m's keys in ascending order, so
+// validateModeCapabilities' mode/column/table walks are deterministic
+// instead of Go's randomized map-iteration order. It is shared by all three
+// walks (keymaps.Modes, keymaps.Columns, and a single KeymapTable) since
+// each is just a map keyed by an ordered type (keymap.Mode or string).
+func sortedKeys[K cmp.Ordered, V any](m map[K]V) []K {
+	keys := make([]K, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
 }
