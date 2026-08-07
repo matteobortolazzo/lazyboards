@@ -374,7 +374,7 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 
 		b.clampScrollOffset()
 		b.rebuildNormalHints()
-		b.statusBar.SetActionHints(b.normalHints)
+		b.restoreFocusHints()
 		// The re-sort itself is synchronous; only remembering the choice for
 		// the next launch is async (#503). With no state path there is
 		// nowhere to save, so the toggle stays session-only.
@@ -425,7 +425,7 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch result.Binding.Command {
 		case keymap.CommandFilterClose:
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			return b, nil
 		case keymap.CommandFilterSelect:
 			if b.filterCursor < len(b.filterItems) && !b.filterItems[b.filterCursor].isHeader {
@@ -433,7 +433,7 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				b.applyFilter(item.itemType, item.value)
 			}
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			return b, nil
 		case keymap.CommandFilterNext:
 			b.filterMoveDown()
@@ -467,7 +467,7 @@ func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch result.Binding.Command {
 		case keymap.CommandAssignClose:
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			return b, nil
 		case keymap.CommandAssignToggle:
 			if len(b.assign.items) == 0 || b.assign.cursor >= len(b.assign.items) {
@@ -491,7 +491,7 @@ func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			statusCmd := b.statusBar.SetTimedMessage("Updating assignees...", StatusInfo, longStatusMessageDuration)
 			return b, tea.Batch(statusCmd, setAssigneesCmd(b.provider, card.Number, newLogins))
 		case keymap.CommandAssignNext:
@@ -576,11 +576,7 @@ func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (b *Board) closePRPickerNoPRs() {
 	b.mode = normalMode
 	b.pendingPRAction = nil
-	if b.detailFocused {
-		b.rebuildDetailHints()
-	} else {
-		b.statusBar.SetActionHints(b.normalHints)
-	}
+	b.restoreFocusHints()
 }
 
 func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -595,16 +591,6 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		b.prPickerIndex = prCount - 1
 		if b.prPickerIndex < 0 {
 			b.prPickerIndex = 0
-		}
-	}
-
-	// The picker can be opened from the card list or the detail panel; restore
-	// the hint set matching where the user came from.
-	restoreHints := func() {
-		if b.detailFocused {
-			b.rebuildDetailHints()
-		} else {
-			b.statusBar.SetActionHints(b.normalHints)
 		}
 	}
 
@@ -635,7 +621,7 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keymap.CommandPRPickerClose:
 			b.mode = normalMode
 			b.pendingPRAction = nil
-			restoreHints()
+			b.restoreFocusHints()
 			return b, nil
 		case keymap.CommandPRPickerPrev:
 			b.prPickerIndex = (b.prPickerIndex - 1 + prCount) % prCount
@@ -646,7 +632,7 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keymap.CommandPRPickerSelect:
 			pr := card.LinkedPRs[b.prPickerIndex]
 			b.mode = normalMode
-			restoreHints()
+			b.restoreFocusHints()
 			// Dual-purpose: if a scope: pr custom action is pending, run it
 			// against the selected PR and clear the pending state. Otherwise fall
 			// back to the original open-URL behavior (built-in "p" key).
@@ -697,11 +683,11 @@ func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch result.Binding.Command {
 		case keymap.CommandPRListClose:
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			return b, nil
 		case keymap.CommandPRListOpen:
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			if len(b.prList.entries) == 0 || b.prList.cursor >= len(b.prList.entries) {
 				return b, nil
 			}
@@ -765,11 +751,11 @@ func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch result.Binding.Command {
 		case keymap.CommandMilestoneListClose:
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			return b, nil
 		case keymap.CommandMilestoneListFilter:
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			if len(b.milestoneList.entries) == 0 || b.milestoneList.cursor >= len(b.milestoneList.entries) {
 				return b, nil
 			}
@@ -871,11 +857,11 @@ func (b Board) handleAgentListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch result.Binding.Command {
 		case keymap.CommandAgentListClose:
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			return b, nil
 		case keymap.CommandAgentListGoToWindow:
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			if len(entries) == 0 || b.agentList.cursor >= len(entries) {
 				return b, nil
 			}

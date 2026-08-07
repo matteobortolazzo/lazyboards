@@ -531,11 +531,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 
 		b.clampScrollOffset()
 		b.rebuildNormalHints()
-		if b.detailFocused {
-			b.rebuildDetailHints()
-		} else {
-			b.statusBar.SetActionHints(b.normalHints)
-		}
+		b.restoreFocusHints()
 
 		// Show no-matches hint if filter is active and zero cards match across all columns.
 		var cmd tea.Cmd
@@ -1113,6 +1109,20 @@ func (b Board) handleCardUpdated(msg cardUpdatedMsg) (tea.Model, tea.Cmd) {
 func (b *Board) restoreModeHints() {
 	if b.comment.fromDetailFocused {
 		b.detailFocused = true
+	}
+	b.restoreFocusHints()
+}
+
+// restoreFocusHints restores the status-bar hint bar for the board's current
+// focus state: the detail-panel hints when b.detailFocused, otherwise the
+// normal card-list hints. Consolidates the
+// `if b.detailFocused { rebuildDetailHints() } else { SetActionHints(normalHints) }`
+// idiom shared by every mode-exit site a detail-panel-delegated command
+// (#588) can now reach -- entering a mode from the detail panel must leave
+// it focused, so exiting that mode must restore the detail hint bar instead
+// of unconditionally falling back to the card-list one.
+func (b *Board) restoreFocusHints() {
+	if b.detailFocused {
 		b.rebuildDetailHints()
 		return
 	}
@@ -1242,7 +1252,7 @@ func (b Board) dispatchGitMenuAction(act keymap.Action) (tea.Model, tea.Cmd) {
 // custom actions on the same letter never shadow them (and vice versa).
 func (b Board) closeGitMenuAndDispatch(act config.Action) (tea.Model, tea.Cmd) {
 	b.mode = normalMode
-	b.statusBar.SetActionHints(b.normalHints)
+	b.restoreFocusHints()
 	return b.handleBoardActionKey(act)
 }
 
@@ -1363,6 +1373,14 @@ func (b Board) runDetailCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	case keymap.CommandNavColumnPrev:
 		b.detailFocused = false
 		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
+	default:
+		// Every other built-in command id -- anything runNormalCommand
+		// accepts that isn't one of the explicit cases above -- delegates to
+		// runNormalCommand unchanged: none of its cases blur the detail
+		// panel (detailFocused stays whatever it already was), mirroring the
+		// existing precedent that inline board/card actions dispatched while
+		// ModeDetail is active never touch detailFocused either.
+		return b.runNormalCommand(id)
 	}
 	return b, nil
 }
@@ -1415,7 +1433,7 @@ func (b *Board) onCursorMoved() {
 	b.detailScrollOffset = 0
 	b.clampScrollOffset()
 	b.rebuildNormalHints()
-	b.statusBar.SetActionHints(b.normalHints)
+	b.restoreFocusHints()
 }
 
 func (b *Board) switchColumn(idx int) {
@@ -1449,8 +1467,6 @@ func (b *Board) closeHelp() {
 	b.mode = normalMode
 	if b.helpFromDetailFocused {
 		b.detailFocused = true
-		b.rebuildDetailHints()
-	} else {
-		b.statusBar.SetActionHints(b.normalHints)
 	}
+	b.restoreFocusHints()
 }

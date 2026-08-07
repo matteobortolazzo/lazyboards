@@ -149,12 +149,12 @@ func (b Board) runGitPanelCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		return b, tea.Quit
 	case keymap.CommandGitPanelClose:
 		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+		b.restoreFocusHints()
 		return b, nil
 	case keymap.CommandGitPanelRun:
 		if len(b.gitPanel.items) == 0 || b.gitPanel.cursor >= len(b.gitPanel.items) {
 			b.mode = normalMode
-			b.statusBar.SetActionHints(b.normalHints)
+			b.restoreFocusHints()
 			return b, nil
 		}
 		return b.closeGitMenuAndDispatch(b.gitPanel.items[b.gitPanel.cursor].action)
@@ -248,7 +248,7 @@ func (b Board) runDispatchCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		return b, nil
 	case keymap.CommandDispatchClose:
 		b.mode = normalMode
-		b.statusBar.SetActionHints(b.normalHints)
+		b.restoreFocusHints()
 		return b, nil
 	case keymap.CommandDispatchToggleEnroll:
 		if b.dispatch.loading || b.dispatch.err != "" || b.dispatch.running {
