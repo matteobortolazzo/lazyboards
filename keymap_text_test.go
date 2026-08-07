@@ -976,3 +976,58 @@ func TestKeymapText_GlyphHintKey_UnboundID_OmittedFromJoin(t *testing.T) {
 		t.Errorf("glyphHintKey with search.next_result unbound = %q, want %q (unbound id dropped, not an empty segment)", got, want)
 	}
 }
+
+// --- capitalizeKeyLabel / joinClauses (#583 Stack 1/2, Q1 transform) ---
+//
+// capitalizeKeyLabel is the delete modal's prose-only display transform
+// (keymap_text.go): it upper-cases the first RUNE of a rendered key label,
+// leaving the rest untouched, so default output ("esc"/"enter") stays
+// byte-identical to today's shipped "Esc"/"Enter" wording. It must never
+// title-case each "+"-separated segment ("shift+tab" -> "Shift+tab", not
+// "Shift+Tab") and must decode multi-byte first runes correctly (an arrow
+// glyph, a remapped non-ASCII key) rather than corrupting them via a
+// byte-slice ToUpper.
+
+func TestKeymapText_CapitalizeKeyLabel_FirstRuneOnly(t *testing.T) {
+	cases := []struct {
+		label string
+		want  string
+	}{
+		{"esc", "Esc"},
+		{"enter", "Enter"},
+		{"shift+tab", "Shift+tab"}, // NOT "Shift+Tab" -- no per-segment title-casing
+		{"ctrl+d", "Ctrl+d"},
+		{"/", "/"},
+		{"1", "1"},
+		{"◀", "◀"}, // multi-byte first rune round-trips without corruption
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			got := capitalizeKeyLabel(tc.label)
+			if got != tc.want {
+				t.Errorf("capitalizeKeyLabel(%q) = %q, want %q", tc.label, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestKeymapText_JoinClauses_OmitsEmptyClausesAndSeparator(t *testing.T) {
+	cases := []struct {
+		name    string
+		clauses []string
+		want    string
+	}{
+		{"both unbound (empty)", []string{"", ""}, ""},
+		{"only first bound", []string{"Enter to continue", ""}, "Enter to continue"},
+		{"only second bound", []string{"", "Esc to cancel"}, "Esc to cancel"},
+		{"both bound", []string{"Enter to continue", "Esc to cancel"}, "Enter to continue, Esc to cancel"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := joinClauses(tc.clauses...)
+			if got != tc.want {
+				t.Errorf("joinClauses(%v) = %q, want %q", tc.clauses, got, tc.want)
+			}
+		})
+	}
+}

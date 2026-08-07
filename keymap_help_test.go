@@ -787,3 +787,108 @@ func TestHelpContent_UppercaseDefaultsRenderAsBuiltins(t *testing.T) {
 		}
 	}
 }
+
+// --- Help Usage detail-focus sentence (#583 Stack 1/2) ---
+//
+// buildHelpContent's Usage appendix stops hardcoding "Press l or -> to view
+// card details." and instead derives it from nav.detail_focus resolved
+// against the effective normal-mode table via helpUsageDetailFocusLine
+// (keymap_help.go). Unlike the delete modal's capitalizeKeyLabel transform,
+// this sentence renders lowercase keys glyph-substituted exactly like every
+// other help-modal row (helpKeysForCommand), so the Q1 transform must never
+// leak into it.
+
+func TestHelpUsage_DefaultKeymap_RendersLowercaseKeysUnchanged(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	want := "  Press l or → to view card details.\n"
+	if !strings.Contains(content, want) {
+		t.Errorf("buildHelpContent() missing the default-parity Usage sentence %q verbatim, got:\n%s", want, content)
+	}
+}
+
+func TestHelpUsage_DetailFocusRemapped_ReflectsNewKeysAndGlyphs(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeNormal: {
+			"l":     keymap.UnboundBinding(),
+			"right": keymap.UnboundBinding(),
+			"h":     keymap.CommandBinding(keymap.CommandNavDetailFocus),
+			"left":  keymap.CommandBinding(keymap.CommandNavDetailFocus),
+		},
+	}, nil)
+
+	content := b.buildHelpContent()
+	if !strings.Contains(content, "Press h or ◀ to view card details.") {
+		t.Errorf("buildHelpContent() Usage sentence did not reflect the remapped nav.detail_focus keys/glyphs, got:\n%s", content)
+	}
+	if strings.Contains(content, "Press l or → to view card details.") {
+		t.Errorf("buildHelpContent() Usage sentence still advertises the old (now unbound) l/right keys, got:\n%s", content)
+	}
+}
+
+func TestHelpUsage_DetailFocusFullyUnbound_OmitsSentence(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeNormal: {
+			"l":     keymap.UnboundBinding(),
+			"right": keymap.UnboundBinding(),
+		},
+	}, nil)
+
+	content := b.buildHelpContent()
+	if strings.Contains(content, "to view card details.") {
+		t.Errorf("buildHelpContent() Usage sentence should be omitted once every nav.detail_focus key is unbound, got:\n%s", content)
+	}
+	if !strings.Contains(content, "Columns represent board states") {
+		t.Errorf("buildHelpContent() Usage section should keep its other lines, got:\n%s", content)
+	}
+	if !strings.Contains(content, "Custom actions are configured in .lazyboards.yml.") {
+		t.Errorf("buildHelpContent() Usage section should keep its other lines, got:\n%s", content)
+	}
+}
+
+// TestHelpUsage_DetailFocusColumnOverridden_UsesActiveColumnTable covers the
+// ticket's own Tests (TDD) requirement: a non-default active column override
+// must prove helpUsageDetailFocusLine resolves nav.detail_focus against the
+// *effective column* table (b.keys.Entries(keymap.ModeNormal,
+// b.activeColumnTitle())), not just the global normal-mode table every other
+// test in this section exercises. "Refined" is a real column in the loaded
+// board's fixture (expectedColumnTitles) but not the default active column
+// (ActiveTab defaults to 0, "New") -- setting ActiveTab to it isolates this
+// assertion to the column-scoped lookup path.
+func TestHelpUsage_DetailFocusColumnOverridden_UsesActiveColumnTable(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	activeIdx := -1
+	for i, col := range b.Columns {
+		if col.Title == "Refined" {
+			activeIdx = i
+			break
+		}
+	}
+	if activeIdx == -1 {
+		t.Fatalf("precondition: fixture board has no %q column", "Refined")
+	}
+	b.ActiveTab = activeIdx
+	if got := b.activeColumnTitle(); got != "Refined" {
+		t.Fatalf("precondition: active column should be %q, got %q", "Refined", got)
+	}
+
+	b = boardWithOverrideKeymap(t, b, nil, map[string]keymap.Table{
+		"refined": {
+			"l":     keymap.UnboundBinding(),
+			"right": keymap.UnboundBinding(),
+			"h":     keymap.CommandBinding(keymap.CommandNavDetailFocus),
+		},
+	})
+
+	content := b.buildHelpContent()
+	if !strings.Contains(content, "Press h to view card details.") {
+		t.Errorf("buildHelpContent() Usage sentence should reflect the active column %q's overridden nav.detail_focus key, got:\n%s", "Refined", content)
+	}
+	if strings.Contains(content, "Press l or → to view card details.") {
+		t.Errorf("buildHelpContent() Usage sentence still advertises the global default l/right keys after the active column overrode nav.detail_focus, got:\n%s", content)
+	}
+}

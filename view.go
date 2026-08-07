@@ -1305,11 +1305,11 @@ func (b Board) viewDeleteModal() string {
 	var hints StatusBar
 	switch b.delete.step {
 	case deleteStepConfirm:
-		prompt = fmt.Sprintf("Type %d to permanently delete #%d %q (Esc to cancel):", card.Number, card.Number, sanitizeSingleLine(card.Title))
+		prompt = fmt.Sprintf("Type %d to permanently delete #%d %q%s:", card.Number, card.Number, sanitizeSingleLine(card.Title), b.deleteConfirmPromptSuffix())
 		activeInputView = b.delete.confirmInput.View()
 		hints = NewStatusBar(b.deleteConfirmHints())
 	default:
-		prompt = fmt.Sprintf("Delete #%d %q — optional comment (Enter to continue, Esc to cancel):", card.Number, sanitizeSingleLine(card.Title))
+		prompt = fmt.Sprintf("Delete #%d %q — optional comment%s:", card.Number, sanitizeSingleLine(card.Title), b.deleteCommentPromptSuffix())
 		activeInputView = b.delete.commentInput.View()
 		hints = NewStatusBar(b.deleteCommentHints())
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/google/go-github/v68/github"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -1698,5 +1699,286 @@ func TestHelpSections_NormalMode_ContainsDeleteCardHint(t *testing.T) {
 	desc := mustFindCommand(t, keymap.CommandCardDelete).Desc
 	if !strings.Contains(section, desc) {
 		t.Fatalf("generated Normal Mode section does not contain the card.delete desc %q, got:\n%s", desc, section)
+	}
+}
+
+// --- #583 Stack 1/2: registry-derived delete prompts and mismatch message ---
+//
+// viewDeleteModal's two prompts and runDeleteCommand's mismatch feedback stop
+// hardcoding "Enter"/"Esc" and instead derive their key clauses from the
+// active ModeDelete table via deleteCommentPromptSuffix/
+// deleteConfirmPromptSuffix/deleteMismatchMessage (keymap_text.go), rendering
+// them through capitalizeKeyLabel so default output stays byte-identical to
+// today's shipped wording (Q1). These tests drive the real 'd' -> comment
+// step -> confirm step flow and read b.View(), never calling the string
+// helpers directly, per .claude/rules/testing.md.
+
+func TestDelete_CommentPrompt_DefaultKeymap_RendersCapitalizedShippedWording(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	// Widen past newDeleteTestBoard's default 120 (createModalWidth's 68-rune
+	// content area) so the full "(Enter to continue, Esc to cancel):" clause
+	// doesn't word-wrap across two physical lines -- this test asserts the
+	// clause's exact wording, not the modal's wrap behavior (which
+	// TestDelete_ConfirmPrompt_LongRemappedCancelKey_PreservesModalWidth
+	// covers separately), mirroring detail_focus_hints_test.go's
+	// TestView_DetailFocused_ShowsHelpAndCustomActionHints widening.
+	b.Width = 200
+
+	b = sendKey(t, b, keyMsg("d"))
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "(Enter to continue, Esc to cancel):") {
+		t.Errorf("View() comment-step prompt missing the default-parity capitalized suffix, got:\n%s", view)
+	}
+}
+
+func TestDelete_ConfirmPrompt_DefaultKeymap_RendersCapitalizedShippedWording(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+
+	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // blank comment -> confirm step
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "(Esc to cancel):") {
+		t.Errorf("View() confirm-step prompt missing the default-parity capitalized suffix, got:\n%s", view)
+	}
+	promptLine := findLineContaining(t, view, "Type ")
+	if strings.Contains(promptLine, "to confirm") {
+		t.Errorf("confirm-step prompt line = %q, must stay cancel-only per Q2 -- no new 'to confirm' clause", promptLine)
+	}
+}
+
+func TestDelete_MismatchMessage_DefaultKeymap_RendersCapitalizedShippedWording(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	card := b.selectedCard()
+
+	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // blank comment -> confirm step
+	wrong := strconv.Itoa(card.Number + 999)
+	for _, ch := range wrong {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.delete.mismatchMsg == "" {
+		t.Fatal("precondition: expected a non-empty mismatchMsg after a wrong retype")
+	}
+
+	view := b.View()
+	want := fmt.Sprintf("Doesn't match #%d — try again or Esc to cancel", card.Number)
+	if !strings.Contains(view, want) {
+		t.Errorf("View() missing default-parity mismatch message %q, got:\n%s", want, view)
+	}
+}
+
+func TestDelete_CommentPrompt_RemappedSubmitAndCancel_RendersCapitalizedNewKeys(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	// Widen past the default 120 for the same word-wrap reason as
+	// TestDelete_CommentPrompt_DefaultKeymap_RendersCapitalizedShippedWording
+	// -- "Tab to continue, Shift+tab to cancel" is even longer than the
+	// default "Enter"/"Esc" wording.
+	b.Width = 200
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"enter":     keymap.UnboundBinding(),
+			"esc":       keymap.UnboundBinding(),
+			"tab":       keymap.CommandBinding(keymap.CommandDeleteSubmit),
+			"shift+tab": keymap.CommandBinding(keymap.CommandDeleteCancel),
+		},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("d"))
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+
+	promptLine := findLineContaining(t, b.View(), "optional comment")
+	if !strings.Contains(promptLine, "(Tab to continue, Shift+tab to cancel):") {
+		t.Errorf("comment-step prompt line = %q, want the remapped keys rendered capitalized", promptLine)
+	}
+	if strings.Contains(promptLine, "Enter") || strings.Contains(promptLine, "Esc") {
+		t.Errorf("comment-step prompt line = %q, must not advertise the old (now unbound) Enter/Esc keys", promptLine)
+	}
+}
+
+func TestDelete_ConfirmPrompt_RemappedCancel_RendersCapitalizedNewKey(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"esc":       keymap.UnboundBinding(),
+			"shift+tab": keymap.CommandBinding(keymap.CommandDeleteCancel),
+		},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // submit is unaffected -> confirm step
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+
+	promptLine := findLineContaining(t, b.View(), "Type ")
+	if !strings.Contains(promptLine, "(Shift+tab to cancel):") {
+		t.Errorf("confirm-step prompt line = %q, want the remapped cancel key rendered capitalized", promptLine)
+	}
+	if strings.Contains(promptLine, "Esc") {
+		t.Errorf("confirm-step prompt line = %q, must not advertise the old (now unbound) Esc key", promptLine)
+	}
+}
+
+func TestDelete_MismatchMessage_RemappedCancel_RendersCapitalizedNewKey(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	card := b.selectedCard()
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"esc":       keymap.UnboundBinding(),
+			"shift+tab": keymap.CommandBinding(keymap.CommandDeleteCancel),
+		},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // -> confirm step
+	wrong := strconv.Itoa(card.Number + 999)
+	for _, ch := range wrong {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.delete.mismatchMsg == "" {
+		t.Fatal("precondition: expected a non-empty mismatchMsg after a wrong retype")
+	}
+
+	view := b.View()
+	want := fmt.Sprintf("Doesn't match #%d — try again or Shift+tab to cancel", card.Number)
+	if !strings.Contains(view, want) {
+		t.Errorf("View() missing remapped mismatch message %q, got:\n%s", want, view)
+	}
+	if strings.Contains(b.delete.mismatchMsg, "Esc") {
+		t.Errorf("mismatchMsg = %q, must not advertise the old (now unbound) Esc key", b.delete.mismatchMsg)
+	}
+}
+
+func TestDelete_CommentPrompt_CancelUnbound_DropsCancelClause(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {"esc": keymap.UnboundBinding()},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("d"))
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+
+	promptLine := findLineContaining(t, b.View(), "optional comment")
+	if !strings.Contains(promptLine, "(Enter to continue):") {
+		t.Errorf("comment-step prompt line = %q, want the cancel clause dropped, leaving (Enter to continue) with no dangling comma", promptLine)
+	}
+	if strings.Contains(strings.ToLower(promptLine), "cancel") {
+		t.Errorf("comment-step prompt line = %q, must not mention cancel once delete.cancel is unbound", promptLine)
+	}
+}
+
+// TestDelete_CommentPrompt_BothUnbound_OmitsParentheticalEntirely mirrors
+// TestKeymapText_CloseConfirm_UnbindBothSides_PromptOmitsParenthetical: the
+// comment step has two clauses (delete.submit "Enter to continue" and
+// delete.cancel "Esc to cancel"), so dropping one alone (covered by
+// TestDelete_CommentPrompt_CancelUnbound_DropsCancelClause) still leaves a
+// parenthetical -- only unbinding both must omit it entirely.
+func TestDelete_CommentPrompt_BothUnbound_OmitsParentheticalEntirely(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"enter": keymap.UnboundBinding(),
+			"esc":   keymap.UnboundBinding(),
+		},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("d"))
+	if b.delete.step != deleteStepComment {
+		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
+	}
+
+	promptLine := findLineContaining(t, b.View(), "optional comment")
+	if strings.ContainsAny(promptLine, "()") {
+		t.Errorf("comment-step prompt line = %q, want no parenthetical at all when both delete.submit and delete.cancel are unbound", promptLine)
+	}
+}
+
+func TestDelete_ConfirmPrompt_CancelUnbound_OmitsParenthetical(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {"esc": keymap.UnboundBinding()},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // -> confirm step
+	if b.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
+	}
+
+	promptLine := findLineContaining(t, b.View(), "Type ")
+	if strings.ContainsAny(promptLine, "()") {
+		t.Errorf("confirm-step prompt line = %q, want no parenthetical at all once delete.cancel (the confirm step's only clause) is unbound", promptLine)
+	}
+}
+
+func TestDelete_MismatchMessage_CancelUnbound_EndsAtTryAgain(t *testing.T) {
+	b, _ := newDeleteTestBoard(t)
+	card := b.selectedCard()
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {"esc": keymap.UnboundBinding()},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // -> confirm step
+	wrong := strconv.Itoa(card.Number + 999)
+	for _, ch := range wrong {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.delete.mismatchMsg == "" {
+		t.Fatal("precondition: expected a non-empty mismatchMsg after a wrong retype")
+	}
+
+	want := fmt.Sprintf("Doesn't match #%d — try again", card.Number)
+	if b.delete.mismatchMsg != want {
+		t.Errorf("mismatchMsg = %q, want %q (no cancel clause once delete.cancel is unbound)", b.delete.mismatchMsg, want)
+	}
+}
+
+// TestDelete_ConfirmPrompt_LongRemappedCancelKey_PreservesModalWidth guards
+// against the "long remapped key names widen modal prose" risk
+// (docs/terminal-rendering.md): renderModal's fixed createModalWidth() box
+// wraps content rather than growing to fit it, so a long remapped cancel key
+// ("shift+tab", capitalized to "Shift+tab") must not change the rendered
+// modal's overall lipgloss.Width vs. the default-keymap render.
+func TestDelete_ConfirmPrompt_LongRemappedCancelKey_PreservesModalWidth(t *testing.T) {
+	base, _ := newDeleteTestBoard(t)
+	base = sendKey(t, base, keyMsg("d"))
+	base = sendKey(t, base, arrowMsg(tea.KeyEnter)) // -> confirm step
+	if base.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", base.delete.step)
+	}
+	wantWidth := lipgloss.Width(base.viewDeleteModal())
+
+	remapped, _ := newDeleteTestBoard(t)
+	remapped = boardWithOverrideKeymap(t, remapped, map[keymap.Mode]keymap.Table{
+		keymap.ModeDelete: {
+			"esc":       keymap.UnboundBinding(),
+			"shift+tab": keymap.CommandBinding(keymap.CommandDeleteCancel),
+		},
+	}, nil)
+	remapped = sendKey(t, remapped, keyMsg("d"))
+	remapped = sendKey(t, remapped, arrowMsg(tea.KeyEnter)) // -> confirm step
+	if remapped.delete.step != deleteStepConfirm {
+		t.Fatalf("precondition: step = %d, want deleteStepConfirm", remapped.delete.step)
+	}
+	gotWidth := lipgloss.Width(remapped.viewDeleteModal())
+
+	if gotWidth != wantWidth {
+		t.Errorf("viewDeleteModal() width with a long remapped cancel key = %d, want unchanged %d (fixed createModalWidth box, no width math reads the prompt text)", gotWidth, wantWidth)
 	}
 }
