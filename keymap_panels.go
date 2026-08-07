@@ -98,6 +98,18 @@ func isNamedPanelKey(s string) bool {
 	return len([]rune(s)) > 1
 }
 
+// appendPanelHint appends Hint{Key: key, Desc: desc} to hints, unless key is
+// "" -- a hint bar must never advertise a key that silently no-ops
+// (docs/view-state-consistency.md), so a command-panel hint whose whole
+// underlying command family lost every bound key is omitted entirely rather
+// than rendered with a blank Key.
+func appendPanelHint(hints []Hint, key, desc string) []Hint {
+	if key == "" {
+		return hints
+	}
+	return append(hints, Hint{Key: key, Desc: desc})
+}
+
 // --- Git panel (#511 PR 1/2) ---
 
 // gitPanelHints derives the git panel's status-bar hint bar from the active
@@ -105,11 +117,11 @@ func isNamedPanelKey(s string) bool {
 // table, and automatically reflecting a keymaps.git_panel remap/unbind.
 func (b Board) gitPanelHints() []Hint {
 	entries := b.panelEntries(keymap.ModeGitPanel)
-	return []Hint{
-		{Key: panelHintKey(entries, keymap.CommandGitPanelClose), Desc: "Cancel"},
-		{Key: panelHintKey(entries, keymap.CommandGitPanelNext, keymap.CommandGitPanelPrev), Desc: "Navigate"},
-		{Key: panelHintKey(entries, keymap.CommandGitPanelRun), Desc: "Run"},
-	}
+	var hints []Hint
+	hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandGitPanelClose), "Cancel")
+	hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandGitPanelNext, keymap.CommandGitPanelPrev), "Navigate")
+	hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandGitPanelRun), "Run")
+	return hints
 }
 
 // gitPanelItemsFromKeymap builds the git menu's item list from the
@@ -180,29 +192,24 @@ func (b Board) dispatchModalHints() []Hint {
 
 	switch {
 	case b.dispatch.loading, b.dispatch.running, b.dispatch.err != "", b.dispatch.repo == "":
-		return []Hint{{Key: panelHintKey(entries, keymap.CommandDispatchClose), Desc: "Close"}}
+		var hints []Hint
+		hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandDispatchClose), "Close")
+		return hints
 	case b.dispatch.confirmingLoop:
-		return []Hint{
-			{Key: panelHintKey(entries, keymap.CommandDispatchConfirmLoop), Desc: "Confirm"},
-			{Key: panelHintKey(entries, keymap.CommandDispatchCancelLoop, keymap.CommandDispatchClose), Desc: "Cancel"},
-		}
+		var hints []Hint
+		hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandDispatchConfirmLoop), "Confirm")
+		hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandDispatchCancelLoop, keymap.CommandDispatchClose), "Cancel")
+		return hints
 	default:
 		enterDesc := "Enroll"
 		if b.dispatch.enrolled {
 			enterDesc = "Unenroll"
 		}
-		hints := []Hint{
-			{Key: panelHintKey(entries, keymap.CommandDispatchClose), Desc: "Close"},
-			{Key: panelHintKey(entries, keymap.CommandDispatchToggleEnroll), Desc: enterDesc},
-		}
+		var hints []Hint
+		hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandDispatchClose), "Close")
+		hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandDispatchToggleEnroll), enterDesc)
 		if b.dispatch.enrolled {
-			// A hint bar must never advertise a key that silently no-ops
-			// (docs/view-state-consistency.md): omit the affordance entirely
-			// once CommandDispatchOnce has no bound key left, rather than
-			// render it with a blank Key.
-			if key := panelHintKey(entries, keymap.CommandDispatchOnce); key != "" {
-				hints = append(hints, Hint{Key: key, Desc: "Dispatch once"})
-			}
+			hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandDispatchOnce), "Dispatch once")
 		}
 		return hints
 	}
@@ -346,10 +353,10 @@ func (b Board) handleDispatchModalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // picking (shared with the git panel and dispatch modal).
 func (b Board) helpHints() []Hint {
 	entries := b.panelEntries(keymap.ModeHelp)
-	return []Hint{
-		{Key: panelHintKey(entries, keymap.CommandHelpClose), Desc: "Close"},
-		{Key: panelHintKey(entries, keymap.CommandHelpScrollDown, keymap.CommandHelpScrollUp), Desc: "Scroll"},
-	}
+	var hints []Hint
+	hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandHelpClose), "Close")
+	hints = appendPanelHint(hints, panelHintKey(entries, keymap.CommandHelpScrollDown, keymap.CommandHelpScrollUp), "Scroll")
+	return hints
 }
 
 // runHelpCommand runs the help-modal command id resolves to. Case bodies are
