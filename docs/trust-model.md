@@ -24,8 +24,8 @@ tallied and stripped independently by `internal/config/trust_strip.go`'s
 
 | Sink kind | Source | Stripped when untrusted |
 |---|---|---|
-| Keymap shell bindings | `keymaps.<mode>.<key>` / `keymaps.columns.<name>.<key>` entries whose value is an inline `type: shell` action | The binding is deleted from the table; if that empties a mode/column table entirely, the whole table entry is removed so the mode/column falls back to inheriting the global table, rather than resolving to an explicit-but-empty one |
-| Legacy shell actions | Top-level `actions:` / `columns[].actions:` entries with `type: shell` (pre-#510 config shape) | The action is deleted; a matching global entry (byte-identical) is restored in its place |
+| Keymap shell bindings | `keymaps.<mode>.<key>` / `keymaps.columns.<name>.<key>` entries whose value is an inline `type: shell` action | Compared by value against the matching global mode/column table entry (ignoring the derived `Order` field -- see "Stripping is decided by..." below). A value-equivalent binding is left alone and not counted. A genuinely differing or local-only binding is deleted from the table and counted once; if something was actually stripped and that empties the mode/column table entirely, the whole table entry is removed so the mode/column falls back to inheriting the global table. An explicitly-empty local table that stripped nothing (e.g. `keymaps: {normal: {}}`) is never deleted this way -- it stays explicit-and-empty, matching what a trusted load of the same bytes would resolve to |
+| Legacy shell actions | Top-level `actions:` / `columns[].actions:` entries with `type: shell` (pre-#510 config shape) | Compared by value against the matching global action (ignoring `Order`). A value-equivalent action is left alone and not counted. A genuinely differing or local-only action is deleted and counted once; a matching global entry, if any, is restored in its place by the later merge |
 | Cleanup fields | `cleanup:` / `columns[].cleanup` | Reset to the matching global value (or unset if none), never to an empty string |
 
 `type: url` actions, and keymap bindings to a catalogued built-in command id,
@@ -36,11 +36,21 @@ itself a non-shell sink on every platform (see `docs/shell-and-url-safety.md`;
 binding would reopen the exact command-injection gap this trust model exists
 to close. Stripping is decided by comparing the local value against a
 snapshot of the *global* document taken before the local file was merged in:
-anything byte-identical to its global counterpart is genuinely global
-(inherited, not locally declared) and is left alone, whatever the local file's
-trust state; anything else is stripped unconditionally. This fails safe
-(over-strip, never under-strip) and closes a YAML merge-key/alias bypass a
-raw "was this key literally in the document" walk would have missed.
+anything whose execution-relevant fields (kind, command, and the underlying
+action's name/type/url/command/scope) match its global counterpart is
+genuinely global (inherited, not locally declared) and is left alone,
+whatever the local file's trust state. This comparison deliberately excludes
+each entry's derived `Order` field -- document-position metadata used only
+for hint-bar/help ordering, never consumed at execution time -- because a
+YAML alias (`keymaps: *anchor`, `actions: *anchor`) leaves every aliased
+entry's `Order` at its zero value rather than stamping it from document
+position; an `Order`-inclusive comparison would misclassify an
+aliased-but-genuinely-global entry as locally differing purely because of
+where it appears in the document. Anything that doesn't match on the
+remaining fields -- a real override or a local-only declaration -- is
+stripped unconditionally and counted once. This fails safe (over-strip,
+never under-strip) and closes a YAML merge-key/alias bypass a raw "was this
+key literally in the document" walk would have missed.
 
 An explicit local `cleanup: ""` is left alone even when untrusted — it's a
 disable directive, not a command, and can never reach a shell.

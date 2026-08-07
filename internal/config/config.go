@@ -228,9 +228,16 @@ func DefaultCrashLogPath() (string, error) {
 // are honored: when the local file's content hash isn't in trust, they are
 // silently stripped before the merge (see stripLocalShellSinks,
 // trust_strip.go) -- global-declared shell constructs are never affected,
-// whatever trust says (AC9). Each stripped sink is not silently dropped: it
-// is recorded in the returned Config's Notices field (see buildStripNotice),
-// naming every stripped kind together in a single entry per Load() call.
+// whatever trust says (AC9). Stripping is a value comparison against the
+// pre-local global snapshots (globalKeymaps/globalActions/globalColumns/
+// globalCleanup, taken below before the local unmarshal runs), ignoring each
+// entry's derived Order field (see sameShellAction/sameShellBinding,
+// trust_strip.go): a local shell construct equal to its global counterpart
+// in every execution-relevant field is inherited, not stripped, whatever
+// document position or YAML alias it was declared through. Each stripped
+// sink is not silently dropped: it is recorded in the returned Config's
+// Notices field (see buildStripNotice), naming every stripped kind together
+// in a single entry per Load() call.
 func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	var cfg Config
 
@@ -326,18 +333,20 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 		// LocalHash/trust gate whether this local document's own
 		// keystroke-triggered shell-executing constructs are honored.
 		// cfg.Keymaps is purely local at this point (global was already
-		// snapshotted above and reset to nil), and cfg.Columns/cfg.Actions
-		// still hold only what the local unmarshal just produced (the
-		// global-preserving merge steps below haven't run yet) -- exactly
-		// the provenance window stripLocalShellSinks needs to strip only
-		// local-declared shell entries and never a global one (AC9).
-		// stripLocalShellSinks compares against the globalActions/
-		// globalColumns snapshots by value rather than consulting decls --
-		// see stripShellFromActions (trust_strip.go) for why the raw-node
-		// walk decls carries isn't a safe strip-eligibility gate.
+		// snapshotted into globalKeymaps above and reset to nil), and
+		// cfg.Columns/cfg.Actions still hold only what the local unmarshal
+		// just produced (the global-preserving merge steps below haven't run
+		// yet) -- exactly the provenance window stripLocalShellSinks needs to
+		// strip only local-declared shell entries and never a global one
+		// (AC9). stripLocalShellSinks compares against the globalKeymaps/
+		// globalActions/globalColumns snapshots by value (ignoring each
+		// entry's derived Order field -- see sameShellAction/sameShellBinding,
+		// trust_strip.go) rather than consulting decls -- see
+		// stripShellFromActions (trust_strip.go) for why the raw-node walk
+		// decls carries isn't a safe strip-eligibility gate.
 		cfg.LocalHash = hashConfigBytes(localData)
 		if !trust.Trusts(cfg.LocalHash) {
-			counts := stripLocalShellSinks(&cfg, decls, globalActions, globalColumns, globalCleanup)
+			counts := stripLocalShellSinks(&cfg, decls, globalKeymaps, globalActions, globalColumns, globalCleanup)
 			if notice := buildStripNotice(counts); notice != "" {
 				cfg.Notices = append(cfg.Notices, notice)
 			}
