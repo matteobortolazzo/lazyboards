@@ -1265,15 +1265,24 @@ func (b Board) dispatchGitMenuAction(act keymap.Action) (tea.Model, tea.Cmd) {
 	return b.closeGitMenuAndDispatch(configActionFromKeymap(act))
 }
 
-// closeGitMenuAndDispatch closes the git menu and runs act through the same
-// resolveAction/handleBoardActionKey path used by ordinary board-scope
-// hotkeys -- not through the normal-mode registry dispatch in
-// keymap_dispatch.go, since git menu keys are menu-scoped: normal-mode
-// custom actions on the same letter never shadow them (and vice versa).
+// closeGitMenuAndDispatch closes the git menu and runs act through
+// dispatchResolvedAction, the same board/card/pr scope router used by
+// ordinary normal-mode and Alt-key custom-action dispatch -- not through the
+// normal-mode registry dispatch in keymap_dispatch.go itself, since git menu
+// keys are menu-scoped: normal-mode custom actions on the same letter never
+// shadow them (and vice versa). A scope: pr action with 0 linked PRs on the
+// selected card is refused silently via the shared prScopeUnavailable gate
+// (action_dispatch.go), mirroring dispatchBinding's normal-mode pr-scope
+// gate, before dispatchResolvedAction ever runs -- so a card/pr-scope git
+// menu action resolves against the selected card exactly like a normal-mode
+// custom action would.
 func (b Board) closeGitMenuAndDispatch(act config.Action) (tea.Model, tea.Cmd) {
 	b.mode = normalMode
 	b.restoreFocusHints()
-	return b.handleBoardActionKey(act)
+	if b.prScopeUnavailable(act) {
+		return b, nil
+	}
+	return b.dispatchResolvedAction(act)
 }
 
 func (b Board) handleAssigneesUpdated(msg assigneesUpdatedMsg) (tea.Model, tea.Cmd) {

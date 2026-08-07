@@ -128,6 +128,30 @@ func TestExpandTemplate_NoVariables(t *testing.T) {
 	}
 }
 
+// TestExpandTemplate_SubstitutedValueNotReExpanded guards against a
+// regression where expansion re-scans its own accumulating output: if
+// "tags"'s substituted value happens to contain a literal "{pr_branch}"
+// shaped substring, and "pr_branch" is also present in vars, a naive
+// implementation that repeatedly does strings.ReplaceAll on the growing
+// result string could expand that literal occurrence too -- and because Go
+// map iteration order is randomized, whether this happens depends on which
+// key gets substituted first. Expansion must be a single pass over the
+// original template so an already-substituted value is never re-scanned.
+func TestExpandTemplate_SubstitutedValueNotReExpanded(t *testing.T) {
+	template := "{tags} {pr_branch}"
+	vars := map[string]string{
+		"tags":      "literal-{pr_branch}-in-a-label",
+		"pr_branch": "feature/579-git-panel-action-scope",
+	}
+	want := "literal-{pr_branch}-in-a-label feature/579-git-panel-action-scope"
+	for i := 0; i < 20; i++ {
+		got := ExpandTemplate(template, vars)
+		if got != want {
+			t.Fatalf("ExpandTemplate() = %q, want %q (a substituted value's literal {placeholder}-shaped text must not be re-expanded)", got, want)
+		}
+	}
+}
+
 // --- ShellEscape ---
 
 func TestShellEscape_SimpleString(t *testing.T) {

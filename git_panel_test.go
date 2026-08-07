@@ -23,18 +23,26 @@ var gitPanelKeyOrder = []string{"P", "p", "f", "m", "s", "S"}
 // newGitPanelTestBoard creates a loaded Board seeded with the built-in git
 // default actions (config.DefaultGitActions()) plus any user-provided
 // overrides, a FakeExecutor for asserting dispatched shell commands, and an
-// optional git status reader (nil disables the git status feature).
+// optional git status reader (nil disables the git status feature). It
+// delegates to newGitPanelTestBoardWithColumns with a single empty column, so
+// existing call sites needing only board-scope dispatch are unaffected.
 func newGitPanelTestBoard(t *testing.T, userActions map[string]config.Action, reader gitdetect.Reader) (Board, *action.FakeExecutor) {
+	t.Helper()
+	return newGitPanelTestBoardWithColumns(t, userActions, reader, []provider.Column{{Title: "Empty", Cards: nil}})
+}
+
+// newGitPanelTestBoardWithColumns is newGitPanelTestBoard's columns variant
+// (#579): identical setup, but the board is fetched with the given columns
+// instead of always using a single empty column, so scope: card/pr Git Menu
+// action tests (keymap_panels_test.go) can select a specific fixture card
+// (e.g. prFixtureColumns()'s 0/1/2-linked-PR cards) before dispatching.
+func newGitPanelTestBoardWithColumns(t *testing.T, userActions map[string]config.Action, reader gitdetect.Reader, columns []provider.Column) (Board, *action.FakeExecutor) {
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, userActions, config.DefaultGitActions(), nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, reader, true)
 
-	// Load a board with an empty column so board-scope actions (and the git
-	// panel, which is board-scope with no active-card requirement) can dispatch.
-	m, _ := b.Update(boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{{Title: "Empty", Cards: nil}},
-	}})
+	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
 	loaded := m.(Board)
 	loaded.Width = 120
 	loaded.Height = 40

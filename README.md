@@ -354,6 +354,8 @@ Inside a git repository with a remote, press `G` to open the **Git Menu** — si
 
 Inside the menu, press an action's key to run it immediately (like lazygit), or navigate with `j`/`k` and press `enter`; `esc` cancels. The keys are scoped to the menu: they do nothing in normal mode, so a custom `P` [action](#custom-actions) bound in normal mode and the menu's Push coexist without conflict — any key, uppercase or not, can bind a normal-mode custom action independently of what the Git Menu binds inside its own modal. The menu is also listed in the `?` help popup and only opens inside a git repo.
 
+Custom inline actions bound via `keymaps.git_panel` honor `board`/`card`/`pr` scope exactly like normal-mode actions: `card`-scope templates resolve against the selected card, and `pr`-scope templates follow the same 0/1/2+ linked-PR precedence and PR picker as elsewhere — 0 linked PRs refuses silently (no status message), 1 runs immediately, 2+ opens the PR picker.
+
 ### Status Bar Prefix (agent + PR counts)
 
 At the left of the status bar, an always-visible prefix summarizes the whole repository: agent-status counts (`▶N` running, `!N` awaiting input) followed by the repo-wide open-PR total (` N`, using the same PR glyph shown on cards). Each token is omitted when its count is zero, and the prefix disappears entirely when all are zero. Because the prefix is reserved before anything else, it stays visible through timed status messages and is never truncated to make room for hints or the right-aligned git/dispatch segments.
