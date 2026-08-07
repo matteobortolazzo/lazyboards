@@ -57,14 +57,29 @@ func BuildURLSafeVars(vars map[string]string) map[string]string {
 	return safe
 }
 
+// templateVarPattern matches {varname} placeholders. All template variable
+// names in this codebase (number, title, tags, repo_owner, repo_name,
+// provider, session, comment, window, pr_branch, pr_number, pr_url,
+// pr_title, pr_worktree) are lowercase ASCII letters and underscores only.
+var templateVarPattern = regexp.MustCompile(`\{([a-z_]+)\}`)
+
 // ExpandTemplate replaces {key} placeholders in template with values from vars.
 // Unknown placeholders are left as-is.
+//
+// Expansion is single-pass over the original template: it scans template
+// once and substitutes matched placeholders with values from vars. It never
+// re-scans already-substituted output, so a value that happens to contain a
+// literal "{othervar}"-shaped substring (e.g. a shell-escaped value from
+// BuildShellSafeVars, or a card label/title) is never mistaken for a
+// placeholder and re-expanded.
 func ExpandTemplate(template string, vars map[string]string) string {
-	result := template
-	for key, value := range vars {
-		result = strings.ReplaceAll(result, "{"+key+"}", value)
-	}
-	return result
+	return templateVarPattern.ReplaceAllStringFunc(template, func(match string) string {
+		key := match[1 : len(match)-1] // strip surrounding { }
+		if value, ok := vars[key]; ok {
+			return value
+		}
+		return match // unknown placeholder stays literal
+	})
 }
 
 // sessionSlug slugifies a title: lowercase, keep only ASCII a-z0-9, map

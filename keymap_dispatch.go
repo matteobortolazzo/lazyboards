@@ -202,13 +202,14 @@ func (b Board) universalDispatch(binding keymap.Binding) (tea.Cmd, bool) {
 // mode-appropriate command runner (see universalDispatch's doc comment) --
 // otherwise a BindingCommand runs through runNormalCommand/runDetailCommand;
 // a BindingAction is refused silently when it is scope: pr and the selected
-// card has no linked PR -- the registry's own pr-scope gate (see
-// eligibleCandidates below for the pending-sequence equivalent), so a
-// pr-scope action can never reach dispatchActionWithAlt's downstream
-// 0-linked-PR warning branch through ordinary dispatch (that branch stays
-// defensive-only, exercised only by direct handler tests) -- then dispatches
-// through dispatchActionWithAlt exactly like every other action dispatch
-// path.
+// card has no linked PR -- via the shared prScopeUnavailable gate
+// (action_dispatch.go), also consulted by closeGitMenuAndDispatch's Git Menu
+// dispatch path (see eligibleCandidates below for the pending-sequence
+// equivalent), so a pr-scope action can never reach dispatchActionWithAlt's
+// downstream 0-linked-PR warning branch through ordinary dispatch (that
+// branch stays defensive-only, exercised only by direct handler tests) --
+// then dispatches through dispatchActionWithAlt exactly like every other
+// action dispatch path.
 func (b Board) dispatchBinding(mode keymap.Mode, binding keymap.Binding, alt bool) (tea.Model, tea.Cmd) {
 	if cmd, ok := b.universalDispatch(binding); ok {
 		return b, cmd
@@ -222,7 +223,7 @@ func (b Board) dispatchBinding(mode keymap.Mode, binding keymap.Binding, alt boo
 		return b.runNormalCommand(binding.Command)
 	case keymap.BindingAction:
 		act := configActionFromKeymap(binding.Action)
-		if act.Scope == "pr" && len(b.selectedCard().LinkedPRs) == 0 {
+		if b.prScopeUnavailable(act) {
 			return b, nil
 		}
 		return b.dispatchActionWithAlt(act, alt)
