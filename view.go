@@ -1633,7 +1633,7 @@ func (b Board) viewPRListModal() string {
 		}
 		for i := start; i < end; i++ {
 			entry := b.prList.entries[i]
-			title := truncateOutput(sanitizeSingleLine(entry.pr.Title), 32)
+			title := truncateCell(sanitizeSingleLine(entry.pr.Title), 32)
 			status := prStatus(entry.pr)
 			prefix := prStatusPrefix(status)
 			display := fmt.Sprintf("%s  #%d  %s", prefix, entry.pr.Number, title)
@@ -1653,7 +1653,7 @@ func (b Board) viewPRListModal() string {
 	}
 	if b.prList.err != "" {
 		lines = append(lines, "")
-		lines = append(lines, truncateOutput("Couldn't load open PRs — showing linked PRs only", modalWidth-4))
+		lines = append(lines, "Couldn't load open PRs — showing linked PRs only")
 	}
 
 	lines = append(lines, "")
@@ -1736,7 +1736,7 @@ func (b Board) viewMilestoneListModal() string {
 			m := entries[i]
 			selected := i == b.milestoneList.cursor
 
-			title := truncateOutput(sanitizeSingleLine(m.Title), titleWidth-3)
+			title := truncateCell(sanitizeSingleLine(m.Title), titleWidth-3)
 			titleCell := padCell(title, titleWidth)
 
 			bar := renderProgressBar(m.ProgressPercentage, milestoneBarWidth, !selected)
@@ -1770,15 +1770,33 @@ func (b Board) viewMilestoneListModal() string {
 	return b.renderModal(modalContent, modalWidth)
 }
 
+// truncateCell truncates s to at most width terminal cells, measured via
+// lipgloss.Width (never len() or rune count, per
+// docs/terminal-rendering.md), appending an ellipsis ("…") when truncation
+// occurs. It is the single truncation entry point for the whole app: unlike
+// a rune-based truncator, ansi.Truncate accounts for the ellipsis's own
+// cell width and for wide CJK/emoji runes, so the result never exceeds the
+// requested budget. Returns "" for a non-positive width, and returns s
+// unchanged when it already fits.
+func truncateCell(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	return ansi.Truncate(s, width, "…")
+}
+
 // padCell pads s with trailing spaces to exactly width terminal cells,
 // measured via lipgloss.Width (never len(), per docs/terminal-rendering.md),
 // or hard-clamps it to width cells when s is already wider. This protects
 // the Milestones modal's fixed column grid from wrapping onto a second
-// physical line: truncateOutput truncates by runes and can return more
-// cells than requested (its "..." suffix, or a wide CJK/emoji rune), and a
-// naive rune-count clamp can land mid-rune on a wide-rune boundary, which
-// this pads back up to the exact target width. Returns "" for a
-// non-positive width.
+// physical line: truncateCell can return fewer cells than requested when
+// its "…" suffix doesn't land on a whole-rune boundary, and a naive
+// rune-count clamp can land mid-rune on a wide-rune boundary, which this
+// pads back up to the exact target width. Returns "" for a non-positive
+// width.
 func padCell(s string, width int) string {
 	if width <= 0 {
 		return ""
@@ -1854,12 +1872,12 @@ func (b Board) viewAgentListModal() string {
 				// elsewhere) still gets a neutral marker to keep rows aligned.
 				symbol = "·"
 			}
-			display := fmt.Sprintf("  %s %s", symbol, truncateOutput(sanitizeSingleLine(entry.window.WindowName), 24))
+			display := fmt.Sprintf("  %s %s", symbol, truncateCell(sanitizeSingleLine(entry.window.WindowName), 24))
 			if ref := agentWindowRef(entry.window); ref != "" {
-				display = fmt.Sprintf("  %s %s  %s", symbol, truncateOutput(sanitizeSingleLine(ref), 16), truncateOutput(sanitizeSingleLine(entry.window.WindowName), 24))
+				display = fmt.Sprintf("  %s %s  %s", symbol, truncateCell(sanitizeSingleLine(ref), 16), truncateCell(sanitizeSingleLine(entry.window.WindowName), 24))
 			}
 			if entry.window.Agent != "" {
-				display += "  " + truncateOutput(sanitizeSingleLine(entry.window.Agent), agentBadgeKindWidth)
+				display += "  " + truncateCell(sanitizeSingleLine(entry.window.Agent), agentBadgeKindWidth)
 			}
 			if entry.cardNumber != 0 {
 				display += fmt.Sprintf("  —  %s #%d", sanitizeSingleLine(entry.columnTitle), entry.cardNumber)
@@ -1873,7 +1891,7 @@ func (b Board) viewAgentListModal() string {
 	}
 	if disconnected {
 		lines = append(lines, "")
-		lines = append(lines, truncateOutput("cenci-watch disconnected — showing last known agents", modalWidth-4))
+		lines = append(lines, "cenci-watch disconnected — showing last known agents")
 	}
 
 	lines = append(lines, "")
