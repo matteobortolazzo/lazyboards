@@ -520,53 +520,94 @@ func (b Board) hasCardsInActiveColumn() bool {
 	return len(b.Columns[b.ActiveTab].Cards) > 0
 }
 
-// inlineActionHints returns the scope-gated inline-action hints for mode:
-// the active column's own entries (if any) overlaid on the global (no
-// column) entries, ordered exactly like #437's now-deleted legacy hint-bar
-// helper -- global config-file order first, then any sequence present only
-// in the column's own table appended in the column's order. A sequence the
-// active column overrides keeps its *global* position; only its displayed
-// Desc/scope switches to the column's own binding (TestAction_HintBar_
-// ColumnOverride_KeepsGlobalPosition).
-func (b Board) inlineActionHints(mode keymap.Mode) []Hint {
+// effectiveActionEntries returns the effective BindingAction entries for
+// mode, after resolving the active column's overlay against the global
+// table -- the single source of truth inlineActionHints builds its hints
+// from. The override map is built from the active column's entries
+// UNFILTERED (not just actionOnlyEntries), so a column's BindingUnbound or
+// BindingCommand entry is visible as a suppression marker for a global
+// action, not silently invisible the way an actionOnlyEntries-filtered map
+// would leave it (the ticket's primary bug: a column unbinding/overriding a
+// global action must hide that action's hint, not just fail to add a new
+// one).
+//
+// Ordering mirrors #437's now-deleted legacy hint-bar helper: global
+// config-file order first (for every global sequence whose effective
+// binding in the active column is still a BindingAction), then any sequence
+// bound to a BindingAction only in the column's own table (never globally),
+// appended in the column's declared/action order. A global sequence whose
+// effective binding resolves to BindingUnbound or BindingCommand -- or is
+// missing from the effective table entirely -- is omitted, never appended
+// with a stale global Desc.
+func (b Board) effectiveActionEntries(mode keymap.Mode) []keymap.Entry {
 	column := b.activeColumnTitle()
 
 	globalEntries := actionOnlyEntries(b.keys.Entries(mode, ""))
 	sortByActionOrder(globalEntries)
-	globalBySeq := make(map[string]keymap.Binding, len(globalEntries))
-	seqOrder := make([]string, 0, len(globalEntries))
-	for _, e := range globalEntries {
-		globalBySeq[e.Sequence] = e.Binding
-		seqOrder = append(seqOrder, e.Sequence)
-	}
 
-	var colBySeq map[string]keymap.Binding
+	var colOverride map[string]keymap.Binding
+	var colActionOrder []string
 	if column != "" {
-		colEntries := actionOnlyEntries(b.keys.Entries(mode, column))
-		sortByActionOrder(colEntries)
-		colBySeq = make(map[string]keymap.Binding, len(colEntries))
+		colEntries := b.keys.Entries(mode, column)
+		colOverride = make(map[string]keymap.Binding, len(colEntries))
 		for _, e := range colEntries {
-			colBySeq[e.Sequence] = e.Binding
-			if _, exists := globalBySeq[e.Sequence]; !exists {
-				seqOrder = append(seqOrder, e.Sequence)
+			colOverride[e.Sequence] = e.Binding
+			if e.Binding.Kind == keymap.BindingAction {
+				colActionOrder = append(colActionOrder, e.Sequence)
 			}
 		}
 	}
 
+	out := make([]keymap.Entry, 0, len(globalEntries)+len(colActionOrder))
+	globalSeqs := make(map[string]bool, len(globalEntries))
+	for _, e := range globalEntries {
+		globalSeqs[e.Sequence] = true
+		binding := e.Binding
+		if column != "" {
+			override, overridden := colOverride[e.Sequence]
+			if !overridden {
+				// keymap.Resolve always overlays a column's table onto the
+				// global one, so a global sequence can never actually be
+				// absent here -- treated as undispatchable/omitted anyway,
+				// defensively, in case that invariant is ever weakened.
+				continue
+			}
+			if override.Kind != keymap.BindingAction {
+				continue
+			}
+			binding = override
+		}
+		out = append(out, keymap.Entry{Sequence: e.Sequence, Binding: binding})
+	}
+
+	colOnly := make([]keymap.Entry, 0, len(colActionOrder))
+	for _, seq := range colActionOrder {
+		if globalSeqs[seq] {
+			continue
+		}
+		colOnly = append(colOnly, keymap.Entry{Sequence: seq, Binding: colOverride[seq]})
+	}
+	sortByActionOrder(colOnly)
+	out = append(out, colOnly...)
+
+	return out
+}
+
+// inlineActionHints returns the scope-gated inline-action hints for mode,
+// built from effectiveActionEntries -- ordering and column-override
+// resolution are effectiveActionEntries' job; this function's only concern
+// is applying the scope gate (board/pr/card) to whichever binding the
+// effective-binding-selection picked.
+func (b Board) inlineActionHints(mode keymap.Mode) []Hint {
+	entries := b.effectiveActionEntries(mode)
+
 	hasCards := b.hasCardsInActiveColumn()
 	hasLinkedPR := hasCards && len(b.selectedCard().LinkedPRs) > 0
 
-	hints := make([]Hint, 0, len(seqOrder))
-	for _, seq := range seqOrder {
-		binding, ok := colBySeq[seq]
-		if !ok {
-			binding, ok = globalBySeq[seq]
-		}
-		if !ok {
-			continue
-		}
-		hint := Hint{Key: seq, Desc: sanitizeSingleLine(binding.Action.Name)}
-		switch config.DefaultScope(binding.Action.Scope) {
+	hints := make([]Hint, 0, len(entries))
+	for _, e := range entries {
+		hint := Hint{Key: e.Sequence, Desc: sanitizeSingleLine(e.Binding.Action.Name)}
+		switch config.DefaultScope(e.Binding.Action.Scope) {
 		case "board":
 			hints = append(hints, hint)
 		case "pr":

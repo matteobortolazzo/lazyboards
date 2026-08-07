@@ -1207,6 +1207,7 @@ func TestKeymapPanels_Dispatch_HintKeysAlwaysDispatch(t *testing.T) {
 				for _, h := range hints {
 					for _, key := range strings.Split(h.Key, "/") {
 						if key == "" {
+							t.Errorf("state=%+v hint %+v: Hint.Key contains an empty key segment -- a hint must never advertise a blank-key affordance", state, h)
 							continue
 						}
 						result := b.keys.Lookup(keymap.ModeDispatch, "", keymap.Sequence{keymap.Key(key)})
@@ -1515,6 +1516,7 @@ func TestKeymapPanels_Help_HintKeysAlwaysDispatch(t *testing.T) {
 			for _, h := range hints {
 				for _, key := range strings.Split(h.Key, "/") {
 					if key == "" {
+						t.Errorf("hint %+v: Hint.Key contains an empty key segment -- a hint must never advertise a blank-key affordance", h)
 						continue
 					}
 					result := b.keys.Lookup(keymap.ModeHelp, "", keymap.Sequence{keymap.Key(key)})
@@ -1710,6 +1712,7 @@ func TestKeymapPanels_Error_HintKeysAlwaysDispatch(t *testing.T) {
 			for _, h := range hints {
 				for _, key := range strings.Split(h.Key, "/") {
 					if key == "" {
+						t.Errorf("hint %+v: Hint.Key contains an empty key segment -- a hint must never advertise a blank-key affordance", h)
 						continue
 					}
 					result := b.keys.Lookup(keymap.ModeError, "", keymap.Sequence{keymap.Key(key)})
@@ -1811,5 +1814,277 @@ func TestKeymapPanels_Error_CtrlCQuits_EvenWithFullyOverriddenTable(t *testing.T
 	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	if cmd == nil {
 		t.Error("ctrl+c in errorMode should return a non-nil Cmd (tea.Quit), even with a fully overridden ModeError table")
+	}
+}
+
+// --- Truthful keymap hints (#582) ---
+//
+// The git/dispatch/help panel hint builders above (gitPanelHints,
+// dispatchModalHints, helpHints) unconditionally append a Hint{Desc: ...}
+// even when panelHintKey returns "" -- every key for that command's family
+// was unbound. The status bar then renders a dead affordance (e.g. ": Close",
+// ": Run", ": Enroll") that silently no-ops if pressed. errorHints (still
+// wired through builtinHints, which already skips a command with no bound
+// key entirely) is explicitly OUT of scope for a production fix here --
+// the tests below pin its already-correct behavior as a regression guard,
+// not a RED case.
+
+// TestKeymapPanels_UnbindWholeHintFamily_HintDisappearsCleanly is table-
+// driven across every curated panel hint (git panel's Cancel/Navigate/Run,
+// dispatch's Close/Enroll/Dispatch once/Confirm/Cancel, help's Close/
+// Scroll): once every key underlying a hint's command family is unbound,
+// the hint must disappear -- no Hint.Key == "", and no remaining hint still
+// carries the removed family's Desc.
+func TestKeymapPanels_UnbindWholeHintFamily_HintDisappearsCleanly(t *testing.T) {
+	tests := []struct {
+		name        string
+		modes       map[keymap.Mode]keymap.Table
+		dispatch    *dispatchState
+		hints       func(Board) []Hint
+		removedDesc string
+	}{
+		{
+			name:        "git panel: esc unbound removes Cancel",
+			modes:       map[keymap.Mode]keymap.Table{keymap.ModeGitPanel: {"esc": keymap.UnboundBinding()}},
+			hints:       func(b Board) []Hint { return b.gitPanelHints() },
+			removedDesc: "Cancel",
+		},
+		{
+			name: "git panel: j/down/k/up unbound removes Navigate",
+			modes: map[keymap.Mode]keymap.Table{keymap.ModeGitPanel: {
+				"j": keymap.UnboundBinding(), "down": keymap.UnboundBinding(),
+				"k": keymap.UnboundBinding(), "up": keymap.UnboundBinding(),
+			}},
+			hints:       func(b Board) []Hint { return b.gitPanelHints() },
+			removedDesc: "Navigate",
+		},
+		{
+			name:        "git panel: enter unbound removes Run",
+			modes:       map[keymap.Mode]keymap.Table{keymap.ModeGitPanel: {"enter": keymap.UnboundBinding()}},
+			hints:       func(b Board) []Hint { return b.gitPanelHints() },
+			removedDesc: "Run",
+		},
+		{
+			name:        "dispatch: esc unbound removes Close (not-enrolled state)",
+			modes:       map[keymap.Mode]keymap.Table{keymap.ModeDispatch: {"esc": keymap.UnboundBinding()}},
+			dispatch:    &dispatchState{repo: "owner/repo", enrolled: false},
+			hints:       func(b Board) []Hint { return b.dispatchModalHints() },
+			removedDesc: "Close",
+		},
+		{
+			name:        "dispatch: enter unbound removes Enroll",
+			modes:       map[keymap.Mode]keymap.Table{keymap.ModeDispatch: {"enter": keymap.UnboundBinding()}},
+			dispatch:    &dispatchState{repo: "owner/repo", enrolled: false},
+			hints:       func(b Board) []Hint { return b.dispatchModalHints() },
+			removedDesc: "Enroll",
+		},
+		{
+			name:        "dispatch: o unbound removes Dispatch once",
+			modes:       map[keymap.Mode]keymap.Table{keymap.ModeDispatch: {"o": keymap.UnboundBinding()}},
+			dispatch:    &dispatchState{repo: "owner/repo", enrolled: true},
+			hints:       func(b Board) []Hint { return b.dispatchModalHints() },
+			removedDesc: "Dispatch once",
+		},
+		{
+			name:        "dispatch: y unbound removes Confirm",
+			modes:       map[keymap.Mode]keymap.Table{keymap.ModeDispatch: {"y": keymap.UnboundBinding()}},
+			dispatch:    &dispatchState{repo: "owner/repo", enrolled: true, confirmingLoop: true, loop: &cenciwatch.DispatchState{Enabled: false}},
+			hints:       func(b Board) []Hint { return b.dispatchModalHints() },
+			removedDesc: "Confirm",
+		},
+		{
+			name: "dispatch: n+esc unbound removes Cancel",
+			modes: map[keymap.Mode]keymap.Table{keymap.ModeDispatch: {
+				"n": keymap.UnboundBinding(), "esc": keymap.UnboundBinding(),
+			}},
+			dispatch:    &dispatchState{repo: "owner/repo", enrolled: true, confirmingLoop: true, loop: &cenciwatch.DispatchState{Enabled: false}},
+			hints:       func(b Board) []Hint { return b.dispatchModalHints() },
+			removedDesc: "Cancel",
+		},
+		{
+			name: "help: esc+? unbound removes Close",
+			modes: map[keymap.Mode]keymap.Table{keymap.ModeHelp: {
+				"esc": keymap.UnboundBinding(), "?": keymap.UnboundBinding(),
+			}},
+			hints:       func(b Board) []Hint { return b.helpHints() },
+			removedDesc: "Close",
+		},
+		{
+			name: "help: j/down/k/up unbound removes Scroll",
+			modes: map[keymap.Mode]keymap.Table{keymap.ModeHelp: {
+				"j": keymap.UnboundBinding(), "down": keymap.UnboundBinding(),
+				"k": keymap.UnboundBinding(), "up": keymap.UnboundBinding(),
+			}},
+			hints:       func(b Board) []Hint { return b.helpHints() },
+			removedDesc: "Scroll",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newLoadedTestBoard(t)
+			b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			if tc.dispatch != nil {
+				b.dispatch = *tc.dispatch
+			}
+
+			hints := tc.hints(b)
+			for _, h := range hints {
+				if h.Key == "" {
+					t.Errorf("hints = %+v, want no Hint with an empty Key after unbinding the whole %q family", hints, tc.removedDesc)
+				}
+				if h.Desc == tc.removedDesc {
+					t.Errorf("hints = %+v, still contains a %q-described hint after every underlying key was unbound", hints, tc.removedDesc)
+				}
+			}
+		})
+	}
+}
+
+// --- errorHints regression: OUT of scope for a production fix, must never
+// render a blank-key hint even with an unbound Retry/Quit ------------------
+
+// TestKeymapPanels_Error_ErrorHintsRegression_NeverBlankKeyEvenWhenUnbound
+// pins errorHints' already-correct behavior (it stays on builtinHints,
+// which already skips a command entirely once it has no bound key -- see
+// builtinHints, keymap_dispatch.go). This is a regression guard, not a RED
+// case: it is expected to PASS unmodified, proving #582's production fix
+// must leave errorHints alone.
+func TestKeymapPanels_Error_ErrorHintsRegression_NeverBlankKeyEvenWhenUnbound(t *testing.T) {
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{
+			name:  "Retry (r) unbound alone",
+			modes: map[keymap.Mode]keymap.Table{keymap.ModeError: {"r": keymap.UnboundBinding()}},
+		},
+		{
+			name:  "Quit (q) unbound alone",
+			modes: map[keymap.Mode]keymap.Table{keymap.ModeError: {"q": keymap.UnboundBinding()}},
+		},
+		{
+			name: "Retry (r) and Quit (q) both unbound",
+			modes: map[keymap.Mode]keymap.Table{keymap.ModeError: {
+				"r": keymap.UnboundBinding(), "q": keymap.UnboundBinding(),
+			}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := boardWithOverrideKeymap(t, newTestBoard(t), tc.modes, nil)
+			b = enterErrorMode(t, b)
+
+			hints := b.errorHints()
+			for _, h := range hints {
+				if h.Key == "" {
+					t.Errorf("errorHints() = %+v, want no blank-key hint (errorHints stays on builtinHints, which already skips an unbound command entirely)", hints)
+				}
+			}
+		})
+	}
+}
+
+// --- Remap-shows-new-key (AC7): the git-panel case ---
+//
+// Help and Dispatch are already covered by
+// TestKeymapPanels_Help_RemappedCloseKeyWorks_OldDefaultKeyBecomesNoop and
+// TestKeymapPanels_Dispatch_RemappedConfirmCancelKeys_StillDriveConfirmFlow;
+// this is the missing git-panel-hint-bar counterpart.
+
+func TestKeymapPanels_GitPanel_RemapShowsNewKeyInHints(t *testing.T) {
+	b, _ := newGitPanelTestBoard(t, nil, nil)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeGitPanel: {
+			"esc": keymap.UnboundBinding(),
+			"x":   keymap.CommandBinding(keymap.CommandGitPanelClose),
+		},
+	}, nil)
+
+	hints := b.gitPanelHints()
+	found := false
+	for _, h := range hints {
+		if h.Desc != "Cancel" {
+			continue
+		}
+		if strings.Contains(h.Key, "esc") {
+			t.Errorf("gitPanelHints() Cancel hint Key = %q, still advertises the unbound key %q", h.Key, "esc")
+		}
+		for _, k := range strings.Split(h.Key, "/") {
+			if k == "x" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("gitPanelHints() = %+v, want the Cancel hint to advertise the remapped key %q", hints, "x")
+	}
+}
+
+// --- Grouped-hint disappearance (AC8 boundary) ---
+
+// TestKeymapPanels_Help_ScrollHint_SurvivesWithOneKeyDisappearsWithNone pins
+// the AC8 boundary: a composite hint (Scroll = ScrollDown + ScrollUp)
+// survives, showing only the remaining member's key, once just ONE member
+// command loses its key -- and disappears entirely only once EVERY member
+// command has no key left.
+func TestKeymapPanels_Help_ScrollHint_SurvivesWithOneKeyDisappearsWithNone(t *testing.T) {
+	// Unbind only ScrollDown's keys: Scroll must survive, showing only
+	// ScrollUp's remaining key ("k").
+	bOneUnbound := newLoadedTestBoard(t)
+	bOneUnbound = boardWithOverrideKeymap(t, bOneUnbound, map[keymap.Mode]keymap.Table{
+		keymap.ModeHelp: {"j": keymap.UnboundBinding(), "down": keymap.UnboundBinding()},
+	}, nil)
+
+	hints := bOneUnbound.helpHints()
+	idx := -1
+	for i, h := range hints {
+		if h.Desc == "Scroll" {
+			idx = i
+		}
+	}
+	if idx == -1 {
+		t.Fatalf("helpHints() = %+v, want the Scroll hint to survive when ScrollUp still has a key", hints)
+	}
+	if hints[idx].Key != "k" {
+		t.Errorf("helpHints() Scroll Key = %q, want %q (only ScrollUp's remaining key)", hints[idx].Key, "k")
+	}
+
+	// Unbind BOTH ScrollDown's and ScrollUp's keys: Scroll must disappear
+	// entirely.
+	bBothUnbound := newLoadedTestBoard(t)
+	bBothUnbound = boardWithOverrideKeymap(t, bBothUnbound, map[keymap.Mode]keymap.Table{
+		keymap.ModeHelp: {
+			"j": keymap.UnboundBinding(), "down": keymap.UnboundBinding(),
+			"k": keymap.UnboundBinding(), "up": keymap.UnboundBinding(),
+		},
+	}, nil)
+	for _, h := range bBothUnbound.helpHints() {
+		if h.Desc == "Scroll" {
+			t.Errorf("helpHints() = %+v, want no Scroll hint once every underlying key is unbound", bBothUnbound.helpHints())
+		}
+	}
+}
+
+// --- Fully-empty hint bar (accepted end state per the ticket's Q&A) ---
+
+// TestKeymapPanels_Help_FullyUnboundKeymap_HintsSliceIsEmpty asserts that
+// once every key underlying every one of helpHints' curated hints (Close,
+// Scroll) is unbound, helpHints returns an empty slice -- this is an
+// intentional, accepted end state (not a bug to guard against), pinned here
+// so a future change doesn't "fix" it into rendering some fallback hint.
+func TestKeymapPanels_Help_FullyUnboundKeymap_HintsSliceIsEmpty(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeHelp: {
+			"esc": keymap.UnboundBinding(), "?": keymap.UnboundBinding(),
+			"j": keymap.UnboundBinding(), "down": keymap.UnboundBinding(),
+			"k": keymap.UnboundBinding(), "up": keymap.UnboundBinding(),
+		},
+	}, nil)
+
+	hints := b.helpHints()
+	if len(hints) != 0 {
+		t.Errorf("helpHints() = %+v, want an empty slice once every underlying key of every curated hint is unbound", hints)
 	}
 }
