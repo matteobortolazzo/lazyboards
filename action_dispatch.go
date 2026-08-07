@@ -47,6 +47,19 @@ func (b Board) dispatchActionWithAlt(act config.Action, alt bool) (tea.Model, te
 	return b.dispatchResolvedAction(act)
 }
 
+// prScopeUnavailable reports whether act is scope: pr but the currently
+// selected card has no linked PRs to run it against. This is the single
+// shared dispatch-time pr gate consulted by both dispatchBinding
+// (keymap_dispatch.go, normal-mode/detail registry dispatch) and
+// closeGitMenuAndDispatch (update.go, the Git Menu's inline-action dispatch)
+// so both entry paths refuse a 0-linked-PR pr-scope action identically and
+// silently, before handlePRActionKeyWithComment's case 0 (defensive-only) is
+// ever reached. config.DefaultScope normalizes an empty Scope to "card" so a
+// hand-built Scope: "" fixture can't slip past this gate.
+func (b Board) prScopeUnavailable(act config.Action) bool {
+	return config.DefaultScope(act.Scope) == "pr" && len(b.selectedCard().LinkedPRs) == 0
+}
+
 // dispatchResolvedAction runs act against the currently selected card (or the
 // whole board for board scope), applying the same scope gating used by both
 // the plain-key and Alt+key custom-action dispatch paths.
@@ -188,9 +201,10 @@ func (b Board) resolvePRWorktree(branch string) (string, error) {
 // handlePRActionKeyWithComment implements the full 0/1/2+ linked-PR
 // precedence for a scope: pr action, mirroring handlePROpenKey (the
 // built-in "p" key's precedence anchor):
-//   - 0 PRs: no-op (defensive; dispatchBinding's pr-scope gate in
-//     keymap_dispatch.go should already refuse this before it ever reaches
-//     here).
+//   - 0 PRs: no-op (defensive; prScopeUnavailable's shared pr-scope gate,
+//     consulted by both dispatchBinding (keymap_dispatch.go) and
+//     closeGitMenuAndDispatch (update.go), should already refuse this before
+//     it ever reaches here).
 //   - 1 PR: runs the action immediately against that PR's data.
 //   - 2+ PRs: stashes the action (and any comment) as pendingPRAction and
 //     opens prPickerMode; the picker's Enter key consumes it.

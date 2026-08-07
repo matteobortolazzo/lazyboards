@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -2101,5 +2102,532 @@ func TestKeymapPanels_Help_FullyUnboundKeymap_HintsSliceIsEmpty(t *testing.T) {
 	hints := b.helpHints()
 	if len(hints) != 0 {
 		t.Errorf("helpHints() = %+v, want an empty slice once every underlying key of every curated hint is unbound", hints)
+	}
+}
+
+// --- #579: Git Menu inline actions preserve board/card/PR scope ---
+//
+// closeGitMenuAndDispatch (update.go) is called by both Git Menu entry paths
+// -- dispatchGitMenuAction (direct-key) and runGitPanelCommand's
+// CommandGitPanelRun case (cursor+Enter) -- and routes through
+// dispatchResolvedAction and the shared prScopeUnavailable predicate, so a
+// Git Menu action honors its declared Scope (board/card/pr) exactly like
+// normal-mode custom-action dispatch: a card-scope action's
+// {number}/{title}/{tags} variables resolve against the selected card, and a
+// pr-scope action goes through the same 0/1/2+ linked-PR precedence.
+//
+// gitMenuDispatchPath abstracts over the two Git Menu entry paths so every
+// scenario below is exercised through both without copy-pasting the
+// scenario itself, per the plan's "structural, not copy-pasted" parity
+// requirement.
+type gitMenuDispatchPath struct {
+	name string
+	// dispatch fires act's key against an already-open git menu, returning
+	// the resulting board and cmd.
+	dispatch func(t *testing.T, b Board, key string) (Board, tea.Cmd)
+}
+
+var gitMenuDispatchPaths = []gitMenuDispatchPath{
+	{
+		name: "direct-key",
+		dispatch: func(t *testing.T, b Board, key string) (Board, tea.Cmd) {
+			t.Helper()
+			m, cmd := b.Update(keyMsg(key))
+			board, ok := m.(Board)
+			if !ok {
+				t.Fatalf("Update returned %T, want Board", m)
+			}
+			return board, cmd
+		},
+	},
+	{
+		name: "cursor+Run",
+		dispatch: func(t *testing.T, b Board, key string) (Board, tea.Cmd) {
+			t.Helper()
+			idx := gitPanelItemIndex(b, key)
+			if idx == -1 {
+				t.Fatalf("no git panel item bound to key %q", key)
+			}
+			b.gitPanel.cursor = idx
+			m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+			board, ok := m.(Board)
+			if !ok {
+				t.Fatalf("Update returned %T, want Board", m)
+			}
+			return board, cmd
+		},
+	},
+}
+
+// newGitMenuScopeTestBoard builds a git-panel test board seeded with
+// prFixtureColumns() (the shared 0/1/2-linked-PR card fixture: card #1 "No
+// PRs", card #2 "One PR", card #3 "Two PRs") and the given ModeGitPanel
+// table layered on top of the built-in defaults (via boardWithOverrideKeymap
+// -- keymap.Resolve merges, so the six built-ins stay available alongside
+// table's entries). The column cursor is moved down cardIndex times before
+// returning (cardIndex 0 leaves the cursor on card #1).
+func newGitMenuScopeTestBoard(t *testing.T, table map[keymap.Mode]keymap.Table, cardIndex int) (Board, *action.FakeExecutor) {
+	t.Helper()
+	b, fe := newGitPanelTestBoardWithColumns(t, nil, nil, prFixtureColumns())
+	if table != nil {
+		b = boardWithOverrideKeymap(t, b, table, nil)
+	}
+	for i := 0; i < cardIndex; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+	return b, fe
+}
+
+// --- Board scope: behaviorally identical to today, across both entry paths ---
+
+func TestKeymapPanels_GitMenuScope_Board_ParityAcrossEntryPaths(t *testing.T) {
+	cases := []struct {
+		name    string
+		key     string
+		table   map[keymap.Mode]keymap.Table // nil selects the built-in default table
+		wantCmd string
+	}{
+		{
+			name:    "built-in Fetch",
+			key:     "f",
+			wantCmd: "git fetch",
+		},
+		{
+			name: "custom board-scope override",
+			key:  "c",
+			table: map[keymap.Mode]keymap.Table{
+				keymap.ModeGitPanel: {
+					"c": keymap.ActionBinding(keymap.Action{Name: "Custom Board", Type: "shell", Scope: "board", Command: "echo {repo_owner}/{repo_name}"}),
+				},
+			},
+			wantCmd: "echo " + action.ShellEscape("matteobortolazzo") + "/" + action.ShellEscape("lazyboards"),
+		},
+	}
+
+	for _, tc := range cases {
+		for _, path := range gitMenuDispatchPaths {
+			t.Run(tc.name+"/"+path.name, func(t *testing.T) {
+				b, fe := newGitPanelTestBoard(t, nil, nil)
+				if tc.table != nil {
+					b = boardWithOverrideKeymap(t, b, tc.table, nil)
+				}
+				b = sendKey(t, b, keyMsg("G"))
+				if b.mode != gitPanelMode {
+					t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
+				}
+
+				b, cmd := path.dispatch(t, b, tc.key)
+				execCmds(cmd)
+
+				if len(fe.RunShellCalls) == 0 || fe.RunShellCalls[0] != tc.wantCmd {
+					t.Errorf("RunShellCalls = %v, want first call %q", fe.RunShellCalls, tc.wantCmd)
+				}
+				if b.mode != normalMode {
+					t.Errorf("mode = %v after board-scope dispatch, want normalMode", b.mode)
+				}
+				if !reflect.DeepEqual(b.statusBar.hints, b.normalHints) {
+					t.Errorf("hints = %+v, want b.normalHints %+v (board-scope dispatch must restore normal hints, unchanged from today)", b.statusBar.hints, b.normalHints)
+				}
+			})
+		}
+	}
+}
+
+// --- Card scope: the action must receive the selected card's own vars ---
+
+// TestKeymapPanels_GitMenuScope_Card_ReceivesSelectedCardVars_ParityAcrossEntryPaths
+// asserts a scope: card Git Menu action expands {number}/{title}/{tags}
+// against the selected card (#2, "One PR", labels ["feature"]) -- values that
+// differ from the board/repo ("matteobortolazzo"/"lazyboards"), so a
+// board-only expansion would leave {number}/{title}/{tags} as literal,
+// unexpanded text.
+func TestKeymapPanels_GitMenuScope_Card_ReceivesSelectedCardVars_ParityAcrossEntryPaths(t *testing.T) {
+	const cmdTemplate = "echo {number} {title} {tags}"
+	table := map[keymap.Mode]keymap.Table{
+		keymap.ModeGitPanel: {
+			"c": keymap.ActionBinding(keymap.Action{Name: "Custom Card", Type: "shell", Scope: "card", Command: cmdTemplate}),
+		},
+	}
+
+	for _, path := range gitMenuDispatchPaths {
+		t.Run(path.name, func(t *testing.T) {
+			b, fe := newGitMenuScopeTestBoard(t, table, 1) // card #2, "One PR"
+			card := b.selectedCard()
+			if card.Number != 2 {
+				t.Fatalf("test setup: selected card = #%d, want #2 (prFixtureColumns())", card.Number)
+			}
+			labelNames := make([]string, len(card.Labels))
+			for i, l := range card.Labels {
+				labelNames[i] = l.Name
+			}
+			vars := action.BuildShellSafeVars(action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", ""))
+			wantCmd := action.ExpandTemplate(cmdTemplate, vars)
+
+			b = sendKey(t, b, keyMsg("G"))
+			if b.mode != gitPanelMode {
+				t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
+			}
+
+			b, cmd := path.dispatch(t, b, "c")
+			execCmds(cmd)
+
+			if len(fe.RunShellCalls) == 0 {
+				t.Fatal("expected RunShell to be called for the card-scope action")
+			}
+			if fe.RunShellCalls[0] != wantCmd {
+				t.Errorf("RunShellCalls[0] = %q, want %q (card #2's own template expansion, not board-only expansion)", fe.RunShellCalls[0], wantCmd)
+			}
+			if b.mode != normalMode {
+				t.Errorf("mode = %v after card-scope dispatch, want normalMode", b.mode)
+			}
+		})
+	}
+}
+
+// TestKeymapPanels_GitMenuScope_Card_RefusedSilentlyWhenNoCardVisible_ParityAcrossEntryPaths
+// covers AC3: a scope: card Git Menu action must be refused without side
+// effects when the active column has no cards (mirroring
+// dispatchResolvedAction's len(b.visibleCards()) == 0 guard for normal-mode
+// card-scope actions). Row visibility is out of scope (Q2) -- the row stays
+// in the menu regardless -- so both entry paths can still reach the key.
+func TestKeymapPanels_GitMenuScope_Card_RefusedSilentlyWhenNoCardVisible_ParityAcrossEntryPaths(t *testing.T) {
+	table := map[keymap.Mode]keymap.Table{
+		keymap.ModeGitPanel: {
+			"c": keymap.ActionBinding(keymap.Action{Name: "Custom Card", Type: "shell", Scope: "card", Command: "echo {number}"}),
+		},
+	}
+
+	for _, path := range gitMenuDispatchPaths {
+		t.Run(path.name, func(t *testing.T) {
+			b, fe := newGitPanelTestBoard(t, nil, nil) // single empty column, no cards
+			b = boardWithOverrideKeymap(t, b, table, nil)
+			b = sendKey(t, b, keyMsg("G"))
+			if b.mode != gitPanelMode {
+				t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
+			}
+
+			b, cmd := path.dispatch(t, b, "c")
+			execCmds(cmd)
+
+			if len(fe.RunShellCalls) != 0 {
+				t.Errorf("RunShellCalls = %v, want no dispatch when no card is visible", fe.RunShellCalls)
+			}
+			if len(fe.OpenURLCalls) != 0 {
+				t.Errorf("OpenURLCalls = %v, want no dispatch when no card is visible", fe.OpenURLCalls)
+			}
+			if b.mode != normalMode {
+				t.Errorf("mode = %v after refused card-scope dispatch, want normalMode", b.mode)
+			}
+		})
+	}
+}
+
+// --- PR scope: 0/1/2+ linked-PR precedence, mirroring normal-mode dispatch ---
+
+// TestKeymapPanels_GitMenuScope_PR_ZeroLinkedPRs_RefusedSilently_ParityAcrossEntryPaths
+// covers Q&A #1: a scope: pr Git Menu action on a card with 0 linked PRs must
+// be refused SILENTLY -- no status message, no executor call, no PR picker --
+// exactly like dispatchBinding's pr-scope gate in keymap_dispatch.go refuses
+// a normal-mode scope: pr action before handlePRActionKeyWithComment's
+// defensive-only case 0 branch is ever reached.
+func TestKeymapPanels_GitMenuScope_PR_ZeroLinkedPRs_RefusedSilently_ParityAcrossEntryPaths(t *testing.T) {
+	table := map[keymap.Mode]keymap.Table{
+		keymap.ModeGitPanel: {
+			"r": keymap.ActionBinding(keymap.Action{Name: "Custom PR", Type: "shell", Scope: "pr", Command: "echo {pr_number}"}),
+		},
+	}
+
+	for _, path := range gitMenuDispatchPaths {
+		t.Run(path.name, func(t *testing.T) {
+			b, fe := newGitMenuScopeTestBoard(t, table, 0) // card #1, "No PRs"
+			card := b.selectedCard()
+			if card.Number != 1 || len(card.LinkedPRs) != 0 {
+				t.Fatalf("test setup: selected card = %+v, want card #1 with 0 linked PRs", card)
+			}
+
+			b = sendKey(t, b, keyMsg("G"))
+			if b.mode != gitPanelMode {
+				t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
+			}
+
+			b, cmd := path.dispatch(t, b, "r")
+			execCmds(cmd)
+
+			if len(fe.RunShellCalls) != 0 {
+				t.Errorf("RunShellCalls = %v, want silent refusal with 0 linked PRs (no dispatch at all)", fe.RunShellCalls)
+			}
+			if b.statusBar.message != "" {
+				t.Errorf("status message = %q, want no message -- refusal must be silent, matching normal-mode's pr-scope gate", b.statusBar.message)
+			}
+			if b.mode == prPickerMode {
+				t.Errorf("mode = prPickerMode, want NOT entering the PR picker with 0 linked PRs")
+			}
+			if b.pendingPRAction != nil {
+				t.Errorf("pendingPRAction = %+v, want nil with 0 linked PRs", b.pendingPRAction)
+			}
+			if b.mode != normalMode {
+				t.Errorf("mode = %v, want normalMode (the git menu still closes even when the action itself is refused)", b.mode)
+			}
+		})
+	}
+}
+
+// TestKeymapPanels_GitMenuScope_PR_OneLinkedPR_RunsImmediately_ParityAcrossEntryPaths
+// covers a scope: pr Git Menu action against a card with exactly 1 linked PR
+// (card #2, PR #10): it must run immediately with the full PR variable set
+// ({pr_number}, {pr_url}, ...), for both a url-type and a shell-type action.
+func TestKeymapPanels_GitMenuScope_PR_OneLinkedPR_RunsImmediately_ParityAcrossEntryPaths(t *testing.T) {
+	cases := []struct {
+		name string
+		key  string
+		act  keymap.Action
+	}{
+		{
+			name: "url action",
+			key:  "u",
+			act:  keymap.Action{Name: "Open PR", Type: "url", Scope: "pr", URL: "https://example.com/pr/{pr_number}?src={pr_url}"},
+		},
+		{
+			name: "shell action",
+			key:  "r",
+			act:  keymap.Action{Name: "Shell PR", Type: "shell", Scope: "pr", Command: "echo {pr_number} {pr_branch}"},
+		},
+	}
+
+	for _, tc := range cases {
+		for _, path := range gitMenuDispatchPaths {
+			t.Run(tc.name+"/"+path.name, func(t *testing.T) {
+				table := map[keymap.Mode]keymap.Table{keymap.ModeGitPanel: {tc.key: keymap.ActionBinding(tc.act)}}
+				b, fe := newGitMenuScopeTestBoard(t, table, 1) // card #2, 1 linked PR
+				card := b.selectedCard()
+				if len(card.LinkedPRs) != 1 {
+					t.Fatalf("test setup: selected card has %d linked PRs, want 1", len(card.LinkedPRs))
+				}
+				pr := card.LinkedPRs[0]
+
+				b = sendKey(t, b, keyMsg("G"))
+				if b.mode != gitPanelMode {
+					t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
+				}
+
+				b, cmd := path.dispatch(t, b, tc.key)
+				execCmds(cmd)
+
+				labelNames := make([]string, len(card.Labels))
+				for i, l := range card.Labels {
+					labelNames[i] = l.Name
+				}
+				baseVars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", "")
+				prVars := action.BuildPRTemplateVars(baseVars, pr.Number, pr.Title, pr.URL, pr.Branch, "")
+
+				switch tc.act.Type {
+				case "url":
+					want := action.ExpandTemplate(tc.act.URL, action.BuildURLSafeVars(prVars))
+					if len(fe.OpenURLCalls) == 0 || fe.OpenURLCalls[0] != want {
+						t.Errorf("OpenURLCalls = %v, want first call %q", fe.OpenURLCalls, want)
+					}
+				case "shell":
+					want := action.ExpandTemplate(tc.act.Command, action.BuildShellSafeVars(prVars))
+					if len(fe.RunShellCalls) == 0 || fe.RunShellCalls[0] != want {
+						t.Errorf("RunShellCalls = %v, want first call %q", fe.RunShellCalls, want)
+					}
+				}
+				if b.mode != normalMode {
+					t.Errorf("mode = %v after a 1-linked-PR git menu action, want normalMode (runs immediately, no picker)", b.mode)
+				}
+			})
+		}
+	}
+}
+
+// TestKeymapPanels_GitMenuScope_PR_MultipleLinkedPRs_OpensPickerThenRunsSelected_ParityAcrossEntryPaths
+// covers a scope: pr Git Menu action against a card with 2+ linked PRs (card
+// #3): it must stash the action as pendingPRAction and open prPickerMode
+// (mirroring handlePRActionKeyWithComment's default case), advertising
+// b.prPickerHints(); selecting a PR (Enter, the default prPickerIndex 0)
+// must run the pending action against LinkedPRs[0] and clear pendingPRAction.
+func TestKeymapPanels_GitMenuScope_PR_MultipleLinkedPRs_OpensPickerThenRunsSelected_ParityAcrossEntryPaths(t *testing.T) {
+	const cmdTemplate = "echo {pr_number} {pr_branch}"
+	act := keymap.Action{Name: "Custom PR", Type: "shell", Scope: "pr", Command: cmdTemplate}
+	table := map[keymap.Mode]keymap.Table{keymap.ModeGitPanel: {"r": keymap.ActionBinding(act)}}
+
+	for _, path := range gitMenuDispatchPaths {
+		t.Run(path.name, func(t *testing.T) {
+			b, fe := newGitMenuScopeTestBoard(t, table, 2) // card #3, "Two PRs"
+			card := b.selectedCard()
+			if len(card.LinkedPRs) < 2 {
+				t.Fatalf("test setup: selected card has %d linked PRs, want >= 2", len(card.LinkedPRs))
+			}
+
+			b = sendKey(t, b, keyMsg("G"))
+			if b.mode != gitPanelMode {
+				t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
+			}
+
+			b, cmd := path.dispatch(t, b, "r")
+			execCmds(cmd)
+
+			if b.mode != prPickerMode {
+				t.Fatalf("mode = %v after a %d-linked-PR git menu action, want prPickerMode", b.mode, len(card.LinkedPRs))
+			}
+			if b.pendingPRAction == nil {
+				t.Fatal("pendingPRAction = nil, want the git menu action stashed pending PR selection")
+			}
+			if b.pendingPRAction.action.Name != act.Name {
+				t.Errorf("pendingPRAction.action.Name = %q, want %q", b.pendingPRAction.action.Name, act.Name)
+			}
+			wantHints := b.prPickerHints()
+			if !reflect.DeepEqual(b.statusBar.hints, wantHints) {
+				t.Errorf("hints = %+v, want prPickerHints() %+v", b.statusBar.hints, wantHints)
+			}
+			if len(fe.RunShellCalls) != 0 {
+				t.Errorf("RunShellCalls = %v, want no dispatch yet -- the picker is awaiting PR selection", fe.RunShellCalls)
+			}
+
+			pr := card.LinkedPRs[0]
+			m2, cmd2 := b.Update(arrowMsg(tea.KeyEnter))
+			b2, ok := m2.(Board)
+			if !ok {
+				t.Fatalf("Update returned %T, want Board", m2)
+			}
+			execCmds(cmd2)
+
+			if b2.pendingPRAction != nil {
+				t.Errorf("pendingPRAction after picker selection = %+v, want nil", b2.pendingPRAction)
+			}
+			if b2.mode != normalMode {
+				t.Errorf("mode after picker selection = %v, want normalMode", b2.mode)
+			}
+
+			labelNames := make([]string, len(card.Labels))
+			for i, l := range card.Labels {
+				labelNames[i] = l.Name
+			}
+			baseVars := action.BuildTemplateVars(card.Number, card.Title, labelNames, b.repoOwner, b.repoName, b.providerName, b.sessionMaxLen, "", "")
+			prVars := action.BuildPRTemplateVars(baseVars, pr.Number, pr.Title, pr.URL, pr.Branch, "")
+			want := action.ExpandTemplate(cmdTemplate, action.BuildShellSafeVars(prVars))
+
+			if len(fe.RunShellCalls) == 0 || fe.RunShellCalls[0] != want {
+				t.Errorf("RunShellCalls = %v, want first call %q (expanded against LinkedPRs[0], the picker's default selection)", fe.RunShellCalls, want)
+			}
+			// A single dispatch call guards against the picker's Enter key
+			// somehow firing the pending action twice (once eagerly on open,
+			// once on selection) -- the sanctioned no-duplicate-dispatch
+			// exception (.claude/rules/testing.md).
+			if len(fe.RunShellCalls) != 1 {
+				t.Errorf("len(fe.RunShellCalls) = %d, want exactly 1 (no duplicate dispatch)", len(fe.RunShellCalls))
+			}
+		})
+	}
+}
+
+// --- {pr_worktree}: on-demand resolution, both success and missing-worktree ---
+
+// TestKeymapPanels_GitMenuScope_PR_WorktreeExpandsRegisteredWorktree_ParityAcrossEntryPaths
+// mirrors TestAction_PRScope_PRWorktreeExpandsRegisteredWorktree (normal-mode
+// scope: pr {pr_worktree}) through the Git Menu's two entry paths.
+func TestKeymapPanels_GitMenuScope_PR_WorktreeExpandsRegisteredWorktree_ParityAcrossEntryPaths(t *testing.T) {
+	act := keymap.Action{Name: "Run worktree", Type: "shell", Scope: "pr", Command: "cd {pr_worktree} && ng serve"}
+	table := map[keymap.Mode]keymap.Table{keymap.ModeGitPanel: {"w": keymap.ActionBinding(act)}}
+
+	for _, path := range gitMenuDispatchPaths {
+		t.Run(path.name, func(t *testing.T) {
+			b, fe := newGitMenuScopeTestBoard(t, table, 1) // card #2, 1 linked PR (branch feature/one-pr)
+			fe.RunShellOutputStdout = "worktree /repo/.worktrees/one-pr\nHEAD 1234567\nbranch refs/heads/feature/one-pr\n"
+
+			b = sendKey(t, b, keyMsg("G"))
+			if b.mode != gitPanelMode {
+				t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
+			}
+
+			b, cmd := path.dispatch(t, b, "w")
+			execCmds(cmd)
+
+			if len(fe.RunShellOutputCalls) != 1 || fe.RunShellOutputCalls[0] != "git worktree list --porcelain" {
+				t.Fatalf("RunShellOutputCalls = %v, want a single %q call", fe.RunShellOutputCalls, "git worktree list --porcelain")
+			}
+			want := "cd " + action.ShellEscape("/repo/.worktrees/one-pr") + " && ng serve"
+			if len(fe.RunShellCalls) == 0 || fe.RunShellCalls[0] != want {
+				t.Errorf("RunShellCalls = %v, want %q", fe.RunShellCalls, want)
+			}
+			if b.mode != normalMode {
+				t.Errorf("mode = %v after {pr_worktree} dispatch, want normalMode", b.mode)
+			}
+		})
+	}
+}
+
+// TestKeymapPanels_GitMenuScope_PR_WorktreeMissing_SurfacesError_ParityAcrossEntryPaths
+// mirrors TestAction_PRScope_PRWorktreeMissingDoesNotRunAction: when no
+// registered worktree matches the PR's branch, the action must not run and
+// the missing-worktree error must surface in the status bar.
+func TestKeymapPanels_GitMenuScope_PR_WorktreeMissing_SurfacesError_ParityAcrossEntryPaths(t *testing.T) {
+	act := keymap.Action{Name: "Run worktree", Type: "shell", Scope: "pr", Command: "cd {pr_worktree} && ng serve"}
+	table := map[keymap.Mode]keymap.Table{keymap.ModeGitPanel: {"w": keymap.ActionBinding(act)}}
+
+	for _, path := range gitMenuDispatchPaths {
+		t.Run(path.name, func(t *testing.T) {
+			b, fe := newGitMenuScopeTestBoard(t, table, 1) // card #2, 1 linked PR (branch feature/one-pr)
+			fe.RunShellOutputStdout = "worktree /repo\nHEAD 1234567\nbranch refs/heads/main\n"
+
+			b = sendKey(t, b, keyMsg("G"))
+			if b.mode != gitPanelMode {
+				t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
+			}
+
+			b, cmd := path.dispatch(t, b, "w")
+			execCmds(cmd)
+
+			if len(fe.RunShellCalls) != 0 {
+				t.Errorf("RunShellCalls = %v, want no action command when the worktree is missing", fe.RunShellCalls)
+			}
+			if !strings.Contains(b.statusBar.message, "no Git worktree found") {
+				t.Errorf("status message = %q, want a missing-worktree error", b.statusBar.message)
+			}
+		})
+	}
+}
+
+// --- Preserved behavior: an empty/out-of-range git panel Run is still a no-op ---
+
+// TestKeymapPanels_GitMenuScope_EmptyItemsOrCursorOutOfRange_RunIsNoOp is a
+// regression-preservation check on runGitPanelCommand's existing
+// CommandGitPanelRun guard (unrelated to scope routing, but named in the
+// plan's test matrix so the #579 refactor can't accidentally drop it): with
+// no items, or a cursor past the end of the items list, CommandGitPanelRun
+// must close the menu without dispatching anything.
+func TestKeymapPanels_GitMenuScope_EmptyItemsOrCursorOutOfRange_RunIsNoOp(t *testing.T) {
+	tests := []struct {
+		name string
+		prep func(b *Board)
+	}{
+		{name: "empty items", prep: func(b *Board) { b.gitPanel.items = nil; b.gitPanel.cursor = 0 }},
+		{name: "cursor out of range", prep: func(b *Board) { b.gitPanel.cursor = len(b.gitPanel.items) }},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b, fe := newGitPanelTestBoard(t, nil, nil)
+			b = sendKey(t, b, keyMsg("G"))
+			if b.mode != gitPanelMode {
+				t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
+			}
+			tc.prep(&b)
+
+			m, cmd := b.runGitPanelCommand(keymap.CommandGitPanelRun)
+			b2, ok := m.(Board)
+			if !ok {
+				t.Fatalf("runGitPanelCommand returned %T, want Board", m)
+			}
+			if cmd != nil {
+				t.Errorf("cmd = %v, want nil", cmd)
+			}
+			if b2.mode != normalMode {
+				t.Errorf("mode = %v, want normalMode", b2.mode)
+			}
+			if len(fe.RunShellCalls) != 0 || len(fe.OpenURLCalls) != 0 {
+				t.Errorf("expected no executor calls, got RunShellCalls=%v OpenURLCalls=%v", fe.RunShellCalls, fe.OpenURLCalls)
+			}
+		})
 	}
 }
