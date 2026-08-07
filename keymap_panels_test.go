@@ -1366,13 +1366,28 @@ func TestKeymapPanels_Help_PanelBinding_DefaultKeysResolveToExpectedCommands(t *
 
 // --- Help modal: runHelpCommand (mirrors runGitPanelCommand's verbatim-transcription pattern) ---
 
+// TestKeymapPanels_Help_RunHelpCommand_Quit exercises the default-table 'q'
+// key end-to-end through b.Update, entered the real way ('?' opens help
+// mode -- never a raw b.mode assignment): CommandQuit is dispatched by the
+// shared universalDispatch seam (keymap_dispatch.go) ahead of
+// runHelpCommand, not by a `case keymap.CommandQuit:` inside runHelpCommand
+// itself (removed by #589).
 func TestKeymapPanels_Help_RunHelpCommand_Quit(t *testing.T) {
 	b := newLoadedTestBoard(t)
-	b.mode = helpMode
+	b = sendKey(t, b, keyMsg("?"))
+	if b.mode != helpMode {
+		t.Fatalf("precondition: mode = %d, want helpMode", b.mode)
+	}
 
-	_, cmd := b.runHelpCommand(keymap.CommandQuit)
+	m, cmd := b.Update(keyMsg("q"))
+	if _, ok := m.(Board); !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
 	if cmd == nil {
-		t.Fatal("CommandQuit should return a non-nil Cmd (tea.Quit)")
+		t.Fatal("'q' in helpMode should return a non-nil Cmd (tea.Quit)")
+	}
+	if _, isQuit := cmd().(tea.QuitMsg); !isQuit {
+		t.Fatal("'q' in helpMode should dispatch tea.Quit")
 	}
 }
 

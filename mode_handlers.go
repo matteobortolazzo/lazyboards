@@ -26,6 +26,9 @@ import (
 // matching.
 func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if binding, ok := b.textBinding(keymap.ModeCreate, msg); ok && binding.Kind == keymap.BindingCommand {
+		if cmd, ok := b.universalDispatch(binding); ok {
+			return b, cmd
+		}
 		switch binding.Command {
 		case keymap.CommandCreateSubmit, keymap.CommandCreateCancel, keymap.CommandCreateNextField,
 			keymap.CommandCreateAssigneePrev, keymap.CommandCreateAssigneeNext:
@@ -78,6 +81,9 @@ func (b Board) handleCreateModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // verbatim pre-#540 `default:` branch below.
 func (b Board) handleConfigModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if binding, ok := b.textBinding(keymap.ModeConfig, msg); ok && binding.Kind == keymap.BindingCommand {
+		if cmd, ok := b.universalDispatch(binding); ok {
+			return b, cmd
+		}
 		switch binding.Command {
 		case keymap.CommandConfigSave, keymap.CommandConfigCancel, keymap.CommandConfigNextField,
 			keymap.CommandConfigProviderPrev, keymap.CommandConfigProviderNext:
@@ -133,8 +139,6 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 	}
 
 	switch id {
-	case keymap.CommandQuit:
-		return b, tea.Quit
 	case keymap.CommandCardNew:
 		b.mode = createMode
 		b.create.titleInput.SetValue("")
@@ -395,6 +399,9 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 // textinput below, transcribed verbatim from the pre-#540 `default:` branch.
 func (b Board) handleCommentModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if binding, ok := b.textBinding(keymap.ModeComment, msg); ok && binding.Kind == keymap.BindingCommand {
+		if cmd, ok := b.universalDispatch(binding); ok {
+			return b, cmd
+		}
 		switch binding.Command {
 		case keymap.CommandCommentSubmit, keymap.CommandCommentCancel:
 			return b.runCommentCommand(binding.Command)
@@ -421,6 +428,9 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// built-in command as a no-op instead of falling through to the
 			// zero-value Command case below.
 			return b, nil
+		}
+		if cmd, ok := b.universalDispatch(result.Binding); ok {
+			return b, cmd
 		}
 		switch result.Binding.Command {
 		case keymap.CommandFilterClose:
@@ -463,6 +473,9 @@ func (b Board) handleAssignModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// built-in command as a no-op instead of falling through to the
 			// zero-value Command case below.
 			return b, nil
+		}
+		if cmd, ok := b.universalDispatch(result.Binding); ok {
+			return b, cmd
 		}
 		switch result.Binding.Command {
 		case keymap.CommandAssignClose:
@@ -520,6 +533,9 @@ func (b Board) handleGitPanelKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return b, nil
 	}
+	if cmd, ok := b.universalDispatch(binding); ok {
+		return b, cmd
+	}
 
 	switch binding.Kind {
 	case keymap.BindingCommand:
@@ -549,6 +565,9 @@ func (b Board) handleDispatchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // and titles with j/k must stay typeable.
 func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if binding, ok := b.textBinding(keymap.ModeSearch, msg); ok && binding.Kind == keymap.BindingCommand {
+		if cmd, ok := b.universalDispatch(binding); ok {
+			return b, cmd
+		}
 		switch binding.Command {
 		case keymap.CommandSearchApply, keymap.CommandSearchCancel, keymap.CommandSearchNextResult,
 			keymap.CommandSearchPrevResult, keymap.CommandSearchNextColumn, keymap.CommandSearchPrevColumn:
@@ -617,6 +636,9 @@ func (b Board) handlePRPickerModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// to the zero-value Command case below.
 			return b, nil
 		}
+		if cmd, ok := b.universalDispatch(result.Binding); ok {
+			return b, cmd
+		}
 		switch result.Binding.Command {
 		case keymap.CommandPRPickerClose:
 			b.mode = normalMode
@@ -679,6 +701,9 @@ func (b Board) handlePRListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return b, nil
 			}
 			return b.runPRListAction(act)
+		}
+		if cmd, ok := b.universalDispatch(result.Binding); ok {
+			return b, cmd
 		}
 		switch result.Binding.Command {
 		case keymap.CommandPRListClose:
@@ -747,6 +772,9 @@ func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// that isn't a built-in command as a no-op instead of falling
 			// through to the zero-value Command case below.
 			return b, nil
+		}
+		if cmd, ok := b.universalDispatch(result.Binding); ok {
+			return b, cmd
 		}
 		switch result.Binding.Command {
 		case keymap.CommandMilestoneListClose:
@@ -854,6 +882,9 @@ func (b Board) handleAgentListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// to the zero-value Command case below.
 			return b, nil
 		}
+		if cmd, ok := b.universalDispatch(result.Binding); ok {
+			return b, cmd
+		}
 		switch result.Binding.Command {
 		case keymap.CommandAgentListClose:
 			b.mode = normalMode
@@ -894,6 +925,9 @@ func (b Board) handleHelpModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !ok || binding.Kind != keymap.BindingCommand {
 		return b, nil
 	}
+	if cmd, ok := b.universalDispatch(binding); ok {
+		return b, cmd
+	}
 	return b.runHelpCommand(binding.Command)
 }
 
@@ -904,6 +938,9 @@ func (b Board) handleErrorModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	binding, ok := b.panelBinding(keymap.ModeError, msg)
 	if !ok || binding.Kind != keymap.BindingCommand {
 		return b, nil
+	}
+	if cmd, ok := b.universalDispatch(binding); ok {
+		return b, cmd
 	}
 	return b.runErrorCommand(binding.Command)
 }
@@ -919,6 +956,9 @@ func (b Board) handleLabelConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	binding, ok := b.textBinding(keymap.ModeLabelConfirm, msg)
 	if !ok || binding.Kind != keymap.BindingCommand {
 		return b, nil
+	}
+	if cmd, ok := b.universalDispatch(binding); ok {
+		return b, cmd
 	}
 	return b.runLabelConfirmCommand(binding.Command)
 }
@@ -950,6 +990,9 @@ func (b Board) handleCloseConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	binding, ok := b.textBinding(keymap.ModeCloseConfirm, msg)
 	if !ok || binding.Kind != keymap.BindingCommand {
 		return b, nil
+	}
+	if cmd, ok := b.universalDispatch(binding); ok {
+		return b, cmd
 	}
 	return b.runCloseConfirmCommand(binding.Command)
 }
@@ -985,9 +1028,13 @@ func (b Board) runCloseConfirmCommand(id keymap.CommandID) (tea.Model, tea.Cmd) 
 // today's behavior where everything except esc/enter reaches the textinput.
 func (b Board) handleDeleteModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	binding, ok := b.textBinding(keymap.ModeDelete, msg)
-	if ok && binding.Kind == keymap.BindingCommand &&
-		(binding.Command == keymap.CommandDeleteSubmit || binding.Command == keymap.CommandDeleteCancel) {
-		return b.runDeleteCommand(binding.Command)
+	if ok && binding.Kind == keymap.BindingCommand {
+		if cmd, ok := b.universalDispatch(binding); ok {
+			return b, cmd
+		}
+		if binding.Command == keymap.CommandDeleteSubmit || binding.Command == keymap.CommandDeleteCancel {
+			return b.runDeleteCommand(binding.Command)
+		}
 	}
 
 	switch b.delete.step {
