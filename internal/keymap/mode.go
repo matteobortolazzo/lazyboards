@@ -174,3 +174,30 @@ var textInputModes = map[Mode]bool{
 func (m Mode) ConsumesPrintableRunes() bool {
 	return textInputModes[m]
 }
+
+// inlineActionModes is the set of modes whose dispatch seam can resolve a
+// BindingAction (inline custom action), not just a BindingCommand:
+// handleNormalModeKey/runNormalCommand (ModeNormal), runDetailCommand
+// (ModeDetail, falling through to runNormalCommand per #588), dispatchGitMenuAction
+// (ModeGitPanel, any scope), runPRListAction (ModePRList, restricted to
+// scope "pr" -- enforced config-side, since keymap.Mode has no notion of an
+// Action's scope), and the ModeColumns overlay (keymap.go's Resolve),
+// which binds into whichever of ModeNormal/ModeDetail is active and so
+// dispatches inline actions the same way. Every other mode's handler only
+// ever resolves a BindingCommand.
+var inlineActionModes = map[Mode]bool{
+	ModeNormal:   true,
+	ModeDetail:   true,
+	ModeGitPanel: true,
+	ModePRList:   true,
+	ModeColumns:  true,
+}
+
+// DispatchesInlineActions reports whether m's dispatch seam can resolve a
+// BindingAction (inline custom action) at all. It says nothing about a
+// mode's finer-grained restrictions (e.g. ModePRList additionally requires
+// the action's effective scope to be exactly "pr") -- those live outside
+// internal/keymap, since this package must never import internal/config.
+func (m Mode) DispatchesInlineActions() bool {
+	return inlineActionModes[m]
+}

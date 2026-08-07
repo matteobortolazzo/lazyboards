@@ -423,6 +423,10 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 		return Config{}, err
 	}
 
+	if err := validateModeCapabilities(cfg.Keymaps); err != nil {
+		return Config{}, err
+	}
+
 	if err := validatePrintableRuneBindings(cfg.Keymaps); err != nil {
 		return Config{}, err
 	}
