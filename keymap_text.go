@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -88,11 +90,43 @@ func promptKeySuffix(entries []keymap.Entry, ids ...keymap.CommandID) string {
 // view.go's helpBar prompt lines, returning "" (no parenthetical at all,
 // not even empty parens) when promptKeySuffix reports neither side bound.
 func promptParenthetical(entries []keymap.Entry, ids ...keymap.CommandID) string {
-	suffix := promptKeySuffix(entries, ids...)
-	if suffix == "" {
+	return parenthesize(promptKeySuffix(entries, ids...))
+}
+
+// parenthesize wraps s in " (%s)", or returns "" (no parenthetical at all,
+// not even empty parens) when s is "". Factored out of promptParenthetical
+// so the delete prompts (#583) can reuse the same "omit when empty" wrapping.
+func parenthesize(s string) string {
+	if s == "" {
 		return ""
 	}
-	return " (" + suffix + ")"
+	return " (" + s + ")"
+}
+
+// capitalizeKeyLabel upper-cases the FIRST RUNE of a rendered key label and
+// leaves the rest untouched: "esc" -> "Esc", "enter" -> "Enter",
+// "shift+tab" -> "Shift+tab", "ctrl+d" -> "Ctrl+d", "/" -> "/", "1" -> "1",
+// "◀" -> "◀". It is the delete modal's prose convention only -- the status
+// bar, the help modal, and the Help Usage/filter-warning sentences all render
+// raw lowercase key text, so this must never be applied there.
+func capitalizeKeyLabel(label string) string {
+	r, size := utf8.DecodeRuneInString(label)
+	if size == 0 {
+		return label
+	}
+	return string(unicode.ToUpper(r)) + label[size:]
+}
+
+// joinClauses ", "-joins the non-empty clauses, or returns "" when none are
+// non-empty.
+func joinClauses(clauses ...string) string {
+	var nonEmpty []string
+	for _, c := range clauses {
+		if c != "" {
+			nonEmpty = append(nonEmpty, c)
+		}
+	}
+	return strings.Join(nonEmpty, ", ")
 }
 
 // --- delete mode (#539 PR 2/2) ---
@@ -138,6 +172,50 @@ func (b Board) deleteConfirmHints() []Hint {
 	return builtinHints(entries, deleteConfirmHintSpecs)
 }
 
+// deleteKeyClause renders "<Key> to <verb>" for id from the ModeDelete table,
+// or "" when id has no single-key binding left. Capitalized per the delete
+// modal's prose convention (capitalizeKeyLabel).
+func deleteKeyClause(entries []keymap.Entry, id keymap.CommandID, verb string) string {
+	key := textHintKey(entries, id)
+	if key == "" {
+		return ""
+	}
+	return capitalizeKeyLabel(key) + " to " + verb
+}
+
+// deleteCommentPromptSuffix renders the optional-comment-step prompt's
+// trailing parenthetical (" (Enter to continue, Esc to cancel)" under the
+// default table), dropping either clause whose command is unbound and
+// omitting the parenthetical entirely when neither is bound.
+func (b Board) deleteCommentPromptSuffix() string {
+	entries := b.keys.Entries(keymap.ModeDelete, "")
+	return parenthesize(joinClauses(
+		deleteKeyClause(entries, keymap.CommandDeleteSubmit, "continue"),
+		deleteKeyClause(entries, keymap.CommandDeleteCancel, "cancel"),
+	))
+}
+
+// deleteConfirmPromptSuffix renders the retype-to-confirm-step prompt's
+// trailing parenthetical (" (Esc to cancel)" under the default table).
+// Cancel-only per Q2 -- no "to confirm" clause is added; today's wording is
+// preserved byte-for-byte.
+func (b Board) deleteConfirmPromptSuffix() string {
+	entries := b.keys.Entries(keymap.ModeDelete, "")
+	return parenthesize(deleteKeyClause(entries, keymap.CommandDeleteCancel, "cancel"))
+}
+
+// deleteMismatchMessage renders the retype-mismatch feedback ("Doesn't match
+// #N — try again or Esc to cancel" under the default table), dropping the
+// cancel clause entirely once delete.cancel is unbound.
+func (b Board) deleteMismatchMessage(number int) string {
+	entries := b.keys.Entries(keymap.ModeDelete, "")
+	msg := fmt.Sprintf("Doesn't match #%d — try again", number)
+	if clause := deleteKeyClause(entries, keymap.CommandDeleteCancel, "cancel"); clause != "" {
+		msg += " or " + clause
+	}
+	return msg
+}
+
 // runDeleteCommand runs the delete command id resolves to, branching on
 // b.delete.step internally since delete.submit is one id shared by both
 // steps. Case bodies are transcribed verbatim from the pre-#539
@@ -163,7 +241,7 @@ func (b Board) runDeleteCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		case deleteStepConfirm:
 			card := b.delete.card
 			if b.delete.confirmInput.Value() != strconv.Itoa(card.Number) {
-				b.delete.mismatchMsg = fmt.Sprintf("Doesn't match #%d — try again or Esc to cancel", card.Number)
+				b.delete.mismatchMsg = b.deleteMismatchMessage(card.Number)
 				return b, nil
 			}
 			b.mode = normalMode
