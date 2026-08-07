@@ -57,63 +57,231 @@ keymaps:
 }
 
 // --- alt+ / {comment} Alt-overload shadowing ---
+//
+// Uses "Z"/"g"/"f" (unused by any default binding, #502) rather than "G" (an
+// exact-match built-in after #502's remap), exercising the alt/{comment}
+// -shadow check in isolation from the prefix-conflict check.
 
-func TestLoad_KeymapAltCommentShadow_BareKey_ReturnsError(t *testing.T) {
-	yamlContent := `provider: github
-keymaps:
-  normal:
-    G:
-      name: Comment action
-      type: shell
-      command: "echo {comment}"
-    alt+G: board.refresh
-`
-	_, err := loadConfigFromStrings(t, yamlContent, "")
-	if err == nil {
-		t.Fatal("Load() returned nil error, want error for alt+G shadowing G's implicit {comment} Alt-overload")
-	}
-	if !strings.Contains(err.Error(), `"G"`) || !strings.Contains(err.Error(), `"alt+G"`) {
-		t.Errorf("error = %q, want it to reference both keys \"G\" and \"alt+G\"", err.Error())
+// keymapYAML wraps body (already indented under "keymaps:") in a full config
+// document with a "provider: github" header.
+func keymapYAML(body string) string {
+	return "provider: github\nkeymaps:\n" + body
+}
+
+// altShadowYAML wraps body (already indented under "  normal:") in a full
+// config document with a single keymaps.normal table.
+func altShadowYAML(body string) string {
+	return keymapYAML("  normal:\n" + body)
+}
+
+// keymapLoadCase/runKeymapLoadCases are the shared table-case shape/runner
+// every test below dispatches through: want lists substrings the error must
+// contain, checked only when wantErr.
+type keymapLoadCase struct {
+	name    string
+	yaml    string
+	wantErr bool
+	want    []string
+}
+
+func runKeymapLoadCases(t *testing.T, cases []keymapLoadCase) {
+	t.Helper()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := loadConfigFromStrings(t, tc.yaml, "")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("Load() returned nil error, want error")
+				}
+				for _, want := range tc.want {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() returned unexpected error: %v", err)
+			}
+		})
 	}
 }
 
-func TestLoad_KeymapAltCommentShadow_SequenceVariant_ReturnsError(t *testing.T) {
-	// Uses "Z" (unused by any default binding, #502) rather than "G" (now an
-	// exact-match built-in after #502's remap): a "Z f"/"alt+Z f" pair
-	// exercises the alt/{comment}-shadow check in isolation, without also
-	// tripping the prefix-conflict check against default "G" -> view.git_panel.
-	yamlContent := `provider: github
-keymaps:
-  normal:
-    "Z f":
+const commentActionAtZ = `    Z:
       name: Comment action
       type: shell
-      command: "echo {comment}"
-    "alt+Z f": board.refresh
+      command: "run --comment {comment}"
 `
-	_, err := loadConfigFromStrings(t, yamlContent, "")
-	if err == nil {
-		t.Fatal("Load() returned nil error, want error for \"alt+Z f\" shadowing \"Z f\"'s implicit {comment} Alt-overload")
-	}
-	if !strings.Contains(err.Error(), `"Z f"`) || !strings.Contains(err.Error(), `"alt+Z f"`) {
-		t.Errorf("error = %q, want it to reference both keys \"Z f\" and \"alt+Z f\"", err.Error())
-	}
-}
 
-func TestLoad_KeymapAltCommentShadow_BaseWithoutComment_LoadsCleanly(t *testing.T) {
-	// An alt+ binding whose base key has no {comment} action loads clean.
-	yamlContent := `provider: github
-keymaps:
-  normal:
-    G:
+const commentActionAtZF = `    "Z f":
+      name: Comment action
+      type: shell
+      command: "run --comment {comment}"
+`
+
+const commentActionAtZGF = `    "Z g f":
+      name: Comment action
+      type: shell
+      command: "run --comment {comment}"
+`
+
+func TestLoad_KeymapAltCommentShadow(t *testing.T) {
+	runKeymapLoadCases(t, []keymapLoadCase{
+		{
+			name:    "bare key (AC1)",
+			yaml:    altShadowYAML(commentActionAtZ + "    alt+Z: board.refresh\n"),
+			wantErr: true,
+			want:    []string{`"Z"`, `"alt+Z"`},
+		},
+		{
+			name:    "first token (AC2)",
+			yaml:    altShadowYAML(commentActionAtZF + `    "alt+Z f": board.refresh` + "\n"),
+			wantErr: true,
+			want:    []string{`"Z f"`, `"alt+Z f"`},
+		},
+		{
+			name:    "final token (AC3)",
+			yaml:    altShadowYAML(commentActionAtZF + `    "Z alt+f": board.refresh` + "\n"),
+			wantErr: true,
+			want:    []string{`"Z f"`, `"Z alt+f"`},
+		},
+		{
+			name:    "middle token, 3-key (AC4)",
+			yaml:    altShadowYAML(commentActionAtZGF + `    "Z alt+g f": board.refresh` + "\n"),
+			wantErr: true,
+			want:    []string{`"Z g f"`, `"Z alt+g f"`},
+		},
+		{
+			name:    "final token, 3-key (AC4)",
+			yaml:    altShadowYAML(commentActionAtZGF + `    "Z g alt+f": board.refresh` + "\n"),
+			wantErr: true,
+			want:    []string{`"Z g f"`, `"Z g alt+f"`},
+		},
+		{
+			name:    "multiple Alt (AC5)",
+			yaml:    altShadowYAML(commentActionAtZF + `    "alt+Z alt+f": board.refresh` + "\n"),
+			wantErr: true,
+			want:    []string{`"Z f"`, `"alt+Z alt+f"`},
+		},
+		{
+			name: "explicit rhs is an inline url action",
+			yaml: altShadowYAML(commentActionAtZF + `    "Z alt+f":
+      name: URL action
+      type: url
+      url: "https://example.com"
+`),
+			wantErr: true,
+			want:    []string{`"Z f"`, `"Z alt+f"`},
+		},
+		{
+			name: "{comment} in a url template (AC8)",
+			yaml: altShadowYAML(`    "Z f":
+      name: URL comment action
+      type: url
+      url: "https://example.com/comment?c={comment}"
+    "Z alt+f": board.refresh
+`),
+			wantErr: true,
+			want:    []string{`"Z f"`, `"Z alt+f"`},
+		},
+		{
+			name:    "base absent (AC7)",
+			yaml:    altShadowYAML(`    "Z alt+f": board.refresh` + "\n"),
+			wantErr: false,
+		},
+		{
+			name: "base explicitly unbound (AC7)",
+			yaml: altShadowYAML(`    "Z f": ~
+    "Z alt+f": board.refresh
+`),
+			wantErr: false,
+		},
+		{
+			name: "base is a command (AC7)",
+			yaml: altShadowYAML(`    "Z f": board.refresh
+    "Z alt+f": board.filter
+`),
+			wantErr: false,
+		},
+		{
+			name: "base action without {comment} (AC7)",
+			yaml: altShadowYAML(`    "Z f":
       name: Plain action
       type: shell
       command: "echo plain"
-    alt+G: board.refresh
-`
-	if _, err := loadConfigFromStrings(t, yamlContent, ""); err != nil {
-		t.Fatalf("Load() returned unexpected error for alt+G with a non-{comment} base action: %v", err)
-	}
+    "Z alt+f": board.refresh
+`),
+			wantErr: false,
+		},
+		{
+			name: "no Alt anywhere (negative control)",
+			yaml: altShadowYAML(commentActionAtZF + `    "Z g":
+      name: Other action
+      type: shell
+      command: "echo other"
+`),
+			wantErr: false,
+		},
+		{
+			name: "named key preserved (over-broad alt+ stripping risk)",
+			yaml: altShadowYAML(`    enter:
+      name: Comment action
+      type: shell
+      command: "run --comment {comment}"
+    alt+enter: board.refresh
+`),
+			wantErr: true,
+			want:    []string{`"enter"`},
+		},
+		{
+			name: "named key negative control",
+			yaml: altShadowYAML(`    enter:
+      name: Comment action
+      type: shell
+      command: "run --comment {comment}"
+`),
+			wantErr: false,
+		},
+	})
+}
+
+func TestLoad_KeymapAltCommentShadow_ColumnOverlay(t *testing.T) {
+	runKeymapLoadCases(t, []keymapLoadCase{
+		{
+			name: "base in normal, alt+ variant in column overlay",
+			yaml: keymapYAML(`  normal:
+` + commentActionAtZF + `  columns:
+    Doing:
+      "Z alt+f": board.refresh
+`),
+			wantErr: true,
+			want:    []string{`"Doing"`, `"Z f"`, `"Z alt+f"`},
+		},
+		{
+			name: "column override of base does not clear the mode-level conflict",
+			yaml: keymapYAML(`  normal:
+` + commentActionAtZF + `    "Z alt+f": board.refresh
+  columns:
+    Doing:
+      "Z f":
+        name: Override action
+        type: shell
+        command: "echo override"
+`),
+			wantErr: true,
+			want:    []string{`"Z f"`, `"Z alt+f"`},
+		},
+		{
+			name: "column unbind of base clears the conflict for that column",
+			yaml: keymapYAML(`  normal:
+` + commentActionAtZF + `  columns:
+    Doing:
+      "Z f": ~
+      "Z alt+f": board.refresh
+`),
+			wantErr: false,
+		},
+	})
 }
 
 // --- Inline keymaps: action validation (mirrors top-level actions:) ---
@@ -246,29 +414,126 @@ keymaps:
 }
 
 // --- Scope conflicts spanning keymaps.<mode> and keymaps.columns.<name> ---
+//
+// Canonicalization must collapse whitespace variants of "Z f" (unused by any
+// default binding, #502) onto the same physical key before scopes are
+// compared -- the canonical form keymap.ParseSequence(...).String() and
+// runtime dispatch already agree on.
 
-func TestLoad_KeymapScopeConflict_ModeVsColumn_ReturnsError(t *testing.T) {
-	yamlContent := `provider: github
-keymaps:
-  normal:
-    G:
-      name: Card scope
+const cardActionAtZF = `    "Z f":
+      name: Card action
       type: shell
       scope: card
       command: "echo {number}"
-  columns:
-    Doing:
-      G:
-        name: PR scope
-        type: shell
-        scope: pr
-        command: "cd {pr_branch}"
 `
-	_, err := loadConfigFromStrings(t, yamlContent, "")
-	if err == nil {
-		t.Fatal("Load() returned nil error, want error for key \"G\" being card-scope in keymaps.normal and pr-scope in keymaps.columns.Doing")
-	}
-	if !strings.Contains(err.Error(), `"G"`) {
-		t.Errorf("error = %q, want it to reference the conflicting key \"G\"", err.Error())
-	}
+
+const boardActionAtZF = `    "Z f":
+      name: Board action
+      type: shell
+      scope: board
+      command: "echo hi"
+`
+
+const prActionYAML = `      name: PR action
+      type: url
+      scope: pr
+      url: "{pr_url}"
+`
+
+// prActionYAMLColumn is prActionYAML re-indented for keymaps.columns.<name>,
+// whose keys sit one level deeper than a plain mode table's.
+const prActionYAMLColumn = `        name: PR action
+        type: url
+        scope: pr
+        url: "{pr_url}"
+`
+
+func TestLoad_KeymapScopeConflict(t *testing.T) {
+	runKeymapLoadCases(t, []keymapLoadCase{
+		{
+			name: "normal card vs detail pr, double-space whitespace variant",
+			yaml: keymapYAML(`  normal:
+` + cardActionAtZF + `  detail:
+    "Z  f":
+` + prActionYAML),
+			wantErr: true,
+			want:    []string{`"Z f"`, `"card"`, `"pr"`},
+		},
+		{
+			name: "normal card vs column pr, leading/trailing whitespace variant",
+			yaml: keymapYAML(`  normal:
+` + cardActionAtZF + `  columns:
+    Doing:
+      " Z f ":
+` + prActionYAMLColumn),
+			wantErr: true,
+			want:    []string{`"Z f"`, `"card"`, `"pr"`},
+		},
+		{
+			name: "detail card vs column pr, double-space whitespace variant",
+			yaml: keymapYAML(`  detail:
+` + cardActionAtZF + `  columns:
+    Doing:
+      "Z  f":
+` + prActionYAMLColumn),
+			wantErr: true,
+			want:    []string{`"Z f"`, `"card"`, `"pr"`},
+		},
+		{
+			name: "board vs card, same canonical seq, different tables: allowed",
+			yaml: keymapYAML(`  normal:
+` + boardActionAtZF + `  detail:
+` + cardActionAtZF),
+			wantErr: false,
+		},
+		{
+			name: "board vs pr, same canonical seq, different tables: allowed",
+			yaml: keymapYAML(`  normal:
+` + boardActionAtZF + `  columns:
+    Doing:
+      "Z f":
+` + prActionYAMLColumn),
+			wantErr: false,
+		},
+		{
+			name: "card vs card across normal + detail, different spellings: allowed",
+			yaml: keymapYAML(`  normal:
+` + cardActionAtZF + `  detail:
+    "Z f":
+      name: Card action B
+      type: shell
+      scope: card
+      command: "echo {number}"
+`),
+			wantErr: false,
+		},
+		{
+			name: "card action + command binding on the same canonical seq: commands excluded",
+			yaml: keymapYAML(`  normal:
+` + cardActionAtZF + `  detail:
+    "Z  f": board.refresh
+`),
+			wantErr: false,
+		},
+		{
+			name: "card action + explicit unbind on the same canonical seq: unbinds excluded",
+			yaml: keymapYAML(`  normal:
+` + cardActionAtZF + `  detail:
+    "Z  f": ~
+`),
+			wantErr: false,
+		},
+		{
+			name: "unparseable action key propagates a load error with mode/key context",
+			yaml: keymapYAML(`  normal:
+    "nope-key":
+      name: Bad key action
+      type: shell
+      scope: card
+      command: "echo {number}"
+`),
+			wantErr: true,
+			want:    []string{"keymaps.normal", `"nope-key"`},
+		},
+	})
 }

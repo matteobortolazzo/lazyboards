@@ -210,19 +210,24 @@ runtime, in `Load`'s order:
    of another bound key in the same mode/column is rejected, mirroring
    `Lookup`'s own pending-match boundary check.
 6. **`alt+` shadowing a `{comment}` overload** — `validateModeAltCommentShadow`
-   (`keymap_validate.go:155`): an explicit `alt+<key>` binding that shadows
-   the implicit Alt-overload of a `{comment}`-bearing action bound to the
-   same base key is rejected, since holding Alt on that base key already
-   means "enter comment mode first."
+   (`keymap_validate.go:155`): an `alt+` modifier on *any* token of a bound
+   sequence is rejected when that sequence's fully alt-free base (via
+   `altFreeBaseSequence`, `keymap_semantic_validate.go`) is itself bound to a
+   `{comment}`-bearing action — since holding Alt anywhere in the pending
+   sequence already means "enter comment mode first" for that base.
 7. **Bare printable rune in a text-input mode** — `validatePrintableRuneBindings`
    (`keymap_semantic_validate.go:92`): a bare printable-rune key bound in any
    mode where `Mode.ConsumesPrintableRunes()` is true is rejected — the
    mode's textinput swallows the keystroke before any lookup could see it.
    An `alt+<rune>` form is exempt.
-8. **Card/PR scope conflict** — `validateScopeConflicts` (`config.go:803`):
-   the same canonical key sequence cannot be `"card"`-scope in one inline
-   action and `"pr"`-scope in another, across `keymaps.normal`,
-   `keymaps.detail`, and every `keymaps.columns.<name>` table.
+8. **Card/PR scope conflict** — `validateScopeConflicts` (`config.go`):
+   action keys are grouped by their canonical `keymap.ParseSequence(...).String()`
+   form (not raw YAML spelling), so whitespace/spelling variants of the same
+   physical sequence share one bucket; the same canonical sequence cannot be
+   `"card"`-scope in one inline action and `"pr"`-scope in another, across
+   `keymaps.normal`, `keymaps.detail`, and every `keymaps.columns.<name>`
+   table. An action key that fails to parse is a contextual load error
+   (naming the owning table and the raw key), not a silently skipped entry.
 
 Checks 1-2 run during YAML unmarshal itself; 3, 7, and 8 run over
 `cfg.Keymaps` directly (after `translateLegacyActions` has folded legacy
