@@ -153,17 +153,16 @@ func TestKeymapModals_Filter_UnrecognizedCommandIsNoOp(t *testing.T) {
 	}
 }
 
-// TestKeymapModals_Filter_InlineActionBindingDoesNotDispatch is the security-
-// review regression test (#490 PR 7a fix-now finding): internal/config's
-// keymap-action validation does not mode-scope inline actions, so a user
-// config can legally bind a type: shell inline action inside keymaps.filter
-// even though handleFilterModeKey has no inline-action dispatch path (Q4).
-// Before the fix this relied on the untested implicit invariant that an
-// action binding's zero-value Command lands in the switch's default no-op
-// case; this asserts the explicit Binding.Kind guard instead, using
-// b.Update directly (not sendKey, which discards the returned tea.Cmd) plus
-// execCmds so a wrongly-dispatched shell action would actually run and be
-// observed by the fake executor.
+// TestKeymapModals_Filter_InlineActionBindingDoesNotDispatch is now
+// defensive-runtime coverage: config load rejects a type: shell inline
+// action bound inside keymaps.filter (internal/config's
+// validateModeCapabilities, exercised end-to-end by
+// keymap_capability_validation_test.go, #577), so a real user config can no
+// longer reach this path. This test instead pins handleFilterModeKey's own
+// Binding.Kind guard for a hand-built keymap that bypasses config validation
+// (boardWithOverrideKeymap), using b.Update directly (not sendKey, which
+// discards the returned tea.Cmd) plus execCmds so a wrongly-dispatched shell
+// action would actually run and be observed by the fake executor.
 func TestKeymapModals_Filter_InlineActionBindingDoesNotDispatch(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
@@ -645,10 +644,16 @@ func TestKeymapModals_PRList_OutcomePendingPrefixIsNoOp(t *testing.T) {
 	}
 }
 
-// TestKeymapModals_PRList_UnrecognizedCommandIsNoOp is Q4's second half for
-// the PR list: a key bound to a command id from a wholly different domain
-// (here, normal mode's board.refresh) must resolve to OutcomeMatch but still
-// be a documented no-op, not silently fall through and run board.refresh.
+// TestKeymapModals_PRList_UnrecognizedCommandIsNoOp is now defensive-runtime
+// coverage: config load rejects a foreign command id (here, normal mode's
+// board.refresh) bound inside keymaps.pr_list (internal/config's
+// validateModeCapabilities, exercised end-to-end by
+// keymap_capability_validation_test.go, #577), so a real user config can no
+// longer reach this path. This test instead pins handlePRListModeKey's own
+// default-case guard for a hand-built keymap that bypasses config
+// validation (boardWithOverrideKeymap): a key resolving to OutcomeMatch on a
+// foreign command id must stay a documented no-op, not silently fall
+// through and run board.refresh.
 func TestKeymapModals_PRList_UnrecognizedCommandIsNoOp(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{

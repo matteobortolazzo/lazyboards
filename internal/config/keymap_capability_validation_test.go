@@ -1,8 +1,11 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
 // --- #577: validateModeCapabilities -- reject a keymaps.<mode>.<key>
@@ -424,5 +427,328 @@ func assertCapabilityError(t *testing.T, err error, want ...string) {
 		if !strings.Contains(err.Error(), w) {
 			t.Errorf("error = %q, want it to contain %q", err.Error(), w)
 		}
+	}
+}
+
+// =====================================================================
+// PR 2: the exhaustive 19-mode matrices.
+//
+// Above is PR 1's representative one-case-per-family coverage. Below: a
+// literal, hand-verified valid/foreign command-id pair per keymap.Modes()
+// entry (never derived from keymap.CommandDispatchable/DispatchableCommands
+// -- the "self-referential matrix" risk the plan names), an exhaustive
+// detail-matrix test sourced from keymap.Defaults() (the raw table, not the
+// derived index), an inline-action reject matrix over every non-dispatching
+// mode, and legacy-translation parity coverage.
+// =====================================================================
+
+// --- Full 19-mode command capability matrix ---
+
+// capabilityCommandCase is one hand-verified (validID, foreignID) pair per
+// mode: validID is bound in the mode's own defaults_*.go table; foreignID is
+// bound elsewhere and reaches this mode through neither of the two
+// documented widenings (IsUniversalCommand's union, ModeDetail's
+// normalDefaults inheritance).
+type capabilityCommandCase struct {
+	mode      keymap.Mode
+	key       string
+	validID   keymap.CommandID
+	foreignID keymap.CommandID
+}
+
+// capabilityCommandMatrix covers every keymap.Modes() entry exactly once
+// (verified below by ...CoversEveryMode). key is "f1" (named, never a bare
+// rune) for the five text-input modes -- a bare rune there would also trip
+// validatePrintableRuneBindings (runs after this validator), failing the
+// "valid" half for an unrelated reason (docs/keymap-conventions.md's remap-
+// testing rule). Every other mode leaves "z" unbound in its defaults table.
+var capabilityCommandMatrix = []capabilityCommandCase{
+	// board (defaults_board.go)
+	{keymap.ModeNormal, "z", keymap.CommandBoardRefresh, keymap.CommandFilterSelect},
+	{keymap.ModeDetail, "z", keymap.CommandCardEdit, keymap.CommandCreateSubmit},
+
+	// panel (defaults_panel.go)
+	{keymap.ModeGitPanel, "z", keymap.CommandGitPanelRun, keymap.CommandAssignToggle},
+	{keymap.ModeDispatch, "z", keymap.CommandDispatchOnce, keymap.CommandAgentListNext},
+
+	// modal (defaults_modal.go)
+	{keymap.ModePRList, "z", keymap.CommandPRListOpen, keymap.CommandAssignToggle},
+	{keymap.ModeFilter, "z", keymap.CommandFilterSelect, keymap.CommandBoardRefresh},
+	{keymap.ModeAssign, "z", keymap.CommandAssignToggle, keymap.CommandFilterSelect},
+	{keymap.ModePRPicker, "z", keymap.CommandPRPickerSelect, keymap.CommandAssignToggle},
+	{keymap.ModeMilestoneList, "z", keymap.CommandMilestoneListOpen, keymap.CommandPRPickerSelect},
+	{keymap.ModeAgentList, "z", keymap.CommandAgentListGoToWindow, keymap.CommandMilestoneListOpen},
+
+	// system (defaults_system.go)
+	{keymap.ModeHelp, "z", keymap.CommandHelpScrollDown, keymap.CommandDispatchOnce},
+	{keymap.ModeError, "z", keymap.CommandErrorRetry, keymap.CommandHelpScrollDown},
+
+	// text -- non-printable-rune-consuming half (close_confirm, label_confirm
+	// have no textinput widget, only y/n/esc, so "z" is safe there too)
+	{keymap.ModeCloseConfirm, "z", keymap.CommandCloseConfirmConfirm, keymap.CommandErrorRetry},
+	{keymap.ModeLabelConfirm, "z", keymap.CommandLabelConfirmCreate, keymap.CommandCloseConfirmConfirm},
+
+	// text -- printable-rune-consuming half (create, config, search, comment,
+	// delete): named key "f1", never a bare rune
+	{keymap.ModeDelete, "f1", keymap.CommandDeleteSubmit, keymap.CommandLabelConfirmCreate},
+	{keymap.ModeCreate, "f1", keymap.CommandCreateSubmit, keymap.CommandDeleteSubmit},
+	{keymap.ModeConfig, "f1", keymap.CommandConfigSave, keymap.CommandCreateSubmit},
+	{keymap.ModeSearch, "f1", keymap.CommandSearchApply, keymap.CommandConfigSave},
+	{keymap.ModeComment, "f1", keymap.CommandCommentSubmit, keymap.CommandSearchApply},
+}
+
+// capabilityCommandYAML builds a minimal keymaps.<mode>.<key>: <id> config.
+func capabilityCommandYAML(mode keymap.Mode, key string, id keymap.CommandID) string {
+	return fmt.Sprintf("provider: github\nkeymaps:\n  %s:\n    %s: %s\n", mode, key, id)
+}
+
+// TestLoad_KeymapCapability_FullModeMatrix_CoversEveryMode pins
+// capabilityCommandMatrix's exhaustiveness against keymap.Modes() itself, so
+// it can't silently go stale as new modes are added -- the same drift-guard
+// shape as keymap_help_test.go's helpModeSections completeness test.
+func TestLoad_KeymapCapability_FullModeMatrix_CoversEveryMode(t *testing.T) {
+	seen := make(map[keymap.Mode]bool, len(capabilityCommandMatrix))
+	for _, tc := range capabilityCommandMatrix {
+		if seen[tc.mode] {
+			t.Errorf("capabilityCommandMatrix has more than one entry for mode %q, want exactly one", tc.mode)
+		}
+		seen[tc.mode] = true
+	}
+	for _, mode := range keymap.Modes() {
+		if !seen[mode] {
+			t.Errorf("capabilityCommandMatrix is missing an entry for mode %q, want one per keymap.Modes()", mode)
+		}
+	}
+}
+
+// TestLoad_KeymapCapability_FullModeMatrix runs the valid/foreign pair for
+// every mode in capabilityCommandMatrix through Load.
+func TestLoad_KeymapCapability_FullModeMatrix(t *testing.T) {
+	for _, tc := range capabilityCommandMatrix {
+		t.Run(string(tc.mode)+"/valid", func(t *testing.T) {
+			yamlContent := capabilityCommandYAML(tc.mode, tc.key, tc.validID)
+			if _, err := loadConfigFromStrings(t, yamlContent, ""); err != nil {
+				t.Fatalf("Load() returned unexpected error for keymaps.%s.%s: %s: %v", tc.mode, tc.key, tc.validID, err)
+			}
+		})
+		t.Run(string(tc.mode)+"/foreign", func(t *testing.T) {
+			yamlContent := capabilityCommandYAML(tc.mode, tc.key, tc.foreignID)
+			_, err := loadConfigFromStrings(t, yamlContent, "")
+			if err == nil {
+				t.Fatalf("Load() returned nil error, want error for keymaps.%s.%s: %s (foreign to mode %q)", tc.mode, tc.key, tc.foreignID, tc.mode)
+			}
+			assertCapabilityError(t, err,
+				fmt.Sprintf("keymaps.%s", tc.mode),
+				fmt.Sprintf("%q", tc.key),
+				string(tc.foreignID),
+				string(tc.validID),
+			)
+		})
+	}
+}
+
+// --- Detail matrix: exhaustive normalDefaults acceptance (#588) ---
+
+// TestLoad_KeymapCapability_Detail_AcceptsEveryNormalDefaultsID generates
+// cases from keymap.Defaults()'s raw ModeNormal Table -- shipped source
+// data, never the derived DispatchableCommands/CommandDispatchable index --
+// so this is a genuine check of #588's runDetailCommand fall-through, not a
+// tautology against the index under test. Confirms AC 7 for the full 35-id
+// set, not just the card.delete case already pinned above.
+func TestLoad_KeymapCapability_Detail_AcceptsEveryNormalDefaultsID(t *testing.T) {
+	normalTable := keymap.Defaults().Modes[keymap.ModeNormal]
+	seen := make(map[keymap.CommandID]bool)
+	for _, binding := range normalTable {
+		if binding.Kind != keymap.BindingCommand {
+			continue
+		}
+		id := binding.Command
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+
+		t.Run(string(id), func(t *testing.T) {
+			yamlContent := capabilityCommandYAML(keymap.ModeDetail, "z", id)
+			if _, err := loadConfigFromStrings(t, yamlContent, ""); err != nil {
+				t.Fatalf("Load() returned unexpected error for keymaps.detail.z: %s (a normalDefaults id, #588 fall-through): %v", id, err)
+			}
+		})
+	}
+	if len(seen) == 0 {
+		t.Fatal("precondition failed: keymap.Defaults().Modes[ModeNormal] produced zero distinct BindingCommand ids")
+	}
+}
+
+// --- Inline-action matrix: every mode without a dispatcher rejects ---
+
+// nonInlineActionModes is every keymap.Modes() entry except the four modes
+// that dispatch inline actions (normal, detail, git_panel, pr_list --
+// already covered above). Listed by hand, not derived from
+// Mode.DispatchesInlineActions() (the predicate under test); its complement
+// against keymap.Modes() is pinned below by ...PartitionsAllModes -- the
+// same anti-self-reference reasoning as capabilityCommandMatrix.
+var nonInlineActionModes = []keymap.Mode{
+	keymap.ModeFilter,
+	keymap.ModeAssign,
+	keymap.ModePRPicker,
+	keymap.ModeMilestoneList,
+	keymap.ModeAgentList,
+	keymap.ModeDispatch,
+	keymap.ModeHelp,
+	keymap.ModeError,
+	keymap.ModeCreate,
+	keymap.ModeConfig,
+	keymap.ModeSearch,
+	keymap.ModeComment,
+	keymap.ModeDelete,
+	keymap.ModeCloseConfirm,
+	keymap.ModeLabelConfirm,
+}
+
+// capabilityActionYAML builds a minimal keymaps.<mode>.<key>: <inline
+// action> config with a generic board-scope shell action -- scope is
+// immaterial here (pr_list's scope=="pr" gate is covered separately above)
+// since DispatchesInlineActions() gates on the mode alone.
+func capabilityActionYAML(mode keymap.Mode, key string) string {
+	return fmt.Sprintf(`provider: github
+keymaps:
+  %s:
+    %s:
+      name: Board action
+      type: shell
+      scope: board
+      command: "echo hi"
+`, mode, key)
+}
+
+// TestLoad_KeymapCapability_InlineAction_FullModeMatrix_PartitionsAllModes
+// pins that nonInlineActionModes plus the four dispatching modes exactly
+// partition keymap.Modes() -- none double-counted, none missing -- so the
+// reject matrix below can't silently go stale.
+func TestLoad_KeymapCapability_InlineAction_FullModeMatrix_PartitionsAllModes(t *testing.T) {
+	dispatching := map[keymap.Mode]bool{
+		keymap.ModeNormal:   true,
+		keymap.ModeDetail:   true,
+		keymap.ModeGitPanel: true,
+		keymap.ModePRList:   true,
+	}
+	seen := make(map[keymap.Mode]bool, len(nonInlineActionModes))
+	for _, mode := range nonInlineActionModes {
+		if dispatching[mode] {
+			t.Errorf("nonInlineActionModes includes %q, which is also listed as a dispatching mode", mode)
+		}
+		if seen[mode] {
+			t.Errorf("nonInlineActionModes lists %q more than once", mode)
+		}
+		seen[mode] = true
+	}
+	for _, mode := range keymap.Modes() {
+		if !seen[mode] && !dispatching[mode] {
+			t.Errorf("mode %q is in neither nonInlineActionModes nor the dispatching set, want it in exactly one", mode)
+		}
+	}
+}
+
+// TestLoad_KeymapCapability_InlineAction_FullModeMatrix asserts an inline
+// action is rejected in every mode of nonInlineActionModes, naming the
+// config path and key (AC 3).
+func TestLoad_KeymapCapability_InlineAction_FullModeMatrix(t *testing.T) {
+	for _, mode := range nonInlineActionModes {
+		t.Run(string(mode), func(t *testing.T) {
+			key := "z"
+			if mode.ConsumesPrintableRunes() {
+				key = "f1"
+			}
+			yamlContent := capabilityActionYAML(mode, key)
+			_, err := loadConfigFromStrings(t, yamlContent, "")
+			if err == nil {
+				t.Fatalf("Load() returned nil error, want error for an inline action in keymaps.%s (mode never dispatches inline actions)", mode)
+			}
+			assertCapabilityError(t, err, fmt.Sprintf("keymaps.%s", mode), fmt.Sprintf("%q", key), "never dispatches inline actions")
+		})
+	}
+}
+
+// --- Legacy-translation parity ---
+//
+// translateLegacyActions (legacy_actions.go) runs before this validator and
+// is documented as purely additive -- these tests pin that the mode-
+// capability check doesn't reject what it produces.
+
+// TestLoad_KeymapCapability_LegacyTopLevelActions_MirrorIntoNormalAndDetail_LoadsCleanly
+// mirrors legacy_actions_test.go's translation-shape test at this
+// validator's boundary: a top-level actions: entry mirrors into both
+// keymaps.normal and keymaps.detail (#510), both inline-action dispatchers,
+// so the mirrored entries must load cleanly.
+func TestLoad_KeymapCapability_LegacyTopLevelActions_MirrorIntoNormalAndDetail_LoadsCleanly(t *testing.T) {
+	localYAML := `actions:
+  Z:
+    name: Push
+    type: shell
+    command: "git push"
+    scope: board
+`
+	cfg := mustLoadConfig(t, "", localYAML)
+
+	for _, mode := range []keymap.Mode{keymap.ModeNormal, keymap.ModeDetail} {
+		table, ok := cfg.Keymaps.Modes[mode]
+		if !ok {
+			t.Fatalf("Keymaps.Modes missing mode %q after legacy translation", mode)
+		}
+		binding, ok := table["Z"]
+		if !ok || binding.Kind != keymap.BindingAction {
+			t.Fatalf("Keymaps.Modes[%q][\"Z\"] = %+v, ok=%v, want a BindingAction surviving validateModeCapabilities", mode, binding, ok)
+		}
+	}
+}
+
+// TestLoad_KeymapCapability_LegacyColumnActions_LoadsCleanly mirrors a
+// columns[].actions: block (#510) into keymaps.columns.<name>, which
+// dispatches inline actions -- must load cleanly.
+func TestLoad_KeymapCapability_LegacyColumnActions_LoadsCleanly(t *testing.T) {
+	localYAML := `columns:
+  - name: Implementing
+    actions:
+      Q:
+        name: Custom action
+        type: shell
+        command: "echo hi"
+        scope: board
+`
+	cfg := mustLoadConfig(t, "", localYAML)
+
+	table, ok := cfg.Keymaps.Columns["Implementing"]
+	if !ok {
+		t.Fatal(`Keymaps.Columns missing "Implementing" after legacy column-action translation`)
+	}
+	binding, ok := table["Q"]
+	if !ok || binding.Kind != keymap.BindingAction {
+		t.Fatalf(`Keymaps.Columns["Implementing"]["Q"] = %+v, ok=%v, want a BindingAction surviving validateModeCapabilities`, binding, ok)
+	}
+}
+
+// TestLoad_KeymapCapability_LegacyScopePRAction_ReachesPRList_LoadsCleanly
+// pins the uppercase-letter, scope: pr legacy-action path
+// (translateLegacyActions' isUppercaseLetterKey gate): the mirrored
+// keymaps.pr_list entry must satisfy the pr_list scope=="pr" rule, exactly
+// the scope the legacy action declares.
+func TestLoad_KeymapCapability_LegacyScopePRAction_ReachesPRList_LoadsCleanly(t *testing.T) {
+	localYAML := `actions:
+  P:
+    name: Open PR checks
+    type: url
+    scope: pr
+    url: "{pr_url}"
+`
+	cfg := mustLoadConfig(t, "", localYAML)
+
+	table, ok := cfg.Keymaps.Modes[keymap.ModePRList]
+	if !ok {
+		t.Fatal("Keymaps.Modes missing pr_list after legacy scope:pr translation")
+	}
+	binding, ok := table["P"]
+	if !ok || binding.Kind != keymap.BindingAction || binding.Action.Scope != "pr" {
+		t.Fatalf(`Keymaps.Modes["pr_list"]["P"] = %+v, ok=%v, want a scope "pr" BindingAction surviving validateModeCapabilities`, binding, ok)
 	}
 }
