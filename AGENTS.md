@@ -70,7 +70,7 @@ Tests are split by domain to mirror production code:
 | `label_confirm_test.go` | Frontmatter compose/parse round-trip for labels |
 | `map_slice_test.go` | `mapSlice` generic helper |
 | `milestone_list_test.go` | Milestones list modal (fetch/sort/interaction/view state precedence) |
-| `mouse_test.go` | Mouse wheel scroll/cursor movement |
+| `mouse_test.go` | Mouse wheel scroll/cursor movement, tab-bar click hit-zones (ladder rungs, CJK/emoji titles, search/filter-active count shapes) |
 | `pr_count_test.go` | PR count aggregation and status bar indicator |
 | `pr_list_test.go` | Global PR list modal navigation and selection |
 | `pr_picker_test.go` | Single/multi-PR picker (open in browser, status messages) |
