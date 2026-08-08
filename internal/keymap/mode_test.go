@@ -171,6 +171,71 @@ func TestConsumesPrintableRunes_OtherModes_False(t *testing.T) {
 	}
 }
 
+// TestDispatchesKeySequences_SequenceCapableModes pins the ticket's
+// Decision (#578): multi-key sequences remain supported only in
+// ModeNormal, ModeDetail, and ModeColumns (the pending-sequence dispatch
+// seam is handlePendingSeqKey, keymap_dispatch.go; ModeColumns overlays
+// onto ModeNormal/ModeDetail rather than dispatching on its own -- see
+// keymap.go's Resolve).
+func TestDispatchesKeySequences_SequenceCapableModes(t *testing.T) {
+	want := []Mode{ModeNormal, ModeDetail, ModeColumns}
+	for _, m := range want {
+		if !m.DispatchesKeySequences() {
+			t.Errorf("Mode(%q).DispatchesKeySequences() = false, want true", m)
+		}
+	}
+}
+
+// TestDispatchesKeySequences_OtherModes_False guards against the set
+// silently growing to include a mode whose dispatch seam has no
+// pending-sequence machinery -- panelBinding (keymap_panels.go),
+// textBinding (keymap_text.go), and every modal's single-key Lookup all
+// resolve a single key by exact match only and discard a multi-key
+// OutcomePending result.
+func TestDispatchesKeySequences_OtherModes_False(t *testing.T) {
+	sequenceCapable := map[Mode]bool{
+		ModeNormal:  true,
+		ModeDetail:  true,
+		ModeColumns: true,
+	}
+	for _, m := range Modes() {
+		if sequenceCapable[m] {
+			continue
+		}
+		if m.DispatchesKeySequences() {
+			t.Errorf("Mode(%q).DispatchesKeySequences() = true, want false", m)
+		}
+	}
+}
+
+// TestDefaultTables_NoSequenceKeyOutsideSequenceCapableModes is the #578
+// drift guard: only a DispatchesKeySequences() mode's default table may
+// bind a multi-key sequence -- today that's just CommandNavReference
+// (default "g r") and CommandNavAgent (default "g a") in
+// normalDefaults/detailDefaults (defaults_board.go). If a future default
+// table for a non-sequence-capable mode ever bound a sequence, #578's
+// config-load validator would reject it for every user who never touched
+// that key, making the shipped default itself the offending config. Uses
+// ParseSequence to count elements (never strings.Contains(key, " ")),
+// mirroring internal/config's own validator requirement.
+func TestDefaultTables_NoSequenceKeyOutsideSequenceCapableModes(t *testing.T) {
+	defaults := Defaults()
+	for mode, table := range defaults.Modes {
+		if mode.DispatchesKeySequences() {
+			continue
+		}
+		for key := range table {
+			seq, err := ParseSequence(key)
+			if err != nil {
+				t.Fatalf("Defaults().Modes[%q] has an unparsable key %q: %v", mode, key, err)
+			}
+			if len(seq) > 1 {
+				t.Errorf("Defaults().Modes[%q] binds multi-key sequence %q, but mode %q does not DispatchesKeySequences()", mode, key, mode)
+			}
+		}
+	}
+}
+
 // TestModeDetail_IsDistinctFromNormal pins that "detail" is its own
 // resolvable surface (the detail-focused branch of handleNormalModeKey),
 // separate from "normal" -- both are overlay targets per the plan's

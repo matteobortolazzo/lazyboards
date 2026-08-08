@@ -64,6 +64,11 @@ func bestPanelHintKey(entries []keymap.Entry, id keymap.CommandID) string {
 		if e.Binding.Kind != keymap.BindingCommand || e.Binding.Command != id {
 			continue
 		}
+		// Defense-in-depth: internal/config's validateSequenceCapability
+		// (#578) already rejects a multi-key binding in any
+		// !Mode.DispatchesKeySequences() mode at config-load time, so a
+		// validated config can never reach this filter. It stays for a
+		// hand-built keymap that bypasses config.Load.
 		if strings.Contains(e.Sequence, " ") {
 			continue
 		}
@@ -130,12 +135,15 @@ func (b Board) gitPanelHints() []Hint {
 // explicitly unbound key), ordered by (Action.Order, Sequence) via
 // sortByActionOrder -- the built-ins carry Order 1..6, matching
 // gitPanelBuiltinOrder's legacy fixed display/dispatch order. A row bound to
-// a multi-key sequence (e.g. "g d") stays in the list -- it's still
-// reachable via j/k navigation + Enter -- but its displayed key label is
-// blanked, since panelBinding is single-key exact match only (see its doc
-// comment) and can never dispatch that sequence directly; this mirrors
-// bestPanelHintKey's multi-key filtering for the hint bar so the menu never
-// advertises a key press that silently no-ops.
+// a multi-key sequence stays in the list -- it's still reachable via j/k
+// navigation + Enter -- but its displayed key label is blanked, since
+// panelBinding is single-key exact match only (see its doc comment) and can
+// never dispatch that sequence directly; this mirrors bestPanelHintKey's
+// multi-key filtering for the hint bar so the menu never advertises a key
+// press that silently no-ops. Defense-in-depth, same as bestPanelHintKey's
+// filter above: internal/config's validateSequenceCapability (#578) already
+// rejects such a binding for keymaps.git_panel at config-load time, so this
+// only matters for a hand-built keymap that bypasses config.Load.
 func (b Board) gitPanelItemsFromKeymap() []gitPanelItem {
 	entries := actionOnlyEntries(b.panelEntries(keymap.ModeGitPanel))
 	sortByActionOrder(entries)

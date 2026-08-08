@@ -238,6 +238,49 @@ func capabilityCommandError(path, key string, id keymap.CommandID, mode keymap.M
 	return fmt.Errorf("%s: key %q: command %q cannot dispatch in mode %q, want one of: %s", path, key, id, mode, strings.Join(names, ", "))
 }
 
+// validateSequenceCapability checks that every keymaps.<mode>.<key> binding
+// outside a Mode.DispatchesKeySequences() mode is a single key, not a
+// multi-key sequence -- regardless of rhs kind (command, inline action, or
+// explicit unbind): the mode's dispatch seam (panelBinding, textBinding, or
+// a modal's single-key Lookup) can only ever resolve a single key by exact
+// match, so a bound sequence there could never dispatch. keymaps.columns.<name>
+// stays sequence-capable (ModeColumns.DispatchesKeySequences() is true, since
+// it overlays ModeNormal/ModeDetail), so the whole Columns walk is skipped.
+//
+// Walks keymaps.Modes in sorted key order, and each table's keys in sorted
+// order too, mirroring validateModeCapabilities' determinism, and returns on
+// the first failing binding.
+func validateSequenceCapability(keymaps *Keymaps) error {
+	if keymaps == nil {
+		return nil
+	}
+	for _, mode := range sortedKeys(keymaps.Modes) {
+		if mode.DispatchesKeySequences() {
+			continue
+		}
+		if err := validateSequenceCapabilityTable(keymaps.Modes[mode], mode, fmt.Sprintf("keymaps.%s", mode)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateSequenceCapabilityTable runs validateSequenceCapability's check
+// over one mode's table, in sorted key order.
+func validateSequenceCapabilityTable(table KeymapTable, mode keymap.Mode, path string) error {
+	for _, key := range sortedKeys(table) {
+		parsed, err := keymap.ParseSequence(key)
+		if err != nil {
+			return fmt.Errorf("%s: key %q: %w", path, key, err)
+		}
+		if len(parsed) <= 1 {
+			continue
+		}
+		return fmt.Errorf("%s: key %q (canonical %q): mode %q dispatches single keys only (multi-key sequences are supported in normal, detail, and columns.<name>); bind a single key instead", path, key, parsed.String(), mode)
+	}
+	return nil
+}
+
 // sortedKeys returns m's keys in ascending order, so
 // validateModeCapabilities' mode/column/table walks are deterministic
 // instead of Go's randomized map-iteration order. It is shared by all three

@@ -201,3 +201,27 @@ var inlineActionModes = map[Mode]bool{
 func (m Mode) DispatchesInlineActions() bool {
 	return inlineActionModes[m]
 }
+
+// sequenceModes is the set of modes whose dispatch seam accumulates a
+// pending multi-key sequence: handlePendingSeqKey (the main repo's
+// keymap_dispatch.go) is the only pending-sequence seam, driving both
+// ModeNormal and ModeDetail, plus the ModeColumns overlay (keymap.go's
+// Resolve merges a column table onto whichever of ModeNormal/ModeDetail is
+// active, so a column-scoped sequence dispatches the same way). Every other
+// mode's handler resolves a single key by exact match only and discards a
+// multi-key OutcomePending result: panelBinding (command-panel modes),
+// textBinding (text/confirm modes), and every list-style modal's own
+// single-key Lookup.
+var sequenceModes = map[Mode]bool{
+	ModeNormal:  true,
+	ModeDetail:  true,
+	ModeColumns: true,
+}
+
+// DispatchesKeySequences reports whether m's dispatch seam can resolve a
+// multi-key sequence at all (accumulating a pending prefix and rendering a
+// which-key hint), as opposed to a single-key exact match only. See
+// sequenceModes for which modes qualify and why.
+func (m Mode) DispatchesKeySequences() bool {
+	return sequenceModes[m]
+}

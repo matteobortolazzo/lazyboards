@@ -120,7 +120,10 @@ var prListHintSpecs = []hintSpec{
 // inline action is excluded too: the PR list has no pending-sequence/
 // which-key machinery (Q4 -- a multi-key sequence resolves to
 // OutcomePending and is an explicit no-op here), so hinting one would
-// advertise a key combo that silently does nothing if pressed.
+// advertise a key combo that silently does nothing if pressed. Defense-in-
+// depth: internal/config's validateSequenceCapability (#578) already rejects
+// a multi-key binding in keymaps.pr_list at config-load time, so this filter
+// only matters for a hand-built keymap that bypasses config.Load.
 func (b Board) prListHints() []Hint {
 	entries := b.keys.Entries(keymap.ModePRList, "")
 	hints := builtinHints(entries, prListHintSpecs)

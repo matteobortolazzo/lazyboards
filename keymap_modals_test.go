@@ -103,7 +103,12 @@ func TestKeymapModals_Filter_HintsReflectRemappedKey(t *testing.T) {
 // TestKeymapModals_Filter_OutcomePendingPrefixIsNoOp is the Q4 explicit-risk
 // test: filter mode has no multi-key pending-sequence machinery, so a key
 // that is only a *prefix* of a bound sequence (OutcomePending) must be a
-// silent no-op -- not a crash, not a partial dispatch.
+// silent no-op -- not a crash, not a partial dispatch. #578's
+// validateSequenceCapability now rejects such a multi-key keymaps.filter
+// binding at config-load time, so this stays as defensive-runtime coverage
+// for a hand-built keymap (boardWithOverrideKeymap bypasses config.Load);
+// internal/config/keymap_sequence_validation_test.go is the user-facing
+// contract.
 func TestKeymapModals_Filter_OutcomePendingPrefixIsNoOp(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
@@ -267,6 +272,12 @@ func TestKeymapModals_Assign_HintsReflectRemappedKey(t *testing.T) {
 	}
 }
 
+// TestKeymapModals_Assign_OutcomePendingPrefixIsNoOp is defensive-runtime
+// coverage (#578's validateSequenceCapability now rejects a multi-key
+// keymaps.assign binding at config-load time; this test's
+// boardWithOverrideKeymap fixture bypasses config.Load, so it stays as the
+// hand-built-keymap negative -- internal/config/keymap_sequence_validation_test.go
+// is the user-facing contract).
 func TestKeymapModals_Assign_OutcomePendingPrefixIsNoOp(t *testing.T) {
 	b := newBoardWithCollaborators(t)
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
@@ -426,6 +437,12 @@ func TestKeymapModals_PRPicker_HintsReflectRemappedKey_UsesRawKeyNotGlyph(t *tes
 	}
 }
 
+// TestKeymapModals_PRPicker_OutcomePendingPrefixIsNoOp is defensive-runtime
+// coverage (#578's validateSequenceCapability now rejects a multi-key
+// keymaps.pr_picker binding at config-load time; this test's
+// boardWithOverrideKeymap fixture bypasses config.Load, so it stays as the
+// hand-built-keymap negative -- internal/config/keymap_sequence_validation_test.go
+// is the user-facing contract).
 func TestKeymapModals_PRPicker_OutcomePendingPrefixIsNoOp(t *testing.T) {
 	b, fe := newBoardWithPRsAndExecutor(t)
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
@@ -617,7 +634,11 @@ func TestKeymapModals_PRList_InlineActionWithoutScopePRDoesNotDispatch(t *testin
 // TestKeymapModals_PRList_OutcomePendingPrefixIsNoOp is Q4's explicit-risk
 // coverage for the PR list: a key that is only a prefix of a bound sequence
 // must be a silent no-op -- the PR list has no multi-key pending-sequence
-// machinery.
+// machinery. #578's validateSequenceCapability now rejects a multi-key
+// keymaps.pr_list binding at config-load time; this test's
+// boardWithOverrideKeymap fixture bypasses config.Load, so it stays as the
+// hand-built-keymap negative -- internal/config/keymap_sequence_validation_test.go
+// is the user-facing contract.
 func TestKeymapModals_PRList_OutcomePendingPrefixIsNoOp(t *testing.T) {
 	b, fe := newBoardWithPRsAndExecutor(t)
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
