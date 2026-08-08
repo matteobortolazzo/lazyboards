@@ -194,7 +194,7 @@ can only ever be an inline action, never a built-in command.
 
 ## Load-time validation
 
-Nine checks run before a resolved `*keymap.Keymap` is ever handed to the
+Ten checks run before a resolved `*keymap.Keymap` is ever handed to the
 runtime, in `Load`'s order:
 
 1. **Unknown mode name** — `Keymaps.UnmarshalYAML` (`keymaps.go:143`), via
@@ -216,39 +216,51 @@ runtime, in `Load`'s order:
    which runs before this check) to be exactly `"pr"`. An explicit unbind is
    always skipped. `keymaps.columns.<name>` tables are checked against
    `keymap.ModeColumns`'s own entry in the capability index.
-5. **`ctrl+c` anywhere** — `validateNoCtrlC` (`keymap_validate.go:99`): a
+5. **Sequence capability** — `validateSequenceCapability`
+   (`keymap_semantic_validate.go`, #578): a binding's key must parse (via
+   `keymap.ParseSequence`) to a single element unless the mode is
+   `Mode.DispatchesKeySequences()` (`normal`, `detail`, and
+   `keymaps.columns.<name>`) — every other mode's dispatch seam
+   (`panelBinding`, `textBinding`, or a modal's single-key `Lookup`) can only
+   ever resolve a single key by exact match, so a bound sequence there could
+   never dispatch. Rejected regardless of binding kind, including an
+   explicit unbind (unlike check 4, which skips unbinds) — an unbind that
+   could never do anything is still an error, mirroring check 6's (below)
+   own `ctrl+c` reasoning. The error names the config path, the raw key, its
+   canonical `Sequence.String()` form, and the offending mode.
+6. **`ctrl+c` anywhere** — `validateNoCtrlC` (`keymap_validate.go:99`): a
    `ctrl+c` token anywhere in a space-separated sequence is rejected
    regardless of binding kind, including an explicit unbind — `Lookup`'s
    short-circuit doesn't consult the table, so an unbind could never do
    anything anyway.
-6. **Prefix conflict** — `validateModePrefixes` (`keymap_validate.go:135`):
+7. **Prefix conflict** — `validateModePrefixes` (`keymap_validate.go:135`):
    over the fully *resolved* namespace (defaults + user together, via
    `ResolveKeymap`), a bound key that is a strict, whitespace-boundary prefix
    of another bound key in the same mode/column is rejected, mirroring
    `Lookup`'s own pending-match boundary check.
-7. **`alt+` shadowing a `{comment}` overload** — `validateModeAltCommentShadow`
+8. **`alt+` shadowing a `{comment}` overload** — `validateModeAltCommentShadow`
    (`keymap_validate.go:155`): an `alt+` modifier on *any* token of a bound
    sequence is rejected when that sequence's fully alt-free base (via
    `altFreeBaseSequence`, `keymap_semantic_validate.go`) is itself bound to a
    `{comment}`-bearing action — since holding Alt anywhere in the pending
    sequence already means "enter comment mode first" for that base.
-8. **Bare printable rune in a text-input mode** — `validatePrintableRuneBindings`
+9. **Bare printable rune in a text-input mode** — `validatePrintableRuneBindings`
    (`keymap_semantic_validate.go:92`): a bare printable-rune key bound in any
    mode where `Mode.ConsumesPrintableRunes()` is true is rejected — the
    mode's textinput swallows the keystroke before any lookup could see it.
    An `alt+<rune>` form is exempt.
-9. **Card/PR scope conflict** — `validateScopeConflicts` (`config.go`):
-   action keys are grouped by their canonical `keymap.ParseSequence(...).String()`
-   form (not raw YAML spelling), so whitespace/spelling variants of the same
-   physical sequence share one bucket; the same canonical sequence cannot be
-   `"card"`-scope in one inline action and `"pr"`-scope in another, across
-   `keymaps.normal`, `keymaps.detail`, and every `keymaps.columns.<name>`
-   table. An action key that fails to parse is a contextual load error
-   (naming the owning table and the raw key), not a silently skipped entry.
+10. **Card/PR scope conflict** — `validateScopeConflicts` (`config.go`):
+    action keys are grouped by their canonical `keymap.ParseSequence(...).String()`
+    form (not raw YAML spelling), so whitespace/spelling variants of the same
+    physical sequence share one bucket; the same canonical sequence cannot be
+    `"card"`-scope in one inline action and `"pr"`-scope in another, across
+    `keymaps.normal`, `keymaps.detail`, and every `keymaps.columns.<name>`
+    table. An action key that fails to parse is a contextual load error
+    (naming the owning table and the raw key), not a silently skipped entry.
 
-Checks 1-2 run during YAML unmarshal itself; 3, 4, 8, and 9 run over
+Checks 1-2 run during YAML unmarshal itself; 3, 4, 5, 9, and 10 run over
 `cfg.Keymaps` directly (after `translateLegacyActions` has folded legacy
-entries in); 5, 6, and 7 run inside `validateKeymap` (`keymap_validate.go:45`),
+entries in); 6, 7, and 8 run inside `validateKeymap` (`keymap_validate.go:45`),
 which calls `ResolveKeymap` itself so the prefix/alt-shadow checks see
 built-ins and user config together, exactly what a real `Lookup` would see.
 

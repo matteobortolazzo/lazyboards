@@ -44,7 +44,11 @@ func (b Board) textBinding(mode keymap.Mode, msg tea.KeyMsg) (keymap.Binding, bo
 // can never dispatch a multi-key sequence (it's single-key exact-match
 // only), so no hint derived for these modes may advertise one either --
 // the hint<->dispatch invariant shared with panelHintKey's multi-key
-// filtering.
+// filtering. Defense-in-depth, same posture as textBinding's printable-rune
+// guard above: internal/config's validateSequenceCapability (#578) already
+// rejects a multi-key binding in any text/confirm mode at config-load time,
+// so this filter only matters for a hand-built keymap that bypasses
+// config.Load.
 func singleKeyEntries(entries []keymap.Entry) []keymap.Entry {
 	filtered := make([]keymap.Entry, 0, len(entries))
 	for _, e := range entries {

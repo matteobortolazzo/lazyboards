@@ -55,6 +55,13 @@ func TestKeymapPanels_PanelEntries_ReturnsGitPanelModeTable(t *testing.T) {
 	}
 }
 
+// TestKeymapPanels_PanelBinding_ExactSingleKeyMatchOnly's multi-key-prefix
+// case below is defensive-runtime coverage: #578's validateSequenceCapability
+// now rejects a multi-key keymaps.git_panel binding at config-load time; the
+// boardWithOverrideKeymap fixture used here bypasses config.Load, so this
+// stays as the hand-built-keymap negative --
+// internal/config/keymap_sequence_validation_test.go is the user-facing
+// contract.
 func TestKeymapPanels_PanelBinding_ExactSingleKeyMatchOnly(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 

@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
+	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
 // --- Custom-action key sequences (prefix keybindings) ---
@@ -272,6 +273,43 @@ func TestKeySequence_ColumnActionCanExtendPrefix(t *testing.T) {
 	}
 	if b.pendingSeq != "" {
 		t.Errorf("pendingSeq = %q after dispatch, want empty", b.pendingSeq)
+	}
+}
+
+// TestKeySequence_ColumnTwoKeySequence_DispatchesInNormalAndDetailFocus is
+// #578's new column-sequence runtime coverage: a two-key inline action bound
+// natively under keymaps.columns.<name> (not the legacy columns[].actions:
+// block TestKeySequence_ColumnActionCanExtendPrefix above uses) must still
+// dispatch through the pending-sequence flow in both normal mode and with
+// detailFocused -- ModeColumns.DispatchesKeySequences() overlays onto both
+// ModeNormal and ModeDetail (keymap.go's Resolve), mirroring
+// TestKeySequence_WorksFromDetailFocus's normal/detail-focus pairing above.
+func TestKeySequence_ColumnTwoKeySequence_DispatchesInNormalAndDetailFocus(t *testing.T) {
+	b, fe := newActionTestBoardWithColumns(t, nil, []provider.Column{
+		{Title: "Col A", Cards: []provider.Card{{Number: 1, Title: "Card"}}},
+	})
+	b = boardWithOverrideKeymap(t, b, nil, map[string]keymap.Table{
+		"col a": {"z a": keymap.ActionBinding(keymap.Action{Name: "Column sequence", Type: "url", URL: "https://example.com/col/{number}"})},
+	})
+
+	b = sendKey(t, b, keyMsg("z"))
+	b = sendKey(t, b, keyMsg("a"))
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("expected 1 OpenURL call for the column-scoped two-key sequence in normal mode, got %d", len(fe.OpenURLCalls))
+	}
+
+	b = sendKey(t, b, keyMsg("l")) // focus detail panel
+	if !b.detailFocused {
+		t.Fatal("expected detailFocused after l")
+	}
+
+	b = sendKey(t, b, keyMsg("z"))
+	b = sendKey(t, b, keyMsg("a"))
+	if len(fe.OpenURLCalls) != 2 {
+		t.Fatalf("expected 2 OpenURL calls after dispatching the column sequence with detailFocused, got %d", len(fe.OpenURLCalls))
+	}
+	if !b.detailFocused {
+		t.Error("expected detailFocused to survive a column sequence dispatch")
 	}
 }
 
