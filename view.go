@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -99,11 +100,13 @@ func (b Board) View() string {
 	}
 	if b.mode == labelConfirmMode && b.labelConfirm.currentIdx < len(b.labelConfirm.unknownLabels) {
 		label := b.labelConfirm.unknownLabels[b.labelConfirm.currentIdx]
-		helpBar = fmt.Sprintf("Label %q doesn't exist. Create it? (y/n)", label)
+		chrome := lipgloss.Width(fmt.Sprintf(labelConfirmPromptFmt, ""))
+		helpBar = fmt.Sprintf(labelConfirmPromptFmt, fitQuotedTitle(label, innerWidth, chrome))
 	}
 	if b.mode == closeConfirmMode {
 		card := b.closeConfirm.card
-		helpBar = fmt.Sprintf("Close #%d %q? (y/n)", card.Number, sanitizeSingleLine(card.Title))
+		chrome := lipgloss.Width(fmt.Sprintf(closeConfirmPromptFmt, card.Number, ""))
+		helpBar = fmt.Sprintf(closeConfirmPromptFmt, card.Number, fitQuotedTitle(card.Title, innerWidth, chrome))
 	}
 
 	// Assemble inner content.
@@ -1136,8 +1139,16 @@ func (b Board) viewPRPickerModal() string {
 	if symbol := prStatusSymbol(status); symbol != "" {
 		prPrefix = prStatusStyle(status).Render(symbol) + " "
 	}
+	// decoration is everything on the row besides the "#N <title>" chrome+
+	// title text: the status prefix glyph plus the left/right arrow framing.
+	decoration := lipgloss.Width(prPrefix) + lipgloss.Width("\u25c0 ") + lipgloss.Width(" \u25b6")
+	chrome := lipgloss.Width(fmt.Sprintf(prPickerTitleFmt, pr.Number, ""))
+	// available subtracts decoration only -- inlineTitleBudget below already
+	// subtracts chrome once; subtracting it here too would double-count it.
+	available := modalContentWidth(modalWidth) - decoration
+	title := truncateCell(sanitizeSingleLine(pr.Title), inlineTitleBudget(available, chrome))
 	// Picker shows only the currently browsed PR — always selected, no cursor to compare.
-	prText := selectedRowStyle(fmt.Sprintf("#%d %s", pr.Number, sanitizeSingleLine(pr.Title)), true)
+	prText := selectedRowStyle(fmt.Sprintf(prPickerTitleFmt, pr.Number, title), true)
 	prDisplay := prPrefix + "\u25c0 " + prText + " \u25b6"
 
 	pickerHints := NewStatusBar(prPickerHints)
@@ -1463,15 +1474,19 @@ func (b Board) viewDeleteModal() string {
 	modalWidth := b.createModalWidth()
 	card := b.delete.card
 
+	available := modalContentWidth(modalWidth)
+
 	var prompt, activeInputView string
 	var hints StatusBar
 	switch b.delete.step {
 	case deleteStepConfirm:
-		prompt = fmt.Sprintf("Type %d to permanently delete #%d %q (Esc to cancel):", card.Number, card.Number, sanitizeSingleLine(card.Title))
+		chrome := lipgloss.Width(fmt.Sprintf(deleteConfirmPromptFmt, card.Number, card.Number, ""))
+		prompt = fmt.Sprintf(deleteConfirmPromptFmt, card.Number, card.Number, fitQuotedTitle(card.Title, available, chrome))
 		activeInputView = b.delete.confirmInput.View()
 		hints = NewStatusBar(deleteConfirmHints)
 	default:
-		prompt = fmt.Sprintf("Delete #%d %q — optional comment (Enter to continue, Esc to cancel):", card.Number, sanitizeSingleLine(card.Title))
+		chrome := lipgloss.Width(fmt.Sprintf(deleteCommentPromptFmt, card.Number, ""))
+		prompt = fmt.Sprintf(deleteCommentPromptFmt, card.Number, fitQuotedTitle(card.Title, available, chrome))
 		activeInputView = b.delete.commentInput.View()
 		hints = NewStatusBar(deleteCommentHints)
 	}
@@ -1825,6 +1840,66 @@ func padCell(s string, width int) string {
 		out += strings.Repeat(" ", width-got)
 	}
 	return out
+}
+
+// Prompt format strings for the five sites that inline an untrusted
+// card/label/PR title into a one-line prompt (#597). Each supplies its own
+// literal quote characters via %s (never %q) so the title can be escaped
+// BEFORE truncation via fitQuotedTitle -- %q escapes after truncation,
+// which is unbounded. prPickerTitleFmt is the one unquoted site.
+const (
+	closeConfirmPromptFmt  = `Close #%d "%s"? (y/n)`
+	labelConfirmPromptFmt  = `Label "%s" doesn't exist. Create it? (y/n)`
+	deleteConfirmPromptFmt = `Type %d to permanently delete #%d "%s":`
+	deleteCommentPromptFmt = `Delete #%d "%s" — optional comment:`
+	prPickerTitleFmt       = "#%d %s"
+)
+
+// inlineTitleMinCells is the floor inlineTitleBudget clamps to. Without a
+// floor, a prompt whose own chrome outgrows the available width at narrow
+// terminal sizes would drive the title's budget to zero (or negative),
+// making truncateCell drop the title entirely.
+const inlineTitleMinCells = 8
+
+// inlineTitleBudget returns the cell budget left for an untrusted title
+// inlined into a one-line prompt: available minus chromeWidth (the prompt's
+// own literal text, format verbs excluded), floored at inlineTitleMinCells
+// so the budget never goes to zero or negative.
+func inlineTitleBudget(available, chromeWidth int) int {
+	budget := available - chromeWidth
+	if budget < inlineTitleMinCells {
+		return inlineTitleMinCells
+	}
+	return budget
+}
+
+// escapeInline returns s Go-quote-escaped (control bytes, backslashes, and
+// double quotes escaped per strconv.Quote) with the surrounding delimiter
+// quotes stripped, so callers can splice the result between literal quote
+// characters supplied by their own format string.
+func escapeInline(s string) string {
+	quoted := strconv.Quote(s)
+	return quoted[1 : len(quoted)-1]
+}
+
+// fitQuotedTitle sanitizes, escapes, then truncates title to the cell budget
+// implied by available and chromeWidth. Escaping BEFORE truncating (not
+// after) is the point of #597: escaping after truncation is unbounded --
+// each escaped byte/rune can expand a title already at the cell limit well
+// past the intended budget (a run of `"` doubles in width, a run of
+// non-printable runes expands sixfold). Escaping first bounds the
+// truncation input, so the result never exceeds the budget regardless of
+// the title's content.
+//
+// Call sites pass available as the raw line budget (e.g. innerWidth or
+// modalContentWidth(...)), not pre-subtracted: inlineTitleBudget already
+// subtracts chromeWidth once internally. Pre-subtracting chromeWidth at the
+// call site before passing it here would double-count it, forcing the
+// title's budget to the floor far more often than the line's true available
+// width requires.
+func fitQuotedTitle(title string, available, chromeWidth int) string {
+	escaped := escapeInline(sanitizeSingleLine(title))
+	return truncateCell(escaped, inlineTitleBudget(available, chromeWidth))
 }
 
 // viewAgentListModal renders the agents list modal. State precedence mirrors

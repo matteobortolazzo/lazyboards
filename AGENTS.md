@@ -66,6 +66,7 @@ Tests are split by domain to mirror production code:
 | `git_panel_test.go` | Git menu panel (open/close, default-action gating) |
 | `gitstatus_wiring_test.go` | Git status fetch command + background poll scheduling |
 | `help_test.go` | Help modal (open/close from normal & detail-focused states) |
+| `inline_title_test.go` | Bounding untrusted card/label/PR titles inlined into one-line prompts (`inlineTitleBudget`, `escapeInline`, `fitQuotedTitle`, and the five prompt render sites) |
 | `label_confirm_test.go` | Frontmatter compose/parse round-trip for labels |
 | `map_slice_test.go` | `mapSlice` generic helper |
 | `milestone_list_test.go` | Milestones list modal (fetch/sort/interaction/view state precedence) |
