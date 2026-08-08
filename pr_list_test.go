@@ -937,3 +937,144 @@ func TestPRList_ActionHints_AreSortedByKey(t *testing.T) {
 		}
 	}
 }
+
+// --- row-level clamp to modalWidth-4 cells (#596) ---
+//
+// entry.pr.Title is already bounded to a 32-cell per-field truncateCell
+// budget (#595), but the row's "— <column> #N" card-link suffix carries
+// entry.columnTitle completely unclamped. Without a row-level clamp, a wide
+// combined row (title + unclamped column title) overflows the modal box's
+// interior (modalWidth-4 = 56 cells) and lipgloss's own Style word-wrap
+// silently spills it across multiple physical lines -- word-wrap does not
+// drop any text, it just relocates the overflow onto later physical lines,
+// so content that should have been clamped away (with a "…" marker) instead
+// resurfaces elsewhere in the rendered view. Both tests below distinguish
+// this from the fix: TestPRList_View_RowClamp_WideCJKTitleAndColumn_StaysOnSinglePhysicalLine
+// asserts the wide row collapses to exactly one physical line (assertOneRow
+// fails today because the CJK column title's tail lands on a separate
+// physical line from the row's own "#<N>"), and
+// TestPRList_View_RowClamp_CutsTrailingCardSuffixNotLeadingColumns asserts
+// the overflow is actually removed from the rendered view (not just moved),
+// which only an ansi.Truncate-based clamp achieves -- word-wrap leaves the
+// full text present somewhere in the view.
+
+// TestPRList_View_RowClamp_WideCJKTitleAndColumn_StaysOnSinglePhysicalLine
+// covers a PR row whose title and owning column title are both wide/CJK: the
+// combined row must render as exactly one physical line, with the row's
+// leading columns (glyph + "#<N>") landing at the same cell offset as a
+// plain ASCII row -- verified by measuring, not by strings.Contains, per
+// docs/terminal-rendering.md's column-alignment convention.
+func TestPRList_View_RowClamp_WideCJKTitleAndColumn_StaysOnSinglePhysicalLine(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	if len(b.prList.entries) == 0 {
+		t.Fatal("test precondition: prList.entries must be non-empty (card-linked fallback)")
+	}
+
+	const asciiPRNumber = 10
+	asciiTitle := "feat: ascii title"
+	b.prList.entries[0].pr.Number = asciiPRNumber
+	b.prList.entries[0].pr.Title = asciiTitle
+	b.prList.entries[0].columnTitle = "Column A"
+
+	b.prList.entries = append(b.prList.entries, prListEntry{
+		pr:          LinkedPR{Number: 555, Title: strings.Repeat("测试标题", 20), URL: "https://github.com/o/r/pull/555"},
+		cardNumber:  9,
+		columnTitle: strings.Repeat("专栏名称", 10),
+	})
+
+	view := b.viewPRListModal()
+
+	cjkRow := assertOneRow(t, view, "#555", "专栏")
+	asciiRow := assertOneRow(t, view, fmt.Sprintf("#%d", asciiPRNumber), asciiTitle)
+
+	asciiPrefixWidth := lipgloss.Width(asciiRow[:strings.Index(asciiRow, "#")])
+	cjkPrefixWidth := lipgloss.Width(cjkRow[:strings.Index(cjkRow, "#")])
+	if asciiPrefixWidth != cjkPrefixWidth {
+		t.Errorf("column widths before # differ: ascii row = %d, cjk row = %d\nascii row: %q\ncjk row:   %q",
+			asciiPrefixWidth, cjkPrefixWidth, asciiRow, cjkRow)
+	}
+}
+
+// TestPRList_View_RowClamp_CutsTrailingCardSuffixNotLeadingColumns asserts
+// the row-level clamp cuts the row's trailing "— <column> #<card>" suffix,
+// not its leading glyph/"#<N>"/title columns: the card-number suffix must be
+// entirely absent from the rendered view (not merely off the first physical
+// line -- word-wrap alone would already satisfy that weaker check today,
+// see the section comment above), while the row's own content still fits
+// the modal's actual interior budget.
+func TestPRList_View_RowClamp_CutsTrailingCardSuffixNotLeadingColumns(t *testing.T) {
+	b, _ := newBoardWithPRsAndExecutor(t)
+	b = sendKey(t, b, keyMsg("v"))
+	if len(b.prList.entries) == 0 {
+		t.Fatal("test precondition: prList.entries must be non-empty (card-linked fallback)")
+	}
+
+	const prNumber = 42
+	const cardNumber = 987654321
+	title := "feat: a moderately long pull request title for clamp testing"
+	b.prList.entries[0].pr.Number = prNumber
+	b.prList.entries[0].pr.Title = title
+	b.prList.entries[0].cardNumber = cardNumber
+	b.prList.entries[0].columnTitle = "A Fairly Long Owning Column Title That Overflows The Row Budget"
+
+	view := b.viewPRListModal()
+
+	cardSuffix := fmt.Sprintf("#%d", cardNumber)
+	if strings.Contains(view, cardSuffix) {
+		t.Errorf("view contains the trailing card-ref suffix %q; want the row-level clamp to cut it off the row entirely, not just word-wrap it onto a later physical line", cardSuffix)
+	}
+
+	row := assertOneRow(t, view, fmt.Sprintf("#%d", prNumber))
+	if !strings.Contains(row, linkedPRGlyph) {
+		t.Errorf("row = %q, want it to still contain the leading linkedPRGlyph after clamping", row)
+	}
+	if !strings.Contains(row, title[:10]) {
+		t.Errorf("row = %q, want it to still contain the leading title prefix %q", row, title[:10])
+	}
+	// modalWidth (60) - 4 cells of Padding(1, 2): the row's actual interior
+	// content budget (docs/terminal-rendering.md).
+	if w := lipgloss.Width(modalRowContent(t, row)); w > 56 {
+		t.Errorf("row content width = %d, want <= 56 (modalWidth 60 - 4)", w)
+	}
+}
+
+// TestPRList_View_HintsLineFitsModalContentWidth asserts the PR list's hints
+// line is measured against the modal's actual interior budget
+// (modalWidth-4 = 56 cells), not the full modalWidth (60) passed to
+// StatusBar.View today: the Desc below is tuned so the composed hints line
+// measures 57 cells at width 60 (verified by the precondition below) --
+// wide enough to overflow the interior but narrow enough that, at width 60,
+// renderHints would consider it a full fit (no truncation marker). Passing
+// the wider budget leaves the overflow for the modal's own Padding(1, 2) box
+// style to silently word-wrap away (dropping the last hint's tail with no
+// "…" indication); passing the narrower budget makes renderHints truncate
+// intentionally, appending its own " ..." marker.
+func TestPRList_View_HintsLineFitsModalContentWidth(t *testing.T) {
+	b, _ := prListActionFixture(t, map[string]config.Action{
+		"W": {Name: "Review PR1", Type: "url", URL: "https://example.com/{pr_number}", Scope: "pr"},
+	})
+	if w := lipgloss.Width(renderHints(b.prListActionHints(), 60)); w < 57 || w > 60 {
+		t.Fatalf("test precondition: composed hints width at 60 = %d, want [57,60]", w)
+	}
+
+	view := b.viewPRListModal()
+	var hintsLine string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "esc: Cancel") {
+			hintsLine = line
+		}
+	}
+	if hintsLine == "" {
+		t.Fatalf("view missing hints line; got:\n%s", view)
+	}
+
+	if !strings.Contains(hintsLine, "...") {
+		t.Errorf("hints line = %q, want it to contain the renderHints truncation marker %q, proving the modal passed the narrower modalWidth-4 content budget instead of the full modal width", hintsLine, "...")
+	}
+	// modalWidth (60) - 4 cells of Padding(1, 2): the hints line's actual
+	// interior content budget (docs/terminal-rendering.md).
+	if w := lipgloss.Width(modalRowContent(t, hintsLine)); w > 56 {
+		t.Errorf("hints line content width = %d, want <= 56 (modalWidth 60 - 4)", w)
+	}
+}

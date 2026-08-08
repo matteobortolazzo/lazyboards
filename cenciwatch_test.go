@@ -613,6 +613,41 @@ func TestAgentBadgeText_NewlineInAgentName_SanitizedToSingleLineFixedWidth(t *te
 	}
 }
 
+// TestAgentBadgeText_CJKKindMatchesASCIICellWidth is the #596 guard for
+// agentBadgeText's kind cell: agentBadgeKindWidth is a rune budget today, but
+// runes are not terminal cells -- a CJK kind name (each rune 2 cells wide)
+// undercounts against the budget and can render up to double the intended
+// cell width, breaking badge alignment across cards. Converting the pad/
+// truncate to truncateCell/padCell (cell-based, per docs/terminal-
+// rendering.md) makes a CJK kind occupy the exact same fixed cell width as
+// an ASCII kind. The symbol/ellipsis assertions distinguish "kind correctly
+// truncated" from "kind silently clamped": the badge must still end in its
+// status symbol (proving the cut landed inside the kind cell, not the
+// symbol) and must carry the app-wide truncateCell ellipsis marker (proving
+// truncateCell's own truncation ran, not a bespoke rune clamp).
+func TestAgentBadgeText_CJKKindMatchesASCIICellWidth(t *testing.T) {
+	cjk := agentBadgeText("running", "クロード")
+	ascii := agentBadgeText("running", "claude")
+
+	wantWidth := agentBadgeKindWidth + 2 // kind cell + separator space + 1-cell symbol
+	if w := lipgloss.Width(cjk); w != wantWidth {
+		t.Errorf("agentBadgeText(running, %q) width = %d, want %d (agentBadgeKindWidth + 2)", "クロード", w, wantWidth)
+	}
+	if w := lipgloss.Width(ascii); w != wantWidth {
+		t.Errorf("agentBadgeText(running, %q) width = %d, want %d (agentBadgeKindWidth + 2)", "claude", w, wantWidth)
+	}
+	if lipgloss.Width(cjk) != lipgloss.Width(ascii) {
+		t.Errorf("CJK badge width %d != ASCII badge width %d (%q vs %q), want equal cell widths for stable badge alignment across cards",
+			lipgloss.Width(cjk), lipgloss.Width(ascii), cjk, ascii)
+	}
+	if !strings.HasSuffix(cjk, "▶") {
+		t.Errorf("agentBadgeText(running, %q) = %q, want it to still end in the status symbol ▶ (kind was cut, not the symbol)", "クロード", cjk)
+	}
+	if !strings.Contains(cjk, "…") {
+		t.Errorf("agentBadgeText(running, %q) = %q, want it to contain the app-wide truncateCell ellipsis marker %q, proving truncateCell truncated the kind rather than a silent rune-count clamp", "クロード", cjk, "…")
+	}
+}
+
 // TestBoard_AgentBadgeFor_AppearsAsSeparateStatusLine verifies a matching
 // non-idle window's badge renders as its own status line via
 // cardStatusLines (#439) -- it no longer appends to cardDisplayText's
