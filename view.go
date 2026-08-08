@@ -388,8 +388,9 @@ func isHiddenLabel(label string, columnNames []string, workingLabel string) bool
 	return false
 }
 
-// agentBadgeKindWidth is the fixed rune width the agent kind is padded/truncated
-// to, so badges align across cards regardless of agent-name length.
+// agentBadgeKindWidth is the fixed cell width the agent kind is padded/
+// truncated to, so badges align across cards regardless of agent-name
+// length.
 const agentBadgeKindWidth = 6
 
 // agentStatusSymbol maps a cenci window status to its badge symbol.
@@ -414,7 +415,9 @@ func agentStatusSymbol(status string) string {
 // agentBadgeText returns the fixed-width badge text "<kind> <symbol>" for a
 // window status/agent, or "" when the status has no badge. When agent is empty
 // the symbol is returned alone. The kind is truncated/space-padded to a stable
-// rune width (content build-up, not layout measurement — []rune is correct here).
+// cell width via truncateCell/padCell (per docs/terminal-rendering.md) so a
+// CJK kind — whose runes are each 2 cells wide — occupies the same fixed
+// cell width as an ASCII kind, keeping badges aligned across cards.
 //
 // Unlike sanitizeSingleLine (built for natural-language single-line fields,
 // where an embedded newline is replaced with a space to preserve word
@@ -422,7 +425,7 @@ func agentStatusSymbol(status string) string {
 // never legitimately contains internal whitespace, so embedded
 // whitespace/control runs are stripped entirely here rather than replaced
 // with a space -- otherwise the synthetic separator space would itself
-// consume one rune of the fixed agentBadgeKindWidth budget, truncating real
+// consume one cell of the fixed agentBadgeKindWidth budget, truncating real
 // content that would otherwise fit.
 func agentBadgeText(status, agent string) string {
 	symbol := agentStatusSymbol(status)
@@ -439,15 +442,8 @@ func agentBadgeText(status, agent string) string {
 	if agent == "" {
 		return symbol
 	}
-	runes := []rune(agent)
-	if len(runes) > agentBadgeKindWidth {
-		runes = runes[:agentBadgeKindWidth]
-	} else {
-		for len(runes) < agentBadgeKindWidth {
-			runes = append(runes, ' ')
-		}
-	}
-	return string(runes) + " " + symbol
+	kind := padCell(truncateCell(agent, agentBadgeKindWidth), agentBadgeKindWidth)
+	return kind + " " + symbol
 }
 
 // agentBadgeStyle maps a cenci window status to its badge style.
@@ -1715,6 +1711,7 @@ func (b Board) viewPRListModal() string {
 			if entry.cardNumber != 0 {
 				display += fmt.Sprintf("  —  %s #%d", sanitizeSingleLine(entry.columnTitle), entry.cardNumber)
 			}
+			display = truncateCell(display, modalContentWidth(modalWidth))
 			display = selectedRowStyle(display, i == b.prList.cursor)
 			lines = append(lines, display)
 		}
@@ -1733,7 +1730,7 @@ func (b Board) viewPRListModal() string {
 
 	lines = append(lines, "")
 	prListHints := NewStatusBar(b.prListActionHints())
-	lines = append(lines, prListHints.View(modalWidth, 0, 0))
+	lines = append(lines, prListHints.View(modalContentWidth(modalWidth), 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
@@ -1759,11 +1756,22 @@ const (
 	milestoneColumnGap = "  "
 )
 
+// modalContentWidth returns a modal's interior content width in cells: w is
+// the modal's total width passed to renderModal, which wraps content in a
+// box styled with Padding(1, 2) — 2 cells of horizontal padding on each
+// side, consuming 4 cells total. Any modal sub-component measured against
+// the modal's content area (a row-level clamp, a hints StatusBar) must use
+// this, not the raw modal width, or it overflows the box's interior and
+// gets silently word-wrapped instead of clamped.
+func modalContentWidth(w int) int {
+	return w - 4
+}
+
 // milestoneTitleWidth returns the elastic title column width for the fixed
 // 72-cell content area (milestoneModalWidth minus renderModal's 4-cell
 // padding overhead).
 func milestoneTitleWidth() int {
-	contentWidth := milestoneModalWidth - 4
+	contentWidth := modalContentWidth(milestoneModalWidth)
 	fixed := milestoneBarWidth + milestonePctWidth + milestoneCountsWidth + milestoneDueWidth + 4*len(milestoneColumnGap)
 	return contentWidth - fixed
 }
@@ -1957,6 +1965,7 @@ func (b Board) viewAgentListModal() string {
 			if entry.cardNumber != 0 {
 				display += fmt.Sprintf("  —  %s #%d", sanitizeSingleLine(entry.columnTitle), entry.cardNumber)
 			}
+			display = truncateCell(display, modalContentWidth(modalWidth))
 			display = selectedRowStyle(display, i == b.agentList.cursor)
 			lines = append(lines, display)
 		}
@@ -1975,7 +1984,7 @@ func (b Board) viewAgentListModal() string {
 		hints = agentListEmptyHints
 	}
 	agentListHints := NewStatusBar(hints)
-	lines = append(lines, agentListHints.View(modalWidth, 0, 0))
+	lines = append(lines, agentListHints.View(modalContentWidth(modalWidth), 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)

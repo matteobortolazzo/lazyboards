@@ -166,6 +166,26 @@ func assertOneRow(t *testing.T, view string, needles ...string) string {
 	return row
 }
 
+// modalRowContent extracts a rendered modal line's own content -- stripping
+// renderModal's outer lipgloss.Place centering padding (which pads every
+// split line out to the full terminal width, per docs/terminal-rendering.md)
+// and the box's own border + Padding(1, 2) decoration -- by slicing between
+// the line's two "│" border markers and trimming the padding spaces. This is
+// the row's true budget for the row-level clamp assertions in
+// pr_list_test.go/agent_list_test.go (#596): a raw split line's
+// lipgloss.Width is always the full terminal width (b.Width) regardless of
+// the row's own content, so it cannot be compared against the modal's
+// modalWidth-4 content budget directly.
+func modalRowContent(t *testing.T, line string) string {
+	t.Helper()
+	first := strings.Index(line, "│")
+	last := strings.LastIndex(line, "│")
+	if first == -1 || last == -1 || first == last {
+		t.Fatalf("line %q missing modal border markers (│); want a rendered modal row", line)
+	}
+	return strings.TrimSpace(line[first+len("│") : last])
+}
+
 // requireColumns fails the test immediately if the board has no columns,
 // preventing panics from index-out-of-range on the stub implementation.
 func requireColumns(t *testing.T, b Board) {
