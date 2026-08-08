@@ -1,10 +1,12 @@
 {
-  "configVersion": "0.45.0",
+  "configVersion": "0.51.1",
   "branchPattern": "feature/<id>-<description>",
   "stack": {
     "backend": "go-bubbletea",
     "frontend": null,
-    "testing": ["go-test"]
+    "testing": [
+      "go-test"
+    ]
   },
   "guidanceLocation": "AGENTS.md",
   "mcpServers": {
