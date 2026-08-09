@@ -595,8 +595,8 @@ func TestHelpMode_ViewShowsAltKeyInNormalMode(t *testing.T) {
 	b = sendKey(t, b, keyMsg("?"))
 	content := b.buildHelpContent()
 
-	if !strings.Contains(content, "alt+shift+key") {
-		t.Error("buildHelpContent() Normal Mode should contain 'alt+shift+key' entry")
+	if !strings.Contains(content, "alt+key") {
+		t.Error("buildHelpContent() Normal Mode should contain 'alt+key' entry")
 	}
 }
 
