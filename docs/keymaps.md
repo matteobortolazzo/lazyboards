@@ -62,7 +62,8 @@ Three layers, each with a narrow responsibility:
    global -> snapshot and nil out `cfg.Keymaps` -> unmarshal local ->
    `mergeKeymaps` -> `validateSortOrder`/`validateColumns`/`validateActions`
    -> `translateLegacyActions` -> `validateKeymapActions` ->
-   `validateCommandIDs` -> `validatePrintableRuneBindings` ->
+   `validateCommandIDs` -> `validateModeCapabilities` ->
+   `validateSequenceCapability` -> `validatePrintableRuneBindings` ->
    `validateScopeConflicts` -> `validateKeymap`. `ResolveKeymap`
    (`keymap_validate.go:17`) is the *only* path that combines
    `keymap.Defaults()` with `cfg.Keymaps.Tables()` — every validator and the
@@ -90,6 +91,7 @@ Three layers, each with a narrow responsibility:
 One `keymaps:` block, one table per bindable mode plus a `columns` overlay
 namespace:
 
+<!-- keymap-schema-example:start -->
 ```yaml
 keymaps:
   normal:
@@ -100,11 +102,15 @@ keymaps:
       url: "https://github.com/{repo_owner}/{repo_name}/issues/{number}"
     n: ~                # BindingUnbound: `~`, `null`, or an empty value
   detail:
-    ...
+    q: app.quit
   columns:
     Refined:
-      I: implement.dispatch   # scoped to the "Refined" column, normal/detail only
+      I:                 # scoped to the "Refined" column, normal/detail only
+        name: Implement
+        type: shell
+        command: "cenci run implement {number} --model sonnet -- {comment}"
 ```
+<!-- keymap-schema-example:end -->
 
 **Security note:** `.lazyboards.yml` is repo-local and is typically checked
 into the repository, so any key — including built-in lowercase keys like
@@ -191,6 +197,102 @@ from the query, so a held-Alt keypress can still resolve to the inline
 action it would resolve to unmodified (the comment-first flow) — but an
 explicit `alt+key` binding always wins first, and a stripped-fallback result
 can only ever be an inline action, never a built-in command.
+
+## Mode capability matrix
+
+Every resolvable `Mode` (`keymap.Modes()`) restricts what a `keymaps.<mode>`
+binding can actually do, per four independent `Mode` predicates/behaviors:
+whether the mode's dispatch seam accumulates a pending multi-key sequence
+(`DispatchesKeySequences`, `mode.go`), whether it can resolve an inline
+`BindingAction` at all (`DispatchesInlineActions`, `mode.go`), whether its
+handler swallows every bare printable-rune keypress as literal text input
+before any lookup ever runs (`ConsumesPrintableRunes`, `mode.go`), and
+whether a `keymaps.columns.<name>` table can overlay the mode's own table at
+all (`effectiveTable`, `keymap.go:227-236`). The "Bare printable-rune key"
+column below is the INVERSE of the `ConsumesPrintableRunes` predicate:
+`ConsumesPrintableRunes() == true` means such a key is *rejected* (the
+textinput swallows it first), not allowed. Every mode also dispatches
+`app.quit` (`CommandQuit`) regardless of its own table, since it's the one
+universal command (`IsUniversalCommand`/`universalCommands`,
+`capability.go`) -- hence "Command ids" reads "yes" throughout. The "Column
+overlay" column is "yes" only for `normal`/`detail`: `effectiveTable`
+precomputes a column overlay for those two modes only, so a
+`keymaps.columns.<name>` entry can never reach any other mode's dispatch
+seam, no matter what that mode's table itself contains.
+`columns.<name>` is a config namespace, not itself a resolvable `Mode`
+(`Mode.Resolvable()` is `false` for `ModeColumns`), so it gets its own
+one-row table below instead of a row in the main one.
+
+Each capability cell's text must start with one of `yes`/`no`/`rejected`/
+`allowed`/`n/a`; trailing prose or a footnote is fine, but the drift test
+(`internal/config/docs_capability_drift_test.go`) parses only the leading
+token.
+
+<!-- keymap-capability-matrix:start -->
+| Mode | Key sequences | Inline actions | Bare printable-rune key | Command ids | Column overlay |
+|------|----------------|------------------|----------------------------|--------------|-----------------|
+| `normal` | yes | yes | allowed | yes | yes |
+| `detail` | yes | yes | allowed | yes | yes |
+| `create` | no | no | rejected | yes | no |
+| `error` | no | no | allowed | yes | no |
+| `config` | no | no | rejected | yes | no |
+| `pr_picker` | no | no | allowed | yes | no |
+| `search` | no | no | rejected | yes | no |
+| `help` | no | no | allowed | yes | no |
+| `label_confirm` | no | no | allowed | yes | no |
+| `close_confirm` | no | no | allowed | yes | no |
+| `comment` | no | no | rejected | yes | no |
+| `delete` | no | no | rejected | yes | no |
+| `filter` | no | no | allowed | yes | no |
+| `assign` | no | no | allowed | yes | no |
+| `git_panel` | no | yes | allowed | yes | no |
+| `dispatch` | no | no | allowed | yes | no |
+| `pr_list` | no | yes (scope: pr only, never inferred) | allowed | yes | no |
+| `milestone_list` | no | no | allowed | yes | no |
+| `agent_list` | no | no | allowed | yes | no |
+<!-- keymap-capability-matrix:end -->
+
+`columns.<name>` overlays `normal`/`detail` (`keymap.go`'s `Resolve`), so it
+inherits both of their capabilities in full:
+
+<!-- keymap-capability-matrix-columns:start -->
+| Mode | Key sequences | Inline actions | Bare printable-rune key | Command ids | Column overlay |
+|------|----------------|------------------|----------------------------|--------------|-----------------|
+| `columns` | yes | yes | n/a (overlays normal/detail, neither of which consumes printable runes, but columns is not itself a resolvable dispatch seam) | yes | n/a (this row already represents the overlay itself, not a mode an overlay can be applied to) |
+<!-- keymap-capability-matrix-columns:end -->
+
+A binding one of these seams can never reach is rejected at load time, not
+silently dropped at runtime: `validateModeCapabilities`
+(`keymap_semantic_validate.go`, #577) rejects a `BindingCommand` whose id
+isn't in `keymap.DispatchableCommands(mode)`, and a `BindingAction` in a
+mode where `DispatchesInlineActions()` is false (plus `keymaps.pr_list`'s
+additional scope requirement, below); `validateSequenceCapability`
+(#578) rejects a multi-key binding in a mode where
+`DispatchesKeySequences()` is false; `validatePrintableRuneBindings`
+rejects a bare printable-rune key in a mode where `ConsumesPrintableRunes()`
+is true. See [Load-time validation](#load-time-validation) checks 4, 5, and
+9 below for the full rules.
+
+`keymaps.pr_list`'s `scope: pr` requirement is never inferred, always
+stated: a scope-omitted inline action there can never satisfy it, since
+`inferScope` (`config.go`) only ever infers `"card"` or `"board"` from a
+template's placeholders, never `"pr"`. Omitting `scope:` is a load-time
+config error, not a silent fallback to `"pr"`:
+
+<!-- keymap-schema-pr-list-scope-omitted:start -->
+```yaml
+keymaps:
+  pr_list:
+    z:
+      name: Missing scope
+      type: shell
+      command: "echo hi"
+```
+<!-- keymap-schema-pr-list-scope-omitted:end -->
+
+The snippet above fails `config.Load` with a `pr_list only dispatches
+inline actions with scope "pr"` error; fix it by adding `scope: pr`
+explicitly.
 
 ## Load-time validation
 

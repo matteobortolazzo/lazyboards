@@ -175,9 +175,11 @@ var DefaultColumns = []ColumnConfig{
 
 // DefaultGitActions returns the built-in lazygit-style git actions. These are
 // board-scope shell actions available inside a git repo with a remote. Their
-// keys are scoped to the git menu (opened with `g` in normal mode) and never
-// dispatch from normal mode, so the normal-mode uppercase A-Z namespace stays
-// fully reserved for user-defined custom actions.
+// keys are scoped to the git menu (opened with `G` in normal mode, #502) and
+// never dispatch from normal mode -- the menu is its own mode
+// (keymap.ModeGitPanel), independent of normal mode's own table, so a
+// normal-mode binding on the same key (built-in or user-defined) coexists
+// without conflict.
 func DefaultGitActions() map[string]Action {
 	return map[string]Action{
 		"P": {Name: "Push", Type: "shell", Command: "git push", Scope: "board"},

@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
@@ -20,56 +19,17 @@ import (
 // accidental edit to either the README prose or the snippet's YAML can't
 // silently drift from what actually loads.
 
-const (
-	legacyRestoreFenceStart = "<!-- legacy-keymaps-restore:start -->"
-	legacyRestoreFenceEnd   = "<!-- legacy-keymaps-restore:end -->"
-)
+const legacyRestoreMarker = "legacy-keymaps-restore"
 
 // extractLegacyRestoreSnippet reads README.md (relative to this package)
 // and returns the YAML content between the two legacy-keymaps-restore HTML
 // comment fences, stripping the surrounding ```yaml/``` code-fence markers.
-// It fails the test with a clear message if either fence is missing, so an
-// accidental deletion of the snippet can't silently pass.
+// It is a thin wrapper around the shared extractFencedBlock
+// (docs_capability_drift_test.go, #586), which generalizes this exact
+// fence-and-code-fence extraction shape for other doc/marker pairs.
 func extractLegacyRestoreSnippet(t *testing.T) string {
 	t.Helper()
-
-	readmePath := filepath.Join("..", "..", "README.md")
-	raw, err := os.ReadFile(readmePath)
-	if err != nil {
-		t.Fatalf("failed to read %s: %v", readmePath, err)
-	}
-	content := string(raw)
-
-	startIdx := strings.Index(content, legacyRestoreFenceStart)
-	if startIdx == -1 {
-		t.Fatalf("README.md is missing the %q fence -- the legacy-keymaps-restore snippet must stay present under the Keybinding migration subsection", legacyRestoreFenceStart)
-	}
-	endIdx := strings.Index(content, legacyRestoreFenceEnd)
-	if endIdx == -1 {
-		t.Fatalf("README.md is missing the %q fence -- the legacy-keymaps-restore snippet must stay present under the Keybinding migration subsection", legacyRestoreFenceEnd)
-	}
-	if endIdx < startIdx {
-		t.Fatalf("README.md has %q before %q -- the legacy-keymaps-restore fences are out of order", legacyRestoreFenceEnd, legacyRestoreFenceStart)
-	}
-
-	between := content[startIdx+len(legacyRestoreFenceStart) : endIdx]
-
-	// Strip the ```yaml / ``` code-fence markers, keeping only the YAML body.
-	fenceOpenIdx := strings.Index(between, "```yaml")
-	if fenceOpenIdx == -1 {
-		t.Fatal("legacy-keymaps-restore snippet is missing its opening ```yaml code fence")
-	}
-	yamlStart := fenceOpenIdx + len("```yaml")
-	fenceCloseIdx := strings.Index(between[yamlStart:], "```")
-	if fenceCloseIdx == -1 {
-		t.Fatal("legacy-keymaps-restore snippet is missing its closing ``` code fence")
-	}
-
-	yamlBody := strings.TrimSpace(between[yamlStart : yamlStart+fenceCloseIdx])
-	if yamlBody == "" {
-		t.Fatal("legacy-keymaps-restore snippet is empty")
-	}
-	return yamlBody
+	return extractFencedBlock(t, "README.md", legacyRestoreMarker)
 }
 
 // TestLegacyRestoreSnippet_LoadsCleanlyAndRestoresOldKeys extracts the
