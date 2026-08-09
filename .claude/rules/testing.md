@@ -20,6 +20,7 @@ Test real flows end-to-end through the application stack.
 - NEVER hardcode magic values
 - NEVER assert call counts (exception: a minimal `== 1` guarding an observable no-duplicate-side-effect invariant, with a comment explaining why)
 - NEVER copy expected values from implementation — for values that cross a service/process boundary (socket, API, IPC), assert against a real observed sample of the producer's output, not a value you also hardcode in the fixture. Otherwise producer and consumer can share the same wrong constant and both stay green.
+- For tests deriving expected values from composed calculations (e.g., a rendered row width = chrome width + title width), base the formula on the plan/spec's description of how pieces combine, not on the implementation code being tested. A wrong expected-value formula can silently mask a matching bug in the implementation — both pass together, caught only by code review. Example: testing a prompt line's width must compute `expected = chrome + title_budget`, not just `title_budget`, based on the spec's description of how the line composes (#597).
 - NEVER discard a BubbleTea `Update()` call's return values with `_` — a discarded `model`/`cmd` makes the test a no-op that passes regardless of implementation. Always capture and assert on both, and set every message field the handler depends on (don't rely on zero values).
 
 ## Explicit Risk Coverage

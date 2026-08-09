@@ -161,10 +161,11 @@ func TestDeleteMode_DKey_EntersDeleteModeWithCommentStep(t *testing.T) {
 
 // TestDeleteMode_CommentStepPrompt_FlattensEmbeddedNewlineInTitle covers the
 // delete modal's comment-step prompt (#500). Like the close-confirm helpBar,
-// the prompt renders card.Title through fmt.Sprintf's %q verb, which already
-// escapes a raw newline to the two-character `\n` literal -- so the
-// meaningful assertion is the *flattened* form ("line one line two"), not
-// merely "one physical line" (which %q already guarantees on its own).
+// the prompt renders card.Title through fitQuotedTitle, whose
+// sanitizeSingleLine step already collapses a raw newline to a single space
+// -- so the meaningful assertion is the *flattened* form ("line one line
+// two"), not merely "one physical line" (which sanitizeSingleLine already
+// guarantees on its own).
 func TestDeleteMode_CommentStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "line one\nline two"
@@ -177,12 +178,12 @@ func TestDeleteMode_CommentStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.
 
 	view := b.viewDeleteModal()
 	if !strings.Contains(view, "line one line two") {
-		t.Errorf("viewDeleteModal() = %q, want the comment-step prompt to render the flattened title \"line one line two\", not the %%q-escaped \\n literal", view)
+		t.Errorf("viewDeleteModal() = %q, want the comment-step prompt to render the flattened title \"line one line two\", not an escaped backslash-n literal", view)
 	}
 }
 
 // TestDeleteMode_ConfirmStepPrompt_FlattensEmbeddedNewlineInTitle covers the
-// same %q prompt gap for the retype-to-confirm step.
+// same prompt-flattening behavior for the retype-to-confirm step.
 func TestDeleteMode_ConfirmStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "line one\nline two"
@@ -197,7 +198,7 @@ func TestDeleteMode_ConfirmStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.
 
 	view := b.viewDeleteModal()
 	if !strings.Contains(view, "line one line two") {
-		t.Errorf("viewDeleteModal() = %q, want the confirm-step prompt to render the flattened title \"line one line two\", not the %%q-escaped \\n literal", view)
+		t.Errorf("viewDeleteModal() = %q, want the confirm-step prompt to render the flattened title \"line one line two\", not an escaped backslash-n literal", view)
 	}
 }
 
@@ -1086,12 +1087,13 @@ func TestDeleteMode_ViewShowsCardNumberAndStepPrompt(t *testing.T) {
 // TestDeleteMode_ViewSanitizesControlSequencesInTitle covers the same
 // GitHub-sourced-untrusted-content gap for the deleteMode modal prompts
 // (both the comment step and the confirm/retype step): card.Title is
-// rendered via fmt.Sprintf's %q verb, which currently escapes control bytes
-// to visible literal text, but must still route through
-// sanitizeControlSequences for consistency with every other card.Title
-// render site (cardDisplayText, composeDetailMarkdown). A malicious title
-// must not leak raw ESC/BEL control bytes into either rendered prompt, while
-// the visible text is retained.
+// rendered via fitQuotedTitle (deleteCommentPromptFmt/deleteConfirmPromptFmt
+// supply the literal quote characters via %s, never %q -- #597), which
+// escapes control bytes to visible literal text, but must still route
+// through sanitizeControlSequences for consistency with every other
+// card.Title render site (cardDisplayText, composeDetailMarkdown). A
+// malicious title must not leak raw ESC/BEL control bytes into either
+// rendered prompt, while the visible text is retained.
 func TestDeleteMode_ViewSanitizesControlSequencesInTitle(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "\x1b[31mRED\x1b[0m title\x07"
@@ -1702,57 +1704,22 @@ func TestHelpSections_NormalMode_ContainsDeleteCardHint(t *testing.T) {
 	}
 }
 
-// --- #583 Stack 1/2: registry-derived delete prompts and mismatch message ---
+// --- #583 Stack 1/2: registry-derived delete mismatch message ---
 //
-// viewDeleteModal's two prompts and runDeleteCommand's mismatch feedback stop
-// hardcoding "Enter"/"Esc" and instead derive their key clauses from the
-// active ModeDelete table via deleteCommentPromptSuffix/
-// deleteConfirmPromptSuffix/deleteMismatchMessage (keymap_text.go), rendering
-// them through capitalizeKeyLabel so default output stays byte-identical to
-// today's shipped wording (Q1). These tests drive the real 'd' -> comment
-// step -> confirm step flow and read b.View(), never calling the string
-// helpers directly, per .claude/rules/testing.md.
-
-func TestDelete_CommentPrompt_DefaultKeymap_RendersCapitalizedShippedWording(t *testing.T) {
-	b, _ := newDeleteTestBoard(t)
-	// Widen past newDeleteTestBoard's default 120 (createModalWidth's 68-rune
-	// content area) so the full "(Enter to continue, Esc to cancel):" clause
-	// doesn't word-wrap across two physical lines -- this test asserts the
-	// clause's exact wording, not the modal's wrap behavior (which
-	// TestDelete_ConfirmPrompt_LongRemappedCancelKey_PreservesModalWidth
-	// covers separately), mirroring detail_focus_hints_test.go's
-	// TestView_DetailFocused_ShowsHelpAndCustomActionHints widening.
-	b.Width = 200
-
-	b = sendKey(t, b, keyMsg("d"))
-	if b.delete.step != deleteStepComment {
-		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
-	}
-
-	view := b.View()
-	if !strings.Contains(view, "(Enter to continue, Esc to cancel):") {
-		t.Errorf("View() comment-step prompt missing the default-parity capitalized suffix, got:\n%s", view)
-	}
-}
-
-func TestDelete_ConfirmPrompt_DefaultKeymap_RendersCapitalizedShippedWording(t *testing.T) {
-	b, _ := newDeleteTestBoard(t)
-
-	b = sendKey(t, b, keyMsg("d"))
-	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // blank comment -> confirm step
-	if b.delete.step != deleteStepConfirm {
-		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
-	}
-
-	view := b.View()
-	if !strings.Contains(view, "(Esc to cancel):") {
-		t.Errorf("View() confirm-step prompt missing the default-parity capitalized suffix, got:\n%s", view)
-	}
-	promptLine := findLineContaining(t, view, "Type ")
-	if strings.Contains(promptLine, "to confirm") {
-		t.Errorf("confirm-step prompt line = %q, must stay cancel-only per Q2 -- no new 'to confirm' clause", promptLine)
-	}
-}
+// runDeleteCommand's mismatch feedback stops hardcoding "Enter"/"Esc" and
+// instead derives its key clause from the active ModeDelete table via
+// deleteMismatchMessage (keymap_text.go), rendered through capitalizeKeyLabel
+// so default output stays byte-identical to today's shipped wording (Q1).
+// These tests drive the real 'd' -> comment step -> confirm step flow and
+// read b.View(), never calling the string helpers directly, per
+// .claude/rules/testing.md.
+//
+// viewDeleteModal's two prompts were originally in this group, but #609 drops
+// their key parentheticals entirely (the modal's registry-derived hints bar
+// one line below already advertises the same keys, and the parenthetical's
+// width broke the one-physical-line guarantee). The prompts now carry no key
+// text at all, so there is nothing left for a prompt-wording test to assert;
+// the hints-bar coverage lives in the per-step hint tests above.
 
 func TestDelete_MismatchMessage_DefaultKeymap_RendersCapitalizedShippedWording(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
@@ -1773,60 +1740,6 @@ func TestDelete_MismatchMessage_DefaultKeymap_RendersCapitalizedShippedWording(t
 	want := fmt.Sprintf("Doesn't match #%d — try again or Esc to cancel", card.Number)
 	if !strings.Contains(view, want) {
 		t.Errorf("View() missing default-parity mismatch message %q, got:\n%s", want, view)
-	}
-}
-
-func TestDelete_CommentPrompt_RemappedSubmitAndCancel_RendersCapitalizedNewKeys(t *testing.T) {
-	b, _ := newDeleteTestBoard(t)
-	// Widen past the default 120 for the same word-wrap reason as
-	// TestDelete_CommentPrompt_DefaultKeymap_RendersCapitalizedShippedWording
-	// -- "Tab to continue, Shift+tab to cancel" is even longer than the
-	// default "Enter"/"Esc" wording.
-	b.Width = 200
-	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
-		keymap.ModeDelete: {
-			"enter":     keymap.UnboundBinding(),
-			"esc":       keymap.UnboundBinding(),
-			"tab":       keymap.CommandBinding(keymap.CommandDeleteSubmit),
-			"shift+tab": keymap.CommandBinding(keymap.CommandDeleteCancel),
-		},
-	}, nil)
-
-	b = sendKey(t, b, keyMsg("d"))
-	if b.delete.step != deleteStepComment {
-		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
-	}
-
-	promptLine := findLineContaining(t, b.View(), "optional comment")
-	if !strings.Contains(promptLine, "(Tab to continue, Shift+tab to cancel):") {
-		t.Errorf("comment-step prompt line = %q, want the remapped keys rendered capitalized", promptLine)
-	}
-	if strings.Contains(promptLine, "Enter") || strings.Contains(promptLine, "Esc") {
-		t.Errorf("comment-step prompt line = %q, must not advertise the old (now unbound) Enter/Esc keys", promptLine)
-	}
-}
-
-func TestDelete_ConfirmPrompt_RemappedCancel_RendersCapitalizedNewKey(t *testing.T) {
-	b, _ := newDeleteTestBoard(t)
-	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
-		keymap.ModeDelete: {
-			"esc":       keymap.UnboundBinding(),
-			"shift+tab": keymap.CommandBinding(keymap.CommandDeleteCancel),
-		},
-	}, nil)
-
-	b = sendKey(t, b, keyMsg("d"))
-	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // submit is unaffected -> confirm step
-	if b.delete.step != deleteStepConfirm {
-		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
-	}
-
-	promptLine := findLineContaining(t, b.View(), "Type ")
-	if !strings.Contains(promptLine, "(Shift+tab to cancel):") {
-		t.Errorf("confirm-step prompt line = %q, want the remapped cancel key rendered capitalized", promptLine)
-	}
-	if strings.Contains(promptLine, "Esc") {
-		t.Errorf("confirm-step prompt line = %q, must not advertise the old (now unbound) Esc key", promptLine)
 	}
 }
 
@@ -1858,70 +1771,6 @@ func TestDelete_MismatchMessage_RemappedCancel_RendersCapitalizedNewKey(t *testi
 	}
 	if strings.Contains(b.delete.mismatchMsg, "Esc") {
 		t.Errorf("mismatchMsg = %q, must not advertise the old (now unbound) Esc key", b.delete.mismatchMsg)
-	}
-}
-
-func TestDelete_CommentPrompt_CancelUnbound_DropsCancelClause(t *testing.T) {
-	b, _ := newDeleteTestBoard(t)
-	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
-		keymap.ModeDelete: {"esc": keymap.UnboundBinding()},
-	}, nil)
-
-	b = sendKey(t, b, keyMsg("d"))
-	if b.delete.step != deleteStepComment {
-		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
-	}
-
-	promptLine := findLineContaining(t, b.View(), "optional comment")
-	if !strings.Contains(promptLine, "(Enter to continue):") {
-		t.Errorf("comment-step prompt line = %q, want the cancel clause dropped, leaving (Enter to continue) with no dangling comma", promptLine)
-	}
-	if strings.Contains(strings.ToLower(promptLine), "cancel") {
-		t.Errorf("comment-step prompt line = %q, must not mention cancel once delete.cancel is unbound", promptLine)
-	}
-}
-
-// TestDelete_CommentPrompt_BothUnbound_OmitsParentheticalEntirely mirrors
-// TestKeymapText_CloseConfirm_UnbindBothSides_PromptOmitsParenthetical: the
-// comment step has two clauses (delete.submit "Enter to continue" and
-// delete.cancel "Esc to cancel"), so dropping one alone (covered by
-// TestDelete_CommentPrompt_CancelUnbound_DropsCancelClause) still leaves a
-// parenthetical -- only unbinding both must omit it entirely.
-func TestDelete_CommentPrompt_BothUnbound_OmitsParentheticalEntirely(t *testing.T) {
-	b, _ := newDeleteTestBoard(t)
-	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
-		keymap.ModeDelete: {
-			"enter": keymap.UnboundBinding(),
-			"esc":   keymap.UnboundBinding(),
-		},
-	}, nil)
-
-	b = sendKey(t, b, keyMsg("d"))
-	if b.delete.step != deleteStepComment {
-		t.Fatalf("precondition: step = %d, want deleteStepComment", b.delete.step)
-	}
-
-	promptLine := findLineContaining(t, b.View(), "optional comment")
-	if strings.ContainsAny(promptLine, "()") {
-		t.Errorf("comment-step prompt line = %q, want no parenthetical at all when both delete.submit and delete.cancel are unbound", promptLine)
-	}
-}
-
-func TestDelete_ConfirmPrompt_CancelUnbound_OmitsParenthetical(t *testing.T) {
-	b, _ := newDeleteTestBoard(t)
-	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
-		keymap.ModeDelete: {"esc": keymap.UnboundBinding()},
-	}, nil)
-
-	b = sendKey(t, b, keyMsg("d"))
-	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // -> confirm step
-	if b.delete.step != deleteStepConfirm {
-		t.Fatalf("precondition: step = %d, want deleteStepConfirm", b.delete.step)
-	}
-
-	promptLine := findLineContaining(t, b.View(), "Type ")
-	if strings.ContainsAny(promptLine, "()") {
-		t.Errorf("confirm-step prompt line = %q, want no parenthetical at all once delete.cancel (the confirm step's only clause) is unbound", promptLine)
 	}
 }
 

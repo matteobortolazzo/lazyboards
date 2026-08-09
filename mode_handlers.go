@@ -805,7 +805,7 @@ func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m := b.milestoneList.entries[b.milestoneList.cursor]
 			b.applyFilter(filterByMilestone, m.Title)
-			title := truncateOutput(sanitizeSingleLine(m.Title), milestoneStatusTitleMaxLen)
+			title := truncateCell(sanitizeSingleLine(m.Title), milestoneStatusTitleMaxLen)
 			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Filtered by milestone: %s", title), StatusSuccess, statusMessageDuration)
 			return b, cmd
 		case keymap.CommandMilestoneListNext:
@@ -817,7 +817,7 @@ func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return b, nil
 			}
 			m := b.milestoneList.entries[b.milestoneList.cursor]
-			title := truncateOutput(sanitizeSingleLine(m.Title), milestoneStatusTitleMaxLen)
+			title := truncateCell(sanitizeSingleLine(m.Title), milestoneStatusTitleMaxLen)
 			if m.URL == "" {
 				cmd := b.statusBar.SetTimedMessage("URL not available", StatusWarning, statusMessageDuration)
 				return b, cmd

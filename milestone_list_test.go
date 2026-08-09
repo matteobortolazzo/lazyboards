@@ -453,6 +453,34 @@ func TestMilestoneList_Enter_StatusMessagePreservesTailAfterCollapsingNewlines(t
 	}
 }
 
+// TestMilestoneList_Enter_StatusMessage_CJKTitle_BoundedByCellsNotRunes is
+// the #595 guard for handleMilestoneListModeKey's Enter path
+// (mode_handlers.go:844): the milestoneStatusTitleMaxLen budget applied to
+// the status message must bound the title in terminal cells, not runes. A
+// title of exactly milestoneStatusTitleMaxLen CJK runes (each 2 cells wide)
+// is short enough that a rune-based budget comparison treats it as already
+// fitting and skips truncation entirely, even though its rendered width is
+// double the intended cell budget.
+func TestMilestoneList_Enter_StatusMessage_CJKTitle_BoundedByCellsNotRunes(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	title := strings.Repeat("测", milestoneStatusTitleMaxLen)
+	fixture := []provider.Milestone{{Title: title}}
+	b = openMilestoneListWithResult(t, b, fixture)
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	const wantPrefix = "Filtered by milestone: "
+	if !strings.HasPrefix(b.statusBar.message, wantPrefix) {
+		t.Fatalf("status message = %q, want prefix %q", b.statusBar.message, wantPrefix)
+	}
+	titlePortion := strings.TrimPrefix(b.statusBar.message, wantPrefix)
+	if w := lipgloss.Width(titlePortion); w > milestoneStatusTitleMaxLen {
+		t.Errorf("status message title portion width = %d cells, want <= %d (milestoneStatusTitleMaxLen cells, not runes)", w, milestoneStatusTitleMaxLen)
+	}
+}
+
 func TestMilestoneList_Enter_SafeWithZeroColumns(t *testing.T) {
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
@@ -655,6 +683,34 @@ func TestMilestoneList_O_ExecutorError_ShowsErrorAndModalStaysOpen(t *testing.T)
 	}
 	if b.mode != milestoneListMode {
 		t.Errorf("mode after o with executor error = %d, want milestoneListMode (%d) (modal stays open)", b.mode, milestoneListMode)
+	}
+}
+
+// TestMilestoneList_O_StatusMessage_CJKTitle_BoundedByCellsNotRunes is the
+// #595 guard for handleMilestoneListModeKey's "o" path
+// (mode_handlers.go:861), the second call site sharing the
+// milestoneStatusTitleMaxLen budget with the Enter path above.
+func TestMilestoneList_O_StatusMessage_CJKTitle_BoundedByCellsNotRunes(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b = loadFromFakeProvider(t, b, p)
+
+	title := strings.Repeat("测", milestoneStatusTitleMaxLen)
+	fixture := []provider.Milestone{{Title: title, URL: "https://github.com/owner/repo/milestone/2"}}
+	b = openMilestoneListWithResult(t, b, fixture)
+
+	m, cmd := b.Update(keyMsg("o"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	const wantPrefix = "Opened milestone "
+	if !strings.HasPrefix(b.statusBar.message, wantPrefix) {
+		t.Fatalf("status message = %q, want prefix %q", b.statusBar.message, wantPrefix)
+	}
+	titlePortion := strings.TrimPrefix(b.statusBar.message, wantPrefix)
+	if w := lipgloss.Width(titlePortion); w > milestoneStatusTitleMaxLen {
+		t.Errorf("status message title portion width = %d cells, want <= %d (milestoneStatusTitleMaxLen cells, not runes)", w, milestoneStatusTitleMaxLen)
 	}
 }
 

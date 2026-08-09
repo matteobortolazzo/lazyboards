@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -162,71 +163,102 @@ func TestWrapTitle_MultipleWraps(t *testing.T) {
 	}
 }
 
-// --- truncateOutput unit tests ---
+// --- truncateCell unit tests ---
+//
+// truncateCell (view.go, beside padCell) is the #595 replacement for the
+// deleted rune-based truncateOutput: it measures with lipgloss.Width and
+// truncates with ansi.Truncate(s, n, "\u2026") so the ellipsis itself counts
+// inside the requested cell budget. These cases lock in the cell-based
+// contract directly -- they must not hardcode the old rune-counting shape
+// (e.g. a fixed "+3" for a literal "..." suffix), since a wide/CJK/emoji
+// rune is 2 cells and a rune-based budget would let truncated output run to
+// roughly double the intended terminal width.
 
-func TestTruncateOutput_ShortString(t *testing.T) {
+func TestTruncateCell_NonPositiveWidth_ReturnsEmpty(t *testing.T) {
+	if got := truncateCell("abc", 0); got != "" {
+		t.Errorf("truncateCell(%q, 0) = %q, want empty string", "abc", got)
+	}
+	if got := truncateCell("abc", -5); got != "" {
+		t.Errorf("truncateCell(%q, -5) = %q, want empty string", "abc", got)
+	}
+}
+
+func TestTruncateCell_FitsWithinBudget_ReturnsInputUnchanged(t *testing.T) {
 	input := "short error"
-	maxLen := 200
-	got := truncateOutput(input, maxLen)
+	got := truncateCell(input, 200)
 	if got != input {
-		t.Errorf("truncateOutput(%q, %d) = %q, want %q (unchanged)", input, maxLen, got, input)
+		t.Errorf("truncateCell(%q, 200) = %q, want %q (unchanged)", input, got, input)
 	}
 }
 
-func TestTruncateOutput_ExactLimit(t *testing.T) {
+func TestTruncateCell_ExactCellFit_ReturnsInputUnchanged(t *testing.T) {
 	input := strings.Repeat("x", 200)
-	maxLen := 200
-	got := truncateOutput(input, maxLen)
+	got := truncateCell(input, lipgloss.Width(input))
 	if got != input {
-		t.Errorf("truncateOutput(len=%d, %d) should return input unchanged, got len=%d", len(input), maxLen, len(got))
+		t.Errorf("truncateCell(len=%d, %d) should return input unchanged, got %q", len(input), lipgloss.Width(input), got)
 	}
 }
 
-func TestTruncateOutput_LongString(t *testing.T) {
-	maxLen := 200
-	input := strings.Repeat("a", maxLen+100)
-	got := truncateOutput(input, maxLen)
-
-	// Result should be truncated to maxLen runes plus the "..." suffix.
-	expectedLen := maxLen + len("...")
-	if len([]rune(got)) != expectedLen {
-		t.Errorf("truncateOutput(len=%d, %d) returned %d runes, want %d", len([]rune(input)), maxLen, len([]rune(got)), expectedLen)
-	}
-
-	// Result should end with "..." to indicate truncation.
-	if !strings.HasSuffix(got, "...") {
-		t.Errorf("truncateOutput() result should end with %q, got %q", "...", got[len(got)-10:])
-	}
-}
-
-func TestTruncateOutput_EmptyString(t *testing.T) {
-	got := truncateOutput("", 200)
+func TestTruncateCell_EmptyString_ReturnsEmpty(t *testing.T) {
+	got := truncateCell("", 200)
 	if got != "" {
-		t.Errorf("truncateOutput(%q, 200) = %q, want empty string", "", got)
+		t.Errorf("truncateCell(%q, 200) = %q, want empty string", "", got)
 	}
 }
 
-func TestTruncateOutput_Unicode(t *testing.T) {
-	// Each character here is multi-byte in UTF-8 but counts as 1 rune.
-	maxLen := 10
-	input := strings.Repeat("\u00e9", maxLen+5) // 15 runes of e-acute
-	got := truncateOutput(input, maxLen)
+func TestTruncateCell_TruncatesASCII_NeverExceedsBudgetAndMarksTruncation(t *testing.T) {
+	budget := 200
+	input := strings.Repeat("a", budget+100)
+	got := truncateCell(input, budget)
 
-	// Should truncate by rune count, not byte count.
-	gotRunes := []rune(got)
-	expectedRuneCount := maxLen + len([]rune("..."))
-	if len(gotRunes) != expectedRuneCount {
-		t.Errorf("truncateOutput(rune_len=%d, %d) returned %d runes, want %d", len([]rune(input)), maxLen, len(gotRunes), expectedRuneCount)
+	if w := lipgloss.Width(got); w > budget {
+		t.Fatalf("lipgloss.Width(truncateCell(len=%d, %d)) = %d, want <= %d", len(input), budget, w, budget)
 	}
+	if !strings.Contains(got, "\u2026") {
+		t.Errorf("truncateCell(len=%d, %d) = %q, want it to contain the ellipsis marking truncation", len(input), budget, got)
+	}
+	if got == input {
+		t.Errorf("truncateCell(len=%d, %d) returned the input unchanged, want it truncated", len(input), budget)
+	}
+}
 
-	// The first maxLen runes should be the original content.
-	originalPrefix := string([]rune(input)[:maxLen])
+func TestTruncateCell_MultibyteNarrowRunes_BudgetCountsCellsNotBytes(t *testing.T) {
+	// Each rune below ("\u00e9" repeated) is multi-byte in UTF-8 but still
+	// only 1 terminal cell wide, so this locks in that byte-length is
+	// irrelevant -- lipgloss.Width measures cells, not UTF-8 byte count.
+	budget := 10
+	input := strings.Repeat("\u00e9", budget+5)
+	got := truncateCell(input, budget)
+
+	if w := lipgloss.Width(got); w > budget {
+		t.Fatalf("lipgloss.Width(truncateCell(...)) = %d, want <= %d", w, budget)
+	}
+	originalPrefix := string([]rune(input)[:budget-1])
 	if !strings.HasPrefix(got, originalPrefix) {
-		t.Errorf("truncateOutput() should preserve first %d runes of original content", maxLen)
+		t.Errorf("truncateCell(...) = %q, want it to preserve the original content up to the truncation point", got)
 	}
+}
 
-	if !strings.HasSuffix(got, "...") {
-		t.Errorf("truncateOutput() result should end with %q", "...")
+func TestTruncateCell_TruncatesCJK_NeverExceedsBudgetInCells(t *testing.T) {
+	// Each CJK rune is 2 cells wide. A rune-based budget of 10 would keep up
+	// to 10 of these (20 cells) -- double the intended terminal-cell budget.
+	budget := 10
+	input := strings.Repeat("\u4f60", 50) // "\u4f60"
+	got := truncateCell(input, budget)
+
+	if w := lipgloss.Width(got); w > budget {
+		t.Fatalf("lipgloss.Width(truncateCell(CJK input, %d)) = %d, want <= %d", budget, w, budget)
+	}
+}
+
+func TestTruncateCell_TruncatesEmoji_NeverExceedsBudgetInCells(t *testing.T) {
+	// Each emoji rune below is 2 cells wide, same overshoot risk as CJK.
+	budget := 9
+	input := strings.Repeat("\U0001F600", 50) // "\ud83d\ude00"
+	got := truncateCell(input, budget)
+
+	if w := lipgloss.Width(got); w > budget {
+		t.Fatalf("lipgloss.Width(truncateCell(emoji input, %d)) = %d, want <= %d", budget, w, budget)
 	}
 }
 
@@ -264,6 +296,78 @@ func TestRunShellCmd_TruncatesLongStderr(t *testing.T) {
 	// The message should still contain the "Error: " prefix.
 	if !strings.HasPrefix(result.message, "Error: ") {
 		t.Errorf("actionResultMsg.message should start with %q, got %q", "Error: ", result.message[:20])
+	}
+}
+
+// TestRunShellCmd_TruncatesLongCJKStderr_BoundsCellWidthNotRunes is the #595
+// regression guard for the runShellCmd error-message producer: a rune-based
+// budget lets each 2-cell-wide CJK rune count as only 1, so a naive
+// migration could still keep up to maxErrorOutputLen *runes* of CJK text --
+// double the intended maxErrorOutputLen *cells*. The truncated portion of
+// the message (after the fixed "Error: " prefix) must stay within
+// maxErrorOutputLen terminal cells.
+func TestRunShellCmd_TruncatesLongCJKStderr_BoundsCellWidthNotRunes(t *testing.T) {
+	longStderr := strings.Repeat("测", 300)
+	fe := &action.FakeExecutor{
+		RunShellStderr: longStderr,
+		RunShellErr:    errors.New("exit status 1"),
+	}
+
+	cmd := runShellCmd(fe, "some-command")
+	msg := cmd()
+
+	result, ok := msg.(actionResultMsg)
+	if !ok {
+		t.Fatalf("runShellCmd returned %T, want actionResultMsg", msg)
+	}
+
+	if !strings.HasPrefix(result.message, "Error: ") {
+		t.Fatalf("actionResultMsg.message = %q, want it to start with %q", result.message, "Error: ")
+	}
+	truncated := strings.TrimPrefix(result.message, "Error: ")
+	if w := lipgloss.Width(truncated); w > maxErrorOutputLen {
+		t.Errorf("truncated stderr cell width = %d, want <= %d (maxErrorOutputLen cells, not runes)", w, maxErrorOutputLen)
+	}
+}
+
+// TestRunShellCmd_TruncatesLongMultilineStderr_BoundsCellWidth is the #595
+// security-review regression guard: truncateCell's fast path compares
+// lipgloss.Width(s) (the widest single line) against the budget, not total
+// length, so multi-line stderr where every line is individually narrow but
+// the whole blob is huge bypasses truncation entirely if truncateCell is
+// called before flattening newlines -- and critically, lipgloss.Width of
+// that *untruncated* multi-line result still reads as narrow too (it keeps
+// measuring only the widest line), so a naive width-only assertion would
+// not catch the regression. runShellCmd must sanitize (via
+// sanitizeSingleLine) before truncating, matching every other call site in
+// this diff, so embedded newlines are flattened away and the message is
+// both single-line and bounded to maxErrorOutputLen cells, regardless of
+// how many lines the raw stderr contained.
+func TestRunShellCmd_TruncatesLongMultilineStderr_BoundsCellWidth(t *testing.T) {
+	longStderr := strings.Repeat("short line\n", 500)
+	fe := &action.FakeExecutor{
+		RunShellStderr: longStderr,
+		RunShellErr:    errors.New("exit status 1"),
+	}
+
+	cmd := runShellCmd(fe, "some-command")
+	msg := cmd()
+
+	result, ok := msg.(actionResultMsg)
+	if !ok {
+		t.Fatalf("runShellCmd returned %T, want actionResultMsg", msg)
+	}
+
+	if !strings.HasPrefix(result.message, "Error: ") {
+		t.Fatalf("actionResultMsg.message = %q, want it to start with %q", result.message, "Error: ")
+	}
+	truncated := strings.TrimPrefix(result.message, "Error: ")
+
+	if strings.Contains(truncated, "\n") {
+		t.Errorf("actionResultMsg.message retains embedded newlines from multi-line stderr; it must be sanitized (flattened) before truncation, not just cell-width truncated")
+	}
+	if w := lipgloss.Width(truncated); w > maxErrorOutputLen {
+		t.Errorf("truncated stderr cell width = %d, want <= %d (maxErrorOutputLen cells); multi-line stderr must be sanitized before truncation", w, maxErrorOutputLen)
 	}
 }
 

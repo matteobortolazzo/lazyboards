@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
@@ -585,6 +586,27 @@ func TestClassifyCenciError(t *testing.T) {
 				want := "cenci: some unexpected failure"
 				if got != want {
 					t.Errorf("classifyCenciError() = %q, want %q", got, want)
+				}
+			},
+		},
+		{
+			// #595 security-review regression guard: truncateCell's fast path
+			// compares lipgloss.Width(s) -- the widest single line -- against
+			// the budget, not total length. Multi-line stderr where every
+			// line is individually narrow but the whole blob is huge bypasses
+			// truncation entirely unless it is sanitized (flattened to one
+			// line) before truncateCell runs, matching every other call site
+			// in this diff.
+			name:   "long multi-line stderr is flattened and bounded, not passed through untruncated",
+			err:    errors.New("exit status 2"),
+			stderr: strings.Repeat("short line\n", 500),
+			assert: func(t *testing.T, got string) {
+				truncated := strings.TrimPrefix(got, "cenci: ")
+				if strings.Contains(truncated, "\n") {
+					t.Errorf("classifyCenciError() retains embedded newlines from multi-line stderr; it must be sanitized (flattened) before truncation")
+				}
+				if w := lipgloss.Width(truncated); w > maxErrorOutputLen {
+					t.Errorf("classifyCenciError() cell width = %d, want <= %d (maxErrorOutputLen cells); multi-line stderr must be sanitized before truncation", w, maxErrorOutputLen)
 				}
 			},
 		},

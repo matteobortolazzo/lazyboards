@@ -187,26 +187,11 @@ func deleteKeyClause(entries []keymap.Entry, id keymap.CommandID, verb string) s
 	return capitalizeKeyLabel(key) + " to " + verb
 }
 
-// deleteCommentPromptSuffix renders the optional-comment-step prompt's
-// trailing parenthetical (" (Enter to continue, Esc to cancel)" under the
-// default table), dropping either clause whose command is unbound and
-// omitting the parenthetical entirely when neither is bound.
-func (b Board) deleteCommentPromptSuffix() string {
-	entries := b.keys.Entries(keymap.ModeDelete, "")
-	return parenthesize(joinClauses(
-		deleteKeyClause(entries, keymap.CommandDeleteSubmit, "continue"),
-		deleteKeyClause(entries, keymap.CommandDeleteCancel, "cancel"),
-	))
-}
-
-// deleteConfirmPromptSuffix renders the retype-to-confirm-step prompt's
-// trailing parenthetical (" (Esc to cancel)" under the default table).
-// Cancel-only per Q2 -- no "to confirm" clause is added; today's wording is
-// preserved byte-for-byte.
-func (b Board) deleteConfirmPromptSuffix() string {
-	entries := b.keys.Entries(keymap.ModeDelete, "")
-	return parenthesize(deleteKeyClause(entries, keymap.CommandDeleteCancel, "cancel"))
-}
+// The delete modal's two prompts deliberately carry no key parenthetical
+// (#609) -- their keys are advertised by deleteCommentHints/deleteConfirmHints
+// one line below, so the prompt-suffix helpers that used to live here were
+// deleted rather than kept alive for tests. deleteKeyClause/joinClauses
+// survive because deleteMismatchMessage still renders a key clause.
 
 // deleteMismatchMessage renders the retype-mismatch feedback ("Doesn't match
 // #N — try again or Esc to cancel" under the default table), dropping the

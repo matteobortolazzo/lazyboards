@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -265,6 +266,33 @@ func TestAgentList_View_NewlineInWindowFields_RendersOneRowWithAllFragments(t *t
 
 	view := b.View()
 	assertOneRow(t, view, "sOne", "sTwo", "wOne", "wTwo", "aO", "aT", "cOne", "cTwo")
+}
+
+// TestAgentList_View_WideCJKWindowName_StaysOnSinglePhysicalLine is the #595
+// guard for entry.window.WindowName's truncation at this call site
+// (view.go's viewAgentListModal): the budget must bound the truncated
+// window name in terminal cells, not runes. A rune-based budget lets each
+// 2-cell-wide CJK rune count as only 1, so the truncated name can render far
+// wider than the fixed-width modal box and wrap the row's CJK run across a
+// second physical line -- the same "must stay on one physical row"
+// invariant TestAgentList_View_NewlineInWindowFields_RendersOneRowWithAllFragments
+// enforces for embedded newlines, applied here to an over-wide rune-based
+// truncation instead. The window name is pure CJK (no numeric prefix), so
+// it doesn't join to a card and the row carries no "— <column> #N" suffix --
+// isolating the window-name truncation budget.
+func TestAgentList_View_WideCJKWindowName_StaysOnSinglePhysicalLine(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	windows := []cenciwatch.WindowState{
+		{Session: "dev", WindowIndex: "1", WindowName: strings.Repeat("测", 60), Status: "idle"},
+	}
+	b := newAgentListBoard(t, fe, windows)
+	b = sendKey(t, b, keyMsg("A"))
+
+	view := b.View()
+	// "dev:1" (the agentWindowRef prefix) sits immediately before the window
+	// name in the row; both needles must land on the same physical line for
+	// the row to have stayed unwrapped.
+	assertOneRow(t, view, "dev:1", "测")
 }
 
 // TestAgentList_View_StatePrecedence locks the full cenciwatch state
@@ -839,5 +867,108 @@ func TestHelp_ListsAgentListKeybindings(t *testing.T) {
 		if !strings.Contains(sectionContent, want) {
 			t.Errorf("Agents help section missing %q", want)
 		}
+	}
+}
+
+// --- row-level clamp to modalWidth-4 cells (#596) ---
+//
+// Mirrors pr_list_test.go's row-clamp section: entry.window.WindowName,
+// agentWindowRef, and entry.window.Agent are all bounded to their own
+// per-field truncateCell budgets already, but the row's trailing
+// "— <column> #N" card-link suffix carries entry.columnTitle completely
+// unclamped. See pr_list_test.go's row-clamp section comment for why
+// word-wrap alone (today's behavior) is not equivalent to a real clamp.
+
+// newAgentListBoardWithColumns builds a board from the given columns (each
+// hosting its own cards) and stores windows as the current watcher snapshot.
+// Unlike newAgentListBoard (a single shared "Column A"), this lets row-clamp
+// tests give two different cards two different column titles, so a wide/CJK
+// column title on one row doesn't also wrap the other (unrelated) row used
+// as the alignment baseline.
+func newAgentListBoardWithColumns(t *testing.T, columns []provider.Column, fe *action.FakeExecutor, windows []cenciwatch.WindowState) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	msg := boardFetchedMsg{board: provider.Board{Columns: columns}}
+	m, _ := b.Update(msg)
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = 120
+	board.Height = 40
+	board.cenciWatcher = &cenciwatch.FakeWatcher{}
+	board.agentSnapshot = &cenciwatch.StateSnapshot{Windows: windows}
+	return board
+}
+
+// TestAgentList_View_RowClamp_WideCJKWindowNameAndColumn_StaysOnSinglePhysicalLine
+// covers an agent row whose window name and owning column title are both
+// wide/CJK: the combined row must render as exactly one physical line, with
+// the row's leading columns (status symbol + agentWindowRef) landing at the
+// same cell offset as a plain ASCII row.
+func TestAgentList_View_RowClamp_WideCJKWindowNameAndColumn_StaysOnSinglePhysicalLine(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	columns := []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{{Number: 7, Title: "Card B"}}},
+		{Title: strings.Repeat("专栏名称", 10), Cards: []provider.Card{{Number: 42, Title: "Card A"}}},
+	}
+	windows := []cenciwatch.WindowState{
+		{Session: "dev", WindowIndex: "1", WindowName: "7-normal-window", Status: "idle"},
+		{Session: "dev", WindowIndex: "2", WindowName: "42-" + strings.Repeat("测试标题", 20), Status: agentStatusRunning, Agent: "claude"},
+	}
+	b := newAgentListBoardWithColumns(t, columns, fe, windows)
+	b = sendKey(t, b, keyMsg("A"))
+
+	view := b.View()
+
+	cjkRow := assertOneRow(t, view, "dev:2", "专栏")
+	asciiRow := assertOneRow(t, view, "dev:1", "normal-window")
+
+	asciiPrefixWidth := lipgloss.Width(asciiRow[:strings.Index(asciiRow, "dev:1")])
+	cjkPrefixWidth := lipgloss.Width(cjkRow[:strings.Index(cjkRow, "dev:2")])
+	if asciiPrefixWidth != cjkPrefixWidth {
+		t.Errorf("column widths before the window ref differ: ascii row = %d, cjk row = %d\nascii row: %q\ncjk row:   %q",
+			asciiPrefixWidth, cjkPrefixWidth, asciiRow, cjkRow)
+	}
+}
+
+// TestAgentList_View_RowClamp_CutsTrailingCardSuffixNotLeadingColumns asserts
+// the row-level clamp cuts the row's trailing "— <column> #<card>" suffix,
+// not its leading status symbol/agentWindowRef/window-name/agent-kind
+// columns: the card-number suffix must be entirely absent from the rendered
+// view, while the row's own content still fits the modal's actual interior
+// budget.
+func TestAgentList_View_RowClamp_CutsTrailingCardSuffixNotLeadingColumns(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	const cardNumber = 42
+	windowName := "42-a moderately long window name for clamp testing purposes"
+	columns := []provider.Column{
+		{Title: "A Fairly Long Owning Column Title That Overflows The Row Budget", Cards: []provider.Card{{Number: cardNumber, Title: "Card A"}}},
+	}
+	windows := []cenciwatch.WindowState{
+		{Session: "dev", WindowIndex: "1", WindowName: windowName, Status: agentStatusRunning, Agent: "claude"},
+	}
+	b := newAgentListBoardWithColumns(t, columns, fe, windows)
+	b = sendKey(t, b, keyMsg("A"))
+
+	view := b.View()
+
+	cardSuffix := fmt.Sprintf("#%d", cardNumber)
+	if strings.Contains(view, cardSuffix) {
+		t.Errorf("view contains the trailing card-ref suffix %q; want the row-level clamp to cut it off the row entirely, not just word-wrap it onto a later physical line", cardSuffix)
+	}
+
+	row := assertOneRow(t, view, "dev:1")
+	if !strings.Contains(row, windowName[:10]) {
+		t.Errorf("row = %q, want it to still contain the leading window-name prefix %q", row, windowName[:10])
+	}
+	if !strings.Contains(row, "claude") {
+		t.Errorf("row = %q, want it to still contain the agent kind badge %q", row, "claude")
+	}
+	// modalWidth (60) - 4 cells of Padding(1, 2): the row's actual interior
+	// content budget (docs/terminal-rendering.md).
+	if w := lipgloss.Width(modalRowContent(t, row)); w > 56 {
+		t.Errorf("row content width = %d, want <= 56 (modalWidth 60 - 4)", w)
 	}
 }

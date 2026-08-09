@@ -33,18 +33,7 @@ import (
 // This whole file (and thus the package) is expected to fail to compile
 // until keymap_text.go lands (a separate, later delegation).
 
-// findLineContaining returns the first line of view containing substr, or
-// fails the test if no line matches.
-func findLineContaining(t *testing.T, view, substr string) string {
-	t.Helper()
-	for _, line := range strings.Split(view, "\n") {
-		if strings.Contains(line, substr) {
-			return line
-		}
-	}
-	t.Fatalf("view has no line containing %q, got:\n%s", substr, view)
-	return ""
-}
+// findLineContaining lives in helpers_test.go.
 
 // --- textBinding: single-key exact-match dispatch primitive ---
 

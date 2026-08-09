@@ -136,7 +136,8 @@ func TestCloseMode_ViewShowsPromptWithCardNumberAndTitle(t *testing.T) {
 
 // TestCloseMode_ViewSanitizesControlSequencesInTitle covers the same
 // GitHub-sourced-untrusted-content gap for the closeConfirmMode helpBar
-// prompt: card.Title is rendered via fmt.Sprintf's %q verb, which currently
+// prompt: card.Title is rendered via fitQuotedTitle (closeConfirmPromptFmt
+// supplies the literal quote characters via %s, never %q -- #597), which
 // escapes control bytes to visible literal text, but must still route
 // through sanitizeControlSequences for consistency with every other
 // card.Title render site (cardDisplayText, composeDetailMarkdown). A
@@ -178,13 +179,14 @@ func TestCloseMode_ViewSanitizesControlSequencesInTitle(t *testing.T) {
 
 // TestCloseMode_ViewFlattensEmbeddedNewlineInTitle covers the same
 // close-confirm helpBar prompt for an embedded newline in card.Title
-// (#500). The prompt renders the title through fmt.Sprintf's %q verb, which
-// already escapes a raw newline byte to the two-character literal `\n` --
-// so a bare "renders on one physical line" assertion would pass both before
-// and after the fix, since %q never lets an actual line break through. The
-// meaningful assertion is that the rendered text is the *flattened* form
-// ("line one line two", a single space where the newline was), not the
-// %q-escaped backslash-n literal.
+// (#500). The prompt renders the title through fitQuotedTitle, whose
+// sanitizeSingleLine step already collapses a raw newline byte to a single
+// space -- so a bare "renders on one physical line" assertion would pass
+// both before and after the fix, since the title never contains an actual
+// line break by the time it reaches the format string. The meaningful
+// assertion is that the rendered text is the *flattened* form ("line one
+// line two", a single space where the newline was), not an escaped
+// backslash-n literal.
 func TestCloseMode_ViewFlattensEmbeddedNewlineInTitle(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
