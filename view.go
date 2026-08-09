@@ -364,7 +364,9 @@ func (b *Board) borderTitleCounts() []int {
 		for i := range fc {
 			fc[i] = -1
 		}
-		fc[b.ActiveTab] = len(b.filteredCards())
+		if b.ActiveTab >= 0 && b.ActiveTab < len(fc) {
+			fc[b.ActiveTab] = len(b.filteredCards())
+		}
 		return fc
 	}
 	if b.activeFilterType != filterTypeNone {
