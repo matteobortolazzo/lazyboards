@@ -266,7 +266,7 @@ actions:
     command: "git checkout -b {number}-{title}"
 ```
 
-Press the key to execute the action on the selected card. Custom actions and `Alt+Shift+key` comment actions work identically whether the card list or the [detail panel](#detail-panel) is focused.
+Press the key to execute the action on the selected card. Custom actions and their `Alt`-held [comment-mode](#comment-mode) overload work identically whether the card list or the [detail panel](#detail-panel) is focused.
 
 ### Key Sequences (Prefix Keys)
 
@@ -291,7 +291,7 @@ actions:
     command: 'tmux new-window -d -n wk-{pr_number} "cd {pr_worktree}/worker && go run ."'
 ```
 
-Press `R` and the status bar switches to a which-key style list of everything the prefix can complete to, rendered in canonical, space-separated form (`R f: Run frontend | R b: Run backend | R w: Run worker | esc: cancel`); press the next key to run it. While a sequence is pending it owns the keyboard — built-in keys like `j`/`k` act as continuation keys, not navigation. `Esc` cancels, as does any key that doesn't match a bound sequence. Holding `Alt` on any key of the sequence gives the same [comment-first flow](#comment-mode) as `Alt+Shift+key` on a single-key action.
+Press `R` and the status bar switches to a which-key style list of everything the prefix can complete to, rendered in canonical, space-separated form (`R f: Run frontend | R b: Run backend | R w: Run worker | esc: cancel`); press the next key to run it. While a sequence is pending it owns the keyboard — built-in keys like `j`/`k` act as continuation keys, not navigation. `Esc` cancels, as does any key that doesn't match a bound sequence. Holding `Alt` on any key of the sequence gives the same [comment-first flow](#comment-mode) as `Alt+key` on a single-key action — though on a non-final key it only resolves when every binding under that prefix is an inline action.
 
 Sequences can be any length (`R`, `Rf`, `RFa1`, ...) and follow all the usual action rules: scopes, template variables, per-column overrides, and gating (a prefix whose only completions are `pr`-scope won't even open on a card with no linked PRs). One constraint is validated at startup: a key can't be a strict prefix of another key that can be active at the same time — a standalone `P` action plus a `Pf` sequence is a config error, because `P` could then never fire.
 
@@ -444,17 +444,24 @@ A column's own `cleanup` (including an explicit empty string) always wins over t
 
 ### Comment Mode
 
-Actions that include `{comment}` in their template can be triggered with `Alt+Shift+key` to open a text input first:
+Actions that include `{comment}` in their template can be triggered with **Alt held** to open a text input first:
 
 ```yaml
-actions:
-  A:
-    name: Annotate
-    type: shell
-    command: 'gh issue comment {number} --body {comment}'
+keymaps:
+  normal:
+    b:
+      name: Annotate
+      type: shell
+      command: 'gh issue comment {number} --body {comment}'
 ```
 
-Press `A` to run with an empty comment. Press `Alt+Shift+A` to type a comment first, then `Enter` to submit.
+Press `b` to run with an empty comment. Press `Alt+b` to type a comment first, then `Enter` to submit.
+
+The modifier is just **Alt**. You only ever add Shift when the bound key is itself uppercase — `Alt+Shift+A` is simply how you type `alt+A` for a key bound as `A`. Pre-[`keymaps:`](#keymaps) documentation described this as "Alt+Shift+key" because custom-action keys were then restricted to `A-Z`; now that any key can bind an inline action, a lowercase binding takes plain `Alt+<key>`.
+
+For a [key sequence](#key-sequences-prefix-keys), the Alt flag is sticky: hold it on any key and the comment-first flow triggers once the sequence completes. The **final** key is the reliable place to hold it, because an earlier key only resolves when *every* binding under that prefix is an inline action. With a mixed prefix — say `"u p"` bound to the built-in `card.open_pr` alongside `"u c"` bound to an action — `Alt+u` does nothing, while `u` then `Alt+c` works.
+
+That refusal is the rule, not an edge case: the Alt overload resolves to an inline action or to nothing, and can never fire a built-in command. Binding `alt+<key>` explicitly on a key whose alt-free form is already a `{comment}` action is a load-time config error naming both, since the explicit binding would shadow the implicit overload.
 
 ### Tmux Integration
 
@@ -522,7 +529,7 @@ config and want the old keys back.
 | `tab` | `nav.column_next` | Next column |
 | `shift+tab` | `nav.column_prev` | Previous column |
 | `1`-`9` | `nav.column_1` … `nav.column_9` | Jump to column |
-| `alt+shift+key` | — | Comment action |
+| `alt+key` | — | Comment action (see [Comment Mode](#comment-mode)) |
 
 ### Detail Panel
 
@@ -546,7 +553,7 @@ Mode](#normal-mode).
 | `r` | `board.refresh` | Refresh |
 | `q` | `app.quit` | Quit |
 | `?` | `app.help` | Help |
-| `alt+shift+key` | — | Comment action |
+| `alt+key` | — | Comment action (see [Comment Mode](#comment-mode)) |
 
 ### Create Mode
 

@@ -192,11 +192,26 @@ effective table:
 Dispatch (`dispatchKey`/`handlePendingSeqKey`, `keymap_dispatch.go`) applies
 one more layer ahead of this: the **Alt-strip-and-retry fallback**
 (`lookupWithAltFallback`, `keymap_dispatch.go:304`, and its eligibility gate
-`altFallbackEligible`) retries a failed lookup with a leading `alt+` stripped
-from the query, so a held-Alt keypress can still resolve to the inline
-action it would resolve to unmodified (the comment-first flow) — but an
-explicit `alt+key` binding always wins first, and a stripped-fallback result
+`altFallbackEligible`) retries a failed lookup with the `alt+` prefix stripped
+from the query's **last key only**, so a held-Alt keypress can still resolve to
+the inline action it would resolve to unmodified (the comment-first flow) — but
+an explicit `alt+key` binding always wins first, and a stripped-fallback result
 can only ever be an inline action, never a built-in command.
+
+Two consequences worth stating, since both are load-bearing for the
+comment-first flow's user-visible behavior:
+
+- **The retry is last-key-only, but the Alt *flag* is sticky.** `dispatchKey`
+  stores `pendingSeqAlt` when a prefix goes pending and `handlePendingSeqKey`
+  ORs it with each subsequent `msg.Alt`, so holding Alt on any key of a
+  sequence reaches `dispatchActionWithAlt` — provided that keystroke resolved
+  at all.
+- **On a non-final key it often doesn't resolve.** `altFallbackEligible` adopts
+  a stripped `OutcomePending` only when *every* candidate under the prefix is an
+  inline action, so a prefix mixing a built-in with an action (`"u p"` →
+  `card.open_pr` beside `"u c"` → an action) makes `alt+u` a no-op while
+  `u` then `alt+c` works. This is the engine-level half of the guarantee that a
+  stripped fallback can never fire a built-in.
 
 ## Mode capability matrix
 
