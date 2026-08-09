@@ -13,8 +13,12 @@ import (
 )
 
 // dispatchActionWithAlt dispatches act, entering comment mode first when Alt
-// was held and the action's template uses {comment} (the Alt+Shift+key
-// comment flow, extended to key sequences where Alt may be held on any key).
+// was held and the action's template uses {comment} (the Alt+key comment
+// overload). For a key sequence the Alt flag is sticky (keymap_dispatch.go's
+// pendingSeqAlt), but Alt held on a non-final key only reaches here when
+// every binding under that prefix is an inline action (altFallbackEligible);
+// under a mixed prefix the Alt keystroke resolves to nothing rather than
+// firing a built-in. The final key is the reliable place to hold Alt.
 func (b Board) dispatchActionWithAlt(act config.Action, alt bool) (tea.Model, tea.Cmd) {
 	if alt && strings.Contains(act.URL+act.Command, "{comment}") {
 		// Resolve the pending card (if card-scope or pr-scope) before

@@ -76,7 +76,7 @@ var helpModeSections = []helpModeSectionSpec{
 // helpActionRows already renders every configured inline action as its own
 // row, under its real key.
 var normalDetailStaticRows = [][2]string{
-	{"alt+shift+key", "Comment action"},
+	{"alt+key", "Comment action"},
 }
 
 // staticHelpRows returns mode's curated static rows (rows with no

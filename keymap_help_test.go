@@ -758,8 +758,8 @@ keymaps:
 // uppercase keys (view.pr_list, view.agent_list, view.dispatch,
 // view.git_panel). Advertising an "A-Z" custom-action space is now false --
 // and the actually-configured actions already render as their own rows via
-// helpActionRows. The alt+shift+key comment overload is a real implicit
-// overload with no CommandID behind it, so it stays.
+// helpActionRows. The alt+key comment overload is a real implicit overload
+// with no CommandID behind it, so it stays.
 
 func TestHelpContent_NoUppercaseCustomActionNamespaceRows(t *testing.T) {
 	b := newLoadedTestBoard(t)
@@ -952,5 +952,117 @@ func TestHelpEndToEnd_AcceptedBindingReachesHelp(t *testing.T) {
 	filterSection := helpSectionBody(t, content, "Filter")
 	if !strings.Contains(filterSection, "f1") {
 		t.Errorf("buildHelpContent() Filter section should render the accepted keymaps.filter.f1: filter.select binding, got:\n%s", filterSection)
+	}
+}
+
+// --- #615: the comment-action overload row must read "alt+key", not
+// "alt+shift+key" ---
+//
+// The general form of the Alt+key comment-action overload
+// (dispatchActionWithAlt) is "alt+key": Shift is not a modifier for
+// printable keys, so "alt+shift+key" was never a real binding shape. The row
+// is a curated static row (normalDetailStaticRows in keymap_help.go), not
+// backed by a keymap.CommandID, so these tests pin its literal text and key
+// cell rather than deriving it from the catalogue.
+
+// findHelpModeSectionSpec looks up spec by its curated title, failing the
+// test if helpModeSections has no such entry -- mirroring mustFindCommand's
+// "never assume, always verify against the real table" shape.
+func findHelpModeSectionSpec(t *testing.T, title string) helpModeSectionSpec {
+	t.Helper()
+	for _, spec := range helpModeSections {
+		if spec.title == title {
+			return spec
+		}
+	}
+	t.Fatalf("helpModeSections has no entry titled %q", title)
+	return helpModeSectionSpec{}
+}
+
+func TestHelpContent_NormalMode_CommentOverloadRowIsAltKey(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	body := helpSectionBody(t, b.buildHelpContent(), "Normal Mode")
+
+	if !strings.Contains(body, "alt+key") {
+		t.Errorf("Normal Mode section missing %q, got:\n%s", "alt+key", body)
+	}
+	if !strings.Contains(body, "Comment action") {
+		t.Errorf("Normal Mode section missing label %q, got:\n%s", "Comment action", body)
+	}
+
+	spec := findHelpModeSectionSpec(t, "Normal Mode")
+	var found bool
+	for _, row := range b.helpSectionRows(spec) {
+		if row[0] == "alt+key" && row[1] == "Comment action" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("helpSectionRows(%q) has no row {%q, %q}: %v", spec.title, "alt+key", "Comment action", b.helpSectionRows(spec))
+	}
+}
+
+func TestHelpContent_DetailPanel_CommentOverloadRowIsAltKey(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	body := helpSectionBody(t, b.buildHelpContent(), "Detail Panel")
+
+	if !strings.Contains(body, "alt+key") {
+		t.Errorf("Detail Panel section missing %q, got:\n%s", "alt+key", body)
+	}
+	if !strings.Contains(body, "Comment action") {
+		t.Errorf("Detail Panel section missing label %q, got:\n%s", "Comment action", body)
+	}
+
+	spec := findHelpModeSectionSpec(t, "Detail Panel")
+	var found bool
+	for _, row := range b.helpSectionRows(spec) {
+		if row[0] == "alt+key" && row[1] == "Comment action" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("helpSectionRows(%q) has no row {%q, %q}: %v", spec.title, "alt+key", "Comment action", b.helpSectionRows(spec))
+	}
+}
+
+func TestHelpContent_NoAltShiftKeyAnywhere(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+
+	if strings.Contains(content, "alt+shift+key") {
+		t.Errorf("buildHelpContent() must not advertise the invalid %q modifier combination, got:\n%s", "alt+shift+key", content)
+	}
+}
+
+// TestHelpSectionRows_NoInvalidShiftKeyLabels is a general guard, not scoped
+// to the comment-overload row alone: for every section's row key cell, any
+// "/"- or space-separated token containing "shift+" must be a real,
+// parseable key (keymap.ParseKey) -- pinning the underlying rule ("shift+"
+// only ever prefixes a real non-printable key like shift+tab) rather than
+// just the one string this ticket happens to fix. The seen-count guard
+// keeps this test from silently going vacuous if every shift+-bearing
+// binding is ever removed/remapped away.
+func TestHelpSectionRows_NoInvalidShiftKeyLabels(t *testing.T) {
+	b := newLoadedTestBoard(t)
+
+	seen := 0
+	for _, spec := range helpModeSections {
+		for _, row := range b.helpSectionRows(spec) {
+			tokens := strings.FieldsFunc(row[0], func(r rune) bool {
+				return r == '/' || r == ' '
+			})
+			for _, tok := range tokens {
+				if !strings.Contains(tok, "shift+") {
+					continue
+				}
+				seen++
+				if _, err := keymap.ParseKey(tok); err != nil {
+					t.Errorf("section %q row %v: token %q contains \"shift+\" but keymap.ParseKey failed: %v", spec.title, row, tok, err)
+				}
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no \"shift+\"-containing token was examined across any help section -- this guard is vacuous; defaults_board.go/defaults_text.go should still bind shift+tab somewhere")
 	}
 }
