@@ -190,6 +190,7 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 
 Every key press in lazyboards resolves through a single `keymaps:` namespace: one table per mode, plus per-column overlays. Each entry is `keymaps.<mode>.<key>`, where the right-hand side is one of:
 
+<!-- keymap-schema-example:start -->
 ```yaml
 keymaps:
   normal:
@@ -200,10 +201,15 @@ keymaps:
       url: "https://github.com/{repo_owner}/{repo_name}/issues/{number}"
     n: ~                 # explicit unbind: `~` (or `null`, or an empty value)
 ```
+<!-- keymap-schema-example:end -->
 
 A key is any BubbleTea key notation exactly as shown in the Keybindings tables (`q`, `ctrl+a`, `alt+enter`, `shift+tab`, ...). A key **sequence** is space-separated (`"g d"`), the canonical form of a neovim-style prefix binding — this replaces the legacy `actions:` sequence notation (`Rf`), which concatenated keys with no separator; see [Key Sequences (Prefix Keys)](#key-sequences-prefix-keys) below. A bound key that is a strict prefix of another bound key in the same table (e.g. `R` and `R f` both bound) is a load-time config error, since the shorter key could never dispatch — Lookup always waits for a continuation key once a prefix is pending.
 
-Bindable modes: `normal`, `detail`, `create`, `config`, `pr_picker`, `search`, `help`, `label_confirm`, `close_confirm`, `comment`, `delete`, `filter`, `assign`, `git_panel`, `dispatch`, `pr_list`, `milestone_list`, `agent_list`. See [Keybindings](#keybindings) for each mode's shipped command-id table.
+<!-- keymap-bindable-modes:start -->
+Bindable modes: `normal`, `detail`, `create`, `error`, `config`, `pr_picker`, `search`, `help`, `label_confirm`, `close_confirm`, `comment`, `delete`, `filter`, `assign`, `git_panel`, `dispatch`, `pr_list`, `milestone_list`, `agent_list`. See [Keybindings](#keybindings) for each mode's shipped command-id table.
+<!-- keymap-bindable-modes:end -->
+
+**Mode capabilities:** not every mode's dispatch seam can do everything a binding might ask of it. Multi-key sequences dispatch only in `normal`, `detail`, and per-column `keymaps.columns.<name>` overlays — every other mode resolves a single key by exact match only. Inline actions dispatch only in `normal`, `detail`, `git_panel`, `pr_list` (restricted there to `scope: pr` actions, never inferred — see [Pull Requests](#pull-requests)), and `keymaps.columns.<name>` overlays — every other mode can only bind a built-in command id. A bare printable-rune key (a single character, no modifier) is rejected in `create`, `config`, `search`, `comment`, and `delete` — those modes' text inputs swallow every printable keystroke before any lookup runs; a named key (`enter`, `esc`, `ctrl+n`, ...) or an `alt+<rune>` form is exempt and binds normally. A binding one of these seams can never reach is a load-time config error, not a silent no-op — see [`docs/keymaps.md#mode-capability-matrix`](docs/keymaps.md#mode-capability-matrix) for the full per-mode matrix.
 
 **Merge and precedence:** local config (`.lazyboards.yml`) merges over global config (`~/.config/lazyboards/config.yml`) per key, mirroring the `actions:`/`columns[].actions:` merge rules above — a mode or column the local file never mentions at all inherits the global table wholesale; an explicitly empty local table (`keymaps.normal: {}`) means "inherit nothing from global," not "unbind the built-in defaults" — unbinding a specific built-in still requires an explicit `~` entry for that key. Once merged, the resulting user config always wins over the built-in defaults, key by key — a user binding overrides a default with the same key, and every default key the user config doesn't mention is left untouched.
 
@@ -246,7 +252,7 @@ Save and close to apply changes. Leave the title blank to cancel. If you add lab
 
 > **Deprecated:** the top-level `actions:` block is deprecated in favor of the [`keymaps:`](#keymaps) namespace (`keymaps.normal`/`keymaps.detail`).
 
-Bind keys to URL or shell actions in your config. Any key can bind a built-in command or an inline action — a user binding always wins over a default. The shipped defaults happen to use only lowercase keys in normal mode (see [Normal Mode](#normal-mode)), leaving uppercase and every other key free for your own bindings (the built-in git shortcuts live inside the [Git Menu](#git-menu), scoped to their own modal rather than normal mode). The dispatch panel's own cenci controls (enroll, dispatch-once, loop on/off) are built in — see the [Dispatch Panel](#dispatch-panel) — so you only need custom actions for cenci commands the panel doesn't cover:
+Bind keys to URL or shell actions in your config. Any key, uppercase or lowercase, can bind a built-in command or an inline action — a user binding always wins over a default. Normal mode's shipped defaults aren't lowercase-only: `D`/`P`/`A`/`G` ship as the wider-scope uppercase siblings of their lowercase counterparts (`D`ispatch vs. `d`elete, `P`R list vs. `p`R open, `A`gents list vs. `g a` go-to-agent, `G`it menu — see [Normal Mode](#normal-mode)), and rebinding any of them still lets a user binding win over the default. The built-in git shortcuts inside the [Git Menu](#git-menu) itself are scoped to their own modal, independent of whatever normal mode binds on the same key. The dispatch panel's own cenci controls (enroll, dispatch-once, loop on/off) are built in — see the [Dispatch Panel](#dispatch-panel) — so you only need custom actions for cenci commands the panel doesn't cover:
 
 ```yaml
 actions:
@@ -591,7 +597,10 @@ translate into `pr_list` bindings for uppercase single-letter keys, mirroring
 the pre-registry behavior). On a PR with no linked card, the card-derived
 variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) expand
 to empty strings. Per-column action overrides and the `Alt` comment variant
-are not available inside the modal.
+are not available inside the modal. Every `keymaps.pr_list` inline action's
+effective scope must resolve to exactly `pr` — scope is never inferred to
+`pr`, so a scope-omitted (or `card`/`board`-scope) action bound there is a
+load-time config error, not a silent no-op.
 
 | Key | Command | Action |
 |-----|---------|--------|
@@ -599,9 +608,6 @@ are not available inside the modal.
 | `enter` | `pr_list.open` | Open selected PR |
 | `j` / `down` (↓) | `pr_list.next` | Navigate |
 | `k` / `up` (↑) | `pr_list.prev` | Navigate |
-
-Any key bound to a `scope: pr` custom action via `keymaps.pr_list` also runs
-that action against the selected PR.
 
 ### Milestones
 

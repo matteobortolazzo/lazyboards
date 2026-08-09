@@ -890,10 +890,14 @@ func TestAction_DetailFocused_UnboundKeyIsNoop(t *testing.T) {
 }
 
 func TestAction_DetailFocused_BuiltinKeysStillWin(t *testing.T) {
-	// A custom action bound to "e" is impossible (lowercase is reserved for
-	// built-ins), but this test locks in that the built-in "e" (Edit) inside
-	// detail focus always dispatches openEditorCmd, never a custom action --
-	// there is no custom-action code path for lowercase keys to begin with.
+	// This board loads only the shipped default keymaps -- no keymaps.detail.e
+	// override is configured, so nothing shadows the built-in card.edit
+	// binding here. (A custom action CAN bind onto a lowercase key like "e"
+	// via keymaps.detail.e -- any key may bind an inline action, and a user
+	// binding always wins over a default -- this test simply doesn't
+	// configure one.) This locks in that, under the shipped defaults, "e"
+	// inside detail focus always dispatches openEditorCmd, never a custom
+	// action.
 	b := newLoadedTestBoard(t)
 
 	b = sendKey(t, b, keyMsg("l"))
