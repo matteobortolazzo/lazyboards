@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -99,11 +100,13 @@ func (b Board) View() string {
 	}
 	if b.mode == labelConfirmMode && b.labelConfirm.currentIdx < len(b.labelConfirm.unknownLabels) {
 		label := b.labelConfirm.unknownLabels[b.labelConfirm.currentIdx]
-		helpBar = fmt.Sprintf("Label %q doesn't exist. Create it? (y/n)", label)
+		chrome := lipgloss.Width(fmt.Sprintf(labelConfirmPromptFmt, ""))
+		helpBar = fmt.Sprintf(labelConfirmPromptFmt, fitQuotedTitle(label, innerWidth, chrome))
 	}
 	if b.mode == closeConfirmMode {
 		card := b.closeConfirm.card
-		helpBar = fmt.Sprintf("Close #%d %q? (y/n)", card.Number, sanitizeSingleLine(card.Title))
+		chrome := lipgloss.Width(fmt.Sprintf(closeConfirmPromptFmt, card.Number, ""))
+		helpBar = fmt.Sprintf(closeConfirmPromptFmt, card.Number, fitQuotedTitle(card.Title, innerWidth, chrome))
 	}
 
 	// Assemble inner content.
@@ -361,7 +364,9 @@ func (b *Board) borderTitleCounts() []int {
 		for i := range fc {
 			fc[i] = -1
 		}
-		fc[b.ActiveTab] = len(b.filteredCards())
+		if b.ActiveTab >= 0 && b.ActiveTab < len(fc) {
+			fc[b.ActiveTab] = len(b.filteredCards())
+		}
 		return fc
 	}
 	if b.activeFilterType != filterTypeNone {
@@ -388,8 +393,9 @@ func isHiddenLabel(label string, columnNames []string, workingLabel string) bool
 	return false
 }
 
-// agentBadgeKindWidth is the fixed rune width the agent kind is padded/truncated
-// to, so badges align across cards regardless of agent-name length.
+// agentBadgeKindWidth is the fixed cell width the agent kind is padded/
+// truncated to, so badges align across cards regardless of agent-name
+// length.
 const agentBadgeKindWidth = 6
 
 // agentStatusSymbol maps a cenci window status to its badge symbol.
@@ -414,7 +420,9 @@ func agentStatusSymbol(status string) string {
 // agentBadgeText returns the fixed-width badge text "<kind> <symbol>" for a
 // window status/agent, or "" when the status has no badge. When agent is empty
 // the symbol is returned alone. The kind is truncated/space-padded to a stable
-// rune width (content build-up, not layout measurement — []rune is correct here).
+// cell width via truncateCell/padCell (per docs/terminal-rendering.md) so a
+// CJK kind — whose runes are each 2 cells wide — occupies the same fixed
+// cell width as an ASCII kind, keeping badges aligned across cards.
 //
 // Unlike sanitizeSingleLine (built for natural-language single-line fields,
 // where an embedded newline is replaced with a space to preserve word
@@ -422,7 +430,7 @@ func agentStatusSymbol(status string) string {
 // never legitimately contains internal whitespace, so embedded
 // whitespace/control runs are stripped entirely here rather than replaced
 // with a space -- otherwise the synthetic separator space would itself
-// consume one rune of the fixed agentBadgeKindWidth budget, truncating real
+// consume one cell of the fixed agentBadgeKindWidth budget, truncating real
 // content that would otherwise fit.
 func agentBadgeText(status, agent string) string {
 	symbol := agentStatusSymbol(status)
@@ -439,15 +447,8 @@ func agentBadgeText(status, agent string) string {
 	if agent == "" {
 		return symbol
 	}
-	runes := []rune(agent)
-	if len(runes) > agentBadgeKindWidth {
-		runes = runes[:agentBadgeKindWidth]
-	} else {
-		for len(runes) < agentBadgeKindWidth {
-			runes = append(runes, ' ')
-		}
-	}
-	return string(runes) + " " + symbol
+	kind := padCell(truncateCell(agent, agentBadgeKindWidth), agentBadgeKindWidth)
+	return kind + " " + symbol
 }
 
 // agentBadgeStyle maps a cenci window status to its badge style.
@@ -1215,8 +1216,16 @@ func (b Board) viewPRPickerModal() string {
 	if symbol := prStatusSymbol(status); symbol != "" {
 		prPrefix = prStatusStyle(status).Render(symbol) + " "
 	}
+	// decoration is everything on the row besides the "#N <title>" chrome+
+	// title text: the status prefix glyph plus the left/right arrow framing.
+	decoration := lipgloss.Width(prPrefix) + lipgloss.Width("\u25c0 ") + lipgloss.Width(" \u25b6")
+	chrome := lipgloss.Width(fmt.Sprintf(prPickerTitleFmt, pr.Number, ""))
+	// available subtracts decoration only -- inlineTitleBudget below already
+	// subtracts chrome once; subtracting it here too would double-count it.
+	available := modalContentWidth(modalWidth) - decoration
+	title := truncateCell(sanitizeSingleLine(pr.Title), inlineTitleBudget(available, chrome))
 	// Picker shows only the currently browsed PR — always selected, no cursor to compare.
-	prText := selectedRowStyle(fmt.Sprintf("#%d %s", pr.Number, sanitizeSingleLine(pr.Title)), true)
+	prText := selectedRowStyle(fmt.Sprintf(prPickerTitleFmt, pr.Number, title), true)
 	prDisplay := prPrefix + "\u25c0 " + prText + " \u25b6"
 
 	pickerHints := NewStatusBar(prPickerHints)
@@ -1542,15 +1551,19 @@ func (b Board) viewDeleteModal() string {
 	modalWidth := b.createModalWidth()
 	card := b.delete.card
 
+	available := modalContentWidth(modalWidth)
+
 	var prompt, activeInputView string
 	var hints StatusBar
 	switch b.delete.step {
 	case deleteStepConfirm:
-		prompt = fmt.Sprintf("Type %d to permanently delete #%d %q (Esc to cancel):", card.Number, card.Number, sanitizeSingleLine(card.Title))
+		chrome := lipgloss.Width(fmt.Sprintf(deleteConfirmPromptFmt, card.Number, card.Number, ""))
+		prompt = fmt.Sprintf(deleteConfirmPromptFmt, card.Number, card.Number, fitQuotedTitle(card.Title, available, chrome))
 		activeInputView = b.delete.confirmInput.View()
 		hints = NewStatusBar(deleteConfirmHints)
 	default:
-		prompt = fmt.Sprintf("Delete #%d %q — optional comment (Enter to continue, Esc to cancel):", card.Number, sanitizeSingleLine(card.Title))
+		chrome := lipgloss.Width(fmt.Sprintf(deleteCommentPromptFmt, card.Number, ""))
+		prompt = fmt.Sprintf(deleteCommentPromptFmt, card.Number, fitQuotedTitle(card.Title, available, chrome))
 		activeInputView = b.delete.commentInput.View()
 		hints = NewStatusBar(deleteCommentHints)
 	}
@@ -1708,13 +1721,14 @@ func (b Board) viewPRListModal() string {
 		}
 		for i := start; i < end; i++ {
 			entry := b.prList.entries[i]
-			title := truncateOutput(sanitizeSingleLine(entry.pr.Title), 32)
+			title := truncateCell(sanitizeSingleLine(entry.pr.Title), 32)
 			status := prStatus(entry.pr)
 			prefix := prStatusPrefix(status)
 			display := fmt.Sprintf("%s  #%d  %s", prefix, entry.pr.Number, title)
 			if entry.cardNumber != 0 {
 				display += fmt.Sprintf("  —  %s #%d", sanitizeSingleLine(entry.columnTitle), entry.cardNumber)
 			}
+			display = truncateCell(display, modalContentWidth(modalWidth))
 			display = selectedRowStyle(display, i == b.prList.cursor)
 			lines = append(lines, display)
 		}
@@ -1728,12 +1742,12 @@ func (b Board) viewPRListModal() string {
 	}
 	if b.prList.err != "" {
 		lines = append(lines, "")
-		lines = append(lines, truncateOutput("Couldn't load open PRs — showing linked PRs only", modalWidth-4))
+		lines = append(lines, "Couldn't load open PRs — showing linked PRs only")
 	}
 
 	lines = append(lines, "")
 	prListHints := NewStatusBar(b.prListActionHints())
-	lines = append(lines, prListHints.View(modalWidth, 0, 0))
+	lines = append(lines, prListHints.View(modalContentWidth(modalWidth), 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
@@ -1759,11 +1773,22 @@ const (
 	milestoneColumnGap = "  "
 )
 
+// modalContentWidth returns a modal's interior content width in cells: w is
+// the modal's total width passed to renderModal, which wraps content in a
+// box styled with Padding(1, 2) — 2 cells of horizontal padding on each
+// side, consuming 4 cells total. Any modal sub-component measured against
+// the modal's content area (a row-level clamp, a hints StatusBar) must use
+// this, not the raw modal width, or it overflows the box's interior and
+// gets silently word-wrapped instead of clamped.
+func modalContentWidth(w int) int {
+	return w - 4
+}
+
 // milestoneTitleWidth returns the elastic title column width for the fixed
 // 72-cell content area (milestoneModalWidth minus renderModal's 4-cell
 // padding overhead).
 func milestoneTitleWidth() int {
-	contentWidth := milestoneModalWidth - 4
+	contentWidth := modalContentWidth(milestoneModalWidth)
 	fixed := milestoneBarWidth + milestonePctWidth + milestoneCountsWidth + milestoneDueWidth + 4*len(milestoneColumnGap)
 	return contentWidth - fixed
 }
@@ -1811,7 +1836,7 @@ func (b Board) viewMilestoneListModal() string {
 			m := entries[i]
 			selected := i == b.milestoneList.cursor
 
-			title := truncateOutput(sanitizeSingleLine(m.Title), titleWidth-3)
+			title := truncateCell(sanitizeSingleLine(m.Title), titleWidth-3)
 			titleCell := padCell(title, titleWidth)
 
 			bar := renderProgressBar(m.ProgressPercentage, milestoneBarWidth, !selected)
@@ -1845,15 +1870,33 @@ func (b Board) viewMilestoneListModal() string {
 	return b.renderModal(modalContent, modalWidth)
 }
 
+// truncateCell truncates s to at most width terminal cells, measured via
+// lipgloss.Width (never len() or rune count, per
+// docs/terminal-rendering.md), appending an ellipsis ("…") when truncation
+// occurs. It is the single truncation entry point for the whole app: unlike
+// a rune-based truncator, ansi.Truncate accounts for the ellipsis's own
+// cell width and for wide CJK/emoji runes, so the result never exceeds the
+// requested budget. Returns "" for a non-positive width, and returns s
+// unchanged when it already fits.
+func truncateCell(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	return ansi.Truncate(s, width, "…")
+}
+
 // padCell pads s with trailing spaces to exactly width terminal cells,
 // measured via lipgloss.Width (never len(), per docs/terminal-rendering.md),
 // or hard-clamps it to width cells when s is already wider. This protects
 // the Milestones modal's fixed column grid from wrapping onto a second
-// physical line: truncateOutput truncates by runes and can return more
-// cells than requested (its "..." suffix, or a wide CJK/emoji rune), and a
-// naive rune-count clamp can land mid-rune on a wide-rune boundary, which
-// this pads back up to the exact target width. Returns "" for a
-// non-positive width.
+// physical line: truncateCell can return fewer cells than requested when
+// its "…" suffix doesn't land on a whole-rune boundary, and a naive
+// rune-count clamp can land mid-rune on a wide-rune boundary, which this
+// pads back up to the exact target width. Returns "" for a non-positive
+// width.
 func padCell(s string, width int) string {
 	if width <= 0 {
 		return ""
@@ -1874,6 +1917,66 @@ func padCell(s string, width int) string {
 		out += strings.Repeat(" ", width-got)
 	}
 	return out
+}
+
+// Prompt format strings for the five sites that inline an untrusted
+// card/label/PR title into a one-line prompt (#597). Each supplies its own
+// literal quote characters via %s (never %q) so the title can be escaped
+// BEFORE truncation via fitQuotedTitle -- %q escapes after truncation,
+// which is unbounded. prPickerTitleFmt is the one unquoted site.
+const (
+	closeConfirmPromptFmt  = `Close #%d "%s"? (y/n)`
+	labelConfirmPromptFmt  = `Label "%s" doesn't exist. Create it? (y/n)`
+	deleteConfirmPromptFmt = `Type %d to permanently delete #%d "%s":`
+	deleteCommentPromptFmt = `Delete #%d "%s" — optional comment:`
+	prPickerTitleFmt       = "#%d %s"
+)
+
+// inlineTitleMinCells is the floor inlineTitleBudget clamps to. Without a
+// floor, a prompt whose own chrome outgrows the available width at narrow
+// terminal sizes would drive the title's budget to zero (or negative),
+// making truncateCell drop the title entirely.
+const inlineTitleMinCells = 8
+
+// inlineTitleBudget returns the cell budget left for an untrusted title
+// inlined into a one-line prompt: available minus chromeWidth (the prompt's
+// own literal text, format verbs excluded), floored at inlineTitleMinCells
+// so the budget never goes to zero or negative.
+func inlineTitleBudget(available, chromeWidth int) int {
+	budget := available - chromeWidth
+	if budget < inlineTitleMinCells {
+		return inlineTitleMinCells
+	}
+	return budget
+}
+
+// escapeInline returns s Go-quote-escaped (control bytes, backslashes, and
+// double quotes escaped per strconv.Quote) with the surrounding delimiter
+// quotes stripped, so callers can splice the result between literal quote
+// characters supplied by their own format string.
+func escapeInline(s string) string {
+	quoted := strconv.Quote(s)
+	return quoted[1 : len(quoted)-1]
+}
+
+// fitQuotedTitle sanitizes, escapes, then truncates title to the cell budget
+// implied by available and chromeWidth. Escaping BEFORE truncating (not
+// after) is the point of #597: escaping after truncation is unbounded --
+// each escaped byte/rune can expand a title already at the cell limit well
+// past the intended budget (a run of `"` doubles in width, a run of
+// non-printable runes expands sixfold). Escaping first bounds the
+// truncation input, so the result never exceeds the budget regardless of
+// the title's content.
+//
+// Call sites pass available as the raw line budget (e.g. innerWidth or
+// modalContentWidth(...)), not pre-subtracted: inlineTitleBudget already
+// subtracts chromeWidth once internally. Pre-subtracting chromeWidth at the
+// call site before passing it here would double-count it, forcing the
+// title's budget to the floor far more often than the line's true available
+// width requires.
+func fitQuotedTitle(title string, available, chromeWidth int) string {
+	escaped := escapeInline(sanitizeSingleLine(title))
+	return truncateCell(escaped, inlineTitleBudget(available, chromeWidth))
 }
 
 // viewAgentListModal renders the agents list modal. State precedence mirrors
@@ -1929,16 +2032,17 @@ func (b Board) viewAgentListModal() string {
 				// elsewhere) still gets a neutral marker to keep rows aligned.
 				symbol = "·"
 			}
-			display := fmt.Sprintf("  %s %s", symbol, truncateOutput(sanitizeSingleLine(entry.window.WindowName), 24))
+			display := fmt.Sprintf("  %s %s", symbol, truncateCell(sanitizeSingleLine(entry.window.WindowName), 24))
 			if ref := agentWindowRef(entry.window); ref != "" {
-				display = fmt.Sprintf("  %s %s  %s", symbol, truncateOutput(sanitizeSingleLine(ref), 16), truncateOutput(sanitizeSingleLine(entry.window.WindowName), 24))
+				display = fmt.Sprintf("  %s %s  %s", symbol, truncateCell(sanitizeSingleLine(ref), 16), truncateCell(sanitizeSingleLine(entry.window.WindowName), 24))
 			}
 			if entry.window.Agent != "" {
-				display += "  " + truncateOutput(sanitizeSingleLine(entry.window.Agent), agentBadgeKindWidth)
+				display += "  " + truncateCell(sanitizeSingleLine(entry.window.Agent), agentBadgeKindWidth)
 			}
 			if entry.cardNumber != 0 {
 				display += fmt.Sprintf("  —  %s #%d", sanitizeSingleLine(entry.columnTitle), entry.cardNumber)
 			}
+			display = truncateCell(display, modalContentWidth(modalWidth))
 			display = selectedRowStyle(display, i == b.agentList.cursor)
 			lines = append(lines, display)
 		}
@@ -1948,7 +2052,7 @@ func (b Board) viewAgentListModal() string {
 	}
 	if disconnected {
 		lines = append(lines, "")
-		lines = append(lines, truncateOutput("cenci-watch disconnected — showing last known agents", modalWidth-4))
+		lines = append(lines, "cenci-watch disconnected — showing last known agents")
 	}
 
 	lines = append(lines, "")
@@ -1957,7 +2061,7 @@ func (b Board) viewAgentListModal() string {
 		hints = agentListEmptyHints
 	}
 	agentListHints := NewStatusBar(hints)
-	lines = append(lines, agentListHints.View(modalWidth, 0, 0))
+	lines = append(lines, agentListHints.View(modalContentWidth(modalWidth), 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)

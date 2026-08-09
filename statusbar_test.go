@@ -1367,12 +1367,12 @@ func TestFormatDispatchSegment_DaemonNotRunningRendersDistinctly(t *testing.T) {
 
 // TestStatusBar_SetTimedMessage_SanitizesNewlineBearingStderr feeds
 // SetTimedMessage a message built the same way the real subprocess-stderr
-// producer builds it (commands.go: "Error: " + truncateOutput(stderr,
+// producer builds it (commands.go: "Error: " + truncateCell(stderr,
 // maxErrorOutputLen)) with newline-bearing stderr, and asserts the rendered
 // view is a single physical line.
 func TestStatusBar_SetTimedMessage_SanitizesNewlineBearingStderr(t *testing.T) {
 	stderr := "fatal: unable to access repo\nremote: Permission denied\nfatal: Could not read from remote"
-	msg := "Error: " + truncateOutput(stderr, maxErrorOutputLen)
+	msg := "Error: " + truncateCell(stderr, maxErrorOutputLen)
 
 	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
 	sb.SetTimedMessage(msg, StatusError, 3*time.Second)
@@ -1393,7 +1393,7 @@ func TestStatusBar_SetTimedMessage_SanitizesNewlineBearingStderr(t *testing.T) {
 // timed-message sink test above for SetStickyMessage.
 func TestStatusBar_SetStickyMessage_SanitizesNewlineBearingStderr(t *testing.T) {
 	stderr := "fatal: unable to access repo\nremote: Permission denied\nfatal: Could not read from remote"
-	msg := "Error: " + truncateOutput(stderr, maxErrorOutputLen)
+	msg := "Error: " + truncateCell(stderr, maxErrorOutputLen)
 
 	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
 	sb.SetStickyMessage(msg, StatusError)
@@ -1407,6 +1407,36 @@ func TestStatusBar_SetStickyMessage_SanitizesNewlineBearingStderr(t *testing.T) 
 	}
 	if !strings.Contains(view, "Permission denied") {
 		t.Errorf("View() = %q, want it to contain %q", view, "Permission denied")
+	}
+}
+
+// TestStatusBar_SetTimedMessage_CJKEmojiStderr_MessageWidthBoundedByMaxErrorOutputLenCells
+// is the #595 acceptance-criterion-3 guard: a CJK/emoji stderr string fed
+// through the status-bar error path, built the same way the real producer
+// does (commands.go: "Error: " + <cell-bounded truncation>(stderr,
+// maxErrorOutputLen)), must render with its message portion bounded by
+// maxErrorOutputLen terminal *cells*, not runes -- a rune-based budget lets
+// each 2-cell-wide CJK/emoji rune count as only 1, doubling the effective
+// on-screen budget.
+func TestStatusBar_SetTimedMessage_CJKEmojiStderr_MessageWidthBoundedByMaxErrorOutputLenCells(t *testing.T) {
+	stderr := strings.Repeat("测", 150) + strings.Repeat("\U0001F600", 150)
+	msg := "Error: " + truncateCell(stderr, maxErrorOutputLen)
+
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetTimedMessage(msg, StatusError, 3*time.Second)
+	view := sb.View(1000)
+
+	if !strings.Contains(view, "Error:") {
+		t.Fatalf("View() = %q, want it to contain %q", view, "Error:")
+	}
+	// lipgloss.Width ignores ANSI/SGR styling (the StatusError level colors
+	// the whole "Error: <message>" string), so measuring the full view and
+	// subtracting the fixed 7-cell "Error: " prefix isolates the message's
+	// own width without assuming anything about where styling escapes fall
+	// relative to the literal text.
+	messageWidth := lipgloss.Width(view) - lipgloss.Width("Error: ")
+	if messageWidth > maxErrorOutputLen {
+		t.Errorf("rendered message width = %d cells, want <= %d (maxErrorOutputLen cells, not runes)", messageWidth, maxErrorOutputLen)
 	}
 }
 

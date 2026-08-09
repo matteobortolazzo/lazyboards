@@ -272,23 +272,14 @@ func runShellCmd(executor action.Executor, command string) tea.Cmd {
 	return func() tea.Msg {
 		stderr, err := executor.RunShell(command)
 		if err != nil {
-			msg := "Error: " + truncateOutput(err.Error(), maxErrorOutputLen)
+			msg := "Error: " + truncateCell(sanitizeSingleLine(err.Error()), maxErrorOutputLen)
 			if stderr != "" {
-				msg = "Error: " + truncateOutput(stderr, maxErrorOutputLen)
+				msg = "Error: " + truncateCell(sanitizeSingleLine(stderr), maxErrorOutputLen)
 			}
 			return actionResultMsg{success: false, message: msg}
 		}
 		return actionResultMsg{success: true, message: "Done"}
 	}
-}
-
-// truncateOutput truncates s to maxLen runes, appending "..." if truncated.
-func truncateOutput(s string, maxLen int) string {
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	return string(runes[:maxLen]) + "..."
 }
 
 // saveConfigCmd returns a tea.Cmd that saves the config file.
@@ -373,10 +364,10 @@ func classifyCenciError(err error, stderr string) string {
 	}
 
 	if stderr != "" {
-		return "cenci: " + truncateOutput(strings.TrimSpace(stderr), maxErrorOutputLen)
+		return "cenci: " + truncateCell(sanitizeSingleLine(strings.TrimSpace(stderr)), maxErrorOutputLen)
 	}
 	if err != nil {
-		return "cenci: " + truncateOutput(err.Error(), maxErrorOutputLen)
+		return "cenci: " + truncateCell(sanitizeSingleLine(err.Error()), maxErrorOutputLen)
 	}
 	return "cenci: unknown error"
 }

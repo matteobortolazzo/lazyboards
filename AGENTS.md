@@ -66,10 +66,11 @@ Tests are split by domain to mirror production code:
 | `git_panel_test.go` | Git menu panel (open/close, default-action gating) |
 | `gitstatus_wiring_test.go` | Git status fetch command + background poll scheduling |
 | `help_test.go` | Help modal (open/close from normal & detail-focused states) |
+| `inline_title_test.go` | Bounding untrusted card/label/PR titles inlined into one-line prompts (`inlineTitleBudget`, `escapeInline`, `fitQuotedTitle`, and the five prompt render sites) |
 | `label_confirm_test.go` | Frontmatter compose/parse round-trip for labels |
 | `map_slice_test.go` | `mapSlice` generic helper |
 | `milestone_list_test.go` | Milestones list modal (fetch/sort/interaction/view state precedence) |
-| `mouse_test.go` | Mouse wheel scroll/cursor movement |
+| `mouse_test.go` | Mouse wheel scroll/cursor movement, tab-bar click hit-zones (ladder rungs, CJK/emoji titles, search/filter-active count shapes) |
 | `pr_count_test.go` | PR count aggregation and status bar indicator |
 | `pr_list_test.go` | Global PR list modal navigation and selection |
 | `pr_picker_test.go` | Single/multi-PR picker (open in browser, status messages) |

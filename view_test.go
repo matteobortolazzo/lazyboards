@@ -2556,3 +2556,36 @@ func TestBorderTitleCounts_NeitherActiveReturnsNil(t *testing.T) {
 		t.Errorf("borderTitleCounts() with neither search nor filter active = %v, want nil", fc)
 	}
 }
+
+// TestBorderTitleCounts_ActiveTabOutOfRangeReturnsSentinels is a
+// validation/bounds-guard test: normal navigation always clamps ActiveTab
+// into [0, len(Columns)), so no integration test can reach an out-of-range
+// ActiveTab -- this sets the invalid state directly. With a search query
+// active, borderTitleCounts's search branch indexes fc[b.ActiveTab] to
+// stamp the active column's live filteredCards() count; an out-of-range
+// ActiveTab must not panic (via that index assignment or via
+// b.filteredCards()'s own b.Columns[b.ActiveTab] read) and must instead
+// fall back to the same all -1 "no override" sentinel slice buildBorderTitle
+// sees when no column can be identified as active.
+func TestBorderTitleCounts_ActiveTabOutOfRangeReturnsSentinels(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b.searchQuery = "bug"
+	b.ActiveTab = len(b.Columns) // one past the end -- out of range
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("borderTitleCounts() panicked with out-of-range ActiveTab=%d: %v", b.ActiveTab, r)
+		}
+	}()
+
+	fc := b.borderTitleCounts()
+
+	if len(fc) != len(b.Columns) {
+		t.Fatalf("borderTitleCounts() with out-of-range ActiveTab: len = %d, want %d (one entry per column)", len(fc), len(b.Columns))
+	}
+	for i, v := range fc {
+		if v != -1 {
+			t.Errorf("borderTitleCounts()[%d] with out-of-range ActiveTab = %d, want -1 (sentinel; no column can be the active one)", i, v)
+		}
+	}
+}

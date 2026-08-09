@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
@@ -221,6 +223,124 @@ func TestMouseWheelUp_RightPanel_ScrollsDetail(t *testing.T) {
 }
 
 // --- Mouse click on column tabs ---
+//
+// Click coordinates below are never computed from a formula that duplicates
+// mouse_handlers.go's or borderTitleZones's own geometry math (per
+// .claude/rules/testing.md: expected values must not come from the
+// implementation under test). Instead, renderedTabZones parses the actual
+// ANSI-stripped buildBorderTitle output -- the same string View() renders --
+// to find where each column's label really sits.
+
+// tabHitZone is one column's clickable cell range on the rendered
+// border-title row (Y=0), in inclusive [start,end] cells.
+type tabHitZone struct {
+	start int
+	end   int
+}
+
+// renderedTabZones renders the border title exactly as View() does (same
+// buildBorderTitle/borderTitleCounts call, same b.Columns/b.ActiveTab/
+// b.Width) and locates each column's "[N]" label within the ANSI-stripped
+// text by finding its numeric marker, then finds where the label ends by
+// scanning for the next " ─" run -- the literal text buildBorderTitle
+// always places immediately after every label, whether the next thing is
+// the " ─ " separator before another label or the " ───..."
+// fill run before the closing corner. Returns nil if a marker isn't found
+// (e.g. the ladder dropped labels entirely at this width -- rung 4).
+func renderedTabZones(b Board) []tabHitZone {
+	stripped := ansi.Strip(buildBorderTitle(b.Columns, b.ActiveTab, b.Width, b.borderTitleCounts()))
+	zones := make([]tabHitZone, 0, len(b.Columns))
+	searchFrom := 0
+	for i := range b.Columns {
+		marker := fmt.Sprintf("[%d]", i+1)
+		idx := strings.Index(stripped[searchFrom:], marker)
+		if idx < 0 {
+			return nil
+		}
+		idx += searchFrom
+		start := lipgloss.Width(stripped[:idx])
+
+		runIdx := strings.Index(stripped[idx:], " ─")
+		if runIdx < 0 {
+			return nil
+		}
+		runIdx += idx
+		end := lipgloss.Width(stripped[:runIdx]) - 1
+
+		zones = append(zones, tabHitZone{start: start, end: end})
+		searchFrom = runIdx
+	}
+	return zones
+}
+
+// newMouseEnabledBoardWithColumns builds a mouse-enabled, loaded Board with
+// the given columns (title + card count only -- card contents don't matter
+// for tab-bar rendering) at the given width.
+func newMouseEnabledBoardWithColumns(t *testing.T, columns []Column, width int) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
+
+	providerColumns := make([]provider.Column, len(columns))
+	for i, col := range columns {
+		cards := make([]provider.Card, len(col.Cards))
+		for j := range cards {
+			cards[j] = provider.Card{Number: j + 1, Title: fmt.Sprintf("Card %d", j+1), Labels: []provider.Label{{Name: "test"}}}
+		}
+		providerColumns[i] = provider.Column{Title: col.Title, Cards: cards}
+	}
+
+	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: providerColumns}})
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = width
+	board.Height = 40
+	return board
+}
+
+// rungOfLabel classifies which truncation rung borderTitleZones chose for
+// column colIdx's label: "full" (complete sanitized title, no ellipsis),
+// "truncated" (partial title + "…"), or "numbers" (no title text at all,
+// just "[N] (count)").
+func rungOfLabel(label, sanitizedTitle string) string {
+	if strings.Contains(label, "…") {
+		return "truncated"
+	}
+	if strings.Contains(label, sanitizedTitle) {
+		return "full"
+	}
+	return "numbers"
+}
+
+// findRungWidth scans widths (descending from a generous upper bound down
+// through 0 and into negative territory) for the first one whose
+// borderTitleZones() rung for column colIdx matches want ("full",
+// "truncated", "numbers", or "none" for the ladder dropping labels
+// entirely). This is fixture setup (picking which widths exercise which
+// rung), not the click-coordinate assertions themselves, which come from
+// renderedTabZones instead.
+func findRungWidth(t *testing.T, columns []Column, colIdx int, sanitizedTitle, want string) int {
+	t.Helper()
+	for w := 200; w >= -5; w-- {
+		zones := borderTitleZones(columns, w)
+		if len(zones) == 0 {
+			if want == "none" {
+				return w
+			}
+			continue
+		}
+		if colIdx >= len(zones) {
+			continue
+		}
+		if rungOfLabel(zones[colIdx].label, sanitizedTitle) == want {
+			return w
+		}
+	}
+	t.Fatalf("no width in [-5,200] reaches rung %q for column %d", want, colIdx)
+	return 0
+}
 
 func TestMouseClickTab_SwitchesColumn(t *testing.T) {
 	b := newMouseEnabledBoard(t)
@@ -229,24 +349,24 @@ func TestMouseClickTab_SwitchesColumn(t *testing.T) {
 	if b.ActiveTab != 0 {
 		t.Fatalf("precondition: ActiveTab = %d, want 0", b.ActiveTab)
 	}
+	if len(b.Columns) < 2 {
+		t.Fatalf("precondition: len(b.Columns) = %d, want >= 2", len(b.Columns))
+	}
 
-	// Click on the border title row (Y=0) at an X inside the second column's
-	// tab. Compute it the same way handleTabClick lays tabs out: a 3-col prefix,
-	// then each tab labelled "[n] Title (count)" separated by a 3-col separator.
-	prefixWidth := 3
-	separatorWidth := 3
-	firstLabel := fmt.Sprintf("[1] %s (%d)", b.Columns[0].Title, len(b.Columns[0].Cards))
-	secondColX := prefixWidth + lipgloss.Width(firstLabel) + separatorWidth + 1
+	zones := renderedTabZones(b)
+	if len(zones) != len(b.Columns) {
+		t.Fatalf("precondition: renderedTabZones returned %d zones, want %d", len(zones), len(b.Columns))
+	}
 
 	b = sendKey(t, b, tea.MouseMsg{
-		X:      secondColX,
+		X:      zones[1].start,
 		Y:      0,
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
 	})
 
 	if b.ActiveTab != 1 {
-		t.Errorf("ActiveTab = %d after clicking column 2 tab, want 1", b.ActiveTab)
+		t.Errorf("ActiveTab = %d after clicking column 2 tab (X=%d), want 1", b.ActiveTab, zones[1].start)
 	}
 }
 
@@ -279,17 +399,17 @@ func TestMouseClickTab_SanitizedTitleHitZones(t *testing.T) {
 		t.Fatalf("precondition: ActiveTab = %d, want 0", board.ActiveTab)
 	}
 
-	prefixWidth := 3
-	separatorWidth := 3
-	label1 := fmt.Sprintf("[1] %s (%d)", sanitizeSingleLine(board.Columns[0].Title), len(board.Columns[0].Cards))
-	label2 := fmt.Sprintf("[2] %s (%d)", sanitizeSingleLine(board.Columns[1].Title), len(board.Columns[1].Cards))
+	zones := renderedTabZones(board)
+	if len(zones) != 2 {
+		t.Fatalf("precondition: renderedTabZones returned %d zones, want 2", len(zones))
+	}
 
 	t.Run("click last cell of tab 2's sanitized zone switches to tab 2", func(t *testing.T) {
 		// The *first* cell of tab 2's sanitized zone would overlap the
 		// stale (too-far-left) zone computed from the raw title, making
 		// that case vacuous; the last cell is unambiguously past the
 		// stale zone's end today.
-		x := prefixWidth + lipgloss.Width(label1) + separatorWidth + lipgloss.Width(label2) - 1
+		x := zones[1].end
 		got := sendKey(t, board, tea.MouseMsg{
 			X:      x,
 			Y:      0,
@@ -302,7 +422,7 @@ func TestMouseClickTab_SanitizedTitleHitZones(t *testing.T) {
 	})
 
 	t.Run("click inside tab 1's sanitized zone stays on tab 1", func(t *testing.T) {
-		x := prefixWidth + lipgloss.Width(label1) - 1
+		x := zones[0].end
 		got := sendKey(t, board, tea.MouseMsg{
 			X:      x,
 			Y:      0,
@@ -313,6 +433,240 @@ func TestMouseClickTab_SanitizedTitleHitZones(t *testing.T) {
 			t.Errorf("ActiveTab = %d after clicking inside tab 1's sanitized zone (X=%d), want 0", got.ActiveTab, x)
 		}
 	})
+}
+
+// cjkEmojiTabFixtureColumns returns a small column set with CJK+emoji
+// titles, used to exercise the truncation ladder's three text-bearing rungs
+// (full / cell-truncated / numbers-only) plus rung 4 (no labels at all).
+func cjkEmojiTabFixtureColumns() []Column {
+	return []Column{
+		// Column 0 is deliberately as long as column 1 (the click target) so
+		// that at the "truncated" rung, BOTH columns' labels shrink from
+		// their untruncated width -- this shifts column 1's real start
+		// position leftward relative to what a hit-tester assuming full
+		// (untruncated) column-0 width would compute, producing a genuine
+		// zone mismatch rather than merely a wider-than-real zone that
+		// still happens to contain the real one.
+		{Title: "起始阶段总览概述文字说明", Cards: make([]Card, 2)},
+		{Title: "进行中\U0001f680开发阶段追踪细节说明", Cards: make([]Card, 3)},
+		{Title: "完成审核阶段", Cards: make([]Card, 2)},
+	}
+}
+
+// TestMouseClickTab_RungMatrix_CJKEmojiTitles exercises all three
+// text-bearing ladder rungs against a CJK+emoji fixture: clicking the first
+// or last cell of column 2's rendered label always selects column 2,
+// regardless of which rung the ladder chose, and clicking one cell before
+// the label's first cell never does.
+func TestMouseClickTab_RungMatrix_CJKEmojiTitles(t *testing.T) {
+	columns := cjkEmojiTabFixtureColumns()
+	sanitizedTitle2 := sanitizeSingleLine(columns[1].Title)
+
+	rungs := []string{"full", "truncated", "numbers"}
+	for _, rung := range rungs {
+		rung := rung
+		t.Run(rung, func(t *testing.T) {
+			width := findRungWidth(t, columns, 1, sanitizedTitle2, rung)
+			board := newMouseEnabledBoardWithColumns(t, columns, width)
+			zones := renderedTabZones(board)
+			if len(zones) != len(columns) {
+				t.Fatalf("precondition: renderedTabZones returned %d zones, want %d at width %d (rung %s)", len(zones), len(columns), width, rung)
+			}
+			col2 := zones[1]
+
+			t.Run("first cell selects column 2", func(t *testing.T) {
+				b := board
+				b.ActiveTab = 0
+				got := sendKey(t, b, tea.MouseMsg{X: col2.start, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+				if got.ActiveTab != 1 {
+					t.Errorf("ActiveTab = %d after clicking first cell (X=%d) of column 2's %s-rung label, want 1", got.ActiveTab, col2.start, rung)
+				}
+			})
+
+			t.Run("last cell selects column 2", func(t *testing.T) {
+				b := board
+				b.ActiveTab = 0
+				got := sendKey(t, b, tea.MouseMsg{X: col2.end, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+				if got.ActiveTab != 1 {
+					t.Errorf("ActiveTab = %d after clicking last cell (X=%d) of column 2's %s-rung label, want 1", got.ActiveTab, col2.end, rung)
+				}
+			})
+
+			t.Run("one cell before first cell does not select column 2", func(t *testing.T) {
+				b := board
+				b.ActiveTab = 0
+				got := sendKey(t, b, tea.MouseMsg{X: col2.start - 1, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+				if got.ActiveTab == 1 {
+					t.Errorf("ActiveTab = 1 after clicking one cell before column 2's %s-rung label (X=%d), want != 1", rung, col2.start-1)
+				}
+			})
+		})
+	}
+}
+
+// TestMouseClickTab_Rung4_NoLabels_NoOp covers the ladder's final rung: at a
+// width where even the numbers-only rung doesn't fit, borderTitleZones
+// returns zero zones and the tab bar renders with no clickable labels at
+// all. A click anywhere on Y=0 must be a no-op: unchanged ActiveTab, nil
+// cmd.
+func TestMouseClickTab_Rung4_NoLabels_NoOp(t *testing.T) {
+	columns := cjkEmojiTabFixtureColumns()
+	sanitizedTitle2 := sanitizeSingleLine(columns[1].Title)
+	width := findRungWidth(t, columns, 1, sanitizedTitle2, "none")
+
+	if got := len(borderTitleZones(columns, width)); got != 0 {
+		t.Fatalf("precondition: len(borderTitleZones(columns, %d)) = %d, want 0 (rung 4: no labels fit)", width, got)
+	}
+
+	board := newMouseEnabledBoardWithColumns(t, columns, width)
+	board.ActiveTab = 0
+
+	m, cmd := board.Update(tea.MouseMsg{X: 5, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	got, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if cmd != nil {
+		t.Errorf("cmd = %v, want nil (rung 4 click is a no-op)", cmd)
+	}
+	if got.ActiveTab != 0 {
+		t.Errorf("ActiveTab = %d after clicking Y=0 at rung 4 (no labels), want 0 (unchanged)", got.ActiveTab)
+	}
+}
+
+// TestMouseClickTab_SearchActive_LastCellSelectsColumn is a regression case
+// for the search-active count-suffix shape: when a search query is active,
+// borderTitleCounts overrides only the active column's count to
+// "(f/N) ●", which is longer than the plain "(N)" every other column
+// (and today's handleTabClick) still assumes -- shifting every zone after
+// the active column to the right of where the old handler thinks it is.
+func TestMouseClickTab_SearchActive_LastCellSelectsColumn(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b.mouseEnabled = true
+	b.ActiveTab = 0
+	b.searchQuery = "bug"
+
+	if b.mode != normalMode {
+		t.Fatalf("precondition: mode = %d, want normalMode (%d)", b.mode, normalMode)
+	}
+	if b.activeFilterType != filterTypeNone {
+		t.Fatalf("precondition: activeFilterType = %d, want filterTypeNone", b.activeFilterType)
+	}
+	if len(b.Columns) < 2 {
+		t.Fatalf("precondition: len(b.Columns) = %d, want >= 2", len(b.Columns))
+	}
+
+	zones := renderedTabZones(b)
+	if len(zones) != len(b.Columns) {
+		t.Fatalf("precondition: renderedTabZones returned %d zones, want %d", len(zones), len(b.Columns))
+	}
+	col2 := zones[1]
+
+	got := sendKey(t, b, tea.MouseMsg{X: col2.end, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	if got.ActiveTab != 1 {
+		t.Errorf("ActiveTab = %d after clicking last cell (X=%d) of column 2's search-active rendered label, want 1", got.ActiveTab, col2.end)
+	}
+}
+
+// TestMouseClickTab_GlobalFilterActive_LastCellSelectsColumn mirrors the
+// search-active case for the other borderTitleCounts branch: a global
+// filter with no search query gives every column its own "(f/N) ●"
+// count via filteredCardsForColumn, which can differ in width from column
+// to column.
+func TestMouseClickTab_GlobalFilterActive_LastCellSelectsColumn(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b.mouseEnabled = true
+	b.ActiveTab = 0
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+	b.searchQuery = ""
+
+	if len(b.Columns) < 2 {
+		t.Fatalf("precondition: len(b.Columns) = %d, want >= 2", len(b.Columns))
+	}
+
+	zones := renderedTabZones(b)
+	if len(zones) != len(b.Columns) {
+		t.Fatalf("precondition: renderedTabZones returned %d zones, want %d", len(zones), len(b.Columns))
+	}
+	col2 := zones[1]
+
+	got := sendKey(t, b, tea.MouseMsg{X: col2.end, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	if got.ActiveTab != 1 {
+		t.Errorf("ActiveTab = %d after clicking last cell (X=%d) of column 2's filter-active rendered label, want 1", got.ActiveTab, col2.end)
+	}
+}
+
+// TestMouseClickTab_SearchAndFilterBothActive_LastCellSelectsColumn covers
+// the combined state: search wins over the global filter (per
+// borderTitleCounts), so the rendered shape matches the search-only case,
+// but the underlying state exercises both fields together.
+func TestMouseClickTab_SearchAndFilterBothActive_LastCellSelectsColumn(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b.mouseEnabled = true
+	b.ActiveTab = 0
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+	b.searchQuery = "Specific"
+
+	if len(b.Columns) < 2 {
+		t.Fatalf("precondition: len(b.Columns) = %d, want >= 2", len(b.Columns))
+	}
+
+	zones := renderedTabZones(b)
+	if len(zones) != len(b.Columns) {
+		t.Fatalf("precondition: renderedTabZones returned %d zones, want %d", len(zones), len(b.Columns))
+	}
+	col2 := zones[1]
+
+	got := sendKey(t, b, tea.MouseMsg{X: col2.end, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	if got.ActiveTab != 1 {
+		t.Errorf("ActiveTab = %d after clicking last cell (X=%d) of column 2's search+filter-active rendered label, want 1", got.ActiveTab, col2.end)
+	}
+}
+
+// TestMouseClickTab_ZeroColumnsWithSearchQuery_NoPanicNoStateChange covers
+// the empty-board edge case combined with an active search query: neither
+// handleTabClick's numCols==0 guard nor borderTitleCounts's
+// fc[b.ActiveTab]=... assignment (with ActiveTab==0 and zero columns) may
+// panic.
+func TestMouseClickTab_ZeroColumnsWithSearchQuery_NoPanicNoStateChange(t *testing.T) {
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
+
+	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: []provider.Column{}}})
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = 120
+	board.Height = 40
+	board.searchQuery = "anything"
+
+	if len(board.Columns) != 0 {
+		t.Fatalf("precondition: len(board.Columns) = %d, want 0", len(board.Columns))
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Update panicked with zero columns and an active search query: %v", r)
+		}
+	}()
+
+	m2, cmd := board.Update(tea.MouseMsg{X: 5, Y: 0, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	got, ok := m2.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m2)
+	}
+	if cmd != nil {
+		t.Errorf("cmd = %v, want nil", cmd)
+	}
+	if got.ActiveTab != board.ActiveTab {
+		t.Errorf("ActiveTab changed from %d to %d after click with zero columns", board.ActiveTab, got.ActiveTab)
+	}
+	if len(got.Columns) != 0 {
+		t.Errorf("Columns len = %d after click with zero columns, want 0 (unchanged)", len(got.Columns))
+	}
 }
 
 // --- Mouse click on cards ---

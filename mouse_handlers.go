@@ -1,10 +1,7 @@
 package main
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 )
 
 func (b Board) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
@@ -162,36 +159,13 @@ func (b Board) handleMouseClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleTabClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	numCols := len(b.Columns)
-	if numCols == 0 {
-		return b, nil
-	}
-
-	prefixWidth := 3    // "╭─ "
-	separatorWidth := 3 // " ─ "
-
-	x := msg.X
-	pos := prefixWidth
-	for i, col := range b.Columns {
-		countStr := fmt.Sprintf("(%d)", len(col.Cards))
-		if b.activeFilterType != filterTypeNone {
-			fc := b.filteredCardsForColumn(i)
-			countStr = fmt.Sprintf("(%d/%d) ●", fc, len(col.Cards))
-		}
-		// Mirror buildBorderTitle's rung-1 label shape ("[N] Title (C)") so hit zones
-		// match the sanitized render.
-		labelText := fmt.Sprintf("[%d] %s %s", i+1, sanitizeSingleLine(col.Title), countStr)
-		labelWidth := lipgloss.Width(labelText)
-
-		if x >= pos && x < pos+labelWidth {
+	zones := borderTitleZones(b.Columns, b.Width, b.borderTitleCounts())
+	for i, zone := range zones {
+		if msg.X >= zone.start && msg.X < zone.start+zone.width {
 			if i != b.ActiveTab {
 				b.switchColumn(i)
 			}
 			return b, nil
-		}
-		pos += labelWidth
-		if i < numCols-1 {
-			pos += separatorWidth
 		}
 	}
 

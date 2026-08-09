@@ -159,10 +159,11 @@ func TestDeleteMode_TKey_EntersDeleteModeWithCommentStep(t *testing.T) {
 
 // TestDeleteMode_CommentStepPrompt_FlattensEmbeddedNewlineInTitle covers the
 // delete modal's comment-step prompt (#500). Like the close-confirm helpBar,
-// the prompt renders card.Title through fmt.Sprintf's %q verb, which already
-// escapes a raw newline to the two-character `\n` literal -- so the
-// meaningful assertion is the *flattened* form ("line one line two"), not
-// merely "one physical line" (which %q already guarantees on its own).
+// the prompt renders card.Title through fitQuotedTitle, whose
+// sanitizeSingleLine step already collapses a raw newline to a single space
+// -- so the meaningful assertion is the *flattened* form ("line one line
+// two"), not merely "one physical line" (which sanitizeSingleLine already
+// guarantees on its own).
 func TestDeleteMode_CommentStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "line one\nline two"
@@ -175,12 +176,12 @@ func TestDeleteMode_CommentStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.
 
 	view := b.viewDeleteModal()
 	if !strings.Contains(view, "line one line two") {
-		t.Errorf("viewDeleteModal() = %q, want the comment-step prompt to render the flattened title \"line one line two\", not the %%q-escaped \\n literal", view)
+		t.Errorf("viewDeleteModal() = %q, want the comment-step prompt to render the flattened title \"line one line two\", not an escaped backslash-n literal", view)
 	}
 }
 
 // TestDeleteMode_ConfirmStepPrompt_FlattensEmbeddedNewlineInTitle covers the
-// same %q prompt gap for the retype-to-confirm step.
+// same prompt-flattening behavior for the retype-to-confirm step.
 func TestDeleteMode_ConfirmStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "line one\nline two"
@@ -195,7 +196,7 @@ func TestDeleteMode_ConfirmStepPrompt_FlattensEmbeddedNewlineInTitle(t *testing.
 
 	view := b.viewDeleteModal()
 	if !strings.Contains(view, "line one line two") {
-		t.Errorf("viewDeleteModal() = %q, want the confirm-step prompt to render the flattened title \"line one line two\", not the %%q-escaped \\n literal", view)
+		t.Errorf("viewDeleteModal() = %q, want the confirm-step prompt to render the flattened title \"line one line two\", not an escaped backslash-n literal", view)
 	}
 }
 
@@ -1084,12 +1085,13 @@ func TestDeleteMode_ViewShowsCardNumberAndStepPrompt(t *testing.T) {
 // TestDeleteMode_ViewSanitizesControlSequencesInTitle covers the same
 // GitHub-sourced-untrusted-content gap for the deleteMode modal prompts
 // (both the comment step and the confirm/retype step): card.Title is
-// rendered via fmt.Sprintf's %q verb, which currently escapes control bytes
-// to visible literal text, but must still route through
-// sanitizeControlSequences for consistency with every other card.Title
-// render site (cardDisplayText, composeDetailMarkdown). A malicious title
-// must not leak raw ESC/BEL control bytes into either rendered prompt, while
-// the visible text is retained.
+// rendered via fitQuotedTitle (deleteCommentPromptFmt/deleteConfirmPromptFmt
+// supply the literal quote characters via %s, never %q -- #597), which
+// escapes control bytes to visible literal text, but must still route
+// through sanitizeControlSequences for consistency with every other
+// card.Title render site (cardDisplayText, composeDetailMarkdown). A
+// malicious title must not leak raw ESC/BEL control bytes into either
+// rendered prompt, while the visible text is retained.
 func TestDeleteMode_ViewSanitizesControlSequencesInTitle(t *testing.T) {
 	b, _ := newDeleteTestBoard(t)
 	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = "\x1b[31mRED\x1b[0m title\x07"
