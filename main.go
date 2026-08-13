@@ -156,12 +156,11 @@ func shouldCheckForUpdate(version string, enabled bool) bool {
 	return version != "dev" && enabled
 }
 
-// printNotices surfaces stderr notice groups (e.g. legacy-config deprecation
-// notices from actions:/columns[].actions translated onto keymaps: (#510),
-// and untrusted-local-config strip notices (#568)) once per run, before
-// BubbleTea takes over the terminal. Each group's lines are printed in order,
-// one sanitized line per entry; nil/empty groups contribute zero lines
-// without disrupting the ordering of the surrounding groups.
+// printNotices surfaces stderr notice groups (today: untrusted-local-config
+// strip notices, #568) once per run, before BubbleTea takes over the
+// terminal. Each group's lines are printed in order, one sanitized line per
+// entry; nil/empty groups contribute zero lines without disrupting the
+// ordering of the surrounding groups.
 func printNotices(w io.Writer, groups ...[]string) {
 	for _, notices := range groups {
 		for _, notice := range notices {
@@ -431,7 +430,7 @@ func main() {
 	}
 	board.sortNewestFirst = config.ResolveSortNewestFirst(cfg, state)
 
-	printNotices(os.Stderr, cfg.Deprecations, cfg.Notices)
+	printNotices(os.Stderr, cfg.Notices)
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.MouseValue() {

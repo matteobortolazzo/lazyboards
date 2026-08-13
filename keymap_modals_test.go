@@ -568,8 +568,7 @@ func TestKeymapModals_PRPicker_ClampHoldsAfterShrinkAndRemappedNavigationKey(t *
 
 // TestKeymapModals_PRList_InlineActionWithScopePRDispatchesAgainstSelectedRow
 // is the Q1/Q2 happy path: an inline action bound directly under
-// keymaps.pr_list.<key> (not a legacy actions: entry -- that path is covered
-// by internal/config/legacy_actions_test.go) with scope: pr explicitly set
+// keymaps.pr_list.<key> with scope: pr explicitly set
 // must dispatch against the selected PR row, expanding both PR and
 // owning-card template variables exactly like the deleted
 // handlePRListActionKey did. The shared prFixtureColumns fixture's fallback

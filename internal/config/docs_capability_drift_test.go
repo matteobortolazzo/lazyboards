@@ -54,13 +54,12 @@ import (
 //       "pr" -- see TestDocsCapability_KeymapsDocPRListScopeOmittedExampleLoadsCleanly's
 //       own doc comment below for why this diverges from its RED-phase name.
 //
-// Known coverage gap: README.md's legacy top-level `actions:`/
-// `columns[].actions:` examples (around :252-261, :269-286, and :327-336)
-// are NOT extracted or parse-checked by any test in this file -- only the
-// two `keymaps:` schema examples above ("keymap-schema-example",
-// README.md and docs/keymaps.md) are. The legacy examples are hand-verified
-// only. A future edit to one of those legacy snippets is not covered by
-// this drift test and must not be assumed to be.
+// Known coverage gap: only the marker-delimited `keymaps:` schema examples
+// above ("keymap-schema-example", README.md and docs/keymaps.md) are
+// extracted and parse-checked here. README's other `keymaps:` snippets
+// (Custom Actions, Key Sequences, Action Scope, Column-Specific Actions,
+// Tmux Integration) are hand-verified only; a future edit to one of them is
+// not covered by this drift test and must not be assumed to be.
 
 const (
 	readmeBindableModesMarker     = "keymap-bindable-modes"
@@ -567,7 +566,7 @@ func TestDocsCapability_ColumnsRowBehavioralProbe(t *testing.T) {
 // extracted from a doc's fenced ```yaml block) to a temp local config file,
 // prefixed with the minimal provider/repo Load needs, and loads it through
 // the real config.Load with a self-trusting Trust (mirroring
-// extractLegacyRestoreSnippet's sibling test).
+// extractRestoreSnippet's sibling test in legacy_restore_test.go).
 func loadKeymapSchemaExample(t *testing.T, yamlBody string) Config {
 	t.Helper()
 

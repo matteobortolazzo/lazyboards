@@ -9,14 +9,11 @@ import (
 )
 
 // TestShippedConfig_MigratedToKeymaps guards this repo's own .lazyboards.yml
-// (test cwd is the repo root, so the relative path resolves directly)
-// against a regression back to the deprecated columns[].actions/top-level
-// actions: blocks (#552). It must load with zero legacy deprecations and
-// resolve every migrated surface through the real keymap.Keymap pipeline:
-// a column-scoped key (Refined/I), a scope: pr column key (In Review/W), and
-// a top-level board action duplicated into ModeDetail (C) -- the last one
-// locks in the plan's Q3 decision that top-level actions: must be mirrored
-// into both keymaps.normal and keymaps.detail, not just normal.
+// (test cwd is the repo root, so the relative path resolves directly): it
+// must load cleanly and resolve every surface through the real keymap.Keymap
+// pipeline -- a column-scoped key (Refined/I), a scope: pr column key
+// (In Review/W), and a global board action declared in both keymaps.normal
+// and keymaps.detail (C).
 func TestShippedConfig_MigratedToKeymaps(t *testing.T) {
 	// Self-trusting: this test guards the repo's own shipped config resolving
 	// as authored, so it loads with the trust its own hash would carry once a
@@ -32,9 +29,6 @@ func TestShippedConfig_MigratedToKeymaps(t *testing.T) {
 		t.Fatalf("config.Load() returned unexpected error: %v", err)
 	}
 
-	if len(cfg.Deprecations) != 0 {
-		t.Fatalf("cfg.Deprecations = %v, want empty (shipped .lazyboards.yml should use keymaps:, not legacy actions:/columns[].actions)", cfg.Deprecations)
-	}
 	// #569 AC10: a trusted load of this repo's own cleanup: must resolve
 	// unstripped, with zero strip notices.
 	if got := cfg.CleanupValue(); got == "" {

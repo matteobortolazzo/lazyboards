@@ -135,7 +135,7 @@ func TestKeySequence_BuiltinKeyServesAsContinuation(t *testing.T) {
 
 func TestKeySequence_SingleKeyActionsStillDispatchImmediately(t *testing.T) {
 	actions := map[string]config.Action{
-		"X":  {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
+		"X":   {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
 		"Z f": {Name: "PR frontend", Type: "url", URL: "https://example.com/frontend/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
@@ -277,7 +277,7 @@ func TestKeySequence_ColumnActionCanExtendPrefix(t *testing.T) {
 
 // TestKeySequence_ColumnTwoKeySequence_DispatchesInNormalAndDetailFocus is
 // #578's new column-sequence runtime coverage: a two-key inline action bound
-// natively under keymaps.columns.<name> (not the legacy columns[].actions:
+// natively under keymaps.columns.<name> (not the removed columns[].actions:
 // block TestKeySequence_ColumnActionCanExtendPrefix above uses) must still
 // dispatch through the pending-sequence flow in both normal mode and with
 // detailFocused -- ModeColumns.DispatchesKeySequences() overlays onto both

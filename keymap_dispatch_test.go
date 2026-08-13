@@ -327,7 +327,7 @@ keymaps:
 			execCmds(cmd)
 
 			if board.mode != normalMode {
-				t.Errorf("mode after %q = %v, want normalMode (the legacy action, not the built-in modal, must fire)", tc.key, board.mode)
+				t.Errorf("mode after %q = %v, want normalMode (the inline action, not the built-in modal, must fire)", tc.key, board.mode)
 			}
 			found := false
 			for _, call := range fe.RunShellCalls {
@@ -337,7 +337,7 @@ keymaps:
 				}
 			}
 			if !found {
-				t.Errorf("RunShellCalls after %q = %v, want it to contain %q (the legacy action shadowing the built-in default)", tc.key, fe.RunShellCalls, tc.wantCommand)
+				t.Errorf("RunShellCalls after %q = %v, want it to contain %q (the inline action shadowing the built-in default)", tc.key, fe.RunShellCalls, tc.wantCommand)
 			}
 		})
 	}

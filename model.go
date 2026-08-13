@@ -773,7 +773,7 @@ type Board struct {
 	// pendingSeq holds the canonical, space-separated keys typed so far of an
 	// unfinished multi-key sequence (e.g. "P" while waiting for the "f" of
 	// "P f") -- stored in keymap.Sequence.String()'s canonical form, not the
-	// legacy rune-concatenated "Pf". Since #489 this is the registry's own
+	// rune-concatenated "Pf". Since #489 this is the registry's own
 	// pending-sequence state (keymap_dispatch.go's dispatchKey/
 	// handlePendingSeqKey): built-ins and inline actions both participate,
 	// on any key, upper or lower -- there is no separate uppercase-only gate

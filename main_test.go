@@ -57,7 +57,7 @@ func TestPrintNotices_EmptySliceWritesNothing(t *testing.T) {
 // copied from sanitizeSingleLine's own implementation or test table.
 func TestPrintNotices_ControlBytesFlattenToOneLine(t *testing.T) {
 	var buf bytes.Buffer
-	notice := "legacy config \n mid-notice\r tail\x1b[31m red"
+	notice := "hostile notice \n mid-notice\r tail\x1b[31m red"
 
 	printNotices(&buf, []string{notice})
 
@@ -78,18 +78,18 @@ func TestPrintNotices_ControlBytesFlattenToOneLine(t *testing.T) {
 
 // TestPrintNotices_MultipleGroupsOrderedSkippingEmpty verifies printNotices'
 // multi-group contract (#568, commit 2): every group is printed in the order
-// given (deprecations group first, then notices group), one sanitized line
-// per entry, and nil/empty groups in between contribute zero lines without
-// disrupting the ordering of the surrounding groups.
+// given, one sanitized line per entry, and nil/empty groups in between
+// contribute zero lines without disrupting the ordering of the surrounding
+// groups.
 func TestPrintNotices_MultipleGroupsOrderedSkippingEmpty(t *testing.T) {
 	var buf bytes.Buffer
-	deprecations := []string{"legacy actions: translated", "legacy columns[].actions: translated"}
+	first := []string{"first group line one", "first group line two"}
 	notices := []string{"untrusted .lazyboards.yml: stripped 1 keymap shell binding(s)"}
 
-	printNotices(&buf, deprecations, nil, notices, []string{})
+	printNotices(&buf, first, nil, notices, []string{})
 
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
-	want := append(append([]string{}, deprecations...), notices...)
+	want := append(append([]string{}, first...), notices...)
 	if len(lines) != len(want) {
 		t.Fatalf("expected %d lines, got %d: %q", len(want), len(lines), buf.String())
 	}

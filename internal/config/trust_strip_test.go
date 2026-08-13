@@ -11,7 +11,7 @@ import (
 
 // --- #567: thread the trust decision into config.Load and strip the two
 // keystroke-triggered local-origin shell sinks (inline keymaps: actions and
-// legacy actions:/columns[].actions:) at the points in the pipeline where
+// keymaps: shell bindings and cleanup:) at the points in the pipeline where
 // provenance still exists. ---
 //
 // This is the RED-phase file for #567: it targets the new three-argument
@@ -277,7 +277,7 @@ keymaps:
 // "not locally declared" and inherits every other global key too -- not
 // just the stripped key falling back, but a key the local document never
 // even mentioned surviving. Leaving an explicit-but-empty table would (per
-// mergeKeymaps' current documented behavior, mirroring mergeColumnActions)
+// mergeKeymaps' current documented behavior)
 // mean "no bindings at all", silently dropping that untouched global key.
 
 func TestLoad_Untrusted_EmptiedLocalModeTableStillInheritsOtherGlobalKeys(t *testing.T) {
@@ -406,120 +406,6 @@ keymaps:
 	}
 }
 
-// --- AC6: untrusted local legacy actions:/columns[].actions: shell entries
-// never reach translateLegacyActions (no binding results), while a
-// global-declared legacy shell entry still translates normally. ---
-
-func TestLoad_Untrusted_LocalLegacyTopLevelShellActionNeverReachesKeymaps(t *testing.T) {
-	globalYAML := `
-actions:
-  G:
-    name: Global Legacy Shell
-    type: shell
-    command: "echo global-legacy"
-`
-	localYAML := `
-provider: github
-repo: owner/repo
-actions:
-  L:
-    name: Local Legacy Shell
-    type: shell
-    command: "rm -rf /"
-`
-	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
-
-	cfg, err := Load(globalPath, localPath, Trust{})
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
-
-	if _, exists := cfg.Actions["L"]; exists {
-		t.Fatalf("cfg.Actions[%q] survived untrusted stripping: %+v", "L", cfg.Actions["L"])
-	}
-	if _, exists := cfg.Actions["G"]; !exists {
-		t.Fatalf("cfg.Actions[%q] (global legacy action) missing after untrusted local load", "G")
-	}
-
-	km, err := ResolveKeymap(&cfg)
-	if err != nil {
-		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
-	}
-
-	resultL := km.Lookup(keymap.ModeNormal, "", keymap.Sequence{keymap.Key("L")})
-	if resultL.Outcome == keymap.OutcomeMatch {
-		t.Fatalf("Lookup(normal, \"\", L) = %+v, want no binding: untrusted local legacy shell action must never reach translateLegacyActions", resultL)
-	}
-	resultLDetail := km.Lookup(keymap.ModeDetail, "", keymap.Sequence{keymap.Key("L")})
-	if resultLDetail.Outcome == keymap.OutcomeMatch {
-		t.Fatalf("Lookup(detail, \"\", L) = %+v, want no binding either (translateLegacyActions mirrors into both normal and detail)", resultLDetail)
-	}
-
-	resultG := km.Lookup(keymap.ModeNormal, "", keymap.Sequence{keymap.Key("G")})
-	if resultG.Outcome != keymap.OutcomeMatch || resultG.Binding.Kind != keymap.BindingAction || resultG.Binding.Action.Type != "shell" {
-		t.Fatalf("Lookup(normal, \"\", G) = %+v, want the global legacy shell action to still translate normally", resultG)
-	}
-}
-
-func TestLoad_Untrusted_LocalLegacyColumnShellActionNeverReachesKeymaps(t *testing.T) {
-	globalYAML := `
-columns:
-  - name: Refined
-    actions:
-      G:
-        name: Global Column Legacy Shell
-        type: shell
-        command: "echo global-col-legacy"
-`
-	localYAML := `
-provider: github
-repo: owner/repo
-columns:
-  - name: Refined
-    actions:
-      L:
-        name: Local Column Legacy Shell
-        type: shell
-        command: "rm -rf /"
-`
-	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
-
-	cfg, err := Load(globalPath, localPath, Trust{})
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
-
-	var refined *ColumnConfig
-	for i := range cfg.Columns {
-		if cfg.Columns[i].Name == "Refined" {
-			refined = &cfg.Columns[i]
-		}
-	}
-	if refined == nil {
-		t.Fatalf("cfg.Columns has no %q entry: %+v", "Refined", cfg.Columns)
-	}
-	if _, exists := refined.Actions["L"]; exists {
-		t.Fatalf("Refined column's local legacy shell action %q survived untrusted stripping: %+v", "L", refined.Actions["L"])
-	}
-	if _, exists := refined.Actions["G"]; !exists {
-		t.Fatalf("Refined column's global legacy action %q missing after untrusted local load", "G")
-	}
-
-	km, err := ResolveKeymap(&cfg)
-	if err != nil {
-		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
-	}
-
-	resultL := km.Lookup(keymap.ModeNormal, "Refined", keymap.Sequence{keymap.Key("L")})
-	if resultL.Outcome == keymap.OutcomeMatch {
-		t.Fatalf("Lookup(normal, Refined, L) = %+v, want no binding: untrusted local legacy column shell action must never reach translateLegacyActions", resultL)
-	}
-	resultG := km.Lookup(keymap.ModeNormal, "Refined", keymap.Sequence{keymap.Key("G")})
-	if resultG.Outcome != keymap.OutcomeMatch || resultG.Binding.Kind != keymap.BindingAction {
-		t.Fatalf("Lookup(normal, Refined, G) = %+v, want the global legacy column shell action to still translate normally", resultG)
-	}
-}
-
 // --- AC8: untrusted local type: url bindings, bindings to catalogued
 // built-in command ids, and every non-executing field (repo:, provider:,
 // columns:, sort_order:, cleanup:) still apply -- the board stays fully
@@ -581,16 +467,11 @@ keymaps:
 	}
 }
 
-// --- AC9: global-config shell actions (legacy and inline keymaps:) are
-// never stripped, whatever the local config's trust state. ---
+// --- AC9: global-config shell actions are never stripped, whatever the
+// local config's trust state. ---
 
 func TestLoad_GlobalShellBindingsNeverStrippedRegardlessOfTrust(t *testing.T) {
 	globalYAML := `
-actions:
-  G:
-    name: Global Legacy Shell
-    type: shell
-    command: "echo global-legacy"
 keymaps:
   normal:
     b: { name: Global Inline Shell, type: shell, command: "echo global-inline" }
@@ -622,10 +503,6 @@ repo: owner/repo
 			resultInline := km.Lookup(keymap.ModeNormal, "", keymap.Sequence{keymap.Key("b")})
 			if resultInline.Outcome != keymap.OutcomeMatch || resultInline.Binding.Kind != keymap.BindingAction || resultInline.Binding.Action.Type != "shell" {
 				t.Fatalf("Lookup(normal, \"\", b) = %+v, want the global inline shell action to resolve regardless of local trust state", resultInline)
-			}
-			resultLegacy := km.Lookup(keymap.ModeNormal, "", keymap.Sequence{keymap.Key("G")})
-			if resultLegacy.Outcome != keymap.OutcomeMatch || resultLegacy.Binding.Kind != keymap.BindingAction || resultLegacy.Binding.Action.Type != "shell" {
-				t.Fatalf("Lookup(normal, \"\", G) = %+v, want the global legacy shell action to resolve regardless of local trust state", resultLegacy)
 			}
 		})
 	}
@@ -664,131 +541,15 @@ keymaps:
 // --- CRITICAL (security review): YAML merge keys (`<<: *anchor`) let a
 // local document smuggle a shell action into the decoded cfg.Actions/
 // cfg.Columns without the smuggled key ever appearing as a literal mapping
-// key in the raw yaml.Node tree assignActionOrder walks. cfg.Actions and
+// key in the raw yaml.Node tree stampOrderAndRejectLegacy walks. cfg.Keymaps and
 // cfg.Columns have no custom UnmarshalYAML (unlike *Keymaps), so yaml.v3's
 // own generic decoder -- which DOES resolve merge keys -- populates them
-// directly off Config's top-level fields; assignActionOrder's hand-rolled
+// directly off Config's top-level fields; the raw-node walk's hand-rolled
 // walk over docNode.Content never sees the merged-in key, so
 // decls.ActionKeys/decls.HasColumns silently disagree with what actually
 // landed in cfg.Actions/cfg.Columns. Gating the strip decision on that
 // stale provenance snapshot let a merge-key-smuggled shell action survive
-// all the way to translateLegacyActions -> ResolveKeymap -> execution. ---
-
-func TestLoad_Untrusted_RootMergeKeySmugglingActionsCannotBypassStrip(t *testing.T) {
-	// PoC A: a root-level merge key ("<<: *x") folds *x's own "actions:" key
-	// into the document root. The raw node walk only ever sees the literal
-	// top-level keys ".x" and "<<" -- never "actions" -- so decls.ActionKeys
-	// stays empty even though cfg.Actions["X"] gets populated by the generic
-	// decoder.
-	localYAML := `
-provider: github
-repo: owner/repo
-.x: &x
-  actions:
-    X: {name: n, type: shell, command: "echo pwned"}
-<<: *x
-`
-	globalPath, localPath := writeTempConfigs(t, "", localYAML)
-
-	cfg, err := Load(globalPath, localPath, Trust{})
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
-	if _, exists := cfg.Actions["X"]; exists {
-		t.Fatalf("cfg.Actions[%q] survived untrusted stripping: %+v -- a root-level YAML merge key smuggled a local shell action into cfg.Actions without ever appearing as a literal top-level \"actions:\" key, bypassing the old decls.ActionKeys-gated strip", "X", cfg.Actions["X"])
-	}
-
-	km, err := ResolveKeymap(&cfg)
-	if err != nil {
-		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
-	}
-	result := km.Lookup(keymap.ModeNormal, "", keymap.Sequence{keymap.Key("X")})
-	if result.Outcome == keymap.OutcomeMatch && result.Binding.Kind == keymap.BindingAction {
-		t.Fatalf("Lookup(normal, \"\", X) = %+v, want no binding: the merge-key-smuggled shell action must never reach translateLegacyActions", result)
-	}
-}
-
-func TestLoad_Untrusted_MergeKeyInsideActionsBlockCannotBypassStrip(t *testing.T) {
-	// PoC B: the local document DOES declare a literal "actions:" key, but
-	// its own body is just a merge key ("<<: *x"). assignActionOrder's
-	// stampActionOrder walks the actions node's own Content and only ever
-	// sees the literal key "<<" -- never "X" -- so decls.ActionKeys["X"] is
-	// false even though cfg.Actions["X"] gets populated by the generic
-	// decoder.
-	localYAML := `
-provider: github
-repo: owner/repo
-.x: &x
-  X: {name: n, type: shell, command: "echo pwned"}
-actions:
-  <<: *x
-`
-	globalPath, localPath := writeTempConfigs(t, "", localYAML)
-
-	cfg, err := Load(globalPath, localPath, Trust{})
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
-	if _, exists := cfg.Actions["X"]; exists {
-		t.Fatalf("cfg.Actions[%q] survived untrusted stripping: %+v -- a merge key nested inside the local actions: block smuggled a shell action past the raw-node walk, bypassing the old decls.ActionKeys-gated strip", "X", cfg.Actions["X"])
-	}
-
-	km, err := ResolveKeymap(&cfg)
-	if err != nil {
-		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
-	}
-	result := km.Lookup(keymap.ModeNormal, "", keymap.Sequence{keymap.Key("X")})
-	if result.Outcome == keymap.OutcomeMatch && result.Binding.Kind == keymap.BindingAction {
-		t.Fatalf("Lookup(normal, \"\", X) = %+v, want no binding", result)
-	}
-}
-
-func TestLoad_Untrusted_MergeKeySmugglingWholeColumnsBlockCannotBypassStrip(t *testing.T) {
-	// Column-side analog of PoC A: the local document never declares a
-	// literal top-level "columns:" key at all (only ".x" and "<<"), so
-	// decls.HasColumns is false and the old code's `if !decls.HasColumns {
-	// return }` skipped the column strip pass entirely -- even though the
-	// generic decoder populated cfg.Columns (and its shell action) from the
-	// merged-in content.
-	localYAML := `
-provider: github
-repo: owner/repo
-.x: &x
-  columns:
-    - name: Refined
-      actions:
-        L: {name: Evil, type: shell, command: "rm -rf /"}
-<<: *x
-`
-	globalPath, localPath := writeTempConfigs(t, "", localYAML)
-
-	cfg, err := Load(globalPath, localPath, Trust{})
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
-
-	var refined *ColumnConfig
-	for i := range cfg.Columns {
-		if cfg.Columns[i].Name == "Refined" {
-			refined = &cfg.Columns[i]
-		}
-	}
-	if refined == nil {
-		t.Fatalf("cfg.Columns has no %q entry: %+v", "Refined", cfg.Columns)
-	}
-	if _, exists := refined.Actions["L"]; exists {
-		t.Fatalf("Refined column's merge-key-smuggled shell action %q survived untrusted stripping: %+v -- the whole columns: block never appeared as a literal top-level key, so the old decls.HasColumns gate skipped stripping entirely", "L", refined.Actions["L"])
-	}
-
-	km, err := ResolveKeymap(&cfg)
-	if err != nil {
-		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
-	}
-	result := km.Lookup(keymap.ModeNormal, "Refined", keymap.Sequence{keymap.Key("L")})
-	if result.Outcome == keymap.OutcomeMatch && result.Binding.Kind == keymap.BindingAction {
-		t.Fatalf("Lookup(normal, Refined, L) = %+v, want no binding", result)
-	}
-}
+// all the way to ResolveKeymap -> execution. ---
 
 // TestLoad_Untrusted_MergeKeyInsideKeymapsTableIsNotABypass confirms that
 // keymaps.go's hand-rolled parsing does not silently expand a merge key into
@@ -871,58 +632,6 @@ keymaps:
 	}
 }
 
-// TestLoad_Untrusted_StrippedFallbackKeyStillGetsOrderOffset guards a
-// non-security side effect of the value-comparison rewrite: Load()'s
-// Order-offset logic (config.go, "Push every key the local document didn't
-// declare itself... after all locally-declared keys") must still treat a
-// stripped-and-restored-from-global key the same way it always has -- as if
-// the local document never declared it at all -- even though the new
-// stripShellFromActions no longer uses decls.ActionKeys to decide what to
-// strip. It still deletes a stripped key from decls.ActionKeys purely for
-// this bookkeeping; if that upkeep were dropped, the restored global
-// fallback would wrongly keep its local-document-relative Order instead of
-// being pushed after genuinely-local keys, a silent cosmetic regression in
-// how the help modal/action list renders entries.
-func TestLoad_Untrusted_StrippedFallbackKeyStillGetsOrderOffset(t *testing.T) {
-	globalYAML := `
-actions:
-  G:
-    name: Global Legacy Shell
-    type: shell
-    command: "echo global-legacy"
-`
-	localYAML := `
-provider: github
-repo: owner/repo
-actions:
-  L:
-    name: Local Safe
-    type: url
-    url: "https://example.com"
-  G:
-    name: Local Evil
-    type: shell
-    command: "rm -rf /"
-`
-	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
-
-	cfg, err := Load(globalPath, localPath, Trust{})
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
-
-	if cfg.Actions["L"].Order >= cfg.Actions["G"].Order {
-		t.Fatalf("Actions[L].Order = %d, want < Actions[G].Order = %d: G was stripped (untrusted local override) and restored from global, so it must render after the genuinely-local L, exactly like an inherited-unchanged global-only key always has",
-			cfg.Actions["L"].Order, cfg.Actions["G"].Order)
-	}
-	// And the restored G itself must be the safe global content, not the
-	// stripped local override -- belt-and-suspenders alongside the other
-	// stripping tests above.
-	if cfg.Actions["G"].Command != "echo global-legacy" {
-		t.Fatalf("Actions[G].Command = %q, want the global fallback command, not the stripped local override", cfg.Actions["G"].Command)
-	}
-}
-
 // --- LOW (security review): stripping the shell entries out of a column's
 // actions map must only reset the map to nil (\"inherit global\") when the
 // strip pass actually deleted something. An untrusted local column that
@@ -931,47 +640,6 @@ actions:
 // resetting it to nil purely because its post-strip length happens to be
 // zero would silently flip "explicit empty, no actions" into "nil, inherit
 // global", diverging from the trusted load of the identical bytes. ---
-
-func TestLoad_Untrusted_ColumnExplicitEmptyActionsStaysEmptyWhenNothingStripped(t *testing.T) {
-	globalYAML := `
-columns:
-  - name: Refined
-    actions:
-      h: { name: Global Col Action, type: url, url: "https://example.com" }
-`
-	localYAML := `
-provider: github
-repo: owner/repo
-columns:
-  - name: Refined
-    actions: {}
-`
-	globalPath, localPath := writeTempConfigs(t, globalYAML, localYAML)
-
-	cfg, err := Load(globalPath, localPath, Trust{})
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
-	km, err := ResolveKeymap(&cfg)
-	if err != nil {
-		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
-	}
-
-	result := km.Lookup(keymap.ModeNormal, "Refined", keymap.Sequence{keymap.Key("h")})
-	if result.Outcome == keymap.OutcomeMatch {
-		t.Fatalf("Lookup(normal, Refined, h) = %+v, want no binding: the local column's explicit actions: {} (nothing shell to strip) must stay explicit-empty after the untrusted strip pass touches it, not get reset to nil and silently re-inherit the global column action", result)
-	}
-
-	trusted, err := Load(globalPath, localPath, Trust{Trusted: []TrustEntry{{Hash: mustHashLocal(t, localPath)}}})
-	if err != nil {
-		t.Fatalf("Load() (trusted) returned unexpected error: %v", err)
-	}
-	kmTrusted, err := ResolveKeymap(&trusted)
-	if err != nil {
-		t.Fatalf("ResolveKeymap() (trusted) returned unexpected error: %v", err)
-	}
-	assertIdenticalLookup(t, km, kmTrusted, keymap.ModeNormal, "Refined", keymap.Sequence{keymap.Key("h")})
-}
 
 // --- #569 (3/4): close the last local-origin shell sink -- cleanup:/
 // columns[].cleanup -- and make the whole strip mechanism visible via
@@ -1253,7 +921,7 @@ columns:
 }
 
 // --- AC11: Config carries a notice entry exactly when at least one local
-// sink was stripped (keymap, legacy, or cleanup), always naming the literal
+// sink was stripped (keymap binding or cleanup), always naming the literal
 // ".lazyboards.yml" (never the local path argument passed to Load, per Q2)
 // and the exact `lazyboards trust` invocation; absent when nothing was
 // stripped. ---
@@ -1322,32 +990,7 @@ keymaps:
 	}
 
 	if len(cfg.Notices) != 1 {
-		t.Fatalf("cfg.Notices = %v, want exactly one notice for a keymap-only strip (AC11: keymap, legacy, or cleanup)", cfg.Notices)
-	}
-	if !strings.Contains(cfg.Notices[0], ".lazyboards.yml") {
-		t.Fatalf("cfg.Notices[0] = %q, want it to name the literal \".lazyboards.yml\"", cfg.Notices[0])
-	}
-}
-
-func TestLoad_Untrusted_LegacyOnlyStripEmitsSingleNotice(t *testing.T) {
-	localYAML := `
-provider: github
-repo: owner/repo
-actions:
-  L:
-    name: Local Legacy Shell
-    type: shell
-    command: "rm -rf /"
-`
-	globalPath, localPath := writeTempConfigs(t, "", localYAML)
-
-	cfg, err := Load(globalPath, localPath, Trust{})
-	if err != nil {
-		t.Fatalf("Load() returned unexpected error: %v", err)
-	}
-
-	if len(cfg.Notices) != 1 {
-		t.Fatalf("cfg.Notices = %v, want exactly one notice for a legacy-action-only strip (AC11: keymap, legacy, or cleanup)", cfg.Notices)
+		t.Fatalf("cfg.Notices = %v, want exactly one notice for a keymap-only strip (AC11: keymap binding or cleanup)", cfg.Notices)
 	}
 	if !strings.Contains(cfg.Notices[0], ".lazyboards.yml") {
 		t.Fatalf("cfg.Notices[0] = %q, want it to name the literal \".lazyboards.yml\"", cfg.Notices[0])

@@ -280,13 +280,12 @@ func TestLoad_LowercaseCustomActionAndUppercaseBuiltIn_LoadCleanly(t *testing.T)
 	// lowercase key bound to a custom action and an uppercase key bound to
 	// a built-in command must both load with no error.
 	yamlContent := `provider: github
-actions:
-  z:
-    name: Custom
-    type: url
-    url: "https://example.com"
 keymaps:
   normal:
+    z:
+      name: Custom
+      type: url
+      url: "https://example.com"
     Z: board.refresh
 `
 	result := mustLoadConfig(t, yamlContent, "")
@@ -296,7 +295,7 @@ keymaps:
 		t.Fatal("Keymaps.Modes missing \"normal\" entry")
 	}
 	if _, ok := table["z"]; !ok {
-		t.Fatal("expected legacy-translated lowercase key \"z\" in keymaps.normal")
+		t.Fatal("expected lowercase custom-action key \"z\" in keymaps.normal")
 	}
 	if _, ok := table["Z"]; !ok {
 		t.Fatal("expected native uppercase key \"Z\" in keymaps.normal")

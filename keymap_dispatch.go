@@ -20,9 +20,9 @@ import (
 // every hint bar immediately rebuilt from it -- the single choke point that
 // keeps b.normalHints/b.statusBar.hints in sync with whatever table dispatch
 // will actually resolve against next, so a remap can never leave a stale
-// hint bar advertising an old binding. Used by NewBoard's initial legacy-
-// derived keymap and by main.go's post-config.Load() override with the
-// fully resolved config.ResolveKeymap result.
+// hint bar advertising an old binding. Used by main.go to layer the loaded
+// config's keymaps: over NewBoard's built-in defaults, via
+// config.ResolveKeymap.
 func (b Board) withKeymap(keys *keymap.Keymap) Board {
 	b.keys = keys
 	b.rebuildNormalHints()

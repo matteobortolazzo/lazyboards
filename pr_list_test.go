@@ -652,7 +652,7 @@ func TestPRList_CustomAction_NonPRScopeIgnored(t *testing.T) {
 
 // TestPRList_CustomAction_EmptyListNoOp asserts an action key on an empty
 // list is a safe no-op. The scope: pr action is configured through
-// newActionTestBoardWithColumns (NewBoard's legacy actions param), which
+// newActionTestBoardWithColumns (which resolves its actions into a keymap), which
 // feeds the pr_list keymap dispatch reads against -- unlike a post-NewBoard
 // b.actions assignment, which no longer feeds dispatch now that the PR list
 // resolves inline actions through the registry (#490 PR 7b).
