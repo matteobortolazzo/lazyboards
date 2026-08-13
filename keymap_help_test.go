@@ -574,7 +574,7 @@ func TestKeymapHelp_LabelConfirmSection_OmittedWhenAllBindingsUnbound(t *testing
 // generator can make these assertions true.
 
 func TestHelpColumnActionRows_ColumnEntryIdenticalToGlobal_Excluded(t *testing.T) {
-	b, _ := newColumnActionTestBoard(t, nil, []config.ColumnConfig{{Name: "Refined"}})
+	b, _ := newColumnActionTestBoard(t, nil, []testColumn{{Name: "Refined"}})
 	if got := b.activeColumnTitle(); got == "Refined" {
 		t.Fatalf("precondition: %q must not be the active column for this test to isolate the Custom Actions section", "Refined")
 	}
@@ -592,7 +592,7 @@ func TestHelpColumnActionRows_ColumnEntryIdenticalToGlobal_Excluded(t *testing.T
 }
 
 func TestHelpColumnActionRows_ColumnOverrideOfGlobalKey_Included(t *testing.T) {
-	b, _ := newColumnActionTestBoard(t, nil, []config.ColumnConfig{{Name: "Refined"}})
+	b, _ := newColumnActionTestBoard(t, nil, []testColumn{{Name: "Refined"}})
 	if got := b.activeColumnTitle(); got == "Refined" {
 		t.Fatalf("precondition: %q must not be the active column for this test to isolate the Custom Actions section", "Refined")
 	}
@@ -614,7 +614,7 @@ func TestHelpColumnActionRows_ColumnOverrideOfGlobalKey_Included(t *testing.T) {
 // --- Active column: override appears both inline and under Custom Actions ---
 
 func TestHelpColumnActionRows_ActiveColumnOverride_AlsoAppearsInlineInNormalMode(t *testing.T) {
-	b, _ := newColumnActionTestBoard(t, nil, []config.ColumnConfig{{Name: "New"}})
+	b, _ := newColumnActionTestBoard(t, nil, []testColumn{{Name: "New"}})
 	if got := b.activeColumnTitle(); got != "New" {
 		t.Fatalf("precondition: active column should be %q, got %q", "New", got)
 	}
@@ -635,7 +635,7 @@ func TestHelpColumnActionRows_ActiveColumnOverride_AlsoAppearsInlineInNormalMode
 // --- Ordering ---
 
 func TestHelpColumnActionRows_OrderedByActionOrder(t *testing.T) {
-	b, _ := newColumnActionTestBoard(t, nil, []config.ColumnConfig{{Name: "Refined"}})
+	b, _ := newColumnActionTestBoard(t, nil, []testColumn{{Name: "Refined"}})
 	if got := b.activeColumnTitle(); got == "Refined" {
 		t.Fatalf("precondition: %q must not be the active column for this test to isolate the Custom Actions section", "Refined")
 	}
@@ -675,7 +675,7 @@ func TestHelpActionRows_SanitizesUntrustedNameAndType(t *testing.T) {
 }
 
 func TestHelpColumnActionRows_SanitizesUntrustedNameAndType(t *testing.T) {
-	b, _ := newColumnActionTestBoard(t, nil, []config.ColumnConfig{{Name: "Refined"}})
+	b, _ := newColumnActionTestBoard(t, nil, []testColumn{{Name: "Refined"}})
 	if got := b.activeColumnTitle(); got == "Refined" {
 		t.Fatalf("precondition: %q must not be the active column for this test to isolate the Custom Actions section", "Refined")
 	}

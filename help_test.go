@@ -478,7 +478,7 @@ func TestHelpMode_GlobalCustomAction_DuplicatedAcrossNormalAndDetailSections(t *
 
 func TestHelpMode_ViewShowsColumnActions(t *testing.T) {
 	globalActions := map[string]config.Action{}
-	columnConfigs := []config.ColumnConfig{
+	columnConfigs := []testColumn{
 		{
 			Name: "New",
 			Actions: map[string]config.Action{
@@ -528,7 +528,7 @@ func TestHelpContent_GlobalActionsAreSortedByKey(t *testing.T) {
 
 func TestHelpContent_ColumnActionsAreSortedByKey(t *testing.T) {
 	globalActions := map[string]config.Action{}
-	columnConfigs := []config.ColumnConfig{
+	columnConfigs := []testColumn{
 		{
 			Name: "New",
 			Actions: map[string]config.Action{

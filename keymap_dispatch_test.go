@@ -270,43 +270,39 @@ func TestKeymapDispatch_UserConfigRestoresPreRemapKey(t *testing.T) {
 	}
 }
 
-// --- #502 AC7: a legacy actions: block can shadow a new built-in default ---
+// --- #502 AC7: a user inline action can shadow a new built-in default ---
 
-// TestKeymapDispatch_LegacyActionsBlockShadowsRemappedBuiltinDefaults covers
-// AC7: a legacy actions: block claiming any of D/P/A/G (#502's new built-in
-// defaults) loads without error and shadows the built-in, exactly like any
-// other legacy-vs-default collision (TestTranslateLegacyActions_
-// KeymapsDeclaredKeyWinsOverLegacy's precedent, just approached from the
-// opposite direction: here the legacy action is the one that should win
-// because nothing else claims the key). Exercised through
-// newConfigLoadedActionTestBoard, whose NewBoard call threads cfg.Actions
-// through config.KeymapFromLegacy -- the same merge config.ResolveKeymap
-// performs (TestKeymapFromLegacy_EquivalentToResolveKeymapOfSameConfig) --
-// so it doubles as FakeExecutor-wired dispatch coverage without needing the
-// heavier full config.Load->ResolveKeymap->withKeymap board builder.
-func TestKeymapDispatch_LegacyActionsBlockShadowsRemappedBuiltinDefaults(t *testing.T) {
+// TestKeymapDispatch_InlineActionShadowsRemappedBuiltinDefaults covers AC7: a
+// keymaps.normal inline action claiming any of D/P/A/G (#502's new built-in
+// defaults) loads without error and shadows the built-in, since a user
+// binding always wins over a default. Exercised through
+// newConfigLoadedActionTestBoard's real config.Load -> ResolveKeymap ->
+// withKeymap wiring with a FakeExecutor attached, so the shadowing is
+// asserted by what the shell action actually runs.
+func TestKeymapDispatch_InlineActionShadowsRemappedBuiltinDefaults(t *testing.T) {
 	localYAML := `provider: github
-actions:
-  D:
-    name: Custom D
-    type: shell
-    command: "echo custom-d"
-    scope: board
-  P:
-    name: Custom P
-    type: shell
-    command: "echo custom-p"
-    scope: board
-  A:
-    name: Custom A
-    type: shell
-    command: "echo custom-a"
-    scope: board
-  G:
-    name: Custom G
-    type: shell
-    command: "echo custom-g"
-    scope: board
+keymaps:
+  normal:
+    D:
+      name: Custom D
+      type: shell
+      command: "echo custom-d"
+      scope: board
+    P:
+      name: Custom P
+      type: shell
+      command: "echo custom-p"
+      scope: board
+    A:
+      name: Custom A
+      type: shell
+      command: "echo custom-a"
+      scope: board
+    G:
+      name: Custom G
+      type: shell
+      command: "echo custom-g"
+      scope: board
 `
 	b, fe := newConfigLoadedActionTestBoard(t, localYAML)
 

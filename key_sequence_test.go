@@ -15,8 +15,8 @@ import (
 // seqActions returns two sibling URL sequences sharing the "Z" prefix.
 func seqActions() map[string]config.Action {
 	return map[string]config.Action{
-		"Zf": {Name: "PR frontend", Type: "url", URL: "https://example.com/frontend/{number}"},
-		"Zb": {Name: "PR backend", Type: "url", URL: "https://example.com/backend/{number}"},
+		"Z f": {Name: "PR frontend", Type: "url", URL: "https://example.com/frontend/{number}"},
+		"Z b": {Name: "PR backend", Type: "url", URL: "https://example.com/backend/{number}"},
 	}
 }
 
@@ -38,9 +38,8 @@ func TestKeySequence_PendingHintsListCandidatesAndCancel(t *testing.T) {
 
 	b = sendKey(t, b, keyMsg("Z"))
 
-	// Under the registry's canonical sequence format the which-key labels
-	// are space-separated ("Z f"), not the bare rune-concatenated legacy
-	// form ("Zf") -- per A2.
+	// The which-key labels are the canonical, space-separated sequence
+	// form ("Z f") the config declares them in.
 	wantHints := []Hint{
 		{Key: "Z b", Desc: "PR backend"},
 		{Key: "Z f", Desc: "PR frontend"},
@@ -116,9 +115,9 @@ func TestKeySequence_UnmatchedContinuationCancelsWithWarning(t *testing.T) {
 
 func TestKeySequence_BuiltinKeyServesAsContinuation(t *testing.T) {
 	// While a sequence is pending, every key belongs to the sequence: "j"
-	// must complete "Zj" instead of moving the cursor.
+	// must complete "Z j" instead of moving the cursor.
 	actions := map[string]config.Action{
-		"Zj": {Name: "PR jobs", Type: "url", URL: "https://example.com/jobs/{number}"},
+		"Z j": {Name: "PR jobs", Type: "url", URL: "https://example.com/jobs/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 	cursorBefore := b.Columns[b.ActiveTab].Cursor
@@ -137,7 +136,7 @@ func TestKeySequence_BuiltinKeyServesAsContinuation(t *testing.T) {
 func TestKeySequence_SingleKeyActionsStillDispatchImmediately(t *testing.T) {
 	actions := map[string]config.Action{
 		"X":  {Name: "Open", Type: "url", URL: "https://example.com/{number}"},
-		"Zf": {Name: "PR frontend", Type: "url", URL: "https://example.com/frontend/{number}"},
+		"Z f": {Name: "PR frontend", Type: "url", URL: "https://example.com/frontend/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
@@ -187,7 +186,7 @@ func TestKeySequence_EscFromDetailFocusOnlyCancelsSequence(t *testing.T) {
 
 func TestKeySequence_AltOnPrefixKeyTriggersCommentMode(t *testing.T) {
 	actions := map[string]config.Action{
-		"Zf": {Name: "PR frontend", Type: "shell", Command: "echo {number} {comment}"},
+		"Z f": {Name: "PR frontend", Type: "shell", Command: "echo {number} {comment}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 
@@ -207,7 +206,7 @@ func TestKeySequence_AltOnPrefixKeyTriggersCommentMode(t *testing.T) {
 
 func TestKeySequence_AltOnFinalKeyTriggersCommentMode(t *testing.T) {
 	actions := map[string]config.Action{
-		"Zf": {Name: "PR frontend", Type: "shell", Command: "echo {number} {comment}"},
+		"Z f": {Name: "PR frontend", Type: "shell", Command: "echo {number} {comment}"},
 	}
 	b, _ := newActionTestBoard(t, actions)
 
@@ -221,7 +220,7 @@ func TestKeySequence_AltOnFinalKeyTriggersCommentMode(t *testing.T) {
 
 func TestKeySequence_PRScopeGatedPrefixDoesNotEnterPending(t *testing.T) {
 	actions := map[string]config.Action{
-		"Zf": {Name: "PR frontend", Type: "url", Scope: "pr", URL: "https://example.com/pr/{pr_number}"},
+		"Z f": {Name: "PR frontend", Type: "url", Scope: "pr", URL: "https://example.com/pr/{pr_number}"},
 	}
 	b, fe := newPRActionTestBoard(t, actions)
 
@@ -258,9 +257,9 @@ func TestKeySequence_CardScopePrefixIgnoredWhenNoCards(t *testing.T) {
 }
 
 func TestKeySequence_ColumnActionCanExtendPrefix(t *testing.T) {
-	columnConfigs := []config.ColumnConfig{
+	columnConfigs := []testColumn{
 		{Name: "New", Actions: map[string]config.Action{
-			"Zn": {Name: "Column sequence", Type: "url", URL: "https://example.com/col/{number}"},
+			"Z n": {Name: "Column sequence", Type: "url", URL: "https://example.com/col/{number}"},
 		}},
 	}
 	b, fe := newColumnActionTestBoard(t, nil, columnConfigs)
@@ -369,7 +368,7 @@ func TestKeySequence_AsyncCardRemovalCancelsPending(t *testing.T) {
 
 func TestKeySequence_ThreeKeySequenceDispatches(t *testing.T) {
 	actions := map[string]config.Action{
-		"Zfa": {Name: "Deep sequence", Type: "url", URL: "https://example.com/deep/{number}"},
+		"Z f a": {Name: "Deep sequence", Type: "url", URL: "https://example.com/deep/{number}"},
 	}
 	b, fe := newActionTestBoard(t, actions)
 

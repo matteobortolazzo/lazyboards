@@ -81,7 +81,8 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 
 	// Board starts in loadingMode. Press the action key.
 	b = sendKey(t, b, keyMsg("X"))
@@ -209,7 +210,7 @@ func TestAction_ColumnActionOverridesGlobal(t *testing.T) {
 	globalActions := map[string]config.Action{
 		"X": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
 	}
-	columnConfigs := []config.ColumnConfig{
+	columnConfigs := []testColumn{
 		{
 			Name: "New",
 			Actions: map[string]config.Action{
@@ -238,7 +239,7 @@ func TestAction_FallbackToGlobalWhenColumnHasNoAction(t *testing.T) {
 	globalActions := map[string]config.Action{
 		"X": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
 	}
-	columnConfigs := []config.ColumnConfig{
+	columnConfigs := []testColumn{
 		{Name: "New"}, // No column-level actions for "X".
 		{Name: "Refined"},
 		{Name: "Implementing"},
@@ -260,7 +261,7 @@ func TestAction_FallbackToGlobalWhenColumnHasNoAction(t *testing.T) {
 func TestAction_ColumnActionOnlyFiresInMatchingColumn(t *testing.T) {
 	// No global action for key "X".
 	globalActions := map[string]config.Action{}
-	columnConfigs := []config.ColumnConfig{
+	columnConfigs := []testColumn{
 		{Name: "New"}, // No actions for column 0.
 		{
 			Name: "Refined",
@@ -293,7 +294,7 @@ func TestAction_ColumnActionOnlyFiresInMatchingColumn(t *testing.T) {
 
 func TestAction_ColumnShellUsesShellEscape(t *testing.T) {
 	globalActions := map[string]config.Action{}
-	columnConfigs := []config.ColumnConfig{
+	columnConfigs := []testColumn{
 		{
 			Name: "New",
 			Actions: map[string]config.Action{
@@ -332,7 +333,8 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 
 	// Load a board with a card that has labels containing URL-special characters.
 	cardLabels := []provider.Label{{Name: "bug&fix"}, {Name: "feature?v2"}}
@@ -675,18 +677,17 @@ func TestAction_BoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
 
 func TestAction_InferredBoardScope_URLFiresWithEmptyColumn(t *testing.T) {
 	yamlContent := `provider: github
-actions:
-  B:
-    name: Open board
-    type: url
-    url: "https://github.com/{repo_owner}/{repo_name}/issues"
+keymaps:
+  normal:
+    B:
+      name: Open board
+      type: url
+      url: "https://github.com/{repo_owner}/{repo_name}/issues"
 `
-	cfg := mustLoadTestConfig(t, yamlContent)
-	if cfg.Actions["B"].Scope != "board" {
-		t.Fatalf("precondition failed: Actions[B].Scope = %q, want %q (inference should have resolved it)", cfg.Actions["B"].Scope, "board")
+	b, fe := newConfigLoadedEmptyColumnBoard(t, yamlContent)
+	if scope := boundActionScope(t, b, "B"); scope != "board" {
+		t.Fatalf("precondition failed: resolved scope for %q = %q, want %q (inference should have resolved it)", "B", scope, "board")
 	}
-
-	b, fe := newBoardWithEmptyColumn(t, cfg.Actions)
 
 	// Press the inferred board-scope action key with no cards in the column.
 	b = sendKey(t, b, keyMsg("B"))
@@ -703,18 +704,17 @@ actions:
 
 func TestAction_InferredBoardScope_ShellFiresWithEmptyColumn(t *testing.T) {
 	yamlContent := `provider: github
-actions:
-  S:
-    name: Deploy
-    type: shell
-    command: "deploy --repo {repo_owner}/{repo_name}"
+keymaps:
+  normal:
+    S:
+      name: Deploy
+      type: shell
+      command: "deploy --repo {repo_owner}/{repo_name}"
 `
-	cfg := mustLoadTestConfig(t, yamlContent)
-	if cfg.Actions["S"].Scope != "board" {
-		t.Fatalf("precondition failed: Actions[S].Scope = %q, want %q (inference should have resolved it)", cfg.Actions["S"].Scope, "board")
+	b, fe := newConfigLoadedEmptyColumnBoard(t, yamlContent)
+	if scope := boundActionScope(t, b, "S"); scope != "board" {
+		t.Fatalf("precondition failed: resolved scope for %q = %q, want %q (inference should have resolved it)", "S", scope, "board")
 	}
-
-	b, fe := newBoardWithEmptyColumn(t, cfg.Actions)
 
 	m2, cmd := b.Update(keyMsg("S"))
 	b = m2.(Board)
@@ -733,14 +733,14 @@ actions:
 
 func TestAction_InferredBoardScopeHint_VisibleOnEmptyColumn(t *testing.T) {
 	yamlContent := `provider: github
-actions:
-  B:
-    name: Open board
-    type: url
-    url: "https://github.com/{repo_owner}/{repo_name}/issues"
+keymaps:
+  normal:
+    B:
+      name: Open board
+      type: url
+      url: "https://github.com/{repo_owner}/{repo_name}/issues"
 `
-	cfg := mustLoadTestConfig(t, yamlContent)
-	b, _ := newBoardWithEmptyColumn(t, cfg.Actions)
+	b, _ := newConfigLoadedEmptyColumnBoard(t, yamlContent)
 
 	view := b.View()
 	if !strings.Contains(view, "Open board") {
@@ -1048,7 +1048,8 @@ func TestAction_PRScope_SinglePR_ShellEscapesMaliciousBranch(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 
 	maliciousBranch := "feature/x; rm -rf / #"
 	msg := boardFetchedMsg{board: provider.Board{
@@ -1084,7 +1085,8 @@ func TestAction_PRScope_SinglePR_URLEscapesMaliciousBranch(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 
 	maliciousBranch := "feature/x&evil=1"
 	msg := boardFetchedMsg{board: provider.Board{
@@ -1261,22 +1263,23 @@ func TestAction_DetailFocused_PRScope_SinglePRFiresImmediately(t *testing.T) {
 func TestAction_HintBar_OrderMatchesConfigOrder(t *testing.T) {
 	localYAML := `provider: github
 repo: matteobortolazzo/lazyboards
-actions:
-  Z:
-    name: Zebra action
-    type: shell
-    scope: board
-    command: "echo z"
-  A:
-    name: Apple action
-    type: shell
-    scope: board
-    command: "echo a"
-  M:
-    name: Mango action
-    type: shell
-    scope: board
-    command: "echo m"
+keymaps:
+  normal:
+    Z:
+      name: Zebra action
+      type: shell
+      scope: board
+      command: "echo z"
+    A:
+      name: Apple action
+      type: shell
+      scope: board
+      command: "echo a"
+    M:
+      name: Mango action
+      type: shell
+      scope: board
+      command: "echo m"
 `
 	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
 
@@ -1295,25 +1298,25 @@ actions:
 func TestAction_HintBar_ColumnOverride_KeepsGlobalPosition(t *testing.T) {
 	localYAML := `provider: github
 repo: matteobortolazzo/lazyboards
-actions:
-  X:
-    name: Global X
-    type: shell
-    scope: board
-    command: "echo x"
-  Y:
-    name: Global Y
-    type: shell
-    scope: board
-    command: "echo y"
-  Z:
-    name: Global Z
-    type: shell
-    scope: board
-    command: "echo z"
-columns:
-  - name: New
-    actions:
+keymaps:
+  normal:
+    X:
+      name: Global X
+      type: shell
+      scope: board
+      command: "echo x"
+    Y:
+      name: Global Y
+      type: shell
+      scope: board
+      command: "echo y"
+    Z:
+      name: Global Z
+      type: shell
+      scope: board
+      command: "echo z"
+  columns:
+    New:
       Y:
         name: Overridden Y
         type: shell
@@ -1364,20 +1367,20 @@ func TestAction_HintBar_ZeroOrderActionsFallBackToAlphabetical(t *testing.T) {
 func TestAction_HintBar_ColumnOnlyKeysAppendAfterGlobalOrder(t *testing.T) {
 	localYAML := `provider: github
 repo: matteobortolazzo/lazyboards
-actions:
-  B:
-    name: Global B
-    type: shell
-    scope: board
-    command: "echo b"
-  A:
-    name: Global A
-    type: shell
-    scope: board
-    command: "echo a"
-columns:
-  - name: New
-    actions:
+keymaps:
+  normal:
+    B:
+      name: Global B
+      type: shell
+      scope: board
+      command: "echo b"
+    A:
+      name: Global A
+      type: shell
+      scope: board
+      command: "echo a"
+  columns:
+    New:
       B:
         name: Global B
         type: shell
@@ -1405,37 +1408,6 @@ columns:
 	}
 	if bIdx >= d || aIdx >= d {
 		t.Errorf("column-only key D should append after the global order (B, A); got indices B=%d A=%d D=%d in %+v", bIdx, aIdx, d, hints)
-	}
-}
-
-// TestAction_HintBar_MultiKeyLegacyActionUsesCanonicalLabel covers A2: a
-// legacy multi-key action key ("Zf") must reach the normal-mode hint bar
-// under its canonical, space-separated form ("Z f"), not the bare
-// rune-concatenated legacy key -- exercised end to end through the real
-// config.Load()/translateLegacyActions pipeline, mirroring
-// key_sequence_test.go's which-key label assertion for the same format.
-// Uses "Z" (unused by any default binding, #502) rather than "P" (now an
-// exact-match built-in after #502's remap) so the legacy-translated
-// sequence doesn't trip the prefix-conflict validator instead.
-func TestAction_HintBar_MultiKeyLegacyActionUsesCanonicalLabel(t *testing.T) {
-	localYAML := `provider: github
-repo: matteobortolazzo/lazyboards
-actions:
-  Zf:
-    name: PR frontend
-    type: url
-    scope: board
-    url: "https://example.com/frontend"
-`
-	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
-
-	hints := b.normalHints
-	if hintIndex(hints, "Zf") != -1 {
-		t.Errorf("normalHints should not contain the bare legacy key %q, want the canonical space-separated form", "Zf")
-	}
-	idx := hintIndex(hints, "Z f")
-	if idx == -1 || hints[idx].Desc != "PR frontend" {
-		t.Errorf("normalHints missing canonical multi-key hint %q with Desc %q, got: %+v", "Z f", "PR frontend", hints)
 	}
 }
 
