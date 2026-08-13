@@ -155,8 +155,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.config.configSaved = true
 			return b, tea.Quit
 		}
-		b.mode = loadingMode
-		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
+		return b.handleConfigSaved(msg)
 
 	case configSaveErrorMsg:
 		// See the boardFetchErrorMsg case above for why this needs
@@ -432,6 +431,99 @@ func (b Board) filterNoMatchesMessage() string {
 		return "Filter has no matches"
 	}
 	return fmt.Sprintf("Filter has no matches — press %s to clear", key)
+}
+
+// handleConfigSaved reloads the board after the config modal writes a new
+// provider/repo. A BoardProvider is bound to one owner/repo at construction,
+// so when either changed the provider must be rebuilt before fetching --
+// reusing the old one re-fetches the previous repository and makes the save
+// look like it did nothing. Failures (a malformed identifier, a provider the
+// factory can't build) return to configMode with the reason rather than
+// leaving the board pointed somewhere the config no longer describes.
+func (b Board) handleConfigSaved(msg configSavedMsg) (tea.Model, tea.Cmd) {
+	owner, name, ok := splitRepo(msg.repo)
+	if !ok {
+		b.validationErr = "Repository must be in owner/repo format"
+		b.mode = configMode
+		return b, nil
+	}
+
+	if msg.provider == b.providerName && owner == b.repoOwner && name == b.repoName {
+		// Nothing to retarget -- the existing provider already serves this
+		// repo, so this is a plain reload.
+		b.mode = loadingMode
+		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
+	}
+
+	if b.providerFactory == nil {
+		b.validationErr = "Cannot switch repository at runtime — restart lazyboards to use the saved configuration"
+		b.mode = configMode
+		return b, nil
+	}
+
+	p, err := b.providerFactory(msg.provider, owner, name)
+	if err != nil {
+		// See the boardFetchErrorMsg case in Update for why this needs
+		// sanitizeSingleLine.
+		b.validationErr = sanitizeSingleLine(provider.SanitizeError(err))
+		b.mode = configMode
+		return b, nil
+	}
+
+	b.provider = p
+	b.providerName = msg.provider
+	b.repoOwner = owner
+	b.repoName = name
+	b.resetRepoScopedState()
+	b.mode = loadingMode
+	return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
+}
+
+// resetRepoScopedState drops every piece of board state that describes the
+// previously tracked repository, so a switch starts from a clean slate instead
+// of mixing the old repo's data into the new one's first fetch.
+//
+// prevCards matters most: every card of the old repo is absent from the new
+// one, so leaving the map in place makes each of them read as a departure and
+// fires the columns' cleanup commands against cards that never moved. The
+// metadata fields are cleared for the same reason the TTL stamp is -- the new
+// repo's collaborators/labels must be re-fetched, not inherited -- and the
+// filter/search selections are cleared because they name labels, assignees and
+// milestones that only existed in the old repository.
+//
+// startupWarning is deliberately left alone: it describes how this run's
+// config was loaded (e.g. an untrusted-local-config strip notice, #568), not
+// the repository being tracked, and it must still reach the status bar on the
+// first successful fetch even if that fetch is the one after a repo switch.
+func (b *Board) resetRepoScopedState() {
+	b.Columns = nil
+	b.ActiveTab = 0
+	b.prevCards = nil
+	b.cleanupBreakerWarning = ""
+
+	b.collaborators = nil
+	b.authenticatedUser = ""
+	b.repoLabels = nil
+	b.lastMetadataFetch = time.Time{}
+	b.openPRCount = -1
+	b.loadErr = ""
+
+	b.detailFocused = false
+	b.detailScrollOffset = 0
+	b.prPickerIndex = 0
+	b.pendingPRAction = nil
+	b.clearPendingSeq()
+	b.clearPendingRefs()
+
+	b.searchQuery = ""
+	b.searchInput.SetValue("")
+	b.activeFilterType = filterTypeNone
+	b.activeFilterValue = ""
+	b.filterItems = nil
+	b.filterCursor = 0
+
+	b.prList = prListState{}
+	b.milestoneList = milestoneListState{}
 }
 
 func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {

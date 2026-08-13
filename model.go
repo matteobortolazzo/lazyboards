@@ -335,8 +335,15 @@ type gitStatusMsg struct {
 // gitStatusTickMsg is sent when the background git status poll timer fires.
 type gitStatusTickMsg struct{}
 
-// configSavedMsg is sent when a config file has been saved successfully.
-type configSavedMsg struct{}
+// configSavedMsg is sent when a config file has been saved successfully. It
+// carries the provider name and "owner/repo" that were just written: a
+// BoardProvider is bound to one owner/repo at construction, so the handler
+// needs them to rebuild the provider and retarget the board. Without that,
+// saving a different repo only refreshes the previous one.
+type configSavedMsg struct {
+	provider string
+	repo     string
+}
 
 // configSaveErrorMsg is sent when saving a config file fails.
 type configSaveErrorMsg struct{ err error }
@@ -864,6 +871,24 @@ type Board struct {
 	// config.KeymapFromLegacy); main.go overrides it once at startup with the
 	// fully resolved config.ResolveKeymap result via withKeymap.
 	keys *keymap.Keymap
+	// providerFactory builds a BoardProvider for a provider name and an
+	// owner/repo pair. Providers are bound to one repository at construction,
+	// so retargeting the board at a repo saved in the config modal requires
+	// building a new one; main.go injects this after NewBoard (like statePath
+	// and tmuxSession) so the factory can reuse the already-authenticated API
+	// clients. Nil means "cannot retarget at runtime": a repo change then
+	// reports that rather than silently refreshing the previous repo.
+	providerFactory func(providerName, owner, repo string) (provider.BoardProvider, error)
+}
+
+// splitRepo splits a "owner/repo" identifier into its two halves. ok is false
+// unless both halves are present and non-empty.
+func splitRepo(repo string) (owner, name string, ok bool) {
+	parts := strings.SplitN(repo, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).

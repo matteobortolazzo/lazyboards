@@ -295,6 +295,11 @@ func main() {
 	}
 
 	var bp provider.BoardProvider
+	// providerFactory lets the board rebuild its provider when the config
+	// modal saves a different repository, so the switch takes effect without a
+	// restart. It closes over the already-authenticated clients, so only the
+	// owner/repo (and the column mapping, which the modal never changes) vary.
+	var providerFactory func(providerName, owner, repo string) (provider.BoardProvider, error)
 	switch prov {
 	case "":
 		fmt.Fprintf(os.Stderr, "No provider detected.\n\n")
@@ -321,8 +326,8 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Ensure GITHUB_TOKEN or `gh auth token` provides a valid token.\n")
 			os.Exit(1)
 		}
-		parts := strings.SplitN(repo, "/", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		cfgOwner, cfgRepoName, ok := splitRepo(repo)
+		if !ok {
 			fmt.Fprintf(os.Stderr, "Invalid repo format %q, expected \"owner/repo\"\n", repo)
 			os.Exit(1)
 		}
@@ -336,7 +341,17 @@ func main() {
 		}
 		gqlClient := githubv4.NewClient(tc)
 		gqlAdapter := provider.NewGitHubV4Adapter(gqlClient)
-		bp = provider.NewGitHubProvider(ghc, gqlAdapter, parts[0], parts[1], cfg.ColumnNames())
+		columnNames := cfg.ColumnNames()
+		providerFactory = func(providerName, owner, repo string) (provider.BoardProvider, error) {
+			if providerName != "github" {
+				return nil, fmt.Errorf("unsupported provider %q — only github is implemented", providerName)
+			}
+			if owner == "" || repo == "" {
+				return nil, fmt.Errorf("invalid repo, expected %q", "owner/repo")
+			}
+			return provider.NewGitHubProvider(ghc, gqlAdapter, owner, repo, columnNames), nil
+		}
+		bp = provider.NewGitHubProvider(ghc, gqlAdapter, cfgOwner, cfgRepoName, columnNames)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown provider: %q\n", prov)
 		os.Exit(1)
@@ -382,6 +397,9 @@ func main() {
 	}
 	board = board.withKeymap(km)
 
+	// Let a repo saved in the config modal retarget the board in place,
+	// instead of writing the file and refreshing the previous repository.
+	board.providerFactory = providerFactory
 	// Scope the agents list to this instance's own tmux session (#410).
 	board.tmuxSession = resolveTmuxSession(action.DefaultExecutor{})
 	// trustPath lets in-app config Save() carry trust forward across a

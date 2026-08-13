@@ -27,7 +27,7 @@ The main BubbleTea model is split by responsibility:
 | File | Responsibility |
 |------|---------------|
 | `model.go` | Board struct, types, constants, styles, `NewBoard()`, `Init()`, `enterConfigMode()`, `dispatchState`, `dispatchMode` |
-| `update.go` | `Update()` dispatcher + async message handlers (`handleBoardFetched`, `handleCardClosed`, `handleCardUpdated`, `handleAssigneesUpdated`, etc.) + shared helpers (`findCard`, `onCursorMoved`, `moveCursor`) |
+| `update.go` | `Update()` dispatcher + async message handlers (`handleBoardFetched`, `handleCardClosed`, `handleCardUpdated`, `handleAssigneesUpdated`, `handleConfigSaved`, etc.) + shared helpers (`findCard`, `onCursorMoved`, `moveCursor`, `resetRepoScopedState`) |
 | `mode_handlers.go` | Per-mode key handlers (`handleCreateModeKey`, `handleConfigModeKey`, `handleNormalModeKey`, `runNormalCommand`, `handleSearchModeKey`, `handleDispatchModeKey`, etc.) |
 | `keymap_dispatch.go` | Registry dispatch seam for normal mode and the detail panel (#489): `dispatchKey`, generalized `handlePendingSeqKey`, the Alt-strip-and-retry fallback (`lookupWithAltFallback`, `altFallbackEligible`), `withKeymap`, and registry-derived hint building (`registryHints`); #589 adds the shared universal-command dispatch seam (`universalDispatch`) here too -- the single dispatch-layer source of truth for `app.quit` across all 19 resolvable modes, invoked in this file for `normal`/`detail`/the pending-sequence path and reused by `keymap_panels.go`, `keymap_text.go`, and `keymap_modals.go`'s consumer sites |
 | `action_dispatch.go` | Custom-action leaf dispatch (`dispatchActionWithAlt`, `dispatchResolvedAction`, `handleActionKey`, `handleBoardActionKey`, PR-scoped action handlers) plus the shared `prScopeUnavailable` dispatch-time pr-scope gate -- reached from `keymap_dispatch.go`'s `dispatchBinding` for a `BindingAction` result, from `update.go`'s `closeGitMenuAndDispatch` for the git panel's inline actions (#511, routed through the `ModeGitPanel` registry table rather than dispatching directly against `b.defaultActions`; #579 routes it through `dispatchResolvedAction` itself, honoring board/card/pr scope like normal-mode dispatch instead of forcing board scope, with `prScopeUnavailable` shared between both entry points so a 0-linked-PR pr-scope action refuses identically), and from `keymap_modals.go`'s `lookupModalBinding` for the `pr_list` mode's inline `BindingAction` result via `runPRListAction` (#490, replacing the deleted `handlePRListActionKey`) |
@@ -40,7 +40,7 @@ The main BubbleTea model is split by responsibility:
 | `commands.go` | Async `tea.Cmd` builders (`fetchBoardCmd`, `createCardCmd`, `runShellCmd`, `runCleanupCmds`, `saveConfigCmd`, `queryDispatchStatusCmd`, `toggleEnrollCmd`, `dispatchOnceCmd`) + `wrapTitle` |
 | `statusbar.go` | `StatusBar` component (hints, timed messages) |
 | `references.go` | `#N` reference parsing (`parseCardRefs`, `annotateBodyRefs`) and the `nav.reference` (default `g r`) reference-navigation trigger (`handleReferenceNavKey`, `handlePendingRefKey`, `resolveReference`, `refIssueURL`) |
-| `main.go` | Entry point, config loading, provider setup |
+| `main.go` | Entry point, config loading, provider setup, `providerFactory` injection |
 | `cli_trust.go` | `lazyboards trust`/`untrust` CLI verbs (#568): `trustVerb` (arg parsing, mirrors `versionRequested`), `trustVerbExtraArgs` (detects extra positional args/flags after the verb so `main()` rejects them with a usage error instead of silently launching the board), `runTrustVerb` (hashes the local config, adds/removes a matching `config.TrustEntry` in the trust store) |
 
 Tests are split by domain to mirror production code:
@@ -57,6 +57,7 @@ Tests are split by domain to mirror production code:
 | `commands_test.go` | `wrapTitle` tests |
 | `create_mode_test.go` | Create mode state, UI, input, form submission; `#540` (PR 1/2) adds registry-routing coverage: cursor-forwarding vs. assignee-cycle at each focus, remap/unbind of the assignee cycle and cancel key, `createModalHints()` default-parity and remap reflection, the hint<->dispatch invariant, and the non-command-`BindingAction`/foreign-command-id fallthrough cases |
 | `config_mode_test.go` | Config mode, first launch flow; `#540` (PR 1/2) adds registry-routing coverage: the `focus == 1` left/right swallow regression guard, provider-cycle remap/unbind, `configModalHints()` default-parity and remap reflection, the hint<->dispatch invariant, and the non-command-`BindingAction`/foreign-command-id fallthrough cases |
+| `config_repo_switch_test.go` | Retargeting the board at a repo/provider saved in the config modal (provider rebuild, stale-state reset, failure paths) |
 | `detail_panel_test.go` | Detail panel focus, scrolling, glamour rendering |
 | `actions_test.go` | Action triggers (URL, shell), column actions |
 | `agent_list_test.go` | Agents list modal (all cenci windows, tmux window navigation, state precedence) |

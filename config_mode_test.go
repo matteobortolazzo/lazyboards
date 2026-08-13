@@ -165,10 +165,15 @@ func TestConfigMode_Enter_TriggersConfigSave(t *testing.T) {
 
 func TestConfigMode_ConfigSaved_TransitionsToLoadingMode(t *testing.T) {
 	b := newLoadedTestBoard(t)
+	b.providerName = "github"
+	b.repoOwner = "owner"
+	b.repoName = "repo"
 	b = sendKey(t, b, keyMsg("c"))
 
-	// Send configSavedMsg to simulate successful save.
-	m, cmd := b.Update(configSavedMsg{})
+	// Send configSavedMsg to simulate saving the repo the board already
+	// tracks (the retarget path has its own coverage in
+	// config_repo_switch_test.go).
+	m, cmd := b.Update(configSavedMsg{provider: "github", repo: "owner/repo"})
 	b = m.(Board)
 
 	// Should transition to loadingMode (auto-refresh after save).

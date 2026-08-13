@@ -470,6 +470,14 @@ func (b Board) runConfigCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 			b.validationErr = "Repository is required"
 			return b, nil
 		}
+		// Reject a malformed identifier before it reaches the config file:
+		// every consumer (the provider rebuild in handleConfigSaved, and
+		// main.go at startup) needs both halves, and a saved "myrepo" would
+		// otherwise leave the board silently tracking the previous repository.
+		if _, _, ok := splitRepo(repo); !ok {
+			b.validationErr = "Repository must be in owner/repo format"
+			return b, nil
+		}
 		b.validationErr = ""
 		return b, saveConfigCmd(b.config.localPath, provider, repo, b.trustPath)
 	case keymap.CommandConfigNextField:
