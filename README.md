@@ -465,6 +465,33 @@ For a [key sequence](#key-sequences-prefix-keys), the Alt flag is sticky: hold i
 
 That refusal is the rule, not an edge case: the Alt overload resolves to an inline action or to nothing, and can never fire a built-in command. Binding `alt+<key>` explicitly on a key whose alt-free form is already a `{comment}` action is a load-time config error naming both, since the explicit binding would shadow the implicit overload.
 
+#### macOS: enabling the Alt modifier
+
+On macOS the Option key is a **compose key** by default: `⌥B` types `∫`, `⌥C` types `ç`. When Option composes, the terminal never sends the `ESC` prefix that lazyboards reads as Alt, so `Alt+b` arrives as a plain `∫` and the comment input never opens.
+
+This cannot be fixed in lazyboards. Composition happens in macOS before the bytes reach the terminal, and a composed `ç` is byte-identical to typing `ç` directly — by the time lazyboards sees the key, the modifier is gone. Nor can it be worked around in `keymaps:`: the comment overload is triggered by the Alt modifier on the keystroke, not by a bindable key, so there is no alt-free mapping that opens the comment input. You have to tell your terminal to send Option as Meta:
+
+| Terminal | Setting |
+|----------|---------|
+| Terminal.app | Settings → Profiles → Keyboard → **Use Option as Meta key** |
+| iTerm2 | Settings → Profiles → Keys → General → Left/Right Option key → **Esc+** |
+| Ghostty | `macos-option-as-alt = true` in `~/.config/ghostty/config` |
+| kitty | `macos_option_as_alt yes` in `~/.config/kitty/kitty.conf` |
+| WezTerm | `send_composed_key_when_left_alt_is_pressed = false` |
+| Alacritty | `option_as_alt = "Both"` under `[window]` |
+| VS Code | `"terminal.integrated.macOptionIsMeta": true` |
+
+Verify the terminal before suspecting lazyboards — run `cat -v` and press `⌥B`:
+
+```
+^[b     # correct: Option is sending Meta
+∫       # Option is still composing; the setting above is not applied
+```
+
+Note that this applies to the whole terminal profile, not just lazyboards: with Option as Meta you can no longer type accented characters (`é`, `ñ`, `ç`) in that profile. If you need both, enable the setting on a dedicated profile and run lazyboards there.
+
+Over SSH and inside tmux the same rule holds — only the setting of the terminal you are physically typing into matters.
+
 ### Tmux Integration
 
 Open a new tmux window for each card:
@@ -531,7 +558,7 @@ config and want the old keys back.
 | `tab` | `nav.column_next` | Next column |
 | `shift+tab` | `nav.column_prev` | Previous column |
 | `1`-`9` | `nav.column_1` … `nav.column_9` | Jump to column |
-| `alt+key` | — | Comment action (see [Comment Mode](#comment-mode)) |
+| `alt+key` | — | Comment action (see [Comment Mode](#comment-mode); macOS: [enable the Alt modifier](#macos-enabling-the-alt-modifier)) |
 
 ### Detail Panel
 
@@ -555,7 +582,7 @@ Mode](#normal-mode).
 | `r` | `board.refresh` | Refresh |
 | `q` | `app.quit` | Quit |
 | `?` | `app.help` | Help |
-| `alt+key` | — | Comment action (see [Comment Mode](#comment-mode)) |
+| `alt+key` | — | Comment action (see [Comment Mode](#comment-mode); macOS: [enable the Alt modifier](#macos-enabling-the-alt-modifier)) |
 
 ### Create Mode
 
