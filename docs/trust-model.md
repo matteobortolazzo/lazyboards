@@ -18,14 +18,13 @@ this — you wrote it yourself, so it's trusted by construction. Only
 
 ## What counts as a sink
 
-A "sink" is any local-origin construct that shells out. Three kinds exist,
+A "sink" is any local-origin construct that shells out. Two kinds exist,
 tallied and stripped independently by `internal/config/trust_strip.go`'s
 `stripLocalShellSinks`:
 
 | Sink kind | Source | Stripped when untrusted |
 |---|---|---|
 | Keymap shell bindings | `keymaps.<mode>.<key>` / `keymaps.columns.<name>.<key>` entries whose value is an inline `type: shell` action | Compared by value against the matching global mode/column table entry (ignoring the derived `Order` field -- see "Stripping is decided by..." below). A value-equivalent binding is left alone and not counted. A genuinely differing or local-only binding is deleted from the table and counted once; if something was actually stripped and that empties the mode/column table entirely, the whole table entry is removed so the mode/column falls back to inheriting the global table. An explicitly-empty local table that stripped nothing (e.g. `keymaps: {normal: {}}`) is never deleted this way -- it stays explicit-and-empty, matching what a trusted load of the same bytes would resolve to |
-| Legacy shell actions | Top-level `actions:` / `columns[].actions:` entries with `type: shell` (pre-#510 config shape) | Compared by value against the matching global action (ignoring `Order`). A value-equivalent action is left alone and not counted. A genuinely differing or local-only action is deleted and counted once; a matching global entry, if any, is restored in its place by the later merge |
 | Cleanup fields | `cleanup:` / `columns[].cleanup` | Reset to the matching global value (or unset if none), never to an empty string |
 
 `type: url` actions, and keymap bindings to a catalogued built-in command id,
@@ -42,7 +41,7 @@ genuinely global (inherited, not locally declared) and is left alone,
 whatever the local file's trust state. This comparison deliberately excludes
 each entry's derived `Order` field -- document-position metadata used only
 for hint-bar/help ordering, never consumed at execution time -- because a
-YAML alias (`keymaps: *anchor`, `actions: *anchor`) leaves every aliased
+YAML alias (`keymaps: *anchor`) leaves every aliased
 entry's `Order` at its zero value rather than stamping it from document
 position; an `Order`-inclusive comparison would misclassify an
 aliased-but-genuinely-global entry as locally differing purely because of
@@ -154,10 +153,9 @@ failed by a broken trust store.
 
 A run that stripped anything surfaces it twice, once per audience:
 
-- **stderr**, via `main.go`'s `printNotices`, generalized from the older
-  legacy-config deprecation printer to also cover `Config.Notices`. It runs
-  once per process, before BubbleTea takes the terminal over (so it's visible
-  in a plain shell), printing each group's lines in order, one sanitized
+- **stderr**, via `main.go`'s `printNotices`. It runs once per process,
+  before BubbleTea takes the terminal over (so it's visible in a plain
+  shell), printing each group's lines in order, one sanitized
   (`sanitizeSingleLine`) line per entry.
 - **in-app status bar**, via `Board.startupWarning`: `main.go` seeds it from
   `cfg.Notices` (joined with `"; "`) when non-empty, and it's applied as a

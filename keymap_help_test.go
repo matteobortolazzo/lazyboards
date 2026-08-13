@@ -694,13 +694,10 @@ func TestHelpColumnActionRows_SanitizesUntrustedNameAndType(t *testing.T) {
 
 // --- The keymaps:-only config path (AC4) ---
 //
-// newConfigLoadedActionTestBoard only threads cfg.Actions/cfg.Columns into
-// NewBoard's params, so a keymaps:-only YAML (no legacy actions:/
-// columns[].actions: block at all) would resolve to the built-in defaults
-// only and could never prove AC4's "a keymaps:-only config's custom actions
-// appear". newKeymapConfigLoadedTestBoard (helpers_test.go) mirrors main.go's
-// real wiring (config.Load -> NewBoard -> config.ResolveKeymap -> withKeymap)
-// instead.
+// newKeymapConfigLoadedTestBoard (helpers_test.go) mirrors main.go's real
+// wiring (config.Load -> NewBoard -> config.ResolveKeymap -> withKeymap), so
+// these cases prove AC4's "a keymaps:-only config's custom actions appear"
+// end to end rather than against a hand-built keymap.
 
 func TestHelpContent_KeymapsOnlyConfig_GlobalActionAppearsInNormalMode(t *testing.T) {
 	b := newKeymapConfigLoadedTestBoard(t, `keymaps:

@@ -150,4 +150,15 @@ func TestShippedConfig_Untrusted_StripsCleanupAndEmitsNotice(t *testing.T) {
 	if !strings.Contains(notice, "lazyboards trust") {
 		t.Fatalf("cfg.Notices[0] = %q, want it to name the exact `lazyboards trust` invocation", notice)
 	}
+	// The shipped config's shell sinks are inline keymaps: bindings and
+	// cleanup:; with the pre-0.73 actions: blocks removed there is no third
+	// sink kind left for the notice to name.
+	for _, kind := range []string{"keymap shell binding", "cleanup field"} {
+		if !strings.Contains(notice, kind) {
+			t.Errorf("cfg.Notices[0] = %q, want it to report stripped %ss", notice, kind)
+		}
+	}
+	if strings.Contains(notice, "legacy") {
+		t.Errorf("cfg.Notices[0] = %q, want no legacy-action sink kind: the actions: block no longer exists", notice)
+	}
 }

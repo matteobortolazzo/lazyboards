@@ -60,9 +60,8 @@ Three layers, each with a narrow responsibility:
    `mergeKeymaps` (`keymaps.go:299`) combines a global and local `*Keymaps`
    per key. `Load` (`config.go:210`) is the single, linear pipeline: unmarshal
    global -> snapshot and nil out `cfg.Keymaps` -> unmarshal local ->
-   `mergeKeymaps` -> `validateSortOrder`/`validateColumns`/`validateActions`
-   -> `translateLegacyActions` -> `validateKeymapActions` ->
-   `validateCommandIDs` -> `validateModeCapabilities` ->
+   `mergeKeymaps` -> `validateSortOrder`/`validateColumns` ->
+   `validateKeymapActions` -> `validateCommandIDs` -> `validateModeCapabilities` ->
    `validateSequenceCapability` -> `validatePrintableRuneBindings` ->
    `validateScopeConflicts` -> `validateKeymap`. `ResolveKeymap`
    (`keymap_validate.go:17`) is the *only* path that combines
@@ -376,8 +375,7 @@ runtime, in `Load`'s order:
     (naming the owning table and the raw key), not a silently skipped entry.
 
 Checks 1-2 run during YAML unmarshal itself; 3, 4, 5, 9, and 10 run over
-`cfg.Keymaps` directly (after `translateLegacyActions` has folded legacy
-entries in); 6, 7, and 8 run inside `validateKeymap` (`keymap_validate.go:45`),
+`cfg.Keymaps` directly; 6, 7, and 8 run inside `validateKeymap` (`keymap_validate.go:45`),
 which calls `ResolveKeymap` itself so the prefix/alt-shadow checks see
 built-ins and user config together, exactly what a real `Lookup` would see.
 
@@ -438,57 +436,11 @@ multi-key match as `OutcomePending` and no-oping on it. So a multi-key
 binding to a universal command (e.g. `keymaps.filter."g q": app.quit`) is a
 documented no-op in those 17 modes, not a bug.
 
-## Legacy translation
-
-`translateLegacyActions` (`legacy_actions.go:73`) folds the deprecated
-top-level `actions:` and per-column `columns[].actions:` blocks onto the
-`keymaps:` namespace, additively and non-destructively: `cfg.Actions`/
-`cfg.Columns[i].Actions` are left populated for any caller that still reads
-them, and an existing `keymaps:`-declared entry for the same canonical
-sequence is never overwritten by a legacy-derived one.
-
-- Legacy action keys are rune-concatenated with no separator (`"Rf"`, matching
-  how `handlePendingSeqKey` builds up a pending sequence one keystroke at a
-  time); `legacySequence` (`legacy_actions.go:38`) splits them into the
-  canonical space-separated form (`"R f"`) `ParseSequence`/`Sequence.String()`
-  expect.
-- Top-level `actions:` entries are mirrored into **both**
-  `keymaps.normal` and `keymaps.detail` (`legacy_actions.go:83-85`) — the
-  legacy dispatch let these actions fire from either surface, so translating
-  into `normal` alone would silently kill them while the detail panel is
-  focused.
-- A legacy `scope: pr` action bound to a single uppercase letter (`A`-`Z`,
-  no Alt) is additionally mirrored into `keymaps.pr_list`
-  (`legacy_actions.go:87-107`), gated by `isUppercaseLetterKey` — this
-  reproduces the old raw PR-list key scan's exact input filter; any other
-  kind of key (lowercase, multi-key, digit, ...) stays the no-op it always
-  was inside the PR list.
-- The deprecation notice (`legacyDeprecationNotice`, `legacy_actions.go:14`)
-  is **presence-based**: it's appended to `cfg.Deprecations` whenever a
-  legacy block was present in the loaded config at all, even if every
-  derived key was shadowed by an existing `keymaps:` entry and nothing was
-  actually inserted. `main.go:349-354` prints each notice to stderr once, ahead
-  of BubbleTea taking over the terminal.
-  - Presence is a union of two sources, computed by `translateLegacyActions`'s
-    `legacyDeclared` parameter (set from `assignActionOrder`'s raw-node walk,
-    `isLegacyActionsBlock`) OR'd with the decoded map length: an explicit
-    empty block (`actions: {}`, or an empty `columns[].actions: {}`) emits
-    the notice, and so does a legacy block that trust-stripping emptied out
-    entirely (untrusted shell-only entries) — both are syntax declarations
-    even though no binding survives. A bare, `null`, or `~` value
-    (`actions:` / `actions: null` / `actions: ~`) never emits it — null means
-    unspecified, not declared, consistent with `mergeColumnActions`'s
-    existing nil-vs-empty-map convention. A merge-key/alias-smuggled block
-    (`base: &b {actions: ...}` + `<<: *b`) is covered by the decoded-map half
-    of the union when non-empty; an empty legacy block declared *only*
-    through a merge key or alias is a known, accepted gap neither source
-    catches (see `docs/yaml-parsing.md`).
-
 ## See also
 
 - [`keymap-conventions.md`](keymap-conventions.md) — lessons and gotchas for
-  this subsystem (presence-based deprecation, case-insensitive column
-  matching, legacy-input-gate parity, hint/dispatch composition pitfalls).
+  this subsystem (case-insensitive column matching, hint/dispatch composition
+  pitfalls).
 - README [`### Keymaps`](../README.md#keymaps) — the user-facing schema
   reference, and [`## Keybindings`](../README.md#keybindings) for the actual
   per-mode command-id tables.
