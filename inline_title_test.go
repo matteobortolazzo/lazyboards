@@ -7,6 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
 // inline_title_test.go centralizes all #597 coverage: bounding the untrusted
@@ -148,20 +149,8 @@ func TestFitQuotedTitle_BackslashHeavyTitle_TruncationEndsInEllipsisNotRawCut(t 
 
 // --- Integration: five inline-title prompt render sites ---
 
-// findLineContaining returns the first physical line of view containing
-// marker, or fails the test. marker must be a stable substring independent
-// of the untrusted title content (e.g. "Close #"), so it locates the right
-// line regardless of how the title itself renders.
-func findLineContaining(t *testing.T, view, marker string) string {
-	t.Helper()
-	for _, line := range strings.Split(view, "\n") {
-		if strings.Contains(line, marker) {
-			return line
-		}
-	}
-	t.Fatalf("view has no line containing %q; got:\n%s", marker, view)
-	return ""
-}
+// findLineContaining lives in helpers_test.go -- both this file and
+// keymap_text_test.go locate prompt lines by a title-independent marker.
 
 // rawPhysicalLineCount counts every physical line of view. Used for the
 // close-confirm/label-confirm help bar, which (unlike a modal) is not
@@ -224,7 +213,7 @@ func setupDeleteCommentStepSite(t *testing.T, title string) Board {
 	b, _ := newDeleteTestBoard(t)
 	b.Columns[b.ActiveTab].Cards[b.Columns[b.ActiveTab].Cursor].Title = title
 
-	m, _ := b.Update(keyMsg("t"))
+	m, _ := b.Update(keyMsg("d"))
 	updated, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
@@ -309,7 +298,8 @@ func inlineTitlePromptSites() []promptSite {
 			},
 			budget: func(b Board) int {
 				card := b.closeConfirm.card
-				chrome := lipgloss.Width(fmt.Sprintf(closeConfirmPromptFmt, card.Number, ""))
+				suffix := promptParenthetical(b.keys.Entries(keymap.ModeCloseConfirm, ""), keymap.CommandCloseConfirmConfirm, keymap.CommandCloseConfirmCancel)
+				chrome := lipgloss.Width(fmt.Sprintf(closeConfirmPromptFmt, card.Number, "", suffix))
 				return chrome + inlineTitleBudget(b.Width-2, chrome)
 			},
 			lineCounter: rawPhysicalLineCount,
@@ -322,7 +312,8 @@ func inlineTitlePromptSites() []promptSite {
 				return b.Width - 2
 			},
 			budget: func(b Board) int {
-				chrome := lipgloss.Width(fmt.Sprintf(labelConfirmPromptFmt, ""))
+				suffix := promptParenthetical(b.keys.Entries(keymap.ModeLabelConfirm, ""), keymap.CommandLabelConfirmCreate, keymap.CommandLabelConfirmCancel)
+				chrome := lipgloss.Width(fmt.Sprintf(labelConfirmPromptFmt, "", suffix))
 				return chrome + inlineTitleBudget(b.Width-2, chrome)
 			},
 			lineCounter: rawPhysicalLineCount,

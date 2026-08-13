@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -13,153 +12,13 @@ import (
 	gitutil "github.com/matteobortolazzo/lazyboards/internal/git"
 )
 
-// handleCustomActionKey resolves msg against the user's custom action system:
-// a plain uppercase letter dispatches its action directly, Alt+letter enters
-// comment mode first (if the action's template uses {comment}), and a letter
-// that only starts longer key sequences (e.g. "P" with "Pf"/"Pb" configured)
-// enters the pending-sequence state instead of dispatching (see
-// handlePendingSeqKey). Shared by normal mode and detail-focused mode so
-// custom actions behave identically in both -- b.detailFocused (already
-// accurate at call time, since detail-focused mode is a sub-state routed to
-// before this is ever reached) is threaded onto the pending comment so
-// returning from comment mode restores the focus it was triggered from,
-// mirroring the helpFromDetailFocused pattern. Scope routing (board/card/pr)
-// is delegated to dispatchResolvedAction so every dispatch path shares one
-// gating rule. Returns b unchanged if msg is not a recognized custom action
-// key or sequence prefix.
-func (b Board) handleCustomActionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Custom actions and their sequences always start with uppercase A-Z.
-	if len(msg.Runes) != 1 || msg.Runes[0] < 'A' || msg.Runes[0] > 'Z' {
-		return b, nil
-	}
-	key := string(msg.Runes)
-	if act, ok := b.resolveAction(key); ok {
-		return b.dispatchActionWithAlt(act, msg.Alt)
-	}
-	// Not a complete action: if it opens at least one longer (non-gated) key
-	// sequence, wait for the continuation keys, which-key style.
-	if cands := b.seqCandidates(key); len(cands) > 0 {
-		b.pendingSeq = key
-		b.pendingSeqAlt = msg.Alt
-		b.statusBar.SetActionHints(seqHints(cands))
-	}
-	return b, nil
-}
-
-// handlePendingSeqKey consumes the next key of a pending custom-action key
-// sequence. It runs before every other normal-mode/detail-focused key
-// handler (see handleNormalModeKey), so built-in keys like j/k can serve as
-// sequence continuations without also navigating. Esc cancels the sequence
-// (and only the sequence -- detail focus is kept); a key completing an
-// action dispatches it (Alt held on any key of the sequence counts for the
-// comment-mode trigger); a key that still prefixes longer sequences extends
-// the pending state; anything else cancels with a warning.
-func (b Board) handlePendingSeqKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 || !config.IsSequenceKey(msg.Runes[0]) {
-		b.clearPendingSeq()
-		b.restoreSeqHints()
-		return b, nil
-	}
-	seq := b.pendingSeq + string(msg.Runes)
-	alt := b.pendingSeqAlt || msg.Alt
-	b.clearPendingSeq()
-	if act, ok := b.resolveAction(seq); ok {
-		b.restoreSeqHints()
-		return b.dispatchActionWithAlt(act, alt)
-	}
-	if cands := b.seqCandidates(seq); len(cands) > 0 {
-		b.pendingSeq = seq
-		b.pendingSeqAlt = alt
-		b.statusBar.SetActionHints(seqHints(cands))
-		return b, nil
-	}
-	b.restoreSeqHints()
-	cmd := b.statusBar.SetTimedMessage("No action bound to "+seq, StatusWarning, statusMessageDuration)
-	return b, cmd
-}
-
-// clearPendingSeq resets the pending key-sequence state.
-func (b *Board) clearPendingSeq() {
-	b.pendingSeq = ""
-	b.pendingSeqAlt = false
-}
-
-// restoreSeqHints restores the hint bar for the focus state the sequence was
-// started from (card list vs detail panel).
-func (b *Board) restoreSeqHints() {
-	if b.detailFocused {
-		b.rebuildDetailHints()
-		return
-	}
-	b.statusBar.SetActionHints(b.normalHints)
-}
-
-// seqCandidate pairs an action with its full key sequence for the pending-
-// sequence hint bar.
-type seqCandidate struct {
-	key string
-	act config.Action
-}
-
-// seqCandidates returns the effective custom actions (active column overlaid
-// on global, exactly like resolveAction's lookup order) whose key strictly
-// extends seq, sorted by key. Scope gating mirrors dispatchResolvedAction and
-// rebuildNormalHints: board-scope is always eligible, card-scope needs a
-// visible card, pr-scope needs the selected card to have a linked PR -- so a
-// prefix never enters (or keeps) the pending state when none of its sequences
-// could actually dispatch.
-func (b *Board) seqCandidates(seq string) []seqCandidate {
-	effective := make(map[string]config.Action, len(b.actions))
-	for key, act := range b.actions {
-		effective[key] = act
-	}
-	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
-		colTitle := b.Columns[b.ActiveTab].Title
-		for _, cc := range b.columnConfigs {
-			if strings.EqualFold(cc.Name, colTitle) {
-				for key, act := range cc.Actions {
-					effective[key] = act
-				}
-				break
-			}
-		}
-	}
-	hasCards := len(b.visibleCards()) > 0
-	var cands []seqCandidate
-	for key, act := range effective {
-		if len(key) <= len(seq) || !strings.HasPrefix(key, seq) {
-			continue
-		}
-		switch config.DefaultScope(act.Scope) {
-		case "board":
-		case "pr":
-			if b.prScopeGated(act) {
-				continue
-			}
-		default:
-			if !hasCards {
-				continue
-			}
-		}
-		cands = append(cands, seqCandidate{key: key, act: act})
-	}
-	sort.Slice(cands, func(i, j int) bool { return cands[i].key < cands[j].key })
-	return cands
-}
-
-// seqHints builds the which-key style hint bar for a pending sequence: one
-// hint per candidate (full key sequence + action name), then esc to cancel.
-func seqHints(cands []seqCandidate) []Hint {
-	hints := make([]Hint, 0, len(cands)+1)
-	for _, c := range cands {
-		hints = append(hints, Hint{Key: c.key, Desc: c.act.Name})
-	}
-	return append(hints, Hint{Key: "esc", Desc: "cancel"})
-}
-
 // dispatchActionWithAlt dispatches act, entering comment mode first when Alt
-// was held and the action's template uses {comment} (the Alt+Shift+key
-// comment flow, extended to key sequences where Alt may be held on any key).
+// was held and the action's template uses {comment} (the Alt+key comment
+// overload). For a key sequence the Alt flag is sticky (keymap_dispatch.go's
+// pendingSeqAlt), but Alt held on a non-final key only reaches here when
+// every binding under that prefix is an inline action (altFallbackEligible);
+// under a mixed prefix the Alt keystroke resolves to nothing rather than
+// firing a built-in. The final key is the reliable place to hold Alt.
 func (b Board) dispatchActionWithAlt(act config.Action, alt bool) (tea.Model, tea.Cmd) {
 	if alt && strings.Contains(act.URL+act.Command, "{comment}") {
 		// Resolve the pending card (if card-scope or pr-scope) before
@@ -185,11 +44,24 @@ func (b Board) dispatchActionWithAlt(act config.Action, alt bool) (tea.Model, te
 		}
 		b.detailFocused = false
 		b.mode = commentMode
-		b.statusBar.SetActionHints(commentModeHints)
+		b.statusBar.SetActionHints(b.commentHints())
 		return b, b.comment.input.Focus()
 	}
 	// No Alt, or Alt on an action without {comment} -- execute normally.
 	return b.dispatchResolvedAction(act)
+}
+
+// prScopeUnavailable reports whether act is scope: pr but the currently
+// selected card has no linked PRs to run it against. This is the single
+// shared dispatch-time pr gate consulted by both dispatchBinding
+// (keymap_dispatch.go, normal-mode/detail registry dispatch) and
+// closeGitMenuAndDispatch (update.go, the Git Menu's inline-action dispatch)
+// so both entry paths refuse a 0-linked-PR pr-scope action identically and
+// silently, before handlePRActionKeyWithComment's case 0 (defensive-only) is
+// ever reached. config.DefaultScope normalizes an empty Scope to "card" so a
+// hand-built Scope: "" fixture can't slip past this gate.
+func (b Board) prScopeUnavailable(act config.Action) bool {
+	return config.DefaultScope(act.Scope) == "pr" && len(b.selectedCard().LinkedPRs) == 0
 }
 
 // dispatchResolvedAction runs act against the currently selected card (or the
@@ -227,7 +99,14 @@ func (b Board) dispatchExpandedAction(act config.Action, vars map[string]string)
 		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
 		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
 	}
-	return b, nil
+	// Defensive-only: validateActionValue (internal/config/config.go) rejects
+	// any action.Type other than "url"/"shell" at config load time, so this
+	// branch is unreachable from a validated config. It exists to surface
+	// feedback (instead of silently no-oping) if a hand-built fixture ever
+	// bypasses that validation.
+	debuglog.Errorf("action %q has unresolved type %q (config validation bypassed)", act.Name, act.Type)
+	cmd := b.statusBar.SetTimedMessage("Unknown action type", StatusWarning, statusMessageDuration)
+	return b, cmd
 }
 
 func (b Board) handleActionKeyWithComment(act config.Action, card Card, comment string) (tea.Model, tea.Cmd) {
@@ -277,21 +156,15 @@ func (b Board) runPRActionWithVars(act config.Action, pr LinkedPR, baseVars map[
 	return b.dispatchExpandedAction(act, vars)
 }
 
-// handlePRListActionKey dispatches an uppercase custom-action key pressed
-// inside the PR list modal against the selected PR row. Eligibility is
-// deliberately narrower than normal mode's resolveAction: only GLOBAL
-// scope: pr actions apply — the modal is a repo-wide view with no active
-// column, so per-column overrides and card/board scopes have no sensible
-// target here. Rows linked to a board card dispatch with the same full
-// card+PR template variables as a normal-mode scope: pr action; unlinked
-// rows expand the card-derived variables ({number}, {title}, {tags},
-// {session}, {window}) to empty strings since there is no card to derive
-// them from. The modal stays open so several PRs can be acted on in a row.
-func (b Board) handlePRListActionKey(key string) (tea.Model, tea.Cmd) {
-	act, ok := b.actions[key]
-	if !ok || config.DefaultScope(act.Scope) != "pr" {
-		return b, nil
-	}
+// runPRListAction dispatches act (already resolved through the pr_list
+// registry table and scope-gated to scope: pr by handlePRListModeKey, Q2)
+// against the selected PR row in the PR list modal. Rows linked to a board
+// card dispatch with the same full card+PR template variables as a
+// normal-mode scope: pr action; unlinked rows expand the card-derived
+// variables ({number}, {title}, {tags}, {session}, {window}) to empty
+// strings since there is no card to derive them from. The modal stays open
+// so several PRs can be acted on in a row.
+func (b Board) runPRListAction(act config.Action) (tea.Model, tea.Cmd) {
 	if len(b.prList.entries) == 0 || b.prList.cursor >= len(b.prList.entries) {
 		return b, nil
 	}
@@ -332,14 +205,17 @@ func (b Board) resolvePRWorktree(branch string) (string, error) {
 // handlePRActionKeyWithComment implements the full 0/1/2+ linked-PR
 // precedence for a scope: pr action, mirroring handlePROpenKey (the
 // built-in "p" key's precedence anchor):
-//   - 0 PRs: no-op (defensive; resolveAction should already gate this out).
+//   - 0 PRs: no-op (defensive; prScopeUnavailable's shared pr-scope gate,
+//     consulted by both dispatchBinding (keymap_dispatch.go) and
+//     closeGitMenuAndDispatch (update.go), should already refuse this before
+//     it ever reaches here).
 //   - 1 PR: runs the action immediately against that PR's data.
 //   - 2+ PRs: stashes the action (and any comment) as pendingPRAction and
 //     opens prPickerMode; the picker's Enter key consumes it.
 func (b Board) handlePRActionKeyWithComment(act config.Action, card Card, comment string) (tea.Model, tea.Cmd) {
 	switch len(card.LinkedPRs) {
 	case 0:
-		debuglog.Errorf("scope:pr action %q dispatched against a card with 0 linked PRs (resolveAction gate bypassed)", act.Name)
+		debuglog.Errorf("scope:pr action %q dispatched against a card with 0 linked PRs (dispatchBinding's pr-scope gate bypassed)", act.Name)
 		cmd := b.statusBar.SetTimedMessage("No linked PRs", StatusWarning, statusMessageDuration)
 		return b, cmd
 	case 1:
@@ -348,7 +224,7 @@ func (b Board) handlePRActionKeyWithComment(act config.Action, card Card, commen
 		b.pendingPRAction = &pendingPRAction{action: act, comment: comment}
 		b.prPickerIndex = 0
 		b.mode = prPickerMode
-		b.statusBar.SetActionHints(prPickerHints)
+		b.statusBar.SetActionHints(b.prPickerHints())
 		return b, nil
 	}
 }

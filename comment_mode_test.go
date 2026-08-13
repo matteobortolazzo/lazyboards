@@ -1,12 +1,14 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
 // altKeyMsg builds a tea.KeyMsg for a single rune with the Alt modifier set.
@@ -126,6 +128,38 @@ func TestCommentMode_ViewShowsModal(t *testing.T) {
 	view := b.View()
 	if !strings.Contains(view, "Annotate") {
 		t.Errorf("View() in commentMode should contain the action name %q", "Annotate")
+	}
+}
+
+// TestCommentMode_ViewSanitizesHostileActionName pins #547's real gap:
+// b.comment.pendingAction.Name is a config.Action.Name, repo-local
+// .lazyboards.yml data -- the same untrusted type #511 already sanitizes at
+// the git menu and help modal render sites, but viewCommentModal renders it
+// raw. An action name embedding a newline, an ANSI SGR escape sequence, and
+// a bidi-override rune must render through sanitizeSingleLine as a single
+// flattened line with the control content removed, not verbatim.
+func TestCommentMode_ViewSanitizesHostileActionName(t *testing.T) {
+	hostileName := "Annotate\n\x1b[31mHACKED\x1b[0m \u202eRTL"
+	actions := map[string]config.Action{
+		"X": {Name: hostileName, Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+	b.Width = 120
+	b.Height = 40
+
+	// Enter comment mode.
+	b = sendKey(t, b, altKeyMsg("X"))
+
+	view := b.View()
+	if strings.Contains(view, "\x1b[31m") {
+		t.Errorf("View() in commentMode contains a raw ANSI escape sequence from the action name: %q", view)
+	}
+	if strings.Contains(view, "\u202e") {
+		t.Errorf("View() in commentMode contains a raw bidi-override rune from the action name: %q", view)
+	}
+	want := "Annotate HACKED RTL"
+	if !strings.Contains(view, want) {
+		t.Errorf("View() in commentMode should render the flattened, sanitized action name %q; view = %q", want, view)
 	}
 }
 
@@ -707,5 +741,266 @@ func TestCommentMode_PRScope_Enter_FromDetailFocus_RestoresDetailFocusAndHints(t
 	view := b.View()
 	if !strings.Contains(view, "Back") {
 		t.Errorf("View() after submitting comment from detail focus should show detail-focus hints, got:\n%s", view)
+	}
+}
+
+// --- Registry routing (#540 PR 2/2) ---
+//
+// handleCommentModeKey cuts over from a hardcoded switch msg.Type to
+// b.textBinding(keymap.ModeComment, msg) (keymap_text.go), mirroring
+// handleCreateModeKey/handleConfigModeKey/handleSearchModeKey: a resolved
+// comment.* command dispatches through runCommentCommand; anything else --
+// no match, OutcomePending, a non-command binding, or a foreign command id
+// -- falls through to the comment.input textinput, since comment is one of
+// keymap.Mode.ConsumesPrintableRunes()'s modes.
+
+// TestCommentMode_PrintableRunesReachInput_NotInterceptedAsCommands extends
+// TestCommentMode_TypingUpdatesInput with "y"/"n" -- the letters close_confirm
+// /label_confirm bind as commands elsewhere in the catalog -- and digits, to
+// guard against a future default-table change accidentally binding a
+// printable rune into ModeComment: textBinding's ConsumesPrintableRunes
+// guard must keep refusing bare printable runes here regardless.
+func TestCommentMode_PrintableRunesReachInput_NotInterceptedAsCommands(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+
+	b = sendKey(t, b, altKeyMsg("X"))
+	for _, ch := range "jkyn42" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+
+	if b.comment.input.Value() != "jkyn42" {
+		t.Errorf("comment.input.Value() = %q, want %q (printable runes, including y/n, must reach the textinput)", b.comment.input.Value(), "jkyn42")
+	}
+	if b.mode != commentMode {
+		t.Errorf("mode after typing printable runes = %d, want %d (commentMode; none of them may dispatch a command)", b.mode, commentMode)
+	}
+}
+
+// TestCommentMode_RemapCancelKey_DispatchStaysInSync mirrors
+// TestCreateMode_RemapCancelKey_DispatchAndHintStaySync (create_mode_test.go,
+// #540 PR 1/2): unbinding "esc" from comment.cancel and rebinding it onto
+// "f1" must make the old key a no-op and the new key cancel the comment.
+func TestCommentMode_RemapCancelKey_DispatchStaysInSync(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+	b = sendKey(t, b, altKeyMsg("X"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeComment: {
+			"esc": keymap.UnboundBinding(),
+			"f1":  keymap.CommandBinding(keymap.CommandCommentCancel),
+		},
+	}, nil)
+
+	before := b.mode
+	b2 := sendKey(t, b, arrowMsg(tea.KeyEsc))
+	if b2.mode != before {
+		t.Errorf("mode after unbound (now-old) esc = %v, want unchanged %v", b2.mode, before)
+	}
+
+	b3 := sendKey(t, b, arrowMsg(tea.KeyF1))
+	if b3.mode != normalMode {
+		t.Errorf("mode after remapped 'f1' = %v, want normalMode", b3.mode)
+	}
+}
+
+// TestCommentMode_EscBoundToAction_FallsThroughToTextinputNotDispatched and
+// TestCommentMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched
+// cover two of handleCommentModeKey's documented fall-through outcomes,
+// mirroring TestCreateMode_EscBoundToAction_FallsThroughToTextinputNotDispatched
+// / TestCreateMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched
+// (create_mode_test.go, #540 PR 1/2): a resolved non-command BindingAction,
+// and a command id valid elsewhere in the catalog but foreign to
+// ModeComment's own two ids. Neither may dispatch.
+func TestCommentMode_EscBoundToAction_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+	b = sendKey(t, b, altKeyMsg("X"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeComment: {
+			"esc": keymap.ActionBinding(keymap.Action{Name: "Noop", Type: "url", URL: "https://example.com/{number}"}),
+		},
+	}, nil)
+	before := b.comment.input.Value()
+
+	m, _ := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != commentMode {
+		t.Errorf("mode after esc resolved to a non-command action = %v, want unchanged commentMode (must not dispatch the action)", b2.mode)
+	}
+	if got := b2.comment.input.Value(); got != before {
+		t.Errorf("comment.input.Value() = %q after esc resolved to a non-command action, want unchanged %q (falls through to the textinput)", got, before)
+	}
+}
+
+func TestCommentMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+	b = sendKey(t, b, altKeyMsg("X"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeComment: {
+			"f1": keymap.CommandBinding(keymap.CommandCloseConfirmConfirm),
+		},
+	}, nil)
+	before := b.comment.input.Value()
+
+	m, _ := b.Update(arrowMsg(tea.KeyF1))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != commentMode {
+		t.Errorf("mode after a foreign command id (close_confirm.confirm) bound into ModeComment = %v, want unchanged commentMode", b2.mode)
+	}
+	if got := b2.comment.input.Value(); got != before {
+		t.Errorf("comment.input.Value() = %q after a foreign command id bound into ModeComment, want unchanged %q (falls through to the textinput, not dispatched)", got, before)
+	}
+}
+
+// --- commentHints(): byte-identity and remap reflection ---
+
+// TestCommentHints_DefaultParityMatchesTodaysLiteral asserts
+// b.commentHints() renders byte-identically to the deleted commentModeHints
+// package var (pre-#540 model.go) under the default table.
+func TestCommentHints_DefaultParityMatchesTodaysLiteral(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+	b = sendKey(t, b, altKeyMsg("X"))
+
+	hints := b.commentHints()
+	want := []Hint{
+		{Key: "esc", Desc: "Cancel"},
+		{Key: "enter", Desc: "Submit"},
+	}
+	if !reflect.DeepEqual(hints, want) {
+		t.Errorf("commentHints() = %+v, want %+v (today's inline literal, byte-identical)", hints, want)
+	}
+}
+
+// TestCommentHints_RemapCancelKey_ReflectsNewKey is commentHints' remap
+// sibling, mirroring TestCreateModalHints_RemapCancelKey_ReflectsNewKey.
+func TestCommentHints_RemapCancelKey_ReflectsNewKey(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+	b = sendKey(t, b, altKeyMsg("X"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeComment: {
+			"esc": keymap.UnboundBinding(),
+			"f1":  keymap.CommandBinding(keymap.CommandCommentCancel),
+		},
+	}, nil)
+
+	hints := b.commentHints()
+	if got := hintDesc(t, hints, "f1"); got != "Cancel" {
+		t.Errorf("commentHints() after remap: Desc for %q = %q, want %q", "f1", got, "Cancel")
+	}
+	for _, h := range hints {
+		if h.Key == "esc" {
+			t.Errorf("commentHints() still advertises the old 'esc' key after remap, got %+v", hints)
+		}
+	}
+}
+
+// --- hint<->dispatch invariant across default and remapped tables ---
+
+// TestCommentHints_KeysAlwaysDispatch_DefaultAndRemappedTables is the
+// hint<->dispatch invariant test named in the #540 plan's Explicit Risk
+// Coverage, mirroring TestCreateModalHints_KeysAlwaysDispatch_
+// AllFocusPositionsDefaultAndRemappedTables (create_mode_test.go): every key
+// b.commentHints() advertises must resolve through b.textBinding against
+// ModeComment -- the real dispatch path handleCommentModeKey uses.
+func TestCommentHints_KeysAlwaysDispatch_DefaultAndRemappedTables(t *testing.T) {
+	keyMsgForLabel := func(label string) tea.KeyMsg {
+		switch label {
+		case "enter":
+			return arrowMsg(tea.KeyEnter)
+		case "esc":
+			return arrowMsg(tea.KeyEsc)
+		case "f1":
+			return arrowMsg(tea.KeyF1)
+		default:
+			return keyMsg(label)
+		}
+	}
+
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{
+			name: "remapped table",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeComment: {
+					"esc": keymap.UnboundBinding(),
+					"f1":  keymap.CommandBinding(keymap.CommandCommentCancel),
+				},
+			},
+		},
+	}
+
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b, _ := newActionTestBoard(t, actions)
+			b = sendKey(t, b, altKeyMsg("X"))
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+
+			for _, h := range b.commentHints() {
+				if h.Key == "" {
+					continue
+				}
+				for _, key := range strings.Split(h.Key, "/") {
+					if _, ok := b.textBinding(keymap.ModeComment, keyMsgForLabel(key)); !ok {
+						t.Errorf("hint %+v: textBinding(ModeComment, %q) not found, want a match (every advertised key must actually dispatch through the real handler)", h, key)
+					}
+				}
+			}
+		})
+	}
+}
+
+// --- ctrl+c always quits, regardless of user keymap config ---
+
+// TestCommentMode_CtrlCQuits_EvenWithOverriddenKeymap extends the existing
+// TestCommentMode_CtrlCQuits with an attempted keymap override, mirroring
+// TestCreateMode_CtrlCQuits_EvenWithOverriddenKeymap /
+// TestSearchMode_CtrlCQuits_EvenWithOverriddenKeymap.
+func TestCommentMode_CtrlCQuits_EvenWithOverriddenKeymap(t *testing.T) {
+	actions := map[string]config.Action{
+		"X": {Name: "Annotate", Type: "shell", Command: "gh issue comment {number} --body {comment}"},
+	}
+	b, _ := newActionTestBoard(t, actions)
+	b = sendKey(t, b, altKeyMsg("X"))
+	// Attempt to steal ctrl+c for something else -- update.go's global
+	// ctrl+c-always-quits check runs before any mode dispatch, so this must
+	// have no effect.
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeComment: {"ctrl+c": keymap.CommandBinding(keymap.CommandCommentSubmit)},
+	}, nil)
+
+	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Error("Ctrl+C in commentMode should return a non-nil Cmd (tea.Quit), even with an overridden keymap")
 	}
 }

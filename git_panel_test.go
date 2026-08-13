@@ -9,6 +9,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"github.com/muesli/termenv"
 )
@@ -22,18 +23,26 @@ var gitPanelKeyOrder = []string{"P", "p", "f", "m", "s", "S"}
 // newGitPanelTestBoard creates a loaded Board seeded with the built-in git
 // default actions (config.DefaultGitActions()) plus any user-provided
 // overrides, a FakeExecutor for asserting dispatched shell commands, and an
-// optional git status reader (nil disables the git status feature).
+// optional git status reader (nil disables the git status feature). It
+// delegates to newGitPanelTestBoardWithColumns with a single empty column, so
+// existing call sites needing only board-scope dispatch are unaffected.
 func newGitPanelTestBoard(t *testing.T, userActions map[string]config.Action, reader gitdetect.Reader) (Board, *action.FakeExecutor) {
+	t.Helper()
+	return newGitPanelTestBoardWithColumns(t, userActions, reader, []provider.Column{{Title: "Empty", Cards: nil}})
+}
+
+// newGitPanelTestBoardWithColumns is newGitPanelTestBoard's columns variant
+// (#579): identical setup, but the board is fetched with the given columns
+// instead of always using a single empty column, so scope: card/pr Git Menu
+// action tests (keymap_panels_test.go) can select a specific fixture card
+// (e.g. prFixtureColumns()'s 0/1/2-linked-PR cards) before dispatching.
+func newGitPanelTestBoardWithColumns(t *testing.T, userActions map[string]config.Action, reader gitdetect.Reader, columns []provider.Column) (Board, *action.FakeExecutor) {
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, userActions, config.DefaultGitActions(), nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, reader, true)
 
-	// Load a board with an empty column so board-scope actions (and the git
-	// panel, which is board-scope with no active-card requirement) can dispatch.
-	m, _ := b.Update(boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{{Title: "Empty", Cards: nil}},
-	}})
+	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
 	loaded := m.(Board)
 	loaded.Width = 120
 	loaded.Height = 40
@@ -56,10 +65,10 @@ func gitPanelItemIndex(b Board, key string) int {
 func TestGitPanel_PressG_OpensPanel_WhenDefaultActionsPresent(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if b.mode != gitPanelMode {
-		t.Errorf("after pressing 'g' with default git actions available: mode = %d, want gitPanelMode (%d)", b.mode, gitPanelMode)
+		t.Errorf("after pressing 'G' with default git actions available: mode = %d, want gitPanelMode (%d)", b.mode, gitPanelMode)
 	}
 }
 
@@ -75,19 +84,19 @@ func TestGitPanel_PressG_Noop_WhenNoDefaultActions(t *testing.T) {
 	b.Width = 120
 	b.Height = 40
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 
 	if b.mode != normalMode {
-		t.Errorf("after pressing 'g' with no default git actions: mode = %d, want normalMode (%d)", b.mode, normalMode)
+		t.Errorf("after pressing 'G' with no default git actions: mode = %d, want normalMode (%d)", b.mode, normalMode)
 	}
 }
 
 func TestGitPanel_Escape_ReturnsToNormalMode(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
@@ -100,7 +109,7 @@ func TestGitPanel_Escape_ReturnsToNormalMode(t *testing.T) {
 func TestGitPanel_Escape_RestoresNormalHints(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
 	view := b.View()
@@ -118,9 +127,9 @@ func TestGitPanel_ItemsFixedOrder_RegardlessOfMapIteration(t *testing.T) {
 	// range, so repeating this within a single test run will surface a
 	// naive "range defaultActions" implementation that doesn't sort/fix order.
 	for i := 0; i < 20; i++ {
-		b = sendKey(t, b, keyMsg("g"))
+		b = sendKey(t, b, keyMsg("G"))
 		if b.mode != gitPanelMode {
-			t.Fatalf("iteration %d: expected gitPanelMode after 'g', got %d", i, b.mode)
+			t.Fatalf("iteration %d: expected gitPanelMode after 'G', got %d", i, b.mode)
 		}
 		if len(b.gitPanel.items) != len(gitPanelKeyOrder) {
 			t.Fatalf("iteration %d: len(gitPanel.items) = %d, want %d", i, len(b.gitPanel.items), len(gitPanelKeyOrder))
@@ -139,9 +148,9 @@ func TestGitPanel_ItemsFixedOrder_RegardlessOfMapIteration(t *testing.T) {
 func TestGitPanel_JK_Navigation(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	initialCursor := b.gitPanel.cursor
@@ -162,9 +171,9 @@ func TestGitPanel_JK_Navigation(t *testing.T) {
 func TestGitPanel_CursorWrapsAtBounds(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 	lastIndex := len(b.gitPanel.items) - 1
 
@@ -199,7 +208,7 @@ func TestGitPanel_CursorWrapsAtBounds(t *testing.T) {
 // wrap identically to j/k: both route through the shared moveCursor helper.
 func TestGitPanel_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	lastIndex := len(b.gitPanel.items) - 1
 
 	b = sendKey(t, b, arrowMsg(tea.KeyUp))
@@ -215,37 +224,38 @@ func TestGitPanel_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
 
 // TestGitPanel_SingleItem_NavigationIsNoOp covers the length<=1 guard for one
 // of the four modal list handlers (docs/list-cursor-invariants.md): with a
-// single default git action registered, j/k must never move the cursor off 0
-// and must not panic.
+// single git-panel action bound -- every other built-in explicitly unbound
+// via a keymaps.git_panel override (#511: the item list is now derived from
+// the ModeGitPanel registry table, not b.defaultActions -- see
+// keymap_panels.go's gitPanelItemsFromKeymap) -- j/k must never move the
+// cursor off 0 and must not panic.
 func TestGitPanel_SingleItem_NavigationIsNoOp(t *testing.T) {
-	p := provider.NewFakeProvider()
-	fe := &action.FakeExecutor{}
-	singleAction := map[string]config.Action{
-		"P": {Name: "Push", Type: "shell", Command: "git push", Scope: "board"},
-	}
-	b := NewBoard(p, nil, singleAction, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
-	m, _ := b.Update(boardFetchedMsg{board: provider.Board{
-		Columns: []provider.Column{{Title: "Empty", Cards: nil}},
-	}})
-	loaded := m.(Board)
-	loaded.Width = 120
-	loaded.Height = 40
+	b, _ := newGitPanelTestBoard(t, nil, nil)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeGitPanel: {
+			"p": keymap.UnboundBinding(),
+			"f": keymap.UnboundBinding(),
+			"m": keymap.UnboundBinding(),
+			"s": keymap.UnboundBinding(),
+			"S": keymap.UnboundBinding(),
+		},
+	}, nil)
 
-	loaded = sendKey(t, loaded, keyMsg("g"))
-	if loaded.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", loaded.mode)
+	b = sendKey(t, b, keyMsg("G"))
+	if b.mode != gitPanelMode {
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
-	if len(loaded.gitPanel.items) != 1 {
-		t.Fatalf("len(gitPanel.items) = %d, want 1", len(loaded.gitPanel.items))
+	if len(b.gitPanel.items) != 1 {
+		t.Fatalf("len(gitPanel.items) = %d, want 1", len(b.gitPanel.items))
 	}
 
-	loaded = sendKey(t, loaded, keyMsg("j"))
-	if loaded.gitPanel.cursor != 0 {
-		t.Errorf("cursor after j on single-item list = %d, want 0 (no-op)", loaded.gitPanel.cursor)
+	b = sendKey(t, b, keyMsg("j"))
+	if b.gitPanel.cursor != 0 {
+		t.Errorf("cursor after j on single-item list = %d, want 0 (no-op)", b.gitPanel.cursor)
 	}
-	loaded = sendKey(t, loaded, keyMsg("k"))
-	if loaded.gitPanel.cursor != 0 {
-		t.Errorf("cursor after k on single-item list = %d, want 0 (no-op)", loaded.gitPanel.cursor)
+	b = sendKey(t, b, keyMsg("k"))
+	if b.gitPanel.cursor != 0 {
+		t.Errorf("cursor after k on single-item list = %d, want 0 (no-op)", b.gitPanel.cursor)
 	}
 }
 
@@ -254,9 +264,9 @@ func TestGitPanel_SingleItem_NavigationIsNoOp(t *testing.T) {
 func TestGitPanel_Enter_DefaultKey_DispatchesBuiltinAction(t *testing.T) {
 	b, fe := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	idx := gitPanelItemIndex(b, "f")
@@ -288,9 +298,9 @@ func TestGitPanel_MenuKeysAreScopedFromUserActions(t *testing.T) {
 	}
 	b, fe := newGitPanelTestBoard(t, userActions, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	idx := gitPanelItemIndex(b, "S")
@@ -319,9 +329,9 @@ func TestGitPanel_MenuKeysAreScopedFromUserActions(t *testing.T) {
 func TestGitPanel_DirectKey_DispatchesAndClosesPanel(t *testing.T) {
 	b, fe := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	m, cmd := b.Update(keyMsg("P"))
@@ -342,7 +352,7 @@ func TestGitPanel_DirectKey_DispatchesAndClosesPanel(t *testing.T) {
 func TestGitPanel_DirectKey_LowercasePull(t *testing.T) {
 	b, fe := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	m, cmd := b.Update(keyMsg("p"))
 	b = m.(Board)
 	execCmds(cmd)
@@ -358,7 +368,7 @@ func TestGitPanel_DirectKey_LowercasePull(t *testing.T) {
 func TestGitPanel_UnboundKey_IsIgnored(t *testing.T) {
 	b, fe := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	b = sendKey(t, b, keyMsg("z"))
 
 	if b.mode != gitPanelMode {
@@ -374,7 +384,7 @@ func TestGitPanel_JK_NavigateWithoutDispatching(t *testing.T) {
 	// letters — they are not menu keys.
 	b, fe := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("k"))
 
@@ -389,9 +399,9 @@ func TestGitPanel_JK_NavigateWithoutDispatching(t *testing.T) {
 func TestGitPanel_Enter_ClosesPanel(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
@@ -414,9 +424,9 @@ func TestGitPanel_Enter_SuccessfulAction_RefreshesGitStatusViaExistingWiring(t *
 	reader := gitdetect.FakeReader{Status: gitdetect.Status{Branch: "main"}}
 	b, fe := newGitPanelTestBoard(t, nil, reader)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	idx := gitPanelItemIndex(b, "P")
@@ -477,9 +487,9 @@ func TestGitPanel_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
 	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
 
 	b, _ := newGitPanelTestBoard(t, nil, nil)
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 	if len(b.gitPanel.items) < 2 {
 		t.Fatal("fixture needs at least two git panel items")
@@ -514,9 +524,9 @@ func TestGitPanel_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
 func TestGitPanel_View_RendersModalWithItemNames(t *testing.T) {
 	b, _ := newGitPanelTestBoard(t, nil, nil)
 
-	b = sendKey(t, b, keyMsg("g"))
+	b = sendKey(t, b, keyMsg("G"))
 	if b.mode != gitPanelMode {
-		t.Fatalf("expected gitPanelMode after 'g', got %d", b.mode)
+		t.Fatalf("expected gitPanelMode after 'G', got %d", b.mode)
 	}
 
 	view := b.View()

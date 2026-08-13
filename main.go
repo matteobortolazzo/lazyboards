@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime/debug"
@@ -155,10 +156,55 @@ func shouldCheckForUpdate(version string, enabled bool) bool {
 	return version != "dev" && enabled
 }
 
+// printNotices surfaces stderr notice groups (e.g. legacy-config deprecation
+// notices from actions:/columns[].actions translated onto keymaps: (#510),
+// and untrusted-local-config strip notices (#568)) once per run, before
+// BubbleTea takes over the terminal. Each group's lines are printed in order,
+// one sanitized line per entry; nil/empty groups contribute zero lines
+// without disrupting the ordering of the surrounding groups.
+func printNotices(w io.Writer, groups ...[]string) {
+	for _, notices := range groups {
+		for _, notice := range notices {
+			_, _ = fmt.Fprintln(w, sanitizeSingleLine(notice))
+		}
+	}
+}
+
 func main() {
 	if versionRequested(os.Args) {
 		fmt.Printf("lazyboards %s\n", appVersion())
 		return
+	}
+
+	// Dispatch "trust"/"untrust" before any config load or provider setup
+	// (#568): these verbs only ever touch the local config file (read) and
+	// the trust store (read/write), so they must run ahead of
+	// debuglog.Init/config.DefaultGlobalPath/config.Load below, not thread
+	// through the normal startup flow.
+	if verb, ok := trustVerb(os.Args); ok {
+		if trustVerbExtraArgs(os.Args) {
+			fmt.Fprintf(os.Stderr, "Usage: lazyboards %s\n\n%q does not accept any extra arguments or flags.\n", verb, verb)
+			os.Exit(1)
+		}
+		dispatchTrustPath, err := config.DefaultTrustPath()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error resolving trust store path: %v\n", err)
+			os.Exit(1)
+		}
+		note, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error resolving working directory: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(runTrustVerb(verb, config.DefaultLocalPath, dispatchTrustPath, note, os.Stderr))
+	}
+
+	// Open the debug log before anything else that might need to log to it
+	// (e.g. the trust-store fallback below) -- Init only opens a file handle
+	// keyed off an env var, so moving it ahead of config/trust resolution is
+	// side-effect-free for everything after it.
+	if err := debuglog.Init(os.Getenv("LAZYBOARDS_DEBUG_LOG")); err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening debug log: %v\n", err)
 	}
 
 	globalPath, err := config.DefaultGlobalPath()
@@ -167,9 +213,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := config.Load(globalPath, config.DefaultLocalPath)
+	// Resolve the trust store once and reuse it for every config.Load call
+	// below. Any error resolving/reading/parsing it (missing home dir,
+	// unreadable or malformed trust.yml) fails closed to a zero-value Trust
+	// -- which trusts nothing -- rather than aborting startup: a broken
+	// trust store must never block the app, it must only ever narrow what
+	// the local config is allowed to execute.
+	trustPath, err := config.DefaultTrustPath()
+	var trust config.Trust
+	if err == nil {
+		trust, err = config.LoadTrust(trustPath)
+	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		debuglog.Log(fmt.Sprintf("trust: falling back to zero-value trust store (nothing trusted): %v", err))
+		trust = config.Trust{}
+	}
+
+	cfg, err := config.Load(globalPath, config.DefaultLocalPath, trust)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %s\n", sanitizeSingleLine(err.Error()))
 		os.Exit(1)
 	}
 
@@ -210,10 +272,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Configuration required. Exiting.\n")
 			os.Exit(1)
 		}
-		// Reload config with saved values
-		cfg, err = config.Load(globalPath, config.DefaultLocalPath)
+		// Reload config with saved values, reusing the same trust decision
+		// resolved above (never reload the trust store twice).
+		cfg, err = config.Load(globalPath, config.DefaultLocalPath, trust)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error loading config: %s\n", sanitizeSingleLine(err.Error()))
 			os.Exit(1)
 		}
 		prov = cfg.Provider
@@ -232,6 +295,11 @@ func main() {
 	}
 
 	var bp provider.BoardProvider
+	// providerFactory lets the board rebuild its provider when the config
+	// modal saves a different repository, so the switch takes effect without a
+	// restart. It closes over the already-authenticated clients, so only the
+	// owner/repo (and the column mapping, which the modal never changes) vary.
+	var providerFactory func(providerName, owner, repo string) (provider.BoardProvider, error)
 	switch prov {
 	case "":
 		fmt.Fprintf(os.Stderr, "No provider detected.\n\n")
@@ -258,8 +326,8 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Ensure GITHUB_TOKEN or `gh auth token` provides a valid token.\n")
 			os.Exit(1)
 		}
-		parts := strings.SplitN(repo, "/", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		cfgOwner, cfgRepoName, ok := splitRepo(repo)
+		if !ok {
 			fmt.Fprintf(os.Stderr, "Invalid repo format %q, expected \"owner/repo\"\n", repo)
 			os.Exit(1)
 		}
@@ -273,7 +341,17 @@ func main() {
 		}
 		gqlClient := githubv4.NewClient(tc)
 		gqlAdapter := provider.NewGitHubV4Adapter(gqlClient)
-		bp = provider.NewGitHubProvider(ghc, gqlAdapter, parts[0], parts[1], cfg.ColumnNames())
+		columnNames := cfg.ColumnNames()
+		providerFactory = func(providerName, owner, repo string) (provider.BoardProvider, error) {
+			if providerName != "github" {
+				return nil, fmt.Errorf("unsupported provider %q — only github is implemented", providerName)
+			}
+			if owner == "" || repo == "" {
+				return nil, fmt.Errorf("invalid repo, expected %q", "owner/repo")
+			}
+			return provider.NewGitHubProvider(ghc, gqlAdapter, owner, repo, columnNames), nil
+		}
+		bp = provider.NewGitHubProvider(ghc, gqlAdapter, cfgOwner, cfgRepoName, columnNames)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown provider: %q\n", prov)
 		os.Exit(1)
@@ -294,10 +372,6 @@ func main() {
 		gitReader = gitdetect.ExecReader{}
 	}
 
-	if err := debuglog.Init(os.Getenv("LAZYBOARDS_DEBUG_LOG")); err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening debug log: %v\n", err)
-	}
-
 	// Always-on crash reporting: a panic while BubbleTea owns the terminal
 	// prints its stack to stderr, which the altscreen restore then wipes. The
 	// deferred RecoverCrash guards in Update/View persist the stack to this
@@ -308,8 +382,35 @@ func main() {
 	}
 
 	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader, cfg.UpdateCheckValue())
+
+	// Override NewBoard's legacy-derived keymap with the fully resolved
+	// config.ResolveKeymap result (cfg.Keymaps, already carrying #510's
+	// legacy actions:/columns[].actions: translation) -- the single
+	// resolution path every validator already shares (internal/config/
+	// keymap_validate.go). withKeymap rebuilds every hint bar immediately, so
+	// the very first rendered frame reflects the fully resolved table, not
+	// just NewBoard's legacy-only derivation.
+	km, err := config.ResolveKeymap(&cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error resolving keymap: %v\n", err)
+		os.Exit(1)
+	}
+	board = board.withKeymap(km)
+
+	// Let a repo saved in the config modal retarget the board in place,
+	// instead of writing the file and refreshing the previous repository.
+	board.providerFactory = providerFactory
 	// Scope the agents list to this instance's own tmux session (#410).
 	board.tmuxSession = resolveTmuxSession(action.DefaultExecutor{})
+	// trustPath lets in-app config Save() carry trust forward across a
+	// rewrite of the local config file (#568, AC18).
+	board.trustPath = trustPath
+	// startupWarning is a one-shot hand-off: any untrusted-local-config strip
+	// notices are surfaced as a timed status-bar warning on the first
+	// successful board fetch, then cleared (handleBoardFetched, update.go).
+	if len(cfg.Notices) > 0 {
+		board.startupWarning = strings.Join(cfg.Notices, "; ")
+	}
 	// Seed the board-wide card sort direction: a previously toggled direction
 	// (runtime state) wins over the configured default (#503). Cards are
 	// fetched asynchronously, so no sort can run before this assignment.
@@ -330,6 +431,8 @@ func main() {
 		}
 	}
 	board.sortNewestFirst = config.ResolveSortNewestFirst(cfg, state)
+
+	printNotices(os.Stderr, cfg.Deprecations, cfg.Notices)
 
 	opts := []tea.ProgramOption{tea.WithAltScreen()}
 	if cfg.MouseValue() {

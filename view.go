@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
 
 // Package-level glamour renderer cache.
@@ -100,13 +100,15 @@ func (b Board) View() string {
 	}
 	if b.mode == labelConfirmMode && b.labelConfirm.currentIdx < len(b.labelConfirm.unknownLabels) {
 		label := b.labelConfirm.unknownLabels[b.labelConfirm.currentIdx]
-		chrome := lipgloss.Width(fmt.Sprintf(labelConfirmPromptFmt, ""))
-		helpBar = fmt.Sprintf(labelConfirmPromptFmt, fitQuotedTitle(label, innerWidth, chrome))
+		suffix := promptParenthetical(b.keys.Entries(keymap.ModeLabelConfirm, ""), keymap.CommandLabelConfirmCreate, keymap.CommandLabelConfirmCancel)
+		chrome := lipgloss.Width(fmt.Sprintf(labelConfirmPromptFmt, "", suffix))
+		helpBar = fmt.Sprintf(labelConfirmPromptFmt, fitQuotedTitle(label, innerWidth, chrome), suffix)
 	}
 	if b.mode == closeConfirmMode {
 		card := b.closeConfirm.card
-		chrome := lipgloss.Width(fmt.Sprintf(closeConfirmPromptFmt, card.Number, ""))
-		helpBar = fmt.Sprintf(closeConfirmPromptFmt, card.Number, fitQuotedTitle(card.Title, innerWidth, chrome))
+		suffix := promptParenthetical(b.keys.Entries(keymap.ModeCloseConfirm, ""), keymap.CommandCloseConfirmConfirm, keymap.CommandCloseConfirmCancel)
+		chrome := lipgloss.Width(fmt.Sprintf(closeConfirmPromptFmt, card.Number, "", suffix))
+		helpBar = fmt.Sprintf(closeConfirmPromptFmt, card.Number, fitQuotedTitle(card.Title, innerWidth, chrome), suffix)
 	}
 
 	// Assemble inner content.
@@ -1154,15 +1156,7 @@ func (b Board) viewCreateModal() string {
 		if b.validationErr != "" {
 			errLine = "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.validationErr)
 		}
-		hints := []Hint{
-			{Key: "esc", Desc: "Cancel"},
-			{Key: "tab", Desc: "Next"},
-		}
-		if b.create.focus == 2 {
-			hints = append(hints, Hint{Key: "\u25c0/\u25b6", Desc: "Cycle"})
-		}
-		hints = append(hints, Hint{Key: "enter", Desc: "Submit"})
-		createHints := NewStatusBar(hints)
+		createHints := NewStatusBar(b.createModalHints())
 
 		var assigneeLine string
 		if len(b.create.assigneeOptions) > 1 {
@@ -1189,11 +1183,7 @@ func (b Board) viewConfigModal() string {
 
 	providerDisplay := "< " + b.config.providerOptions[b.config.providerIndex] + " >"
 
-	configHints := NewStatusBar([]Hint{
-		{Key: "esc", Desc: "Cancel"},
-		{Key: "tab", Desc: "Next"},
-		{Key: "enter", Desc: "Save"},
-	})
+	configHints := NewStatusBar(b.configModalHints())
 
 	repoView := b.config.repoInput.View()
 
@@ -1228,244 +1218,12 @@ func (b Board) viewPRPickerModal() string {
 	prText := selectedRowStyle(fmt.Sprintf(prPickerTitleFmt, pr.Number, title), true)
 	prDisplay := prPrefix + "\u25c0 " + prText + " \u25b6"
 
-	pickerHints := NewStatusBar(prPickerHints)
+	pickerHints := NewStatusBar(b.prPickerHints())
 	modalContent := "Select PR\n\n" +
 		prDisplay + "\n\n" +
 		pickerHints.View(modalWidth, 0, 0)
 
 	return b.renderModal(modalContent, modalWidth)
-}
-
-// helpSection groups a display name with its keybinding entries for the help popup.
-type helpSection struct {
-	title string
-	keys  [][2]string
-}
-
-// helpSections is the ordered list of static help sections.
-// Custom Actions and Usage are appended dynamically by buildHelpContent().
-// When adding a new mode, add its section here so keybindings appear in the help popup.
-// The six j/k-navigated lists (card list, PR list, agents list, assignee
-// picker, filter picker, git menu) all wrap from last item to first and back
-// (#426); their entries here intentionally keep the "Navigate" wording rather
-// than switching to "Cycle X" like the Left/Right pickers below, since they
-// remain navigation controls -- wraparound is a behavior refinement, not a
-// change of purpose.
-var helpSections = []helpSection{
-	{"Normal Mode", [][2]string{
-		{"?", "Help"},
-		{"q", "Quit"},
-		{"n", "New card"},
-		{"e", "Edit card"},
-		{"c", "Configuration"},
-		{"o", "Open ticket"},
-		{"m", "Go to reference"},
-		{"r", "Refresh"},
-		{"p", "Open PR"},
-		{"x", "Close card"},
-		{"t", "Delete card"},
-		{"v", "Open PRs"},
-		{"i", "Milestones (repo-wide)"},
-		{"w", "Agents (cenci)"},
-		{"s", "Go to agent (cenci)"},
-		{"/", "Search"},
-		{"a", "Assign"},
-		{"g", "Git menu"},
-		{"d", "Dispatch (cenci)"},
-		{"u", "Sort order"},
-		{"f", "Filter (toggle)"},
-		{"l/\u2192", "Detail panel"},
-		{"j/k", "Navigate cards"},
-		{"tab/s-tab", "Switch columns"},
-		{"1-9", "Jump to column"},
-		{"A-Z", "Custom action"},
-		{"A-Z..", "Custom action key sequence"},
-		{"alt+shift+key", "Comment action"},
-	}},
-	{"Detail Panel", [][2]string{
-		{"e", "Edit card"},
-		{"j/k", "Scroll body"},
-		{"h/\u2190/esc", "Back to card list"},
-		{"tab/s-tab", "Switch columns"},
-		{"o", "Open ticket"},
-		{"m", "Go to reference"},
-		{"p", "Open PR"},
-		{"r", "Refresh"},
-		{"q", "Quit"},
-		{"?", "Help"},
-		{"A-Z", "Custom action"},
-		{"A-Z..", "Custom action key sequence"},
-		{"alt+shift+key", "Comment action"},
-	}},
-	{"Create Card", [][2]string{
-		{"esc", "Cancel"},
-		{"tab", "Next field"},
-		{"←/→", "Cycle assignee"},
-		{"enter", "Submit"},
-	}},
-	{"Configuration", [][2]string{
-		{"esc", "Cancel"},
-		{"tab", "Next field"},
-		{"\u2190/\u2192", "Cycle provider"},
-		{"enter", "Save"},
-	}},
-	{"PR Picker", [][2]string{
-		{"\u2190/\u2192", "Cycle PR"},
-		{"enter", "Select"},
-		{"esc", "Cancel"},
-	}},
-	{"Pull Requests", [][2]string{
-		{"v", "Open PRs (repo-wide)"},
-		{"j/k", "Navigate"},
-		{"enter", "Open PR"},
-		{"A-Z", "Custom action (scope: pr)"},
-		{"esc", "Cancel"},
-	}},
-	{"Milestones", [][2]string{
-		{"i", "Milestones (repo-wide)"},
-		{"j/k", "Navigate"},
-		{"enter", "Filter board by milestone"},
-		{"o", "Open in browser"},
-		{"esc", "Cancel"},
-	}},
-	{"Agents (cenci)", [][2]string{
-		{"w", "Agents (all cenci windows)"},
-		{"s", "Go to agent (from Normal Mode)"},
-		{"j/k", "Navigate"},
-		{"enter", "Go to tmux window"},
-		{"esc", "Cancel"},
-	}},
-	{"Comment", [][2]string{
-		{"esc", "Cancel"},
-		{"enter", "Submit"},
-	}},
-	{"Delete", [][2]string{
-		{"t", "Open (from Normal Mode)"},
-		{"enter", "Continue / Confirm"},
-		{"esc", "Cancel"},
-	}},
-	{"Close Confirm", [][2]string{
-		{"x", "Open (from Normal Mode)"},
-		{"y", "Confirm close"},
-		{"n/esc", "Cancel"},
-	}},
-	{"Filter", [][2]string{
-		{"f", "Filter (toggle)"},
-		{"j/k", "Navigate"},
-		{"enter", "Select"},
-		{"esc", "Cancel"},
-	}},
-	{"Search", [][2]string{
-		{"↑/↓", "Navigate results"},
-		{"ctrl+n/p", "Navigate results"},
-		{"tab/s-tab", "Switch columns (clears search)"},
-		{"enter", "Apply search"},
-		{"esc", "Clear search"},
-	}},
-	{"Assign", [][2]string{
-		{"j/k", "Navigate"},
-		{"enter", "Toggle assignee"},
-		{"esc", "Cancel"},
-	}},
-	{"Git Menu", [][2]string{
-		{"g", "Open (from Normal Mode)"},
-		{"P", "Push"},
-		{"p", "Pull (rebase)"},
-		{"f", "Fetch"},
-		{"m", "Mergetool"},
-		{"s", "Stash push"},
-		{"S", "Stash pop"},
-		{"j/k", "Navigate"},
-		{"enter", "Run selected"},
-		{"esc", "Cancel"},
-	}},
-	{"Dispatch (cenci)", [][2]string{
-		{"d", "Open (from Normal Mode)"},
-		{"enter", "Enroll/Unenroll"},
-		{"o", "Dispatch once"},
-		{"l", "Toggle loop on/off (all enrolled repos)"},
-		{"y/n", "Confirm/cancel loop toggle"},
-		{"esc", "Close"},
-	}},
-	{"Label Confirm", [][2]string{
-		{"y", "Create label, continue"},
-		{"n", "Cancel edit"},
-		{"esc", "Cancel edit"},
-	}},
-	{"Error", [][2]string{
-		{"r", "Retry"},
-		{"q", "Quit"},
-	}},
-	// Always-visible status-bar prefix indicators (not keys). Each is omitted
-	// when its count is zero.
-	{"Status Bar", [][2]string{
-		{"▶N", "Agents running"},
-		{"!N", "Agents awaiting input"},
-		{linkedPRGlyph + "N", "Open PRs in the repository"},
-	}},
-}
-
-func (b Board) buildHelpContent() string {
-	var sb strings.Builder
-
-	fmt.Fprintf(&sb, "Help — lazyboards %s\n\n", appVersion())
-
-	for i, section := range helpSections {
-		if i > 0 {
-			sb.WriteString("\n")
-		}
-		sb.WriteString(section.title + "\n")
-		for _, kv := range section.keys {
-			fmt.Fprintf(&sb, "  %-12s %s\n", kv[0], kv[1])
-		}
-	}
-
-	// Custom Actions (global).
-	hasGlobalActions := len(b.actions) > 0
-	hasColumnActions := false
-	for _, cc := range b.columnConfigs {
-		if len(cc.Actions) > 0 {
-			hasColumnActions = true
-			break
-		}
-	}
-
-	if hasGlobalActions || hasColumnActions {
-		sb.WriteString("\nCustom Actions\n")
-		globalKeys := make([]string, 0, len(b.actions))
-		for key := range b.actions {
-			globalKeys = append(globalKeys, key)
-		}
-		sort.Strings(globalKeys)
-		for _, key := range globalKeys {
-			act := b.actions[key]
-			fmt.Fprintf(&sb, "  %-12s %s (%s)\n", key, act.Name, act.Type)
-		}
-		// Column-specific actions.
-		for _, cc := range b.columnConfigs {
-			if len(cc.Actions) == 0 {
-				continue
-			}
-			fmt.Fprintf(&sb, "  %s:\n", cc.Name)
-			columnKeys := make([]string, 0, len(cc.Actions))
-			for key := range cc.Actions {
-				columnKeys = append(columnKeys, key)
-			}
-			sort.Strings(columnKeys)
-			for _, key := range columnKeys {
-				act := cc.Actions[key]
-				fmt.Fprintf(&sb, "    %-10s %s (%s)\n", key, act.Name, act.Type)
-			}
-		}
-	}
-
-	// Usage.
-	sb.WriteString("\nUsage\n")
-	sb.WriteString("  Columns represent board states (e.g., New, Implementing).\n")
-	sb.WriteString("  Press l or \u2192 to view card details.\n")
-	sb.WriteString("  Custom actions are configured in .lazyboards.yml.\n")
-
-	return sb.String()
 }
 
 func (b Board) viewHelpModal() string {
@@ -1527,7 +1285,7 @@ func (b Board) viewHelpModal() string {
 	}
 
 	// Add hints bar.
-	hintsBar := NewStatusBar(helpModeHints)
+	hintsBar := NewStatusBar(b.helpHints())
 	displayLines = append(displayLines, "", hintsBar.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(displayLines, "\n")
@@ -1536,8 +1294,11 @@ func (b Board) viewHelpModal() string {
 
 func (b Board) viewCommentModal() string {
 	modalWidth := b.createModalWidth()
-	commentHints := NewStatusBar(commentModeHints)
-	modalContent := b.comment.pendingAction.Name + "\n\n" +
+	commentHints := NewStatusBar(b.commentHints())
+	// pendingAction.Name is a config.Action.Name -- repo-local .lazyboards.yml
+	// data, the same untrusted type #511 sanitizes at the git menu and help
+	// modal render sites.
+	modalContent := sanitizeSingleLine(b.comment.pendingAction.Name) + "\n\n" +
 		b.comment.input.View() + "\n\n" +
 		commentHints.View(modalWidth, 0, 0)
 	return b.renderModal(modalContent, modalWidth)
@@ -1560,12 +1321,12 @@ func (b Board) viewDeleteModal() string {
 		chrome := lipgloss.Width(fmt.Sprintf(deleteConfirmPromptFmt, card.Number, card.Number, ""))
 		prompt = fmt.Sprintf(deleteConfirmPromptFmt, card.Number, card.Number, fitQuotedTitle(card.Title, available, chrome))
 		activeInputView = b.delete.confirmInput.View()
-		hints = NewStatusBar(deleteConfirmHints)
+		hints = NewStatusBar(b.deleteConfirmHints())
 	default:
 		chrome := lipgloss.Width(fmt.Sprintf(deleteCommentPromptFmt, card.Number, ""))
 		prompt = fmt.Sprintf(deleteCommentPromptFmt, card.Number, fitQuotedTitle(card.Title, available, chrome))
 		activeInputView = b.delete.commentInput.View()
-		hints = NewStatusBar(deleteCommentHints)
+		hints = NewStatusBar(b.deleteCommentHints())
 	}
 
 	modalContent := prompt + "\n\n" + activeInputView
@@ -1594,7 +1355,7 @@ func (b Board) viewFilterModal() string {
 	}
 
 	lines = append(lines, "")
-	filterHints := NewStatusBar(filterModeHints)
+	filterHints := NewStatusBar(b.filterHints())
 	lines = append(lines, filterHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
@@ -1619,7 +1380,7 @@ func (b Board) viewAssignModal() string {
 	}
 
 	lines = append(lines, "")
-	assignHints := NewStatusBar(assignModeHints)
+	assignHints := NewStatusBar(b.assignHints())
 	lines = append(lines, assignHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
@@ -1634,14 +1395,14 @@ func (b Board) viewGitPanelModal() string {
 	lines = append(lines, "")
 
 	for i, item := range b.gitPanel.items {
-		display := "  " + item.key + "  " + item.name
+		display := "  " + item.key + "  " + sanitizeSingleLine(item.name)
 		display = selectedRowStyle(display, i == b.gitPanel.cursor)
 		lines = append(lines, display)
 	}
 
 	lines = append(lines, "")
-	gitPanelHints := NewStatusBar(gitPanelModeHints)
-	lines = append(lines, gitPanelHints.View(modalWidth, 0, 0))
+	gitPanelHintsBar := NewStatusBar(b.gitPanelHints())
+	lines = append(lines, gitPanelHintsBar.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
@@ -1746,7 +1507,7 @@ func (b Board) viewPRListModal() string {
 	}
 
 	lines = append(lines, "")
-	prListHints := NewStatusBar(b.prListActionHints())
+	prListHints := NewStatusBar(b.prListHints())
 	lines = append(lines, prListHints.View(modalContentWidth(modalWidth), 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
@@ -1863,7 +1624,7 @@ func (b Board) viewMilestoneListModal() string {
 	}
 
 	lines = append(lines, "")
-	milestoneHints := NewStatusBar(milestoneListModeHints)
+	milestoneHints := NewStatusBar(b.milestoneListHints())
 	lines = append(lines, milestoneHints.View(modalWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
@@ -1924,9 +1685,27 @@ func padCell(s string, width int) string {
 // literal quote characters via %s (never %q) so the title can be escaped
 // BEFORE truncation via fitQuotedTitle -- %q escapes after truncation,
 // which is unbounded. prPickerTitleFmt is the one unquoted site.
+//
+// The two confirm prompts end in a trailing %s carrying their
+// registry-derived key parenthetical (#583) -- " (y/n)" under the default
+// table, and "" once both clauses' commands are unbound. That suffix is part
+// of each prompt's chrome, so callers MUST measure chromeWidth with the
+// resolved suffix spliced in (and an empty title), never against the bare
+// format string: a remapped table can widen the parenthetical well past the
+// default wording ("Shift+tab to cancel"), and a chrome measurement that
+// omits it would hand fitQuotedTitle a budget larger than the line's true
+// remaining width, re-opening the overflow #597 closed.
+//
+// The two delete prompts deliberately carry NO key parenthetical (#609):
+// their keys are already advertised one line below by the modal's own
+// registry-derived hints bar (deleteCommentHints/deleteConfirmHints), and at
+// the delete modal's content width the parenthetical's chrome drove the
+// title budget to the inlineTitleMinCells floor and wrapped the prompt onto
+// a second physical line. Dropping the text (rather than hardcoding it)
+// keeps the epic's "no hand-written key wording" invariant intact.
 const (
-	closeConfirmPromptFmt  = `Close #%d "%s"? (y/n)`
-	labelConfirmPromptFmt  = `Label "%s" doesn't exist. Create it? (y/n)`
+	closeConfirmPromptFmt  = `Close #%d "%s"?%s`
+	labelConfirmPromptFmt  = `Label "%s" doesn't exist. Create it?%s`
 	deleteConfirmPromptFmt = `Type %d to permanently delete #%d "%s":`
 	deleteCommentPromptFmt = `Delete #%d "%s" — optional comment:`
 	prPickerTitleFmt       = "#%d %s"
@@ -2056,12 +1835,12 @@ func (b Board) viewAgentListModal() string {
 	}
 
 	lines = append(lines, "")
-	hints := agentListModeHints
+	hints := b.agentListHints()
 	if len(entries) == 0 {
-		hints = agentListEmptyHints
+		hints = b.agentListEmptyHints()
 	}
-	agentListHints := NewStatusBar(hints)
-	lines = append(lines, agentListHints.View(modalContentWidth(modalWidth), 0, 0))
+	agentListStatusBar := NewStatusBar(hints)
+	lines = append(lines, agentListStatusBar.View(modalContentWidth(modalWidth), 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)
@@ -2082,14 +1861,14 @@ func (b Board) viewDispatchModal() string {
 	lines = append(lines, "Agent Dispatch")
 	lines = append(lines, "")
 
-	var hints []Hint
+	loop, loopErr := b.dispatchLoopSource()
+	hints := b.dispatchModalHints()
+
 	switch {
 	case b.dispatch.loading:
 		lines = append(lines, b.spinner.View()+" Checking dispatch status...")
-		hints = []Hint{{Key: "esc", Desc: "Close"}}
 	case b.dispatch.running:
 		lines = append(lines, b.spinner.View()+" Running dispatch...")
-		hints = []Hint{{Key: "esc", Desc: "Close"}}
 	case b.dispatch.err != "":
 		if b.dispatch.repo != "" {
 			lines = append(lines, "Repo: "+b.dispatch.repo)
@@ -2098,13 +1877,11 @@ func (b Board) viewDispatchModal() string {
 			lines = append(lines, "Dir: "+b.dispatch.dir)
 		}
 		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Render(b.dispatch.err))
-		hints = []Hint{{Key: "esc", Desc: "Close"}}
 	case b.dispatch.repo == "":
 		// Zero-value/unset dispatchState (e.g. modal opened before the status
 		// query resolves, or an unexpected empty repo from the query) is not
 		// a ready state — render it as such rather than showing blank fields.
 		lines = append(lines, "No repository detected.")
-		hints = []Hint{{Key: "esc", Desc: "Close"}}
 	default:
 		lines = append(lines, "Repo: "+b.dispatch.repo)
 		lines = append(lines, "Dir: "+b.dispatch.dir)
@@ -2136,7 +1913,6 @@ func (b Board) viewDispatchModal() string {
 		}
 
 		lines = append(lines, "")
-		loop, loopErr := b.dispatchLoopSource()
 		lines = append(lines, renderLoopLine(loop, loopErr))
 
 		if b.dispatch.confirmingLoop {
@@ -2145,24 +1921,16 @@ func (b Board) viewDispatchModal() string {
 			// every enrolled repo (#433).
 			lines = append(lines, "")
 			lines = append(lines, fmt.Sprintf("Turn dispatch loop %s? Affects all enrolled repos.", loopToggleTarget(loop)))
-			hints = []Hint{{Key: "y", Desc: "Confirm"}, {Key: "n/esc", Desc: "Cancel"}}
 		} else {
 			// The loop toggle needs a known current state to pick a direction;
-			// omit the affordance entirely when the loop state is unknown. It
-			// lives on its own line under the Loop line (rather than the bottom
-			// hint bar) both because it reads as an action on the state directly
-			// above it, and because a fourth hint overflows the modal width.
-			if loop != nil {
-				lines = append(lines, fmt.Sprintf("  l: Turn loop %s", loopToggleTarget(loop)))
-			}
-
-			enterDesc := "Enroll"
-			if b.dispatch.enrolled {
-				enterDesc = "Unenroll"
-			}
-			hints = []Hint{{Key: "esc", Desc: "Close"}, {Key: "enter", Desc: enterDesc}}
-			if b.dispatch.enrolled {
-				hints = append(hints, Hint{Key: "o", Desc: "Dispatch once"})
+			// omit the affordance entirely when the loop state is unknown or its
+			// key is unbound. It lives on its own line under the Loop line
+			// (rather than the bottom hint bar) both because it reads as an
+			// action on the state directly above it, and because a fourth hint
+			// overflows the modal width.
+			toggleKey := panelHintKey(b.panelEntries(keymap.ModeDispatch), keymap.CommandDispatchToggleLoop)
+			if loop != nil && toggleKey != "" {
+				lines = append(lines, fmt.Sprintf("  %s: Turn loop %s", toggleKey, loopToggleTarget(loop)))
 			}
 		}
 	}

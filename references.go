@@ -171,6 +171,10 @@ func refIssueURL(cardURL string, number int) (string, bool) {
 
 // refHints builds the which-key hint bar for a pending reference-navigation
 // prompt: one hint per reference label, plus a trailing "esc: cancel" hint.
+// The trailing "esc" hint is an intentional hard-wired exception (#583
+// audit) -- handlePendingRefKey branches on tea.KeyEsc directly with no
+// catalogued command behind it, the same class of hard-wire as Lookup's
+// ctrl+c short-circuit (internal/keymap/lookup.go).
 func refHints(refs []cardRef) []Hint {
 	hints := make([]Hint, 0, len(refs)+1)
 	for _, r := range refs {
@@ -185,22 +189,11 @@ func (b *Board) clearPendingRefs() {
 	b.pendingRefs = nil
 }
 
-// restoreRefHints restores the hint bar for the focus state the reference
-// navigation was triggered from (card list vs detail panel), mirroring
-// restoreSeqHints (action_dispatch.go).
-func (b *Board) restoreRefHints() {
-	if b.detailFocused {
-		b.rebuildDetailHints()
-		return
-	}
-	b.statusBar.SetActionHints(b.normalHints)
-}
-
-// handleReferenceNavKey is the shared "m" trigger for normal mode and
-// detail-focused mode: it parses the selected card's body for #N references
-// and, if any exist, enters the pending reference-navigation state with one
-// which-key hint per reference. A card with no references is a no-op with a
-// status message.
+// handleReferenceNavKey is the shared nav.reference (default "g r") trigger
+// for normal mode and detail-focused mode: it parses the selected card's
+// body for #N references and, if any exist, enters the pending
+// reference-navigation state with one which-key hint per reference. A card
+// with no references is a no-op with a status message.
 func (b Board) handleReferenceNavKey() (tea.Model, tea.Cmd) {
 	if len(b.Columns) == 0 || len(b.visibleCards()) == 0 {
 		return b, nil
@@ -224,12 +217,12 @@ func (b Board) handleReferenceNavKey() (tea.Model, tea.Cmd) {
 func (b Board) handlePendingRefKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyEsc {
 		b.clearPendingRefs()
-		b.restoreRefHints()
+		b.restoreFocusHints()
 		return b, nil
 	}
 	if msg.Type != tea.KeyRunes || len(msg.Runes) != 1 {
 		b.clearPendingRefs()
-		b.restoreRefHints()
+		b.restoreFocusHints()
 		cmd := b.statusBar.SetTimedMessage("Reference selection cancelled", StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
@@ -246,7 +239,7 @@ func (b Board) handlePendingRefKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	b.clearPendingRefs()
 	if !found {
-		b.restoreRefHints()
+		b.restoreFocusHints()
 		cmd := b.statusBar.SetTimedMessage("No reference bound to "+string(label), StatusWarning, statusMessageDuration)
 		return b, cmd
 	}

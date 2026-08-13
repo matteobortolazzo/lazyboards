@@ -51,35 +51,35 @@ func newDispatchTestBoardWithExecutor(t *testing.T, fe *action.FakeExecutor) Boa
 func TestDispatch_PressD_EntersDispatchMode(t *testing.T) {
 	b := newDispatchTestBoard(t)
 
-	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, keyMsg("D"))
 
 	if b.mode != dispatchMode {
-		t.Errorf("after pressing 'd': mode = %v, want dispatchMode", b.mode)
+		t.Errorf("after pressing 'D': mode = %v, want dispatchMode", b.mode)
 	}
 }
 
 func TestDispatch_PressD_ResetsStateToLoading(t *testing.T) {
 	b := newDispatchTestBoard(t)
 
-	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, keyMsg("D"))
 
 	if !b.dispatch.loading {
-		t.Error("after pressing 'd': dispatch.loading = false, want true")
+		t.Error("after pressing 'D': dispatch.loading = false, want true")
 	}
 	if b.dispatch.err != "" {
-		t.Errorf("after pressing 'd': dispatch.err = %q, want empty", b.dispatch.err)
+		t.Errorf("after pressing 'D': dispatch.err = %q, want empty", b.dispatch.err)
 	}
 	if b.dispatch.running {
-		t.Error("after pressing 'd': dispatch.running = true, want false")
+		t.Error("after pressing 'D': dispatch.running = true, want false")
 	}
 }
 
 func TestDispatch_Escape_ReturnsToNormalMode(t *testing.T) {
 	b := newDispatchTestBoard(t)
 
-	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, keyMsg("D"))
 	if b.mode != dispatchMode {
-		t.Fatalf("expected dispatchMode after 'd', got %v", b.mode)
+		t.Fatalf("expected dispatchMode after 'D', got %v", b.mode)
 	}
 
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
@@ -92,7 +92,7 @@ func TestDispatch_Escape_ReturnsToNormalMode(t *testing.T) {
 func TestDispatch_Escape_RestoresNormalHints(t *testing.T) {
 	b := newDispatchTestBoard(t)
 
-	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, keyMsg("D"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
 	view := b.View()
@@ -105,7 +105,7 @@ func TestDispatch_Escape_RestoresNormalHints(t *testing.T) {
 
 func TestDispatch_EnterNoop_WhileLoading(t *testing.T) {
 	b := newDispatchTestBoard(t)
-	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, keyMsg("D"))
 	b.dispatch.loading = true
 
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
@@ -117,7 +117,7 @@ func TestDispatch_EnterNoop_WhileLoading(t *testing.T) {
 
 func TestDispatch_ONoop_WhileLoading(t *testing.T) {
 	b := newDispatchTestBoard(t)
-	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, keyMsg("D"))
 	b.dispatch.loading = true
 
 	b = sendKey(t, b, keyMsg("o"))
@@ -129,7 +129,7 @@ func TestDispatch_ONoop_WhileLoading(t *testing.T) {
 
 func TestDispatch_EnterNoop_WhileError(t *testing.T) {
 	b := newDispatchTestBoard(t)
-	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, keyMsg("D"))
 	b.dispatch.loading = false
 	b.dispatch.err = "x"
 
@@ -142,7 +142,7 @@ func TestDispatch_EnterNoop_WhileError(t *testing.T) {
 
 func TestDispatch_EnterNoop_WhileRunning(t *testing.T) {
 	b := newDispatchTestBoard(t)
-	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, keyMsg("D"))
 	b.dispatch.loading = false
 	b.dispatch.running = true
 
@@ -159,7 +159,7 @@ func TestDispatch_EnterNoop_WhileRunning(t *testing.T) {
 // dispatchMode without firing a Cmd.
 func TestDispatch_EnterAndO_NoopWhenClean(t *testing.T) {
 	b := newDispatchTestBoard(t)
-	b = sendKey(t, b, keyMsg("d"))
+	b = sendKey(t, b, keyMsg("D"))
 	b.dispatch = dispatchState{} // loading=false, err="", running=false
 
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
@@ -173,7 +173,7 @@ func TestDispatch_EnterAndO_NoopWhenClean(t *testing.T) {
 	}
 }
 
-// --- Pressing 'd' fires an async status query (#283) ---
+// --- Pressing 'D' fires an async status query (#283) ---
 
 func TestDispatch_PressD_FiresStatusQueryCmd(t *testing.T) {
 	fe := &action.FakeExecutor{
@@ -184,16 +184,16 @@ func TestDispatch_PressD_FiresStatusQueryCmd(t *testing.T) {
 	}
 	b := newDispatchTestBoardWithExecutor(t, fe)
 
-	m, cmd := b.Update(keyMsg("d"))
+	m, cmd := b.Update(keyMsg("D"))
 	b2, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if b2.mode != dispatchMode {
-		t.Errorf("after pressing 'd': mode = %v, want dispatchMode", b2.mode)
+		t.Errorf("after pressing 'D': mode = %v, want dispatchMode", b2.mode)
 	}
 	if cmd == nil {
-		t.Fatal("expected pressing 'd' to fire a Cmd querying dispatch status, got nil")
+		t.Fatal("expected pressing 'D' to fire a Cmd querying dispatch status, got nil")
 	}
 
 	msgs := collectMsgs(cmd)

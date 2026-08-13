@@ -2,12 +2,14 @@ package main
 
 import (
 	"errors"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -1318,5 +1320,535 @@ func TestCardCreated_AssigneeChainUnaffectedByFocusChange(t *testing.T) {
 	}
 	if len(final.selectedCard().Assignees) == 0 || final.selectedCard().Assignees[0].Login != "alice" {
 		t.Errorf("selectedCard().Assignees = %v, want [alice] (assignee update must still apply to the new card)", final.selectedCard().Assignees)
+	}
+}
+
+// --- Route create mode through the registry (#540 PR 1/2) ---
+//
+// handleCreateModeKey cuts over from a hardcoded `switch msg.Type` to
+// keymap.Keymap.Lookup against ModeCreate (textBinding, keymap_text.go),
+// mirroring handleDeleteModeKey's recognized-command-else-fall-through-to-
+// textinput shape (#539 PR 2/2, the direct template for this ticket): a
+// resolved-and-eligible create.* command dispatches through
+// runCreateCommand; anything else (no match, OutcomePending, a non-command
+// binding, a foreign command id, or an eligibility-gate miss) falls through
+// to the focused field exactly like today's `default:` branch. The
+// eligibility gate is create.assignee_prev/assignee_next's fifth condition:
+// createCommandActive(id) is false whenever b.create.focus != 2 or
+// len(b.create.assigneeOptions) == 0, in which case left/right must reach
+// the focused textinput/textarea as cursor movement (focus 0/1) or be a
+// genuine no-op (focus 2, no options) instead of cycling.
+
+// --- left/right reach the focused text input at focus 0/1 ---
+
+func TestCreateMode_Left_AtTitleFocus_MovesCursorInTitleInput(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "abc" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	if got := b.create.titleInput.Value(); got != "abc" {
+		t.Fatalf("precondition: titleInput.Value() = %q, want %q", got, "abc")
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft)) // cursor: a b|c
+	b = sendKey(t, b, keyMsg("X"))
+
+	if got := b.create.titleInput.Value(); got != "abXc" {
+		t.Errorf("titleInput.Value() = %q after left+type, want %q (left must move the textarea cursor, not be swallowed)", got, "abXc")
+	}
+}
+
+func TestCreateMode_Right_AtTitleFocus_MovesCursorInTitleInput(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "abc" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))  // cursor: |abc
+	b = sendKey(t, b, arrowMsg(tea.KeyRight)) // cursor: a|bc
+	b = sendKey(t, b, keyMsg("X"))
+
+	if got := b.create.titleInput.Value(); got != "aXbc" {
+		t.Errorf("titleInput.Value() = %q after left*3+right+type, want %q (right must move the textarea cursor, not be swallowed)", got, "aXbc")
+	}
+}
+
+func TestCreateMode_Left_AtLabelFocus_MovesCursorInLabelInput(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab)) // title -> label
+	for _, ch := range "abc" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	if got := b.create.labelInput.Value(); got != "abc" {
+		t.Fatalf("precondition: labelInput.Value() = %q, want %q", got, "abc")
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
+	b = sendKey(t, b, keyMsg("X"))
+
+	if got := b.create.labelInput.Value(); got != "abXc" {
+		t.Errorf("labelInput.Value() = %q after left+type, want %q (left must move the labelInput cursor, not be swallowed)", got, "abXc")
+	}
+}
+
+func TestCreateMode_Right_AtLabelFocus_MovesCursorInLabelInput(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+	for _, ch := range "abc" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
+	b = sendKey(t, b, arrowMsg(tea.KeyRight))
+	b = sendKey(t, b, keyMsg("X"))
+
+	if got := b.create.labelInput.Value(); got != "aXbc" {
+		t.Errorf("labelInput.Value() = %q after left*3+right+type, want %q (right must move the labelInput cursor, not be swallowed)", got, "aXbc")
+	}
+}
+
+// --- left/right cycle the assignee only at focus 2 ---
+
+func TestCreateMode_LeftRight_AtAssigneeFocus_NoOpWhenNoOptions(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b.create.focus = 2
+	b.create.assigneeOptions = nil
+	b.create.assigneeIndex = 0
+
+	m, cmd := b.Update(arrowMsg(tea.KeyLeft))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.create.assigneeIndex != 0 {
+		t.Errorf("assigneeIndex = %d after left with zero assigneeOptions, want unchanged 0", b2.create.assigneeIndex)
+	}
+	if cmd != nil {
+		t.Error("left at focus 2 with zero assigneeOptions should not fire a cmd")
+	}
+
+	m, cmd = b2.Update(arrowMsg(tea.KeyRight))
+	b3, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b3.create.assigneeIndex != 0 {
+		t.Errorf("assigneeIndex = %d after right with zero assigneeOptions, want unchanged 0", b3.create.assigneeIndex)
+	}
+	if cmd != nil {
+		t.Error("right at focus 2 with zero assigneeOptions should not fire a cmd")
+	}
+}
+
+// --- validationErr: cleared by left/right at focus 2, not by esc/enter/tab ---
+
+func TestCreateMode_Left_AtAssigneeFocus_ClearsValidationErr(t *testing.T) {
+	b := newCreateTestBoardWithCollaborators(t)
+	b = enterCreateAndFocusAssignee(t, b) // focus == 2
+	b.validationErr = "stale error"
+
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
+
+	if b.validationErr != "" {
+		t.Errorf("validationErr = %q after left at focus 2, want empty (left/right clear validationErr)", b.validationErr)
+	}
+}
+
+func TestCreateMode_Right_AtAssigneeFocus_ClearsValidationErr(t *testing.T) {
+	b := newCreateTestBoardWithCollaborators(t)
+	b = enterCreateAndFocusAssignee(t, b) // focus == 2
+	b.validationErr = "stale error"
+
+	b = sendKey(t, b, arrowMsg(tea.KeyRight))
+
+	if b.validationErr != "" {
+		t.Errorf("validationErr = %q after right at focus 2, want empty (left/right clear validationErr)", b.validationErr)
+	}
+}
+
+func TestCreateMode_Tab_DoesNotClearValidationErr(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b.validationErr = "stale error"
+
+	b = sendKey(t, b, arrowMsg(tea.KeyTab))
+
+	if b.validationErr != "stale error" {
+		t.Errorf("validationErr = %q after tab, want unchanged %q (tab must not clear validationErr)", b.validationErr, "stale error")
+	}
+}
+
+func TestCreateMode_Esc_DoesNotClearValidationErr(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b.validationErr = "stale error"
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	if b.validationErr != "stale error" {
+		t.Errorf("validationErr = %q after esc, want unchanged %q (esc must not clear validationErr)", b.validationErr, "stale error")
+	}
+}
+
+func TestCreateMode_Enter_DoesNotClearValidationErrOnSuccessfulSubmit(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	for _, ch := range "Valid title" {
+		b = sendKey(t, b, keyMsg(string(ch)))
+	}
+	b.validationErr = "stale error"
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if cmd == nil {
+		t.Fatal("expected a non-nil cmd (spinner + createCardCmd) from a valid submit")
+	}
+	if b2.validationErr != "stale error" {
+		t.Errorf("validationErr = %q after successful submit, want unchanged %q (enter must not clear validationErr as a side effect)", b2.validationErr, "stale error")
+	}
+	execCmds(cmd)
+}
+
+// --- keymaps.create remap + explicit unbind ---
+
+func TestCreateMode_RemapCancelKey_DispatchAndHintStaySync(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeCreate: {
+			"esc": keymap.UnboundBinding(),
+			"f1":  keymap.CommandBinding(keymap.CommandCreateCancel),
+		},
+	}, nil)
+
+	before := b.mode
+	m, cmd := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != before {
+		t.Errorf("mode after unbound (now-old) esc = %v, want unchanged (%v)", b2.mode, before)
+	}
+	if cmd != nil {
+		t.Error("unbound esc should not fire a cmd")
+	}
+
+	m, cmd = b2.Update(arrowMsg(tea.KeyF1))
+	b3, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b3.mode != normalMode {
+		t.Errorf("mode after remapped 'f1' = %v, want normalMode", b3.mode)
+	}
+	if cmd != nil {
+		t.Error("cancel via remapped 'f1' should not fire a cmd, matching today's esc-cancel behavior")
+	}
+}
+
+// TestCreateMode_UnbindAssigneeCycleKeys_LeftRightNoOpAtFocus2 encodes AC #2
+// ("a user config binding a non-printable key already used by a built-in
+// overrides it; the built-in's old key stops working") for create's
+// assignee-cycle commands specifically: unbinding both "left" and "right"
+// from create.assignee_prev/assignee_next must make them a genuine no-op at
+// focus 2, not a silent hardcoded fallback to the same cycling behavior.
+func TestCreateMode_UnbindAssigneeCycleKeys_LeftRightNoOpAtFocus2(t *testing.T) {
+	b := newCreateTestBoardWithCollaborators(t)
+	b = enterCreateAndFocusAssignee(t, b) // focus == 2
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeCreate: {
+			"left":  keymap.UnboundBinding(),
+			"right": keymap.UnboundBinding(),
+		},
+	}, nil)
+	before := b.create.assigneeIndex
+
+	b = sendKey(t, b, arrowMsg(tea.KeyRight))
+	if b.create.assigneeIndex != before {
+		t.Errorf("assigneeIndex = %d after unbound right, want unchanged %d", b.create.assigneeIndex, before)
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyLeft))
+	if b.create.assigneeIndex != before {
+		t.Errorf("assigneeIndex = %d after unbound left, want unchanged %d", b.create.assigneeIndex, before)
+	}
+}
+
+// TestCreateMode_RemapAssigneeCycleKeys_OldKeysNoLongerCycleNewKeysDo is
+// UnbindAssigneeCycleKeys' remap sibling: rebinding assignee_prev/next onto
+// "f1"/"f2" (a non-printable pair -- textBinding's ConsumesPrintableRunes
+// guard refuses bare printable runes for ModeCreate regardless of focus, so
+// a printable remap target like "h"/"l" could never dispatch through the
+// registry here) must make the OLD "left"/"right" keys stop cycling and the
+// NEW "f1"/"f2" keys start.
+func TestCreateMode_RemapAssigneeCycleKeys_OldKeysNoLongerCycleNewKeysDo(t *testing.T) {
+	b := newCreateTestBoardWithCollaborators(t)
+	b = enterCreateAndFocusAssignee(t, b) // focus == 2
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeCreate: {
+			"left":  keymap.UnboundBinding(),
+			"right": keymap.UnboundBinding(),
+			"f1":    keymap.CommandBinding(keymap.CommandCreateAssigneePrev),
+			"f2":    keymap.CommandBinding(keymap.CommandCreateAssigneeNext),
+		},
+	}, nil)
+	before := b.create.assigneeIndex
+
+	b = sendKey(t, b, arrowMsg(tea.KeyRight))
+	if b.create.assigneeIndex != before {
+		t.Errorf("assigneeIndex = %d after old (now unbound) right, want unchanged %d", b.create.assigneeIndex, before)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyF2))
+	if b.create.assigneeIndex == before {
+		t.Error("assigneeIndex unchanged after remapped 'f2', want it to cycle forward")
+	}
+}
+
+// TestCreateMode_EscBoundToAction_FallsThroughToTextinputNotDispatched and
+// TestCreateMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched
+// cover two of handleCreateModeKey's four documented fall-through outcomes
+// (mirroring handleDeleteModeKey's TestDeleteMode_CommentStep_EscBoundToAction_
+// FallsThroughToTextinputNotDispatched /
+// TestDeleteMode_CommentStep_ForeignCommandIDBoundToKey_
+// FallsThroughToTextinputNotDispatched, delete_mode_test.go): a resolved
+// non-command BindingAction, and a command id valid elsewhere in the catalog
+// but foreign to ModeCreate's own five ids. Neither is dispatched -- the
+// user config's semantic validator only checks a bound command id is
+// catalogued somewhere, not that it belongs to the mode it's bound under
+// (internal/config/keymap_semantic_validate.go), so both are reachable via a
+// legal (if unusual) keymaps.create config.
+func TestCreateMode_EscBoundToAction_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeCreate: {
+			"esc": keymap.ActionBinding(keymap.Action{Name: "Noop", Type: "url", URL: "https://example.com/{number}"}),
+		},
+	}, nil)
+	before := b.create.titleInput.Value()
+
+	m, _ := b.Update(arrowMsg(tea.KeyEsc))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != createMode {
+		t.Errorf("mode after esc resolved to a non-command action = %v, want unchanged createMode (must not dispatch the action)", b2.mode)
+	}
+	if got := b2.create.titleInput.Value(); got != before {
+		t.Errorf("titleInput.Value() = %q after esc resolved to a non-command action, want unchanged %q (falls through to the textinput)", got, before)
+	}
+}
+
+func TestCreateMode_ForeignCommandIDBoundToKey_FallsThroughToTextinputNotDispatched(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeCreate: {
+			"f1": keymap.CommandBinding(keymap.CommandCloseConfirmConfirm),
+		},
+	}, nil)
+	before := b.create.titleInput.Value()
+
+	m, _ := b.Update(arrowMsg(tea.KeyF1))
+	b2, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if b2.mode != createMode {
+		t.Errorf("mode after a foreign command id (close_confirm.confirm) bound into ModeCreate = %v, want unchanged createMode", b2.mode)
+	}
+	if got := b2.create.titleInput.Value(); got != before {
+		t.Errorf("titleInput.Value() = %q after a foreign command id bound into ModeCreate, want unchanged %q (falls through to the textinput, not dispatched)", got, before)
+	}
+}
+
+// --- createModalHints(): byte-identity, focus-gated Cycle hint, remap ---
+
+func TestCreateModalHints_DefaultParityMatchesTodaysLiteral(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n")) // focus == 0, no Cycle hint
+
+	hints := b.createModalHints()
+	want := []Hint{
+		{Key: "esc", Desc: "Cancel"},
+		{Key: "tab", Desc: "Next"},
+		{Key: "enter", Desc: "Submit"},
+	}
+	if !reflect.DeepEqual(hints, want) {
+		t.Errorf("createModalHints() at focus 0 = %+v, want %+v (today's inline literal, byte-identical, no Cycle hint since focus != 2)", hints, want)
+	}
+}
+
+func TestCreateModalHints_CycleHintPresentOnlyAtFocus2(t *testing.T) {
+	b := newCreateTestBoardWithCollaborators(t)
+	b = enterCreateAndFocusAssignee(t, b) // focus == 2
+
+	hints := b.createModalHints()
+	want := []Hint{
+		{Key: "esc", Desc: "Cancel"},
+		{Key: "tab", Desc: "Next"},
+		{Key: "◀/▶", Desc: "Cycle"},
+		{Key: "enter", Desc: "Submit"},
+	}
+	if !reflect.DeepEqual(hints, want) {
+		t.Errorf("createModalHints() at focus 2 = %+v, want %+v", hints, want)
+	}
+}
+
+func TestCreateModalHints_RemapCancelKey_ReflectsNewKey(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeCreate: {
+			"esc": keymap.UnboundBinding(),
+			"q":   keymap.CommandBinding(keymap.CommandCreateCancel),
+		},
+	}, nil)
+
+	hints := b.createModalHints()
+	if got := hintDesc(t, hints, "q"); got != "Cancel" {
+		t.Errorf("createModalHints() after remap: Desc for %q = %q, want %q", "q", got, "Cancel")
+	}
+	for _, h := range hints {
+		if h.Key == "esc" {
+			t.Errorf("createModalHints() still advertises the old 'esc' key after remap, got %+v", hints)
+		}
+	}
+}
+
+// TestCreateModalHints_RemapAssigneeCycleKeys_ReflectsNewKeysNoGlyph covers
+// arrowGlyphs' documented fallback (keymap_dispatch.go): remapping the
+// Cycle hint onto keys outside the glyph map (h/l) must render the raw key
+// text, not a stale/misleading arrow glyph.
+func TestCreateModalHints_RemapAssigneeCycleKeys_ReflectsNewKeysNoGlyph(t *testing.T) {
+	b := newCreateTestBoardWithCollaborators(t)
+	b = enterCreateAndFocusAssignee(t, b) // focus == 2
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeCreate: {
+			"left":  keymap.UnboundBinding(),
+			"right": keymap.UnboundBinding(),
+			"h":     keymap.CommandBinding(keymap.CommandCreateAssigneePrev),
+			"l":     keymap.CommandBinding(keymap.CommandCreateAssigneeNext),
+		},
+	}, nil)
+
+	hints := b.createModalHints()
+	if got := hintDesc(t, hints, "h/l"); got != "Cycle" {
+		t.Errorf("createModalHints() after remap onto h/l: Desc for %q = %q, want %q", "h/l", got, "Cycle")
+	}
+	for _, h := range hints {
+		if h.Key == "◀/▶" {
+			t.Errorf("createModalHints() still advertises the arrow glyph hint after remapping off left/right, got %+v", hints)
+		}
+	}
+}
+
+// --- hint<->dispatch invariant across all three focus positions ---
+
+// TestCreateModalHints_KeysAlwaysDispatch_AllFocusPositionsDefaultAndRemappedTables
+// is the hint<->dispatch invariant test named in the #540 plan's Explicit
+// Risk Coverage, adapted to create's three focus positions (title/label/
+// assignee) and its []Hint-slice hint bar: for every key advertised by
+// b.createModalHints() at every focus position, it must resolve through
+// b.textBinding -- the real dispatch path handleCreateModeKey uses -- against
+// ModeCreate. Run against both the default table and a remapped/unbound
+// table, mirroring TestDeleteMode_HintKeysAlwaysDispatch_BothStepsDefaultAndRemappedTables
+// (delete_mode_test.go).
+func TestCreateModalHints_KeysAlwaysDispatch_AllFocusPositionsDefaultAndRemappedTables(t *testing.T) {
+	arrowGlyphToKey := map[string]string{"◀": "left", "▶": "right"}
+	keyMsgForLabel := func(label string) tea.KeyMsg {
+		if raw, ok := arrowGlyphToKey[label]; ok {
+			label = raw
+		}
+		switch label {
+		case "enter":
+			return arrowMsg(tea.KeyEnter)
+		case "esc":
+			return arrowMsg(tea.KeyEsc)
+		case "tab":
+			return arrowMsg(tea.KeyTab)
+		case "left":
+			return arrowMsg(tea.KeyLeft)
+		case "right":
+			return arrowMsg(tea.KeyRight)
+		case "f1":
+			return arrowMsg(tea.KeyF1)
+		case "f2":
+			return arrowMsg(tea.KeyF2)
+		default:
+			return keyMsg(label)
+		}
+	}
+
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{
+			name: "remapped table",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeCreate: {
+					"esc": keymap.UnboundBinding(),
+					"f1":  keymap.CommandBinding(keymap.CommandCreateCancel),
+					"tab": keymap.UnboundBinding(),
+					"f2":  keymap.CommandBinding(keymap.CommandCreateNextField),
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newCreateTestBoardWithCollaborators(t)
+			b = sendKey(t, b, keyMsg("n"))
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+
+			for _, focus := range []int{0, 1, 2} {
+				b.create.focus = focus
+				for _, h := range b.createModalHints() {
+					if h.Key == "" {
+						continue
+					}
+					for _, key := range strings.Split(h.Key, "/") {
+						if _, ok := b.textBinding(keymap.ModeCreate, keyMsgForLabel(key)); !ok {
+							t.Errorf("focus %d, hint %+v: textBinding(ModeCreate, %q) not found, want a match (every advertised key must actually dispatch through the real handler)", focus, h, key)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+// --- ctrl+c always quits, regardless of user keymap config ---
+
+func TestCreateMode_CtrlCQuits_EvenWithOverriddenKeymap(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b = sendKey(t, b, keyMsg("n"))
+	// Attempt to steal ctrl+c for something else -- update.go's global
+	// ctrl+c-always-quits check runs before any mode dispatch, so this must
+	// have no effect.
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeCreate: {"ctrl+c": keymap.CommandBinding(keymap.CommandCreateSubmit)},
+	}, nil)
+
+	_, cmd := b.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd == nil {
+		t.Error("Ctrl+C in createMode should return a non-nil Cmd (tea.Quit), even with an overridden keymap")
 	}
 }

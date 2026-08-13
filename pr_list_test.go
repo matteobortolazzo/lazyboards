@@ -22,10 +22,10 @@ import (
 // open-PR fetch is in flight; openPRsMsg then replaces them with the full
 // repo-wide list.
 
-func TestNormalMode_V_OpensPRListModal(t *testing.T) {
+func TestOpenPRList_OpensPRListModal(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 
-	m, cmd := b.Update(keyMsg("v"))
+	m, cmd := b.Update(keyMsg("P"))
 	b = m.(Board)
 
 	if b.mode != prListMode {
@@ -35,7 +35,7 @@ func TestNormalMode_V_OpensPRListModal(t *testing.T) {
 		t.Error("prList.loading = false, want true (repo-wide fetch in flight)")
 	}
 	if cmd == nil {
-		t.Fatal("Update(v) returned nil cmd, want the repo-wide open-PR fetch command")
+		t.Fatal("Update(P) returned nil cmd, want the repo-wide open-PR fetch command")
 	}
 	if len(b.prList.entries) != 3 {
 		t.Fatalf("entries = %d, want 3 (card-linked fallback aggregated across all cards)", len(b.prList.entries))
@@ -60,7 +60,7 @@ func TestNormalMode_V_OpensPRListModal(t *testing.T) {
 	}
 }
 
-// TestNormalMode_V_FallbackExcludesClosedAndMergedLinkedPRs asserts the
+// TestOpenPRList_FallbackExcludesClosedAndMergedLinkedPRs asserts the
 // instant fallback list built from card.LinkedPRs while the repo-wide fetch
 // is in flight (#449) excludes PRs whose State is CLOSED or MERGED --
 // closedByPullRequestsReferences includes linked PRs regardless of state, so
@@ -69,7 +69,7 @@ func TestNormalMode_V_OpensPRListModal(t *testing.T) {
 // vast majority of existing fixtures) must still be kept, and once the real
 // open-PR fetch lands via openPRsMsg, the fallback's filtering must not
 // affect the replaced (already open-only) repo-wide list.
-func TestNormalMode_V_FallbackExcludesClosedAndMergedLinkedPRs(t *testing.T) {
+func TestOpenPRList_FallbackExcludesClosedAndMergedLinkedPRs(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{
 		{Number: 1, Title: "Mixed-state PR card", LinkedPRs: []provider.LinkedPR{
@@ -78,10 +78,10 @@ func TestNormalMode_V_FallbackExcludesClosedAndMergedLinkedPRs(t *testing.T) {
 		}},
 	}, fe)
 
-	m, cmd := b.Update(keyMsg("v"))
+	m, cmd := b.Update(keyMsg("P"))
 	b = m.(Board)
 	if cmd == nil {
-		t.Fatal("Update(v) returned nil cmd, want the repo-wide open-PR fetch command")
+		t.Fatal("Update(P) returned nil cmd, want the repo-wide open-PR fetch command")
 	}
 
 	if len(b.prList.entries) != 1 {
@@ -117,17 +117,17 @@ func TestNormalMode_V_FallbackExcludesClosedAndMergedLinkedPRs(t *testing.T) {
 	}
 }
 
-// TestNormalMode_V_FetchesRepoWideOpenPRs exercises the full wiring: the cmd
-// returned by pressing v queries the provider's open-PR list, and feeding its
+// TestOpenPRList_FetchesRepoWideOpenPRs exercises the full wiring: the cmd
+// returned by pressing P queries the provider's open-PR list, and feeding its
 // message back through Update replaces the fallback entries with the
 // repo-wide list (FakeProvider returns PRs #40, #31, #30, #20 newest-first).
-func TestNormalMode_V_FetchesRepoWideOpenPRs(t *testing.T) {
+func TestOpenPRList_FetchesRepoWideOpenPRs(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 
-	m, cmd := b.Update(keyMsg("v"))
+	m, cmd := b.Update(keyMsg("P"))
 	b = m.(Board)
 	if cmd == nil {
-		t.Fatal("Update(v) returned nil cmd, want the repo-wide open-PR fetch command")
+		t.Fatal("Update(P) returned nil cmd, want the repo-wide open-PR fetch command")
 	}
 
 	msg, ok := cmd().(openPRsMsg)
@@ -165,7 +165,7 @@ func TestNormalMode_V_FetchesRepoWideOpenPRs(t *testing.T) {
 // invariant: clamp at the mutation site).
 func TestPRList_OpenPRsFetched_ClampsCursor(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("j"))
 	if b.prList.cursor != 2 {
@@ -189,7 +189,7 @@ func TestPRList_OpenPRsFetched_ClampsCursor(t *testing.T) {
 // and surfaces the failure in the rendered view.
 func TestPRList_OpenPRsError_KeepsFallbackEntries(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, err: errors.New("boom")})
 
@@ -213,7 +213,7 @@ func TestPRList_OpenPRsError_KeepsFallbackEntries(t *testing.T) {
 // stale modal state.
 func TestPRList_OpenPRsMsg_IgnoredAfterModalClosed(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
 	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
@@ -230,10 +230,10 @@ func TestPRList_OpenPRsMsg_IgnoredAfterModalClosed(t *testing.T) {
 
 func TestPRList_OpenPRsMsg_IgnoredAfterModalReopened(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	staleGeneration := b.prList.generation
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	b = sendKey(t, b, openPRsMsg{
 		generation: staleGeneration,
@@ -252,7 +252,7 @@ func TestPRList_OpenPRsMsg_IgnoredAfterModalReopened(t *testing.T) {
 
 func TestPRList_Navigation_MovesAndWrapsCursor(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	if b.prList.cursor != 0 {
 		t.Fatalf("initial cursor = %d, want 0", b.prList.cursor)
@@ -291,7 +291,7 @@ func TestPRList_Navigation_MovesAndWrapsCursor(t *testing.T) {
 // wrap identically to j/k: both route through the shared moveCursor helper.
 func TestPRList_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	lastIndex := len(b.prList.entries) - 1
 
 	b = sendKey(t, b, arrowMsg(tea.KeyUp))
@@ -307,7 +307,7 @@ func TestPRList_Navigation_ArrowKeys_WrapsCursor(t *testing.T) {
 
 func TestPRList_Enter_OpensSelectedPR(t *testing.T) {
 	b, fe := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	// Select the second entry (PR #20) and open it.
 	b = sendKey(t, b, keyMsg("j"))
@@ -333,7 +333,7 @@ func TestPRList_Enter_OpensSelectedPR(t *testing.T) {
 // just as actionable as a linked one.
 func TestPRList_Enter_OpensUnlinkedPR(t *testing.T) {
 	b, fe := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
 		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40"},
 	}})
@@ -355,7 +355,7 @@ func TestPRList_Enter_OpensUnlinkedPR(t *testing.T) {
 
 func TestPRList_Esc_ReturnsToNormal(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	m, _ := b.Update(arrowMsg(tea.KeyEsc))
 	b = m.(Board)
@@ -376,7 +376,7 @@ func TestPRList_EmptyStates_LoadingThenNoOpenPRs(t *testing.T) {
 		{Number: 1, Title: "No PRs here"},
 	}, fe)
 
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	if b.mode != prListMode {
 		t.Fatalf("mode = %d, want prListMode (%d)", b.mode, prListMode)
 	}
@@ -406,7 +406,7 @@ func TestPRList_EmptyStates_LoadingThenNoOpenPRs(t *testing.T) {
 
 func TestPRList_View_ListsAllPRsWithCardRefs(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	view := b.viewPRListModal()
 	for _, want := range []string{"#10", "#20", "#21", "feat: one PR"} {
@@ -425,7 +425,7 @@ func TestPRList_View_ListsAllPRsWithCardRefs(t *testing.T) {
 // renders linked rows with their card reference and unlinked rows without one.
 func TestPRList_View_UnlinkedPRsCarryNoCardRef(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
 		{Number: 40, Title: "chore: unlinked cleanup", URL: "https://github.com/owner/repo/pull/40"},
 		{Number: 20, Title: "feat: first PR", URL: "https://github.com/owner/repo/pull/20"},
@@ -460,7 +460,7 @@ func TestPRList_View_UnlinkedPRsCarryNoCardRef(t *testing.T) {
 // does not strip control bytes, so this must go through sanitization first.
 func TestPRList_View_SanitizesControlSequencesInPRTitle(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
 		{Number: 40, Title: "\x1b[31mRED\x1b[0m", URL: "https://github.com/owner/repo/pull/40"},
 	}})
@@ -486,7 +486,7 @@ func TestPRList_View_SanitizesControlSequencesInPRTitle(t *testing.T) {
 // single PR row onto multiple physical lines.
 func TestPRList_View_NewlineInTitleAndColumnTitle_RendersOneRowWithSuffix(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	if len(b.prList.entries) == 0 {
 		t.Fatal("test precondition: prList.entries must be non-empty (card-linked fallback)")
 	}
@@ -505,7 +505,7 @@ func TestPRList_View_NewlineInTitleAndColumnTitle_RendersOneRowWithSuffix(t *tes
 
 func TestPRList_View_TitleFitsModalWidth(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	for _, line := range strings.Split(b.viewPRListModal(), "\n") {
 		if w := lipgloss.Width(line); w > b.Width {
@@ -527,7 +527,7 @@ func TestPRList_View_TitleFitsModalWidth(t *testing.T) {
 // no "— <column> #N" suffix -- isolating the title's own truncation budget.
 func TestPRList_View_WideCJKTitle_StaysOnSinglePhysicalLine(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	title := strings.Repeat("测", 60)
 	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation, prs: []provider.LinkedPR{
 		{Number: 999, Title: title, URL: "https://github.com/owner/repo/pull/999"},
@@ -543,7 +543,7 @@ func TestPRList_View_WideCJKTitle_StaysOnSinglePhysicalLine(t *testing.T) {
 func TestPRList_View_KeepsSelectedRowVisibleWithinTerminal(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
 	b.Height = 12
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	prs := make([]provider.LinkedPR, 20)
 	for i := range prs {
 		prs[i] = provider.LinkedPR{Number: i + 1, Title: "open PR"}
@@ -573,7 +573,7 @@ func TestPRList_View_KeepsSelectedRowVisibleWithinTerminal(t *testing.T) {
 func prListActionFixture(t *testing.T, actions map[string]config.Action) (Board, *action.FakeExecutor) {
 	t.Helper()
 	b, fe := newActionTestBoardWithColumns(t, actions, prFixtureColumns())
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	return b, fe
 }
 
@@ -651,14 +651,18 @@ func TestPRList_CustomAction_NonPRScopeIgnored(t *testing.T) {
 }
 
 // TestPRList_CustomAction_EmptyListNoOp asserts an action key on an empty
-// list is a safe no-op.
+// list is a safe no-op. The scope: pr action is configured through
+// newActionTestBoardWithColumns (NewBoard's legacy actions param), which
+// feeds the pr_list keymap dispatch reads against -- unlike a post-NewBoard
+// b.actions assignment, which no longer feeds dispatch now that the PR list
+// resolves inline actions through the registry (#490 PR 7b).
 func TestPRList_CustomAction_EmptyListNoOp(t *testing.T) {
-	fe := &action.FakeExecutor{}
-	b := newBoardWithInlineCardsAndExecutor(t, []provider.Card{{Number: 1, Title: "No PRs here"}}, fe)
-	b.actions = map[string]config.Action{
+	b, fe := newActionTestBoardWithColumns(t, map[string]config.Action{
 		"W": {Name: "Review", Type: "url", URL: "https://example.com/{pr_number}", Scope: "pr"},
-	}
-	b = sendKey(t, b, keyMsg("v"))
+	}, []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{{Number: 1, Title: "No PRs here"}}},
+	})
+	b = sendKey(t, b, keyMsg("P"))
 	b = sendKey(t, b, openPRsMsg{generation: b.prList.generation})
 
 	m, cmd := b.Update(keyMsg("W"))
@@ -710,7 +714,7 @@ func TestPRList_View_RowShowsStatusSymbolStyledPerEntry(t *testing.T) {
 			{Number: 10, Title: "feat: conflicting", URL: "https://github.com/o/r/pull/10", Mergeable: "CONFLICTING", MergeStateStatus: "DIRTY"},
 		}},
 	}, fe)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	view := b.viewPRListModal()
 	want := prConflictingStyle.Render(prStatusSymbol("conflicting"))
@@ -730,7 +734,7 @@ func TestPRList_View_UnknownStatusRendersNoGlyph(t *testing.T) {
 			{Number: 10, Title: "feat: unresolved", URL: "https://github.com/o/r/pull/10", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
 		}},
 	}, fe)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	view := b.viewPRListModal()
 	var row string
@@ -764,7 +768,7 @@ func TestPRList_View_ColumnAlignment_UnknownAndKnownStatusRowsMatch(t *testing.T
 			{Number: 30, Title: "feat: unstable", URL: "https://github.com/o/r/pull/30", Mergeable: "MERGEABLE", MergeStateStatus: "UNSTABLE"},
 		}},
 	}, fe)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	view := b.viewPRListModal()
 	var unknownRow, knownRow, unstableRow string
@@ -815,7 +819,7 @@ func TestPRList_View_RowsPrefixedWithPurpleLinkedPRGlyph(t *testing.T) {
 			{Number: 10, Title: "feat: mergeable", URL: "https://github.com/o/r/pull/10", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
 		}},
 	}, fe)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	view := b.viewPRListModal()
 	var row string
@@ -849,7 +853,7 @@ func TestPRList_View_UnknownStatusRow_StillPrefixedWithPurpleLinkedPRGlyph(t *te
 			{Number: 10, Title: "feat: unresolved", URL: "https://github.com/o/r/pull/10", Mergeable: "UNKNOWN", MergeStateStatus: "UNKNOWN"},
 		}},
 	}, fe)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 
 	view := b.viewPRListModal()
 	var row string
@@ -887,7 +891,7 @@ func TestPRList_View_NonSelectedRowKeepsColoredStatusGlyph(t *testing.T) {
 			{Number: 11, Title: "feat: second", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
 		}},
 	}, fe)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	if b.prList.cursor != 0 {
 		t.Fatalf("test setup: expected cursor 0 (entry #10 selected), got %d", b.prList.cursor)
 	}
@@ -926,7 +930,7 @@ func TestPRList_ActionHints_AreSortedByKey(t *testing.T) {
 		"M": {Name: "Middle", Scope: "pr"},
 	})
 
-	hints := b.prListActionHints()
+	hints := b.prListHints()
 	wantKeys := []string{"esc", "j/k", "enter", "A", "M", "Z"}
 	if len(hints) != len(wantKeys) {
 		t.Fatalf("hint count = %d, want %d: %+v", len(hints), len(wantKeys), hints)
@@ -966,7 +970,7 @@ func TestPRList_ActionHints_AreSortedByKey(t *testing.T) {
 // docs/terminal-rendering.md's column-alignment convention.
 func TestPRList_View_RowClamp_WideCJKTitleAndColumn_StaysOnSinglePhysicalLine(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	if len(b.prList.entries) == 0 {
 		t.Fatal("test precondition: prList.entries must be non-empty (card-linked fallback)")
 	}
@@ -1005,7 +1009,7 @@ func TestPRList_View_RowClamp_WideCJKTitleAndColumn_StaysOnSinglePhysicalLine(t 
 // the modal's actual interior budget.
 func TestPRList_View_RowClamp_CutsTrailingCardSuffixNotLeadingColumns(t *testing.T) {
 	b, _ := newBoardWithPRsAndExecutor(t)
-	b = sendKey(t, b, keyMsg("v"))
+	b = sendKey(t, b, keyMsg("P"))
 	if len(b.prList.entries) == 0 {
 		t.Fatal("test precondition: prList.entries must be non-empty (card-linked fallback)")
 	}
@@ -1054,7 +1058,7 @@ func TestPRList_View_HintsLineFitsModalContentWidth(t *testing.T) {
 	b, _ := prListActionFixture(t, map[string]config.Action{
 		"W": {Name: "Review PR1", Type: "url", URL: "https://example.com/{pr_number}", Scope: "pr"},
 	})
-	if w := lipgloss.Width(renderHints(b.prListActionHints(), 60)); w < 57 || w > 60 {
+	if w := lipgloss.Width(renderHints(b.prListHints(), 60)); w < 57 || w > 60 {
 		t.Fatalf("test precondition: composed hints width at 60 = %d, want [57,60]", w)
 	}
 

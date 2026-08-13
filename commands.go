@@ -282,13 +282,15 @@ func runShellCmd(executor action.Executor, command string) tea.Cmd {
 	}
 }
 
-// saveConfigCmd returns a tea.Cmd that saves the config file.
-func saveConfigCmd(path, provider, repo string) tea.Cmd {
+// saveConfigCmd returns a tea.Cmd that saves the config file. trustPath, if
+// non-empty, is passed through to config.Save so a pre-write-trusted config
+// carries that trust forward onto the post-write hash (#568).
+func saveConfigCmd(path, provider, repo, trustPath string) tea.Cmd {
 	return func() tea.Msg {
-		if err := config.Save(path, provider, repo); err != nil {
+		if err := config.Save(path, provider, repo, trustPath); err != nil {
 			return configSaveErrorMsg{err: err}
 		}
-		return configSavedMsg{}
+		return configSavedMsg{provider: provider, repo: repo}
 	}
 }
 

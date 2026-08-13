@@ -10,7 +10,9 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
+	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -60,9 +62,9 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					b.agentList.cursor = 0
 				}
 			}
-			hints := agentListModeHints
+			hints := b.agentListHints()
 			if n == 0 {
-				hints = agentListEmptyHints
+				hints = b.agentListEmptyHints()
 			}
 			b.statusBar.SetActionHints(hints)
 		}
@@ -127,18 +129,21 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b, cmd
 		}
 		b.mode = errorMode
-		b.loadErr = provider.SanitizeError(msg.err)
-		b.statusBar.SetActionHints([]Hint{
-			{Key: "r", Desc: "Retry"},
-			{Key: "q", Desc: "Quit"},
-		})
+		// provider.SanitizeError classifies rate-limit/GitHub errors but
+		// falls through to raw err.Error() for anything else, which can
+		// carry untrusted server/network text -- flatten before storing so
+		// view.go's error screen never renders it raw.
+		b.loadErr = sanitizeSingleLine(provider.SanitizeError(msg.err))
+		b.statusBar.SetActionHints(b.errorHints())
 		return b, nil
 
 	case cardCreatedMsg:
 		return b.handleCardCreated(msg)
 
 	case cardCreateErrorMsg:
-		b.validationErr = provider.SanitizeError(msg.err)
+		// See the boardFetchErrorMsg case above for why this needs
+		// sanitizeSingleLine.
+		b.validationErr = sanitizeSingleLine(provider.SanitizeError(msg.err))
 		b.mode = createMode
 		b.recalcCreateInputs()
 		cmd := b.create.titleInput.Focus()
@@ -150,11 +155,12 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			b.config.configSaved = true
 			return b, tea.Quit
 		}
-		b.mode = loadingMode
-		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
+		return b.handleConfigSaved(msg)
 
 	case configSaveErrorMsg:
-		b.validationErr = provider.SanitizeError(msg.err)
+		// See the boardFetchErrorMsg case above for why this needs
+		// sanitizeSingleLine.
+		b.validationErr = sanitizeSingleLine(provider.SanitizeError(msg.err))
 		b.mode = configMode
 		return b, nil
 
@@ -311,7 +317,14 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b.handleMouseMsg(msg)
 
 	case tea.KeyMsg:
-		// ctrl+c always quits regardless of mode.
+		// ctrl+c always quits regardless of mode. This pre-check is also the
+		// only quit path for loadingMode/creatingMode specifically: those
+		// two modes have no keymap.Mode constant and return b, nil
+		// immediately below, before any handler runs -- so the shared
+		// universalDispatch seam (keymap_dispatch.go, #589's dispatch-layer
+		// source of truth for app.quit) structurally cannot reach them.
+		// Removing this pre-check would strand a user with no way to quit
+		// during the initial board fetch.
 		if msg.String() == "ctrl+c" {
 			return b, tea.Quit
 		}
@@ -324,15 +337,7 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case loadingMode, creatingMode:
 			return b, nil
 		case errorMode:
-			switch msg.String() {
-			case "q":
-				return b, tea.Quit
-			case "r":
-				b.mode = loadingMode
-				b.loadErr = ""
-				return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
-			}
-			return b, nil
+			return b.handleErrorModeKey(msg)
 		case createMode:
 			return b.handleCreateModeKey(msg)
 		case configMode:
@@ -413,6 +418,112 @@ func (b Board) scheduleCenciWatchRetry() tea.Cmd {
 	return tea.Tick(b.agentBackoff, func(time.Time) tea.Msg {
 		return cenciWatchRetryMsg{}
 	})
+}
+
+// filterNoMatchesMessage renders the active-filter no-matches warning with
+// board.filter's currently bound key, resolved against the effective
+// normal-mode table for the active column. When board.filter is unbound the
+// instruction clause is dropped entirely rather than advertising a dead key.
+func (b Board) filterNoMatchesMessage() string {
+	entries := b.keys.Entries(keymap.ModeNormal, b.activeColumnTitle())
+	key := commandInstructionKey(entries, keymap.CommandBoardFilter)
+	if key == "" {
+		return "Filter has no matches"
+	}
+	return fmt.Sprintf("Filter has no matches — press %s to clear", key)
+}
+
+// handleConfigSaved reloads the board after the config modal writes a new
+// provider/repo. A BoardProvider is bound to one owner/repo at construction,
+// so when either changed the provider must be rebuilt before fetching --
+// reusing the old one re-fetches the previous repository and makes the save
+// look like it did nothing. Failures (a malformed identifier, a provider the
+// factory can't build) return to configMode with the reason rather than
+// leaving the board pointed somewhere the config no longer describes.
+func (b Board) handleConfigSaved(msg configSavedMsg) (tea.Model, tea.Cmd) {
+	owner, name, ok := splitRepo(msg.repo)
+	if !ok {
+		b.validationErr = "Repository must be in owner/repo format"
+		b.mode = configMode
+		return b, nil
+	}
+
+	if msg.provider == b.providerName && owner == b.repoOwner && name == b.repoName {
+		// Nothing to retarget -- the existing provider already serves this
+		// repo, so this is a plain reload.
+		b.mode = loadingMode
+		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
+	}
+
+	if b.providerFactory == nil {
+		b.validationErr = "Cannot switch repository at runtime — restart lazyboards to use the saved configuration"
+		b.mode = configMode
+		return b, nil
+	}
+
+	p, err := b.providerFactory(msg.provider, owner, name)
+	if err != nil {
+		// See the boardFetchErrorMsg case in Update for why this needs
+		// sanitizeSingleLine.
+		b.validationErr = sanitizeSingleLine(provider.SanitizeError(err))
+		b.mode = configMode
+		return b, nil
+	}
+
+	b.provider = p
+	b.providerName = msg.provider
+	b.repoOwner = owner
+	b.repoName = name
+	b.resetRepoScopedState()
+	b.mode = loadingMode
+	return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
+}
+
+// resetRepoScopedState drops every piece of board state that describes the
+// previously tracked repository, so a switch starts from a clean slate instead
+// of mixing the old repo's data into the new one's first fetch.
+//
+// prevCards matters most: every card of the old repo is absent from the new
+// one, so leaving the map in place makes each of them read as a departure and
+// fires the columns' cleanup commands against cards that never moved. The
+// metadata fields are cleared for the same reason the TTL stamp is -- the new
+// repo's collaborators/labels must be re-fetched, not inherited -- and the
+// filter/search selections are cleared because they name labels, assignees and
+// milestones that only existed in the old repository.
+//
+// startupWarning is deliberately left alone: it describes how this run's
+// config was loaded (e.g. an untrusted-local-config strip notice, #568), not
+// the repository being tracked, and it must still reach the status bar on the
+// first successful fetch even if that fetch is the one after a repo switch.
+func (b *Board) resetRepoScopedState() {
+	b.Columns = nil
+	b.ActiveTab = 0
+	b.prevCards = nil
+	b.cleanupBreakerWarning = ""
+
+	b.collaborators = nil
+	b.authenticatedUser = ""
+	b.repoLabels = nil
+	b.lastMetadataFetch = time.Time{}
+	b.openPRCount = -1
+	b.loadErr = ""
+
+	b.detailFocused = false
+	b.detailScrollOffset = 0
+	b.prPickerIndex = 0
+	b.pendingPRAction = nil
+	b.clearPendingSeq()
+	b.clearPendingRefs()
+
+	b.searchQuery = ""
+	b.searchInput.SetValue("")
+	b.activeFilterType = filterTypeNone
+	b.activeFilterValue = ""
+	b.filterItems = nil
+	b.filterCursor = 0
+
+	b.prList = prListState{}
+	b.milestoneList = milestoneListState{}
 }
 
 func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
@@ -532,16 +643,12 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 
 		b.clampScrollOffset()
 		b.rebuildNormalHints()
-		if b.detailFocused {
-			b.rebuildDetailHints()
-		} else {
-			b.statusBar.SetActionHints(b.normalHints)
-		}
+		b.restoreFocusHints()
 
 		// Show no-matches hint if filter is active and zero cards match across all columns.
 		var cmd tea.Cmd
 		if b.activeFilterType != filterTypeNone && b.totalFilteredCards() == 0 {
-			cmd = b.statusBar.SetTimedMessage("Filter has no matches \u2014 press f to clear", StatusWarning, statusMessageDuration)
+			cmd = b.statusBar.SetTimedMessage(b.filterNoMatchesMessage(), StatusWarning, statusMessageDuration)
 		} else {
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 		}
@@ -550,6 +657,12 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 			// clobbered -- SetTimedMessage mutates the status bar synchronously.
 			cmd = b.statusBar.SetTimedMessage(b.cleanupBreakerWarning, StatusWarning, statusMessageDuration)
 			b.cleanupBreakerWarning = ""
+		}
+		if b.startupWarning != "" {
+			// Applied last so it isn't clobbered by the messages above --
+			// SetTimedMessage mutates the status bar synchronously.
+			cmd = b.statusBar.SetTimedMessage(b.startupWarning, StatusWarning, statusMessageDuration)
+			b.startupWarning = ""
 		}
 		if cleanupCmd != nil {
 			cmd = tea.Batch(cmd, cleanupCmd)
@@ -585,7 +698,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.statusBar.SetActionHints(b.normalHints)
 	if b.loaded {
 		if b.activeFilterType != filterTypeNone && b.totalFilteredCards() == 0 {
-			cmd = b.statusBar.SetTimedMessage("Filter has no matches \u2014 press f to clear", StatusWarning, statusMessageDuration)
+			cmd = b.statusBar.SetTimedMessage(b.filterNoMatchesMessage(), StatusWarning, statusMessageDuration)
 		} else {
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 		}
@@ -595,6 +708,12 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		// clobbered -- SetTimedMessage mutates the status bar synchronously.
 		cmd = b.statusBar.SetTimedMessage(b.cleanupBreakerWarning, StatusWarning, statusMessageDuration)
 		b.cleanupBreakerWarning = ""
+	}
+	if b.startupWarning != "" {
+		// Applied last so it isn't clobbered by the messages above --
+		// SetTimedMessage mutates the status bar synchronously.
+		cmd = b.statusBar.SetTimedMessage(b.startupWarning, StatusWarning, statusMessageDuration)
+		b.startupWarning = ""
 	}
 	b.loaded = true
 	if cleanupCmd != nil {
@@ -1102,6 +1221,20 @@ func (b Board) handleCardUpdated(msg cardUpdatedMsg) (tea.Model, tea.Cmd) {
 func (b *Board) restoreModeHints() {
 	if b.comment.fromDetailFocused {
 		b.detailFocused = true
+	}
+	b.restoreFocusHints()
+}
+
+// restoreFocusHints restores the status-bar hint bar for the board's current
+// focus state: the detail-panel hints when b.detailFocused, otherwise the
+// normal card-list hints. Consolidates the
+// `if b.detailFocused { rebuildDetailHints() } else { SetActionHints(normalHints) }`
+// idiom shared by every mode-exit site a detail-panel-delegated command
+// (#588) can now reach -- entering a mode from the detail panel must leave
+// it focused, so exiting that mode must restore the detail hint bar instead
+// of unconditionally falling back to the card-list one.
+func (b *Board) restoreFocusHints() {
+	if b.detailFocused {
 		b.rebuildDetailHints()
 		return
 	}
@@ -1217,19 +1350,31 @@ func (b *Board) filterMoveClamp(down bool) {
 	}
 }
 
-// dispatchGitMenuKey closes the git menu and runs the built-in action bound to
-// key. It dispatches from b.defaultActions directly (not resolveAction): git
-// menu keys are menu-scoped, so normal-mode custom actions on the same letter
-// never shadow them (and vice versa).
-func (b Board) dispatchGitMenuKey(key string) (tea.Model, tea.Cmd) {
-	b.mode = normalMode
-	b.statusBar.SetActionHints(b.normalHints)
+// dispatchGitMenuAction closes the git menu and runs act: the keymap.Action
+// a ModeGitPanel registry lookup resolved (from
+// keymap_panels.go's handleGitPanelKey, for a direct-dispatch key press).
+func (b Board) dispatchGitMenuAction(act keymap.Action) (tea.Model, tea.Cmd) {
+	return b.closeGitMenuAndDispatch(configActionFromKeymap(act))
+}
 
-	act, ok := b.defaultActions[key]
-	if !ok {
+// closeGitMenuAndDispatch closes the git menu and runs act through
+// dispatchResolvedAction, the same board/card/pr scope router used by
+// ordinary normal-mode and Alt-key custom-action dispatch -- not through the
+// normal-mode registry dispatch in keymap_dispatch.go itself, since git menu
+// keys are menu-scoped: normal-mode custom actions on the same letter never
+// shadow them (and vice versa). A scope: pr action with 0 linked PRs on the
+// selected card is refused silently via the shared prScopeUnavailable gate
+// (action_dispatch.go), mirroring dispatchBinding's normal-mode pr-scope
+// gate, before dispatchResolvedAction ever runs -- so a card/pr-scope git
+// menu action resolves against the selected card exactly like a normal-mode
+// custom action would.
+func (b Board) closeGitMenuAndDispatch(act config.Action) (tea.Model, tea.Cmd) {
+	b.mode = normalMode
+	b.restoreFocusHints()
+	if b.prScopeUnavailable(act) {
 		return b, nil
 	}
-	return b.handleBoardActionKey(act)
+	return b.dispatchResolvedAction(act)
 }
 
 func (b Board) handleAssigneesUpdated(msg assigneesUpdatedMsg) (tea.Model, tea.Cmd) {
@@ -1257,7 +1402,7 @@ func (b Board) handlePROpenKey(card Card) (tea.Model, tea.Cmd) {
 	default:
 		b.prPickerIndex = 0
 		b.mode = prPickerMode
-		b.statusBar.SetActionHints(prPickerHints)
+		b.statusBar.SetActionHints(b.prPickerHints())
 		return b, nil
 	}
 }
@@ -1287,16 +1432,15 @@ func (b Board) handleTicketOpenKey() (tea.Model, tea.Cmd) {
 }
 
 func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Handle Escape via msg.Type first.
-	if msg.Type == tea.KeyEsc {
-		b.detailFocused = false
-		b.statusBar.SetActionHints(b.normalHints)
-		return b, nil
-	}
+	return b.dispatchKey(keymap.ModeDetail, msg)
+}
 
-	// Check for number key navigation (1-9).
-	if len(msg.Runes) == 1 && msg.Runes[0] >= '1' && msg.Runes[0] <= '9' {
-		idx := int(msg.Runes[0] - '1')
+// runDetailCommand runs the built-in detail-panel command id resolves to.
+// Case bodies are transcribed verbatim from the pre-#489 switch msg.String()
+// (moved here unchanged, guard-for-guard, including the detailFocused=false
+// side effect every mode-leaving case must apply).
+func (b Board) runDetailCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	if idx, ok := navColumnIndex(id); ok {
 		if idx < len(b.Columns) {
 			b.detailFocused = false
 			b.Columns[idx].Cursor = 0
@@ -1305,53 +1449,57 @@ func (b Board) handleDetailFocusedKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return b, nil
 	}
 
-	switch msg.String() {
-	case "q":
-		return b, tea.Quit
-	case "e":
+	switch id {
+	case keymap.CommandCardEdit:
 		if len(b.visibleCards()) == 0 {
 			return b, nil
 		}
 		return b, openEditorCmd(b.selectedCard())
-	case "r":
+	case keymap.CommandBoardRefresh:
 		if b.refreshing {
 			return b, nil
 		}
 		b.refreshing = true
 		return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
-	case "o":
+	case keymap.CommandCardOpenTicket:
 		return b.handleTicketOpenKey()
-	case "m":
+	case keymap.CommandNavReference:
 		return b.handleReferenceNavKey()
-	case "p":
+	case keymap.CommandCardOpenPR:
 		if len(b.visibleCards()) == 0 {
 			return b, nil
 		}
 		return b.handlePROpenKey(b.selectedCard())
-	case "?":
+	case keymap.CommandHelp:
 		b.helpFromDetailFocused = true
 		b.detailFocused = false
 		b.helpScrollOffset = 0
 		b.mode = helpMode
-		b.statusBar.SetActionHints(helpModeHints)
+		b.statusBar.SetActionHints(b.helpHints())
 		return b, nil
-	case "h", "left":
+	case keymap.CommandDetailBlur:
 		b.detailFocused = false
 		b.statusBar.SetActionHints(b.normalHints)
-	case "j", "down":
+	case keymap.CommandDetailScrollDown:
 		b.scrollDetailDown()
-	case "k", "up":
+	case keymap.CommandDetailScrollUp:
 		if b.detailScrollOffset > 0 {
 			b.detailScrollOffset--
 		}
-	case "tab":
+	case keymap.CommandNavColumnNext:
 		b.detailFocused = false
 		b.switchColumn((b.ActiveTab + 1) % len(b.Columns))
-	case "shift+tab":
+	case keymap.CommandNavColumnPrev:
 		b.detailFocused = false
 		b.switchColumn((b.ActiveTab - 1 + len(b.Columns)) % len(b.Columns))
 	default:
-		return b.handleCustomActionKey(msg)
+		// Every other built-in command id -- anything runNormalCommand
+		// accepts that isn't one of the explicit cases above -- delegates to
+		// runNormalCommand unchanged: none of its cases blur the detail
+		// panel (detailFocused stays whatever it already was), mirroring the
+		// existing precedent that inline board/card actions dispatched while
+		// ModeDetail is active never touch detailFocused either.
+		return b.runNormalCommand(id)
 	}
 	return b, nil
 }
@@ -1404,7 +1552,7 @@ func (b *Board) onCursorMoved() {
 	b.detailScrollOffset = 0
 	b.clampScrollOffset()
 	b.rebuildNormalHints()
-	b.statusBar.SetActionHints(b.normalHints)
+	b.restoreFocusHints()
 }
 
 func (b *Board) switchColumn(idx int) {
@@ -1438,8 +1586,6 @@ func (b *Board) closeHelp() {
 	b.mode = normalMode
 	if b.helpFromDetailFocused {
 		b.detailFocused = true
-		b.rebuildDetailHints()
-	} else {
-		b.statusBar.SetActionHints(b.normalHints)
 	}
+	b.restoreFocusHints()
 }

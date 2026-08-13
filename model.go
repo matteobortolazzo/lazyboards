@@ -17,7 +17,9 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"github.com/muesli/termenv"
 )
@@ -146,72 +148,6 @@ func labelColor(label Label) lipgloss.Color {
 	h := fnv.New32a()
 	h.Write([]byte(lower))
 	return labelPalette[h.Sum32()%uint32(len(labelPalette))]
-}
-
-// helpHint points users to the full help popup (toggled by `?`). It is the
-// anti-stuck pointer, so it is placed left-most in the normal-mode hints to
-// survive left-to-right truncation on narrow terminals.
-var helpHint = Hint{Key: "?", Desc: "Help"}
-
-// normalModeHints are the default status bar hints shown in normal mode.
-var normalModeHints = []Hint{
-	{Key: "n", Desc: "New"},
-	{Key: "e", Desc: "Edit"},
-}
-
-// detailFocusHints are the status bar hints shown when the detail panel is focused.
-var detailFocusHints = []Hint{
-	{Key: "e", Desc: "Edit"},
-	{Key: "j/k", Desc: "Scroll"},
-	{Key: "h", Desc: "Back"},
-	{Key: "esc", Desc: "Back"},
-}
-
-// searchModeHints are the status bar hints shown when search mode is active.
-var searchModeHints = []Hint{
-	{Key: "enter", Desc: "Apply"},
-	{Key: "esc", Desc: "Clear"},
-	{Key: "↑/↓", Desc: "Navigate"},
-}
-
-// prPickerHints are the status bar hints shown when the PR picker modal is open.
-var prPickerHints = []Hint{
-	{Key: "\u25c0/\u25b6", Desc: "Cycle"},
-	{Key: "enter", Desc: "Select"},
-	{Key: "esc", Desc: "Cancel"},
-}
-
-// commentModeHints are the status bar hints shown when the comment input is active.
-var commentModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "enter", Desc: "Submit"},
-}
-
-// deleteCommentHints are the status bar hints shown at the delete flow's
-// optional-comment step.
-var deleteCommentHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "enter", Desc: "Continue"},
-}
-
-// deleteConfirmHints are the status bar hints shown at the delete flow's
-// retype-to-confirm step.
-var deleteConfirmHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "enter", Desc: "Confirm"},
-}
-
-// filterModeHints are the status bar hints shown in filter mode.
-var filterModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Select"},
-}
-
-// helpModeHints are the status bar hints shown in help mode.
-var helpModeHints = []Hint{
-	{Key: "esc/?", Desc: "Close"},
-	{Key: "j/k", Desc: "Scroll"},
 }
 
 // boardMode represents the current interaction mode of the board.
@@ -399,8 +335,15 @@ type gitStatusMsg struct {
 // gitStatusTickMsg is sent when the background git status poll timer fires.
 type gitStatusTickMsg struct{}
 
-// configSavedMsg is sent when a config file has been saved successfully.
-type configSavedMsg struct{}
+// configSavedMsg is sent when a config file has been saved successfully. It
+// carries the provider name and "owner/repo" that were just written: a
+// BoardProvider is bound to one owner/repo at construction, so the handler
+// needs them to rebuild the provider and retarget the board. Without that,
+// saving a different repo only refreshes the previous one.
+type configSavedMsg struct {
+	provider string
+	repo     string
+}
 
 // configSaveErrorMsg is sent when saving a config file fails.
 type configSaveErrorMsg struct{ err error }
@@ -607,30 +550,25 @@ type assigneesUpdateErrorMsg struct {
 	err error
 }
 
-// assignModeHints are the status bar hints shown in assign mode.
-var assignModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Toggle"},
-}
-
-// gitPanelItem represents a single entry in the git panel picker list.
+// gitPanelItem represents a single entry in the git panel picker list. action
+// is the resolved config.Action key resolves to in the ModeGitPanel registry
+// table (keymap_panels.go's gitPanelItemsFromKeymap), so runGitPanelCommand's
+// CommandGitPanelRun can dispatch the cursor-selected entry without a second
+// keymap lookup by key.
 type gitPanelItem struct {
-	key  string
-	name string
+	// key is exempt from sanitizeSingleLine: every key value originates
+	// from a ParseSequence-canonicalized Entry.Sequence table key (same
+	// exemption rationale as Hint.Key in statusbar.go), so it can never
+	// carry hostile content.
+	key    string
+	name   string
+	action config.Action
 }
 
 // gitPanelState groups fields related to the git panel modal.
 type gitPanelState struct {
 	items  []gitPanelItem
 	cursor int
-}
-
-// gitPanelModeHints are the status bar hints shown in git panel mode.
-var gitPanelModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Run"},
 }
 
 // prListEntry is one row in the global PR list: a linked PR together with the
@@ -664,35 +602,6 @@ type openPRsMsg struct {
 	generation uint64
 }
 
-// prListModeHints are the base status bar hints shown in PR list mode; see
-// prListActionHints for the full set including custom-action hints.
-var prListModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Open"},
-}
-
-// prListActionHints returns the PR list mode hints: the base navigation
-// hints plus one named hint per global scope: pr custom action, mirroring
-// how normal mode surfaces action names. Only scope: pr actions appear
-// because only they can fire inside the modal (handlePRListActionKey) —
-// hinting other scopes would advertise keys that silently no-op.
-func (b Board) prListActionHints() []Hint {
-	hints := append([]Hint{}, prListModeHints...)
-	keys := make([]string, 0, len(b.actions))
-	for key := range b.actions {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		act := b.actions[key]
-		if config.DefaultScope(act.Scope) == "pr" {
-			hints = append(hints, Hint{Key: key, Desc: act.Name})
-		}
-	}
-	return hints
-}
-
 // milestoneListState groups fields related to the Milestones modal.
 //
 // Rendering/handling precedence: loading -> err -> loaded. Unlike
@@ -714,15 +623,6 @@ type milestonesFetchedMsg struct {
 	milestones []provider.Milestone
 	err        error
 	generation uint64
-}
-
-// milestoneListModeHints are the status bar hints shown in the Milestones
-// modal.
-var milestoneListModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Filter board"},
-	{Key: "o", Desc: "Open in browser"},
 }
 
 // agentListEntry is one row in the agents list modal: a cenci-watch window
@@ -754,21 +654,6 @@ const (
 	agentListMsgWaiting    = "Waiting for cenci-watch daemon..."
 	agentListMsgNoWindows  = "No agent windows"
 )
-
-// agentListModeHints are the status bar hints shown in agents list mode when
-// there are rows to act on.
-var agentListModeHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-	{Key: "j/k", Desc: "Navigate"},
-	{Key: "enter", Desc: "Go to window"},
-}
-
-// agentListEmptyHints are the hints for the modal's empty/unavailable states:
-// enter and j/k are no-ops there, so hinting them would advertise keys that
-// silently do nothing.
-var agentListEmptyHints = []Hint{
-	{Key: "esc", Desc: "Cancel"},
-}
 
 // dispatchState groups fields related to the agent dispatch modal.
 type dispatchState struct {
@@ -869,7 +754,6 @@ type Board struct {
 	loadErr            string
 	statusBar          StatusBar
 	loaded             bool
-	actions            map[string]config.Action
 	defaultActions     map[string]config.Action
 	columnConfigs      []config.ColumnConfig
 	executor           action.Executor
@@ -886,20 +770,25 @@ type Board struct {
 	detailScrollOffset int
 	prPickerIndex      int
 	pendingPRAction    *pendingPRAction
-	// pendingSeq holds the keys typed so far of an unfinished custom-action
-	// key sequence (e.g. "P" while waiting for the "f" of "Pf"). While
-	// non-empty, normal-mode/detail-focused key handling routes every key to
-	// handlePendingSeqKey. pendingSeqAlt records whether Alt was held on any
-	// key of the sequence, so Alt+prefix triggers comment mode exactly like
-	// Alt on a single-key action.
+	// pendingSeq holds the canonical, space-separated keys typed so far of an
+	// unfinished multi-key sequence (e.g. "P" while waiting for the "f" of
+	// "P f") -- stored in keymap.Sequence.String()'s canonical form, not the
+	// legacy rune-concatenated "Pf". Since #489 this is the registry's own
+	// pending-sequence state (keymap_dispatch.go's dispatchKey/
+	// handlePendingSeqKey): built-ins and inline actions both participate,
+	// on any key, upper or lower -- there is no separate uppercase-only gate
+	// anymore. While non-empty, normal-mode/detail-focused key handling
+	// routes every key to handlePendingSeqKey. pendingSeqAlt records whether
+	// Alt was held on any key of the sequence, so Alt+prefix triggers
+	// comment mode exactly like Alt on a single-key action.
 	pendingSeq    string
 	pendingSeqAlt bool
 	// pendingRefs holds the #N references parsed from the selected card's
-	// body while the "m" reference-navigation which-key prompt is active
+	// body while the nav.reference (default "g r") which-key prompt is active
 	// (see handleReferenceNavKey/handlePendingRefKey in references.go). It
-	// is a dedicated state, not a reuse of pendingSeq: pendingSeq's
-	// continuation keys are gated to uppercase via config.IsSequenceKey,
-	// but reference labels are lowercase ('a'-'z').
+	// is a dedicated state, not a reuse of pendingSeq, so reference labels
+	// ('a'-'z') can never collide with or be swallowed by an unrelated
+	// in-flight keymap sequence.
 	pendingRefs       []cardRef
 	refreshing        bool
 	refreshInterval   time.Duration
@@ -912,7 +801,14 @@ type Board struct {
 	// message right after "Board refreshed"/"Filter has no matches" (which
 	// would otherwise clobber it, since SetTimedMessage mutates the status
 	// bar synchronously), then clears it. Empty means no trip occurred.
-	cleanupBreakerWarning       string
+	cleanupBreakerWarning string
+	// startupWarning holds a status-bar warning seeded from Config.Notices at
+	// startup (e.g. an untrusted-local-config strip notice, #568). It's a
+	// one-shot transient hand-off mirroring cleanupBreakerWarning: consumed
+	// as a timed status message on the first successful board fetch
+	// (handleBoardFetched, update.go), then cleared. Empty means nothing to
+	// show.
+	startupWarning              string
 	searchQuery                 string
 	searchInput                 textinput.Model
 	helpScrollOffset            int
@@ -959,9 +855,40 @@ type Board struct {
 	// direction to (config.DefaultStatePath, #503). Empty means "nowhere to
 	// save": toggling still works, it just won't survive a restart.
 	statePath string
+	// trustPath is the resolved trust-store file path (config.DefaultTrustPath,
+	// #568), threaded into saveConfigCmd so an in-app config Save() carries
+	// trust forward across the local config file rewrite (config.Save's
+	// carry-forward). Empty means no trust store is available to update.
+	trustPath string
 	// updateCheckEnabled mirrors config.Config.UpdateCheckValue(): whether
 	// Init() should kick off the startup version-update check (#444).
 	updateCheckEnabled bool
+	// keys is the active, immutable, resolved keymap that dispatchKey/
+	// handlePendingSeqKey/registryHints consult (#489). *keymap.Keymap never
+	// mutates after keymap.Resolve constructs it, so it is safe to share
+	// across Board's value copies without a deep copy. NewBoard seeds it by
+	// deriving from the legacy actions/columnConfigs params (via
+	// config.KeymapFromLegacy); main.go overrides it once at startup with the
+	// fully resolved config.ResolveKeymap result via withKeymap.
+	keys *keymap.Keymap
+	// providerFactory builds a BoardProvider for a provider name and an
+	// owner/repo pair. Providers are bound to one repository at construction,
+	// so retargeting the board at a repo saved in the config modal requires
+	// building a new one; main.go injects this after NewBoard (like statePath
+	// and tmuxSession) so the factory can reuse the already-authenticated API
+	// clients. Nil means "cannot retarget at runtime": a repo change then
+	// reports that rather than silently refreshing the previous repo.
+	providerFactory func(providerName, owner, repo string) (provider.BoardProvider, error)
+}
+
+// splitRepo splits a "owner/repo" identifier into its two halves. ok is false
+// unless both halves are present and non-empty.
+func splitRepo(repo string) (owner, name string, ok bool) {
+	parts := strings.SplitN(repo, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
@@ -980,20 +907,19 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 
-	// Build normal-mode hints: defaults + board-scope action hints.
-	// Card-scope hints are omitted because no columns/cards are loaded yet;
-	// rebuildNormalHints adds them after the first board fetch.
-	hints := make([]Hint, 0, len(normalModeHints)+1)
-	hints = append(hints, helpHint)
-	hints = append(hints, normalModeHints...)
-	for key, act := range actions {
-		scope := config.DefaultScope(act.Scope)
-		if scope == "board" {
-			hints = append(hints, Hint{Key: key, Desc: act.Name})
-		}
+	// Derive the active keymap from the legacy actions/columnConfigs params
+	// this constructor already receives (#489 step 2): main.go later
+	// overrides this with the fully resolved config.ResolveKeymap result via
+	// withKeymap, once cfg.Keymaps (including any native keymaps: entries)
+	// is available. A resolution error here can only mean an invalid
+	// hand-built test fixture (production actions/columns are already
+	// validated by config.Load()) -- fall back to the built-in defaults only
+	// rather than leaving keys nil.
+	keys, err := config.KeymapFromLegacy(actions, columnConfigs)
+	if err != nil {
+		debuglog.Errorf("keymap: failed to resolve legacy actions/columns into the registry: %v", err)
+		keys, _ = config.KeymapFromLegacy(nil, nil)
 	}
-
-	sb := NewStatusBar(hints)
 
 	ri := textinput.New()
 	ri.Placeholder = "owner/repo"
@@ -1014,8 +940,6 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		mode:               loadingMode,
 		provider:           p,
 		spinner:            s,
-		statusBar:          sb,
-		actions:            actions,
 		defaultActions:     defaultActions,
 		columnConfigs:      columnConfigs,
 		executor:           executor,
@@ -1027,11 +951,11 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		metadataTTL:        metadataTTL,
 		workingLabel:       workingLabel,
 		mouseEnabled:       mouseEnabled,
-		normalHints:        hints,
 		cenciWatcher:       watcher,
 		gitReader:          gitReader,
 		openPRCount:        -1,
 		updateCheckEnabled: updateCheckEnabled,
+		keys:               keys,
 		config: configState{
 			providerOptions: []string{"github", "azure-devops"},
 			providerIndex:   0,
@@ -1045,6 +969,11 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 		},
 		searchInput: si,
 	}
+
+	// Card-scope hints are omitted because no columns/cards are loaded yet;
+	// rebuildNormalHints adds them after the first board fetch.
+	b.rebuildNormalHints()
+	b.statusBar = NewStatusBar(b.normalHints)
 
 	if firstLaunch {
 		b.enterConfigMode()
@@ -1082,32 +1011,21 @@ func (b *Board) enterConfigMode() {
 	}
 }
 
-// gitPanelBuiltinOrder is the fixed display/dispatch order of the git menu's
-// built-in shortcuts: Push, Pull, Fetch, Mergetool, Stash push, Stash pop.
-// This must hold regardless of Go map iteration order over defaultActions.
-var gitPanelBuiltinOrder = []string{"P", "p", "f", "m", "s", "S"}
-
-// enterGitPanel opens the git menu modal, populating its items from
-// b.defaultActions in a fixed order (not map iteration order). If no default
-// git actions are available (e.g. outside a git repo), this is a no-op and
-// the panel does not open.
+// enterGitPanel opens the git menu modal, populating its items from the
+// ModeGitPanel registry table (keymap_panels.go's gitPanelItemsFromKeymap).
+// b.defaultActions (config.DefaultGitActions() when the working tree is a
+// git repo, nil/empty otherwise) is consulted only as the "is this a git
+// repo" availability gate -- it no longer supplies the item list itself, so
+// if no default git actions are available this is a no-op and the panel
+// does not open.
 func (b *Board) enterGitPanel() {
 	if len(b.defaultActions) == 0 {
 		return
 	}
 
-	items := make([]gitPanelItem, 0, len(gitPanelBuiltinOrder))
-	for _, key := range gitPanelBuiltinOrder {
-		act, ok := b.defaultActions[key]
-		if !ok {
-			continue
-		}
-		items = append(items, gitPanelItem{key: key, name: act.Name})
-	}
-
-	b.gitPanel = gitPanelState{items: items, cursor: 0}
+	b.gitPanel = gitPanelState{items: b.gitPanelItemsFromKeymap(), cursor: 0}
 	b.mode = gitPanelMode
-	b.statusBar.SetActionHints(gitPanelModeHints)
+	b.statusBar.SetActionHints(b.gitPanelHints())
 }
 
 // enterPRList opens the global PR list modal, which surveys every open PR in
@@ -1138,7 +1056,7 @@ func (b *Board) enterPRList() {
 
 	b.prList = prListState{entries: entries, cursor: 0, loading: true, generation: generation}
 	b.mode = prListMode
-	b.statusBar.SetActionHints(b.prListActionHints())
+	b.statusBar.SetActionHints(b.prListHints())
 }
 
 // enterMilestoneList opens the repo-wide Milestones modal (i). Unlike
@@ -1150,7 +1068,7 @@ func (b *Board) enterMilestoneList() {
 	generation := b.milestoneList.generation + 1
 	b.milestoneList = milestoneListState{entries: nil, cursor: 0, loading: true, generation: generation}
 	b.mode = milestoneListMode
-	b.statusBar.SetActionHints(milestoneListModeHints)
+	b.statusBar.SetActionHints(b.milestoneListHints())
 }
 
 // enterAgentList opens the global agents list modal. Rows are derived live
@@ -1171,9 +1089,9 @@ func (b *Board) enterAgentListForCard(number int) {
 func (b *Board) enterAgentListScoped(cardNumber int) {
 	b.agentList = agentListState{cursor: 0, cardNumber: cardNumber}
 	b.mode = agentListMode
-	hints := agentListModeHints
+	hints := b.agentListHints()
 	if len(b.agentListEntries()) == 0 {
-		hints = agentListEmptyHints
+		hints = b.agentListEmptyHints()
 	}
 	b.statusBar.SetActionHints(hints)
 }
@@ -1253,181 +1171,25 @@ func (b Board) layoutDimensions() (panelHeight, leftContentWidth, rightContentWi
 	return
 }
 
-// resolveAction looks up an action by key, checking the active column's
-// per-column actions first (if any), then falling back to global actions.
-// scope: pr actions are only returned when the active card has at least one
-// linked PR (mirrors the gating on the hardcoded "p" open-PR hint/key).
-func (b *Board) resolveAction(key string) (config.Action, bool) {
-	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
-		colTitle := b.Columns[b.ActiveTab].Title
-		for _, cc := range b.columnConfigs {
-			if strings.EqualFold(cc.Name, colTitle) {
-				if act, ok := cc.Actions[key]; ok {
-					if b.prScopeGated(act) {
-						return config.Action{}, false
-					}
-					return act, true
-				}
-				break
-			}
-		}
-	}
-	if act, ok := b.actions[key]; ok {
-		if b.prScopeGated(act) {
-			return config.Action{}, false
-		}
-		return act, true
-	}
-	// No fallback to b.defaultActions: built-in git actions are scoped to the
-	// git menu (see handleGitPanelKey) so normal-mode keys stay user-owned.
-	return config.Action{}, false
-}
-
-// prScopeGated reports whether act is a scope: pr action that must be
-// hidden/refused because the active card has no linked PRs (mirrors the
-// gating on the hardcoded "p" open-PR hint/key).
-func (b *Board) prScopeGated(act config.Action) bool {
-	return act.Scope == "pr" && len(b.selectedCard().LinkedPRs) == 0
-}
-
-// orderedKeys returns m's keys sorted by (Order, key): Order ascending
-// primary, key string ascending tiebreaker. The tiebreaker is what makes any
-// hand-built map[string]config.Action (every existing test fixture that
-// doesn't go through config.Load(), where Order is left at its zero value)
-// degrade gracefully to alphabetical order -- the same convention
-// prListActionHints already uses via sort.Strings(keys).
-func orderedKeys(m map[string]config.Action) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if m[keys[i]].Order != m[keys[j]].Order {
-			return m[keys[i]].Order < m[keys[j]].Order
-		}
-		return keys[i] < keys[j]
-	})
-	return keys
-}
-
-// gatedActionHints returns the scope-gated custom-action hints: global
-// actions overlaid with the active column's per-column actions (column
-// overrides global), filtered by the same rule used for dispatch: board-scope
-// hints always show; card-scope hints only when the active column has cards;
-// pr-scope hints only when the selected card has a linked PR (same gate as
-// the hardcoded "p" open-PR hint). Shared by rebuildNormalHints and
-// rebuildDetailHints so the card-list and detail-focused hint bars apply
-// identical scope gating and column-override precedence.
-//
-// The hint sequence follows config file order (see internal/config's
-// Action.Order): all of the global order first, then any keys present only
-// in the active column's actions appended in the column's own order. A key
-// the active column overrides keeps its *global* position in the bar -- a
-// column override changes what a key does, not where it sits in a bar the
-// user scans by muscle memory.
-func (b *Board) gatedActionHints() []Hint {
-	// Determine if the active column has cards.
-	hasCards := false
-	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
-		hasCards = len(b.Columns[b.ActiveTab].Cards) > 0
-	}
-
-	// Resolve the active column's own actions map, if any.
-	var colActions map[string]config.Action
-	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
-		colTitle := b.Columns[b.ActiveTab].Title
-		for _, cc := range b.columnConfigs {
-			if strings.EqualFold(cc.Name, colTitle) {
-				colActions = cc.Actions
-				break
-			}
-		}
-	}
-
-	globalOrder := orderedKeys(b.actions)
-	colOrder := orderedKeys(colActions)
-
-	seen := make(map[string]bool, len(globalOrder)+len(colOrder))
-	keys := make([]string, 0, len(globalOrder)+len(colOrder))
-	keys = append(keys, globalOrder...)
-	for _, key := range globalOrder {
-		seen[key] = true
-	}
-	for _, key := range colOrder {
-		if !seen[key] {
-			keys = append(keys, key)
-			seen[key] = true
-		}
-	}
-
-	hints := make([]Hint, 0, len(keys))
-	hasLinkedPR := hasCards && len(b.selectedCard().LinkedPRs) > 0
-	for _, key := range keys {
-		act, ok := colActions[key]
-		if !ok {
-			act, ok = b.actions[key]
-		}
-		if !ok {
-			continue
-		}
-		hint := Hint{Key: key, Desc: act.Name}
-		switch config.DefaultScope(act.Scope) {
-		case "board":
-			hints = append(hints, hint)
-		case "pr":
-			if hasLinkedPR {
-				hints = append(hints, hint)
-			}
-		default:
-			if hasCards {
-				hints = append(hints, hint)
-			}
-		}
-	}
-	return hints
-}
-
-// rebuildNormalHints reconstructs the normalHints slice by merging global
-// actions with the active column's per-column actions (column overrides global).
+// rebuildNormalHints reconstructs b.normalHints from the active keymap: the
+// curated built-in specs (help/new/edit) plus the scope-gated, config-order
+// inline-action hints, both derived by registryHints (keymap_dispatch.go)
+// from b.keys so a remap/unbind is reflected automatically (#489).
 func (b *Board) rebuildNormalHints() {
-	hints := make([]Hint, 0, len(normalModeHints)+len(b.actions)+2)
-
-	// Help pointer stays left-most so it survives left-to-right truncation.
-	hints = append(hints, helpHint)
-
-	// Default mode hints.
-	hints = append(hints, normalModeHints...)
-
-	// The 'u' sort-order toggle (#412) is omitted from the status bar (#443)
-	// to reduce bottom-bar clutter; it stays documented in the '?' help
-	// modal (see helpSections in view.go) and still works as a keybinding.
-
-	hints = append(hints, b.gatedActionHints()...)
-
-	b.normalHints = hints
+	b.normalHints = b.registryHints(keymap.ModeNormal)
 }
 
-// rebuildDetailHints reconstructs and applies the status bar hints shown when
-// the detail panel is focused: the "?" help pointer (so users never get stuck
-// without a pointer to the full help modal, matching rebuildNormalHints), the
-// built-in detail-panel hints, and the same scope-gated custom-action merge
-// used by rebuildNormalHints -- so the detail-focused hint bar reflects the
-// user's configured custom actions exactly like the card-list hint bar does.
-// Unlike normalHints, the result isn't cached on Board: every call site that
-// (re-)enters detail focus needs a fresh rebuild anyway (the gating depends
-// on the selected card/column, which can change while unfocused), so there's
-// no separate "restore the last-built hints" caller to justify a field.
+// rebuildDetailHints reconstructs and applies the status bar hints shown
+// when the detail panel is focused, via the same registry-derived builder
+// rebuildNormalHints uses (registryHints, keymap_dispatch.go) so the
+// detail-focused bar carries the same "?" help pointer and scope-gated
+// custom-action merge the card-list bar does. Unlike normalHints, the
+// result isn't cached on Board: every call site that (re-)enters detail
+// focus needs a fresh rebuild anyway (the gating depends on the selected
+// card/column, which can change while unfocused), so there's no separate
+// "restore the last-built hints" caller to justify a field.
 func (b *Board) rebuildDetailHints() {
-	hints := make([]Hint, 0, len(detailFocusHints)+len(b.actions)+2)
-
-	// Help pointer stays left-most so it survives left-to-right truncation.
-	hints = append(hints, helpHint)
-
-	hints = append(hints, detailFocusHints...)
-
-	hints = append(hints, b.gatedActionHints()...)
-
-	b.statusBar.SetActionHints(hints)
+	b.statusBar.SetActionHints(b.registryHints(keymap.ModeDetail))
 }
 
 // mapSlice transforms each element of in with f, returning nil when in is

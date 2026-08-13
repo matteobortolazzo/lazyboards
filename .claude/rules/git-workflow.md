@@ -63,3 +63,22 @@ app half-migrated. `main` must never sit in a half-migrated state.
 
 Record the integration branch and the per-child base in the epic ticket and in every
 child ticket (a `### Branch` section), so an implementing agent never has to infer it.
+
+**Worktree base must match plan's `### Branch`**: When a child ticket's plan names an
+epic integration branch as its base, verify the worktree was created off that branch
+(not `main`). The `cenci pipeline worktree --slug` CLI silently defaults to the current HEAD
+(usually `main`) and ignores the plan's `### Branch` section — there is no flag to specify a base ref.
+Always verify after creation with:
+```bash
+git merge-base --is-ancestor origin/feature/<epic-id>-<desc> HEAD
+```
+If this returns false (worktree is missing epic-branch commits), recreate it:
+```bash
+git worktree remove --force .worktrees/<id>-<desc>
+git branch -D feature/<id>-<desc>
+git worktree add .worktrees/<id>-<desc> -b feature/<id>-<desc> origin/feature/<epic-id>-<desc>
+```
+Then optionally re-register: `cenci pipeline worktree <id> --attach .worktrees/<id>-<desc>`.
+A mismatched base causes `cenci pipeline plan-check` to diff against the wrong branch, potentially
+showing the plan as "stale and safe" when the actual target branch has already landed conflicting
+structural changes. The CLI's success with `--slug` provides no signal that the base is wrong.

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -319,14 +320,31 @@ func TestFilter_PlusSearch_Coexist(t *testing.T) {
 
 // simulateRefreshWithCards sends a boardFetchedMsg with the given columns,
 // simulating a refresh that returns specific card data (not the default FakeProvider data).
-func simulateRefreshWithCards(t *testing.T, b Board, columns []provider.Column) Board {
+// simulateRefreshWithCardsCmd drives a board through the already-loaded
+// refresh path of handleBoardFetched (update.go's b.refreshing == true
+// branch) and returns both the updated Board and the Cmd Update() returned,
+// so callers that care about async propagation (e.g. the filter-warning
+// message, which handleBoardFetched emits via
+// b.statusBar.SetTimedMessage -- docs/bubbletea-async-patterns.md) can
+// capture and execute it instead of discarding it with `_`
+// (.claude/rules/testing.md).
+func simulateRefreshWithCardsCmd(t *testing.T, b Board, columns []provider.Column) (Board, tea.Cmd) {
 	t.Helper()
 	b.refreshing = true
-	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
+	m, cmd := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
 	updated, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
+	return updated, cmd
+}
+
+// simulateRefreshWithCards is the pre-existing convenience wrapper for
+// callers that don't need the returned Cmd -- discarding it is internal to
+// this helper (not the caller directly discarding Update()'s return values).
+func simulateRefreshWithCards(t *testing.T, b Board, columns []provider.Column) Board {
+	t.Helper()
+	updated, _ := simulateRefreshWithCardsCmd(t, b, columns)
 	return updated
 }
 
@@ -439,15 +457,12 @@ func TestFilter_CursorClampedAfterRefreshShrinks(t *testing.T) {
 	}
 }
 
-func TestFilter_NoMatchesHintAfterRefresh(t *testing.T) {
-	b := newBoardWithFilterableCards(t)
-
-	// Set a label filter for "bug".
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
-
-	// Refresh with data that has zero "bug" labels anywhere.
-	noBugColumns := []provider.Column{
+// columnsWithNoMatchingLabels returns fixture columns containing zero "bug"
+// labels, used to drive handleBoardFetched into the active-filter
+// zero-matches branch across the no-matches warning tests below (#583 Stack
+// 2/2).
+func columnsWithNoMatchingLabels() []provider.Column {
+	return []provider.Column{
 		{Title: "Backlog", Cards: []provider.Card{
 			{Number: 1, Title: "Feature work", Labels: []provider.Label{{Name: "feature"}}, Assignees: []provider.Assignee{{Login: "bob"}}},
 			{Number: 2, Title: "Docs update", Labels: []provider.Label{{Name: "docs"}}, Assignees: []provider.Assignee{{Login: "charlie"}}},
@@ -456,12 +471,26 @@ func TestFilter_NoMatchesHintAfterRefresh(t *testing.T) {
 			{Number: 3, Title: "Active feature", Labels: []provider.Label{{Name: "feature"}}, Assignees: []provider.Assignee{{Login: "alice"}}},
 		}},
 	}
-	b = simulateRefreshWithCards(t, b, noBugColumns)
+}
 
-	// The status bar should show a hint about no matches.
+func TestFilter_NoMatchesHintAfterRefresh(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	// Set a label filter for "bug".
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+
+	// Refresh with data that has zero "bug" labels anywhere.
+	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
+
+	// The status bar should show the full default-parity warning, including
+	// the board.filter (default "f") instruction clause derived from the
+	// active keymap (#583 Stack 2/2's filterNoMatchesMessage) -- byte-identical
+	// to the pre-#583 hardcoded wording under the default keymap.
 	view := b.View()
-	if !strings.Contains(view, "Filter has no matches") {
-		t.Errorf("View() after refresh with zero filter matches should contain %q, got:\n%s", "Filter has no matches", view)
+	want := "Filter has no matches — press f to clear"
+	if !strings.Contains(view, want) {
+		t.Errorf("View() after refresh with zero filter matches should contain %q, got:\n%s", want, view)
 	}
 }
 
@@ -828,5 +857,213 @@ func TestFilter_SelectedCard_ReturnsFilteredCard(t *testing.T) {
 	card = b.selectedCard()
 	if card.Number != 2 {
 		t.Errorf("selectedCard() at cursor 1 without filter: got card #%d, want #2", card.Number)
+	}
+}
+
+// --- #583 Stack 2/2: registry-derived active-filter no-matches warning ---
+//
+// handleBoardFetched's "Filter has no matches" status-bar warning (both call
+// sites in update.go: the already-loaded refresh branch and the
+// initial-load branch) stops hardcoding "press f to clear" and instead
+// derives the instruction clause from board.filter resolved against the
+// effective normal-mode table for the active column, via
+// filterNoMatchesMessage (update.go) and commandInstructionKey
+// (keymap_dispatch.go). These tests drive the real filter-active ->
+// zero-match-refresh flow and read b.View(), never calling the string
+// helpers directly, mirroring the established Stack 1/2 pattern in
+// delete_mode_test.go/keymap_help_test.go.
+
+func TestFilter_NoMatchesWarning_RemappedFilterKey_ReflectsNewKey(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeNormal: {
+			"f": keymap.UnboundBinding(),
+			"F": keymap.CommandBinding(keymap.CommandBoardFilter),
+		},
+	}, nil)
+
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
+
+	view := b.View()
+	if !strings.Contains(view, "Filter has no matches — press F to clear") {
+		t.Errorf("View() should reflect board.filter remapped to %q, got:\n%s", "F", view)
+	}
+	if strings.Contains(view, "press f to clear") {
+		t.Errorf("View() still advertises the old (now unbound) f key, got:\n%s", view)
+	}
+}
+
+// TestFilter_NoMatchesWarning_ColumnOverriddenFilterKey_UsesActiveColumnTable
+// proves filterNoMatchesMessage resolves board.filter against the *effective
+// column* table (b.keys.Entries(keymap.ModeNormal, b.activeColumnTitle())),
+// not just the global normal-mode table -- "In Progress" is the active
+// board's second column, overridden to bind "F" to board.filter in addition
+// to the untouched global "f" binding; the resolved instruction key must
+// still come out as the column-scoped "F", not the global "f".
+func TestFilter_NoMatchesWarning_ColumnOverriddenFilterKey_UsesActiveColumnTable(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	activeIdx := -1
+	for i, col := range b.Columns {
+		if col.Title == "In Progress" {
+			activeIdx = i
+			break
+		}
+	}
+	if activeIdx == -1 {
+		t.Fatalf("precondition: fixture board has no %q column", "In Progress")
+	}
+	b.ActiveTab = activeIdx
+	if got := b.activeColumnTitle(); got != "In Progress" {
+		t.Fatalf("precondition: active column should be %q, got %q", "In Progress", got)
+	}
+
+	b = boardWithOverrideKeymap(t, b, nil, map[string]keymap.Table{
+		"in progress": {
+			"F": keymap.CommandBinding(keymap.CommandBoardFilter),
+		},
+	})
+
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
+
+	view := b.View()
+	if !strings.Contains(view, "Filter has no matches — press F to clear") {
+		t.Errorf("View() should reflect the active column %q's overridden board.filter key %q, got:\n%s", "In Progress", "F", view)
+	}
+	if strings.Contains(view, "press f to clear") {
+		t.Errorf("View() should not advertise the plain global %q key once the active column's overlay resolves to %q, got:\n%s", "f", "F", view)
+	}
+}
+
+// TestFilter_NoMatchesWarning_MultiKeyRemap_IsStillAdvertised proves
+// commandInstructionKey does NOT filter out multi-key sequences the way
+// keymap_text.go's singleKeyEntries does for text/confirm modes -- normal
+// mode's pending-sequence which-key flow (handlePendingSeqKey) can dispatch
+// a multi-key sequence, so a "g f" remap of board.filter is a truthful
+// instruction here.
+func TestFilter_NoMatchesWarning_MultiKeyRemap_IsStillAdvertised(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeNormal: {
+			"f":   keymap.UnboundBinding(),
+			"g f": keymap.CommandBinding(keymap.CommandBoardFilter),
+		},
+	}, nil)
+
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
+
+	view := b.View()
+	if !strings.Contains(view, "Filter has no matches — press g f to clear") {
+		t.Errorf("View() should advertise the multi-key remap %q, got:\n%s", "g f", view)
+	}
+}
+
+func TestFilter_NoMatchesWarning_FilterUnbound_OmitsInstruction(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeNormal: {
+			"f": keymap.UnboundBinding(),
+		},
+	}, nil)
+
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
+
+	line := findLineContaining(t, b.View(), "Filter has no matches")
+	if strings.Contains(line, "press") {
+		t.Errorf("warning line = %q, should omit the dead press-to-clear instruction once board.filter is fully unbound", line)
+	}
+	if strings.Contains(line, "—") {
+		t.Errorf("warning line = %q, should not have a dangling em dash once the instruction clause is dropped", line)
+	}
+}
+
+// TestFilter_NoMatchesWarning_InitialLoadPath_RendersRegistryDerivedKey
+// covers the second call site (update.go's b.refreshing == false branch,
+// guarded by `if b.loaded`) -- the first four tests above all exercise the
+// b.refreshing == true branch via simulateRefreshWithCards. Per
+// docs/bubbletea-async-patterns.md, Update()'s returned Cmd is captured and
+// executed rather than discarded, and both cleanupBreakerWarning and
+// startupWarning are asserted empty going in so the filter message can't be
+// silently clobbered by either (update.go:598-609's "applied last" ordering).
+func TestFilter_NoMatchesWarning_InitialLoadPath_RendersRegistryDerivedKey(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	if !b.loaded {
+		t.Fatal("precondition: board should already be loaded from newBoardWithFilterableCards")
+	}
+	if b.refreshing {
+		t.Fatal("precondition: board should not be mid-refresh -- this test targets the non-refreshing/initial-load branch")
+	}
+	if b.cleanupBreakerWarning != "" || b.startupWarning != "" {
+		t.Fatalf("precondition: expected both warning fields empty, got cleanupBreakerWarning=%q startupWarning=%q", b.cleanupBreakerWarning, b.startupWarning)
+	}
+
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+
+	m, cmd := b.Update(boardFetchedMsg{board: provider.Board{Columns: columnsWithNoMatchingLabels()}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	execCmds(cmd)
+
+	view := updated.View()
+	want := "Filter has no matches — press f to clear"
+	if !strings.Contains(view, want) {
+		t.Errorf("View() after the initial-load-path branch's zero-match refresh should contain %q, got:\n%s", want, view)
+	}
+}
+
+// TestFilter_NoMatchesWarning_InitialLoadPath_RemappedFilterKey_ReflectsNewKey
+// closes the gap the byte-identical-to-the-old-hardcoded-literal default-key
+// assertion above leaves open: with only the default keymap exercised, a
+// revert of the initial-load call site back to the hardcoded
+// "press f to clear" literal still passes every test, because "f" is both
+// the hardcoded string and the default board.filter key. Remapping
+// board.filter to "F" here means only a genuinely registry-derived call
+// site can produce the right instruction key; a hardcoded literal would
+// still say "press f to clear" and fail this assertion.
+func TestFilter_NoMatchesWarning_InitialLoadPath_RemappedFilterKey_ReflectsNewKey(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeNormal: {
+			"f": keymap.UnboundBinding(),
+			"F": keymap.CommandBinding(keymap.CommandBoardFilter),
+		},
+	}, nil)
+	if !b.loaded {
+		t.Fatal("precondition: board should already be loaded from newBoardWithFilterableCards")
+	}
+	if b.refreshing {
+		t.Fatal("precondition: board should not be mid-refresh -- this test targets the non-refreshing/initial-load branch")
+	}
+	if b.cleanupBreakerWarning != "" || b.startupWarning != "" {
+		t.Fatalf("precondition: expected both warning fields empty, got cleanupBreakerWarning=%q startupWarning=%q", b.cleanupBreakerWarning, b.startupWarning)
+	}
+
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "bug"
+
+	m, cmd := b.Update(boardFetchedMsg{board: provider.Board{Columns: columnsWithNoMatchingLabels()}})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	execCmds(cmd)
+
+	view := updated.View()
+	if !strings.Contains(view, "Filter has no matches — press F to clear") {
+		t.Errorf("View() after the initial-load-path branch's zero-match refresh should reflect board.filter remapped to %q, got:\n%s", "F", view)
+	}
+	if strings.Contains(view, "press f to clear") {
+		t.Errorf("View() still advertises the old (now unbound) f key, got:\n%s", view)
 	}
 }

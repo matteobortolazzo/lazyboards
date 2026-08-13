@@ -68,6 +68,19 @@ func sendKey(t *testing.T, b Board, msg tea.Msg) Board {
 	return updated
 }
 
+// sendKeys sends a sequence of single-rune keys through Update one at a
+// time (via keyMsg/sendKey), returning the Board after the final keypress.
+// Exists so #502's two-key "g"-prefixed go-navigation sequences ("g r", "g
+// a") don't need a repeated two-line sendKey(sendKey(...)) at every call
+// site.
+func sendKeys(t *testing.T, b Board, keys ...string) Board {
+	t.Helper()
+	for _, key := range keys {
+		b = sendKey(t, b, keyMsg(key))
+	}
+	return b
+}
+
 // simulateRefresh simulates a background refresh completing by fetching
 // default board data from a FakeProvider and sending a boardFetchedMsg.
 func simulateRefresh(t *testing.T, b Board) Board {
@@ -285,6 +298,24 @@ func newBoardWithEmptyColumn(t *testing.T, actions map[string]config.Action) (Bo
 	return board, fe
 }
 
+// trustingLocal returns a config.Trust that self-trusts the local config
+// file at path, hashed via the real config.HashLocalConfig so a test never
+// hand-copies a hash literal that could drift from what config.Load itself
+// computes. Shared by every test board/config builder below that writes a
+// local config file to disk and loads it through the real config.Load
+// pipeline (#567): these builders exist to exercise trusted local-file
+// behavior (action/keymap scope resolution, custom actions, etc.), not
+// untrusted-stripping, which has its own dedicated coverage in
+// internal/config/trust_strip_test.go and shipped_config_test.go.
+func trustingLocal(t *testing.T, path string) config.Trust {
+	t.Helper()
+	hash, err := config.HashLocalConfig(path)
+	if err != nil {
+		t.Fatalf("config.HashLocalConfig(%q) returned unexpected error: %v", path, err)
+	}
+	return config.Trust{Trusted: []config.TrustEntry{{Hash: hash}}}
+}
+
 // mustLoadTestConfig writes yamlContent to a temp local config file and loads
 // it via config.Load, failing the test on error. This exercises action scope
 // resolution (defaulting/inference) through the real parsing/validation path
@@ -298,7 +329,7 @@ func mustLoadTestConfig(t *testing.T, yamlContent string) config.Config {
 		t.Fatalf("failed to write test config: %v", err)
 	}
 	globalPath := filepath.Join(dir, "nonexistent-global.yml")
-	cfg, err := config.Load(globalPath, localPath)
+	cfg, err := config.Load(globalPath, localPath, trustingLocal(t, localPath))
 	if err != nil {
 		t.Fatalf("config.Load() failed: %v", err)
 	}
@@ -487,7 +518,7 @@ func newConfigLoadedActionTestBoard(t *testing.T, localYAML string) (Board, *act
 	}
 	globalPath := filepath.Join(dir, "nonexistent-global.yml")
 
-	cfg, err := config.Load(globalPath, localPath)
+	cfg, err := config.Load(globalPath, localPath, trustingLocal(t, localPath))
 	if err != nil {
 		t.Fatalf("config.Load() returned unexpected error: %v", err)
 	}
@@ -496,6 +527,41 @@ func newConfigLoadedActionTestBoard(t *testing.T, localYAML string) (Board, *act
 	fe := &action.FakeExecutor{}
 	b := NewBoard(p, cfg.Actions, nil, cfg.Columns, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 	return loadFromFakeProvider(t, b, p), fe
+}
+
+// newKeymapConfigLoadedTestBoard writes localYAML to a temp .lazyboards.yml
+// and wires the resulting Board exactly like main.go's real startup sequence
+// does: config.Load() -> NewBoard(cfg.Actions, cfg.Columns) ->
+// config.ResolveKeymap(&cfg) -> withKeymap(). newConfigLoadedActionTestBoard
+// (above) stops at NewBoard, so its Board's active keymap is derived only
+// from cfg.Actions/cfg.Columns (config.KeymapFromLegacy) -- a keymaps:-only
+// config (no legacy actions:/columns[].actions: block at all) would resolve
+// to the built-in defaults only and could never exercise AC4's "a keymaps:-
+// only config's custom actions appear" guarantee. This builder is the one
+// test path that can.
+func newKeymapConfigLoadedTestBoard(t *testing.T, localYAML string) Board {
+	t.Helper()
+	dir := t.TempDir()
+	localPath := filepath.Join(dir, "local.yml")
+	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
+		t.Fatalf("failed to write local config: %v", err)
+	}
+	globalPath := filepath.Join(dir, "nonexistent-global.yml")
+
+	cfg, err := config.Load(globalPath, localPath, trustingLocal(t, localPath))
+	if err != nil {
+		t.Fatalf("config.Load() returned unexpected error: %v", err)
+	}
+
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, cfg.Actions, nil, cfg.Columns, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b = loadFromFakeProvider(t, b, p)
+
+	km, err := config.ResolveKeymap(&cfg)
+	if err != nil {
+		t.Fatalf("config.ResolveKeymap() returned unexpected error: %v", err)
+	}
+	return b.withKeymap(km)
 }
 
 // prFixtureColumns returns the shared three-card PR fixture used by
@@ -643,4 +709,19 @@ func newBoardWithAssignees(t *testing.T, assigneeLogins ...string) Board {
 	board.Width = 120
 	board.Height = 40
 	return board
+}
+
+// findLineContaining returns the first physical line of view containing
+// marker, or fails the test. marker must be a stable substring independent
+// of any untrusted title content (e.g. "Close #"), so it locates the right
+// line regardless of how the title itself renders.
+func findLineContaining(t *testing.T, view, marker string) string {
+	t.Helper()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, marker) {
+			return line
+		}
+	}
+	t.Fatalf("view has no line containing %q; got:\n%s", marker, view)
+	return ""
 }

@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/go-github/v68/github"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -479,19 +480,63 @@ func TestCloseMode_CardCloseErrorMsg_ReturnsToNormalMode(t *testing.T) {
 	}
 }
 
+// TestCloseMode_PromptHintKeysAlwaysDispatch_DefaultAndRemappedTables is the
+// hint<->dispatch invariant test named in the #539 plan's Explicit Risk
+// Coverage: for every key advertised in the close_confirm "(y/n)"-style
+// prompt (promptKeySuffix, keymap_text_test.go), split on "/" and Lookup
+// each key against ModeCloseConfirm -- it must always resolve to
+// OutcomeMatch. Run against both the default table and a remapped/unbound
+// table, mirroring TestKeymapPanels_GitPanel_HintKeysAlwaysDispatch
+// (keymap_panels_test.go).
+func TestCloseMode_PromptHintKeysAlwaysDispatch_DefaultAndRemappedTables(t *testing.T) {
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{
+			name: "remapped table",
+			modes: map[keymap.Mode]keymap.Table{
+				keymap.ModeCloseConfirm: {
+					"y":   keymap.UnboundBinding(),
+					"c":   keymap.CommandBinding(keymap.CommandCloseConfirmConfirm),
+					"esc": keymap.UnboundBinding(),
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newLoadedTestBoard(t)
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+
+			entries := b.keys.Entries(keymap.ModeCloseConfirm, "")
+			suffix := promptKeySuffix(entries, keymap.CommandCloseConfirmConfirm, keymap.CommandCloseConfirmCancel)
+			if suffix == "" {
+				t.Fatal("promptKeySuffix() returned empty, want at least one bound side for this table")
+			}
+			for _, key := range strings.Split(suffix, "/") {
+				result := b.keys.Lookup(keymap.ModeCloseConfirm, "", keymap.Sequence{keymap.Key(key)})
+				if result.Outcome != keymap.OutcomeMatch {
+					t.Errorf("suffix %q: Lookup(ModeCloseConfirm, %q) outcome = %v, want OutcomeMatch (every advertised key must actually dispatch)", suffix, key, result.Outcome)
+				}
+			}
+		})
+	}
+}
+
 // --- Keybinding hint registration (CLAUDE.md hard rule) ---
 
 func TestHelpSections_NormalMode_ContainsCloseCardHint(t *testing.T) {
-	for _, section := range helpSections {
-		if section.title != "Normal Mode" {
-			continue
-		}
-		for _, kv := range section.keys {
-			if kv[0] == "x" {
-				return
-			}
-		}
-		t.Fatalf("helpSections[%q] does not contain an entry for key %q", "Normal Mode", "x")
+	b := newLoadedTestBoard(t)
+	content := b.buildHelpContent()
+	section := helpSectionBody(t, content, "Normal Mode")
+
+	desc := mustFindCommand(t, keymap.CommandCardClose).Desc
+	if !strings.Contains(section, desc) {
+		t.Fatalf("generated Normal Mode section does not contain the card.close desc %q, got:\n%s", desc, section)
 	}
-	t.Fatal(`helpSections has no "Normal Mode" section`)
 }
