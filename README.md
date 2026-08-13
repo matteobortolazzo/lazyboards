@@ -80,6 +80,8 @@ export GITHUB_TOKEN=your_token_here
 
 On first launch without a local config, an interactive configuration popup guides you through setup. You can also open it at any time with `c`.
 
+Saving from the popup writes the local config and reloads the board against the repository you entered — switching repositories takes effect immediately, no restart needed. The repository must be given as `owner/repo`; anything else is rejected before it reaches the config file.
+
 ## How It Works
 
 Cards are GitHub issues. Each column maps to a label — an issue with the label "Implementing" appears in the Implementing column. When a card has multiple matching labels, it appears in the rightmost matching column. Cards without a matching label default to the first column.

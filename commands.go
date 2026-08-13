@@ -290,7 +290,7 @@ func saveConfigCmd(path, provider, repo, trustPath string) tea.Cmd {
 		if err := config.Save(path, provider, repo, trustPath); err != nil {
 			return configSaveErrorMsg{err: err}
 		}
-		return configSavedMsg{}
+		return configSavedMsg{provider: provider, repo: repo}
 	}
 }
 
