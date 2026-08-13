@@ -198,22 +198,3 @@ func insertLegacyActions(table KeymapTable, legacyActions map[string]Action) {
 		table[seq] = KeymapBinding{Kind: keymap.BindingAction, Action: action, Order: action.Order}
 	}
 }
-
-// KeymapFromLegacy derives a resolved *keymap.Keymap directly from legacy
-// actions/columns blocks, without a full config.Load() pass -- the path
-// NewBoard uses so its 96+ existing test call sites (constructed with
-// actions/columnConfigs literals, not YAML) keep dispatching identically to
-// the real app. It builds a throwaway *Config carrying just those two
-// fields, runs it through the same translateLegacyActions + ResolveKeymap
-// pipeline main.go's config.Load() path uses, and returns the result.
-func KeymapFromLegacy(actions map[string]Action, columns []ColumnConfig) (*keymap.Keymap, error) {
-	cfg := &Config{Actions: actions, Columns: columns}
-	// No YAML document to walk here (actions/columns come from in-memory
-	// literals, not a loaded file), so there's no raw-node presence signal
-	// to pass; legacyDeclared is always false. The resulting cfg.Deprecations
-	// is discarded by this function's caller (it only wants the resolved
-	// *keymap.Keymap), so this can't under-report a deprecation notice to
-	// anyone.
-	translateLegacyActions(cfg, false)
-	return ResolveKeymap(cfg)
-}

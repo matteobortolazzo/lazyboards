@@ -424,10 +424,10 @@ func TestHelpContent_NormalModeIncludesSearchAndAssign(t *testing.T) {
 
 // TestHelpMode_ViewShowsCustomActions previously asserted a global-only
 // custom action rendered under a "Custom Actions" header. #550 Phase B
-// (Q4) makes that section column-only: a global action (translated into
-// keymaps.normal by config.KeymapFromLegacy) now renders inline in the
-// Normal Mode section instead, and "Custom Actions" is omitted entirely
-// when no configured column has its own differing binding.
+// (Q4) makes that section column-only: a global keymaps.normal action now
+// renders inline in the Normal Mode section instead, and "Custom Actions"
+// is omitted entirely when no configured column has its own differing
+// binding.
 func TestHelpMode_ViewShowsCustomActions(t *testing.T) {
 	actions := map[string]config.Action{
 		"X": {Name: "Deploy App", Type: "url", URL: "https://example.com/{number}"},
@@ -447,14 +447,11 @@ func TestHelpMode_ViewShowsCustomActions(t *testing.T) {
 }
 
 // TestHelpMode_GlobalCustomAction_DuplicatedAcrossNormalAndDetailSections
-// pins an intentional consequence of the legacy-action translation flagged
-// in #550's plan Risks section: translateLegacyActions
-// (config.KeymapFromLegacy) inserts a legacy global action into both
-// ModeNormal and ModeDetail (and ModePRList for scope: pr), so the action
-// now appears in up to three help sections instead of once under a single
-// Custom Actions table. That's intended under generation -- each section
-// is its own truthful rendering of that mode's registry entries -- not a
-// bug. TestHelpMode_ViewShowsCustomActions only asserts the action's name
+// pins an intentional consequence flagged in #550's plan Risks section: an
+// action declared in both keymaps.normal and keymaps.detail appears in both
+// help sections instead of once under a single Custom Actions table. That's
+// intended under generation -- each section is its own truthful rendering
+// of that mode's registry entries -- not a bug. TestHelpMode_ViewShowsCustomActions only asserts the action's name
 // appears somewhere in the view, which holds whether it renders once or in
 // every section, so it doesn't actually pin the duplication; this test
 // checks both section bodies explicitly.

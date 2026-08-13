@@ -1798,7 +1798,7 @@ func TestKeymapPanels_Error_ForeignCommandIDIsNoOp(t *testing.T) {
 func TestKeymapPanels_Error_InlineActionBindingDoesNotDispatch(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
 		keymap.ModeError: {"z": keymap.ActionBinding(keymap.Action{Name: "Pwn", Type: "shell", Command: "echo pwned", Scope: "board"})},
 	}, nil)

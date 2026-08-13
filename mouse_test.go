@@ -20,7 +20,7 @@ import (
 func newMouseEnabledBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
 
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
@@ -41,7 +41,7 @@ func newMouseEnabledBoard(t *testing.T) Board {
 func newMouseEnabledBoardWithCards(t *testing.T, cardCount, height int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
 
 	providerCards := make([]provider.Card, cardCount)
 	for i := range providerCards {
@@ -71,7 +71,7 @@ func newMouseEnabledBoardWithCards(t *testing.T, cardCount, height int) Board {
 func newMouseDisabledBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
@@ -279,7 +279,7 @@ func renderedTabZones(b Board) []tabHitZone {
 func newMouseEnabledBoardWithColumns(t *testing.T, columns []Column, width int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
 
 	providerColumns := make([]provider.Column, len(columns))
 	for i, col := range columns {
@@ -379,7 +379,7 @@ func TestMouseClickTab_SwitchesColumn(t *testing.T) {
 // boundaries are shifted right of where the sanitized render places them.
 func TestMouseClickTab_SanitizedTitleHitZones(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -632,7 +632,7 @@ func TestMouseClickTab_SearchAndFilterBothActive_LastCellSelectsColumn(t *testin
 // panic.
 func TestMouseClickTab_ZeroColumnsWithSearchQuery_NoPanicNoStateChange(t *testing.T) {
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
 
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: []provider.Column{}}})
 	board, ok := m.(Board)
@@ -773,7 +773,7 @@ func TestMouseNonNormalMode_IgnoresEvents(t *testing.T) {
 func TestMouseWheelDown_EmptyColumn_NoOp(t *testing.T) {
 	// Create a board with an empty first column and a non-empty second column.
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", true, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{

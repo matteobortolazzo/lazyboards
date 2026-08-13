@@ -52,7 +52,7 @@ func TestInit_UpdateCheckTargetsLazyboardsRepoNotTrackedRepo(t *testing.T) {
 	p := provider.NewFakeProvider()
 	// The board deliberately tracks a repo that is NOT lazyboards, to prove
 	// the update-check target is independent of the board's tracked repo.
-	b := NewBoard(p, nil, nil, nil, nil, "someone-else", "unrelated-repo", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "someone-else", "unrelated-repo", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	execCmds(b.Init())
 

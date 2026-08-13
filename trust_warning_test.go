@@ -64,7 +64,7 @@ func TestStartupWarning_UntrustedConfig_AppliedAndClearedOnInitialLoad(t *testin
 	}
 
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, cfg.Columns, nil, "owner", "repo", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, cfg.Columns, nil, "owner", "repo", "github", 0, 0, "Working", false, false, nil, nil, true)
 	// b.loaded is false here (fresh board, never fetched), so this Update
 	// call exercises handleBoardFetched's b.refreshing == false branch.
 	b.startupWarning = cfg.Notices[0]
@@ -95,7 +95,7 @@ func TestStartupWarning_UntrustedConfig_AppliedAndClearedOnRefreshingBranch(t *t
 	}
 
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, cfg.Columns, nil, "owner", "repo", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, cfg.Columns, nil, "owner", "repo", "github", 0, 0, "Working", false, false, nil, nil, true)
 
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
@@ -149,7 +149,7 @@ func TestStartupWarning_TrustedConfig_NoWarningShown(t *testing.T) {
 	}
 
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, cfg.Columns, nil, "owner", "repo", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, cfg.Columns, nil, "owner", "repo", "github", 0, 0, "Working", false, false, nil, nil, true)
 	// startupWarning intentionally left at its zero value: cfg.Notices was
 	// empty, so there is nothing to seed it with.
 
@@ -200,7 +200,7 @@ func TestConfigSave_TrustSurvivesRewrite_LocalShellBindingResolvesUnstripped(t *
 	}
 
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, cfg.Columns, nil, "owner", "repo", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, cfg.Columns, nil, "owner", "repo", "github", 0, 0, "Working", false, false, nil, nil, true)
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)

@@ -171,7 +171,7 @@ func TestKeymapModals_Filter_UnrecognizedCommandIsNoOp(t *testing.T) {
 func TestKeymapModals_Filter_InlineActionBindingDoesNotDispatch(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
 			{Title: "Column A", Cards: []provider.Card{
@@ -825,7 +825,7 @@ func TestKeymapModals_MilestoneList_RemappedFilterKeyRespectsViewStatePrecedence
 func TestKeymapModals_MilestoneList_RemappedOpenKeyRespectsEmptyGuard(t *testing.T) {
 	fe := &action.FakeExecutor{}
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	b = loadFromFakeProvider(t, b, p)
 	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
 		keymap.ModeMilestoneList: {

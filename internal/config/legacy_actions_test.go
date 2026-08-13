@@ -818,59 +818,6 @@ func TestInsertLegacyActions_ColumnBindingOrderAlsoStamped(t *testing.T) {
 	}
 }
 
-// --- KeymapFromLegacy: NewBoard's derivation path (#489 step 2) ---
-
-// TestKeymapFromLegacy_EquivalentToResolveKeymapOfSameConfig is the
-// Implementation Order's step 2 equivalence check: KeymapFromLegacy(actions,
-// columns) -- the helper NewBoard uses to derive a keymap directly from the
-// legacy actions/columnConfigs params it already receives -- must resolve
-// identically to running the very same legacy blocks through the full
-// Config pipeline (translateLegacyActions + ResolveKeymap), the path
-// main.go uses once config.Load() has run. A drift here would mean
-// NewBoard's test call sites (constructed directly with actions/columnConfigs,
-// not through config.Load()) silently dispatch differently than the real
-// app.
-func TestKeymapFromLegacy_EquivalentToResolveKeymapOfSameConfig(t *testing.T) {
-	actions := map[string]Action{
-		"P": {Name: "Push", Type: "shell", Command: "git push", Scope: "board"},
-	}
-	columns := []ColumnConfig{
-		{Name: "Implementing", Actions: map[string]Action{
-			"Q": {Name: "Quick", Type: "shell", Command: "echo quick", Scope: "board"},
-		}},
-	}
-
-	km, err := KeymapFromLegacy(actions, columns)
-	if err != nil {
-		t.Fatalf("KeymapFromLegacy() returned unexpected error: %v", err)
-	}
-
-	cfg := &Config{Actions: actions, Columns: columns}
-	// No YAML document backs this literal Config, so legacyDeclared is
-	// false here too -- mirroring KeymapFromLegacy's own call, which this
-	// test compares against.
-	translateLegacyActions(cfg, false)
-	wantKM, err := ResolveKeymap(cfg)
-	if err != nil {
-		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
-	}
-
-	for _, tc := range []struct {
-		mode   keymap.Mode
-		column string
-	}{
-		{keymap.ModeNormal, ""},
-		{keymap.ModeDetail, ""},
-		{keymap.ModeNormal, "Implementing"},
-	} {
-		got := km.Entries(tc.mode, tc.column)
-		want := wantKM.Entries(tc.mode, tc.column)
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("Entries(%q, %q) = %+v, want %+v (KeymapFromLegacy must equal ResolveKeymap of the equivalent Config)", tc.mode, tc.column, got, want)
-		}
-	}
-}
-
 // --- translateLegacyActions: scope: pr actions -> keymaps.pr_list (#490 PR 7b, Q1) ---
 //
 // Today the global PR list modal reaches a legacy scope: pr action via a raw
@@ -1032,57 +979,5 @@ func TestTranslateLegacyActions_LowercaseKeyedScopePRActionNotInPRListMode(t *te
 		if _, exists := table["p"]; exists {
 			t.Error("Keymaps.Modes[pr_list] has key \"p\" for a lowercase-keyed scope: pr action, want it absent -- the old PR-list dispatch only ever recognized single uppercase A-Z keys")
 		}
-	}
-}
-
-// TestKeymapFromLegacy_ScopePRActionReachableInPRListMode is the
-// KeymapFromLegacy analog (NewBoard's derivation path, used by 96+ test call
-// sites that construct actions directly instead of going through
-// config.Load()): a scope: pr action passed to KeymapFromLegacy must resolve
-// through keymap.ModePRList, not just cfg.Keymaps.Modes -- verified against
-// the actually-resolved *keymap.Keymap the PR list handler will Lookup
-// against.
-func TestKeymapFromLegacy_ScopePRActionReachableInPRListMode(t *testing.T) {
-	actions := map[string]Action{
-		"P": {Name: "Open PR", Type: "shell", Command: "gh pr view {pr_number}", Scope: "pr"},
-	}
-
-	km, err := KeymapFromLegacy(actions, nil)
-	if err != nil {
-		t.Fatalf("KeymapFromLegacy() returned unexpected error: %v", err)
-	}
-
-	entries := km.Entries(keymap.ModePRList, "")
-	found := false
-	for _, e := range entries {
-		if e.Sequence == "P" {
-			found = true
-			if e.Binding.Kind != keymap.BindingAction || e.Binding.Action.Name != "Open PR" {
-				t.Errorf("Entries(pr_list, \"\") key \"P\" binding = %+v, want the scope: pr action bound", e.Binding)
-			}
-		}
-	}
-	if !found {
-		t.Errorf("Entries(pr_list, \"\") = %+v, want a \"P\" entry from the translated scope: pr action", entries)
-	}
-}
-
-// TestKeymapFromLegacy_NilArgsIsInfallible pins the invariant NewBoard's
-// error-recovery fallback (model.go) relies on but never checks: when the
-// primary KeymapFromLegacy(actions, columnConfigs) call errors (a "can't
-// happen" state for production, config.Load()-validated input), NewBoard
-// falls back to KeymapFromLegacy(nil, nil) and discards its error under the
-// assumption empty legacy input against keymap.Defaults() can never fail.
-// This test doesn't change that production code path -- it just fails here,
-// loudly, instead of NewBoard silently panicking at runtime, the day a
-// future change to keymap.Defaults() (or ResolveKeymap's validation) breaks
-// the assumption.
-func TestKeymapFromLegacy_NilArgsIsInfallible(t *testing.T) {
-	km, err := KeymapFromLegacy(nil, nil)
-	if err != nil {
-		t.Fatalf("KeymapFromLegacy(nil, nil) returned unexpected error: %v", err)
-	}
-	if km == nil {
-		t.Fatal("KeymapFromLegacy(nil, nil) returned a nil *keymap.Keymap, want non-nil")
 	}
 }

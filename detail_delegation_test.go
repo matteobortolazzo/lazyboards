@@ -73,7 +73,7 @@ func newDetailDelegationTestBoard(t *testing.T, localYAML string) Board {
 	}
 
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, config.DefaultGitActions(), cfg.Columns, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, config.DefaultGitActions(), cfg.Columns, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 	b = loadFromFakeProvider(t, b, p)
 	b.collaborators = []Assignee{{Login: "alice"}}
 

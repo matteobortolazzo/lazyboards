@@ -42,7 +42,7 @@ func singleCardBoard(colTitle string, number int, title string) provider.Board {
 func newRepoSwitchBoard(t *testing.T, newRepoBoard provider.Board) (Board, *[]string, *retargetedProvider) {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "old-owner", "old-repo", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "old-owner", "old-repo", "github", 0, 0, "Working", false, false, nil, nil, true)
 
 	var calls []string
 	next := &retargetedProvider{FakeProvider: provider.NewFakeProvider(), board: newRepoBoard}
@@ -207,7 +207,7 @@ func TestConfigSaved_RepoChange_DoesNotRunCleanupForOldRepoCards(t *testing.T) {
 		},
 	}
 
-	b := NewBoard(provider.NewFakeProvider(), nil, nil, columnConfigs, fe, "old-owner", "old-repo", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(provider.NewFakeProvider(), nil, columnConfigs, fe, "old-owner", "old-repo", "github", 0, 0, "Working", false, false, nil, nil, true)
 	next := &retargetedProvider{FakeProvider: provider.NewFakeProvider(), board: newBoard}
 	b.providerFactory = func(providerName, owner, repo string) (provider.BoardProvider, error) {
 		return next, nil

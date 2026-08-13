@@ -260,7 +260,7 @@ func main() {
 	// First-launch flow: show config popup when no local config exists
 	// and git detection didn't provide both provider and repo.
 	if !config.LocalExists(config.DefaultLocalPath) && (prov == "" || repo == "") {
-		board := NewBoard(nil, nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, config.DefaultWorkingLabel, false, true, nil, nil, cfg.UpdateCheckValue())
+		board := NewBoard(nil, nil, nil, nil, repoOwner, repoNameOnly, prov, 0, 0, config.DefaultWorkingLabel, false, true, nil, nil, cfg.UpdateCheckValue())
 		p := tea.NewProgram(board, tea.WithAltScreen())
 		m, err := p.Run()
 		if err != nil {
@@ -381,15 +381,14 @@ func main() {
 		debuglog.InitCrash(crashPath)
 	}
 
-	board := NewBoard(bp, cfg.Actions, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader, cfg.UpdateCheckValue())
+	board := NewBoard(bp, defaultGitActions, cfg.Columns, action.DefaultExecutor{}, repoOwner, repoNameOnly, prov, cfg.SessionMaxLength, time.Duration(cfg.RefreshInterval)*time.Minute, cfg.WorkingLabelValue(), cfg.MouseValue(), false, watcher, gitReader, cfg.UpdateCheckValue())
 
-	// Override NewBoard's legacy-derived keymap with the fully resolved
-	// config.ResolveKeymap result (cfg.Keymaps, already carrying #510's
-	// legacy actions:/columns[].actions: translation) -- the single
-	// resolution path every validator already shares (internal/config/
-	// keymap_validate.go). withKeymap rebuilds every hint bar immediately, so
-	// the very first rendered frame reflects the fully resolved table, not
-	// just NewBoard's legacy-only derivation.
+	// Layer the loaded config's keymaps: over NewBoard's built-in defaults,
+	// via config.ResolveKeymap -- the single resolution path every validator
+	// already shares (internal/config/keymap_validate.go) and the only
+	// source of the board's active keymap. withKeymap rebuilds every hint
+	// bar immediately, so the very first rendered frame reflects the fully
+	// resolved table, not just the defaults.
 	km, err := config.ResolveKeymap(&cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error resolving keymap: %v\n", err)

@@ -40,7 +40,7 @@ func newGitPanelTestBoardWithColumns(t *testing.T, userActions map[string]config
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, config.DefaultGitActions(), nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, reader, true)
+	b := NewBoard(p, config.DefaultGitActions(), nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, reader, true)
 	b = b.withKeymap(keymapsFromActions(t, userActions, nil))
 
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
@@ -77,7 +77,7 @@ func TestGitPanel_PressG_Noop_WhenNoDefaultActions(t *testing.T) {
 	// Simulate being outside a git repo: defaultActions is empty/nil.
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{{Title: "Empty", Cards: nil}},
 	}})

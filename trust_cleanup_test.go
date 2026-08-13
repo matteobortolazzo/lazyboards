@@ -71,7 +71,7 @@ func newTrustCleanupTestBoard(t *testing.T, globalYAML, localYAML string, trust 
 
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, cfg.Columns, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, cfg.Columns, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, "Working", false, false, nil, nil, true)
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)

@@ -81,7 +81,7 @@ func TestAction_IgnoredInLoadingMode(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 
 	// Board starts in loadingMode. Press the action key.
@@ -333,7 +333,7 @@ func TestAction_URLEscapesTemplateVars(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 
 	// Load a board with a card that has labels containing URL-special characters.
@@ -422,7 +422,7 @@ func TestAction_CommentVariableExpansion(t *testing.T) {
 func TestTicketOpen_NormalMode_OpensCardURL(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 
 	// Load a board with a card that has a URL.
 	cardURL := "https://github.com/matteobortolazzo/lazyboards/issues/42"
@@ -452,7 +452,7 @@ func TestTicketOpen_NormalMode_OpensCardURL(t *testing.T) {
 func TestTicketOpen_NormalMode_EmptyURL_ShowsMessage(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 
 	// Load a board with a card that has no URL.
 	msg := boardFetchedMsg{board: provider.Board{
@@ -495,7 +495,7 @@ func TestTicketOpen_NormalMode_NoCards_DoesNothing(t *testing.T) {
 func TestTicketOpen_DetailFocused_OpensCardURL(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 
 	// Load a board with a card that has a URL.
 	cardURL := "https://github.com/matteobortolazzo/lazyboards/issues/7"
@@ -526,7 +526,7 @@ func TestTicketOpen_DetailFocused_OpensCardURL(t *testing.T) {
 func TestTicketOpen_ShowsOpenedMessage(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 
 	// Load a board with a card that has a URL.
 	cardNumber := 99
@@ -568,7 +568,7 @@ func TestTicketOpen_OpenHintHiddenOnEmptyColumn(t *testing.T) {
 func TestTicketOpen_OpenHintNotInNormalBar(t *testing.T) {
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 	b = loadFromFakeProvider(t, b, p)
 
 	// Even with cards loaded, the "o" (Open) hint should NOT appear in the
@@ -1048,7 +1048,7 @@ func TestAction_PRScope_SinglePR_ShellEscapesMaliciousBranch(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 
 	maliciousBranch := "feature/x; rm -rf / #"
@@ -1085,7 +1085,7 @@ func TestAction_PRScope_SinglePR_URLEscapesMaliciousBranch(t *testing.T) {
 	}
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 
 	maliciousBranch := "feature/x&evil=1"
@@ -1487,8 +1487,8 @@ func TestAction_DetailFocused_PRScope_MultiplePRsOpensPicker(t *testing.T) {
 // TestDispatchExpandedAction_UnknownType_ShowsStatusMessage covers the
 // defensive fallthrough in dispatchExpandedAction's switch act.Type: neither
 // "url" nor "shell" is unreachable through a validated config (per
-// validateActionValue) but is reachable via a hand-built fixture (e.g.
-// config.KeymapFromLegacy) that bypasses validateActions. Mirrors
+// validateActionValue) but is reachable via a hand-built keymap fixture
+// that bypasses validation entirely. Mirrors
 // TestAction_PRActionKeyWithComment_ZeroPRs_ShowsStatusMessage's shape: call
 // the leaf handler directly to exercise the defensive branch and confirm it
 // surfaces the same kind of user-facing feedback as every other guard in

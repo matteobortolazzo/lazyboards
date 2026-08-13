@@ -63,7 +63,7 @@ func newUniversalQuitBoard(t *testing.T, localYAML string, defaultActions map[st
 	cfg := newUniversalQuitConfig(t, localYAML)
 
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, defaultActions, cfg.Columns, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, defaultActions, cfg.Columns, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 
 	if columns != nil {
 		m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
