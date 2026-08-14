@@ -189,6 +189,8 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, cleanup) |
 | `keymaps` | map | — | Per-mode and per-column key bindings: command ids, inline actions, or `~` to unbind (see [Keymaps](#keymaps)) |
 
+Inline action fields (`keymaps.<mode>.<key>` mappings): `name`, `type` (`url`/`shell`), `url`, `command`, `scope` (`card`/`board`/`pr` — see [Action Scope](#action-scope)), plus the shell-only run-mode fields `terminal` (see [Terminal Actions](#terminal-actions)) and `window`/`cwd`/`focus` (see [Window Actions](#window-actions)).
+
 **Note on remembered state:** pressing `s` to flip the sort order writes your choice to `~/.config/lazyboards/state.yml`, so it survives a restart. That file is written by lazyboards alone — your config files are never rewritten — and a remembered direction takes precedence over `sort_order`. Delete it to go back to the configured default.
 
 ### Keymaps
@@ -387,7 +389,7 @@ keymaps:
 
 Swap `ng serve` for whatever the project runs — `dotnet run`, `npm run dev`, `go run .`, `make dev`. `{pr_worktree}` finds the PR branch's registered Git worktree, so the action does not depend on a worktree directory naming convention. Since the run command is project-specific, define it in that project's `.lazyboards.yml`; a global `~/.config/lazyboards/config.yml` can keep a command-agnostic variant (open the worktree only, no run step) that works everywhere.
 
-Long-running or foreground shell commands will block that action's key slot until the command exits. Prefer a self-detaching command such as `tmux new-window -d '<command>'` for anything long-running (like the `ng serve` example above) — see [Tmux Integration](#tmux-integration) — or `terminal: true` when you want to watch it run, see below.
+Long-running or foreground shell commands will block that action's key slot until the command exits. Give anything long-running (like the `ng serve` example above) a [`window:`](#window-actions) so it runs in a tmux window of its own, or [`terminal: true`](#terminal-actions) when you want to watch it run to completion.
 
 ### Terminal Actions
 
@@ -403,8 +405,9 @@ keymaps:
         name: Test worktree
         type: shell
         scope: pr
+        cwd: "{pr_worktree}"
         terminal: true
-        command: 'cd {pr_worktree} && go test ./...'
+        command: "go test ./..."
 ```
 
 Pressing `T` clears the board, runs `go test ./...` in the foreground with full output, colors, and keyboard input, and restores the board when the command exits. The status bar then reports success or the exit error. No tmux involved — it works over a plain SSH session.
@@ -416,9 +419,43 @@ Choose between the two long-running patterns by what you need afterwards:
 | Need | Use |
 |------|-----|
 | Watch it to completion, then get the board back (tests, a build, a one-off script, an interactive command) | `terminal: true` |
-| Keep it running alongside the board (dev server, API, worker, log tail) | `tmux new-window -d …`, see [Tmux Integration](#tmux-integration) |
+| Keep it running alongside the board (dev server, API, worker, log tail) | `window:`, see [Window Actions](#window-actions) |
 
 A `terminal: true` action owns the terminal until it exits, so don't point one at a process that never returns — the board is unreachable until you stop it.
+
+### Window Actions
+
+For a process that should keep running while you go back to the board — a dev server, an API, a worker, a log tail — give the action a `window:` and lazyboards opens a tmux window for it:
+
+```yaml
+keymaps:
+  columns:
+    In Review:
+      W: { name: Open worktree,  type: shell, scope: pr,
+           window: "pr-{pr_number}", cwd: "{pr_worktree}" }
+      S: { name: Serve worktree, type: shell, scope: pr,
+           window: "pr-{pr_number}", cwd: "{pr_worktree}", command: "go run ." }
+```
+
+| Field | Meaning |
+|-------|---------|
+| `window` | Window name. Its presence is what makes the action open a window. Template-expanded. |
+| `cwd` | Directory the command runs in. Template-expanded. Works on **every** shell action — windowed, `terminal: true`, and plain buffered alike. |
+| `focus` | `true` switches to the new window; the default leaves it detached and keeps you on the board. |
+| `command` | Optional when `window` is set — a window with just a `cwd` opens a shell there (the `W` example above). |
+
+lazyboards assembles the `tmux new-window` invocation itself and escapes the window name, the directory, and the command as single arguments — so a card title, branch name, or path containing spaces, quotes, `;`, or `$(…)` can't break out of the command line. That's the main reason to prefer these fields over writing the tmux call by hand.
+
+`cwd` on its own (no `window`) is just as useful, and replaces the `cd X && ` prefix:
+
+```yaml
+T: { name: Test worktree, type: shell, scope: pr,
+     cwd: "{pr_worktree}", terminal: true, command: "go test ./..." }
+```
+
+Window actions need a tmux session — running one outside tmux reports `Not inside tmux` in the status bar rather than failing with tmux's own error. `window:` and `terminal: true` are mutually exclusive (one detaches the command, the other hands it this terminal), as is `focus:` without a `window:`; both are load-time config errors. Other multiplexers aren't supported yet — a `window:` action outside tmux refuses regardless of what else is running.
+
+Anything the fields can't express is still a plain `command:` — they're a shortcut for the common shape, not a replacement for writing your own shell.
 
 ### Git Menu
 
@@ -539,14 +576,14 @@ keymaps:
     T:
       name: Tmux window
       type: shell
-      command: "tmux new-window -d -n {session}"
+      window: "{session}"
 ```
 
 The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 40). Punctuation and non-ASCII characters in the title are dropped (not hyphenated).
 
 Agent-status matching (the live ▶/✓/… badges) does **not** rely on this name. Cards join cenci windows by **ticket-number prefix**: a card matches a window whose name is exactly the card number or starts with `<number>-` (cenci names dispatched windows `<number>-<skill>`, e.g. `230-refine`). The `-` boundary keeps card #23 from matching `230-…`, and the scheme is backward-compatible with cenci's older `<number>-<title-slug>` names.
 
-A detached tmux window is the right tool for a process that must keep running after the action returns — a dev server, an API, a worker. For a command you want to watch to completion and then return to the board (a test run, a build), `terminal: true` does it natively with no multiplexer at all — see [Terminal Actions](#terminal-actions).
+You rarely need to write `tmux new-window` by hand any more: [`window:`/`cwd:`/`focus:`](#window-actions) build and escape that invocation for you, and [`terminal: true`](#terminal-actions) covers watch-to-completion commands with no multiplexer at all. Write the tmux call yourself when you need something those fields don't cover — splits, an existing window, `send-keys`, or shell logic around the command like the plan-file examples above.
 
 Use `{window}` (not `{session}`) when an action or `cleanup` command needs to target that live cenci window by name — for example `tmux kill-window -t {window}` to reap it. `{session}` still generates the reconstructed name above and is the right choice for actions that create a window before cenci has dispatched one.
 

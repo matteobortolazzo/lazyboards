@@ -373,15 +373,32 @@ runtime, in `Load`'s order:
     `keymaps.normal`, `keymaps.detail`, and every `keymaps.columns.<name>`
     table. An action key that fails to parse is a contextual load error
     (naming the owning table and the raw key), not a silently skipped entry.
-11. **`terminal:` on a non-shell action** — `validateActionValue` (`config.go`,
-    #623): `terminal: true` hands the running command lazyboards' own
-    terminal (dispatched via `tea.ExecProcess` instead of the buffered
-    `runShellCmd`), which only means anything for `type: shell`. Declaring
-    it on a `type: url` action is a load-time error naming the offending
-    key, rather than a silently ignored field. It is deliberately a modifier
-    on the existing `shell` type and not a type of its own, so every
-    `Type == "shell"` gate — above all `trust_strip.go`'s local-shell-sink
-    stripping (see `docs/trust-model.md`) — keeps covering it unchanged.
+11. **Run-mode fields on a non-shell action** — `validateActionValue`
+    (`config.go`, #623/#624): `terminal:` (hand the command lazyboards' own
+    terminal, via `tea.ExecProcess` instead of the buffered `runShellCmd`),
+    `window:`/`cwd:`/`focus:` (run it in a named tmux window, in a given
+    directory, optionally switching to it) only mean anything for
+    `type: shell`. Declaring any of them on a `type: url` action is a
+    load-time error naming the offending key, rather than a silently ignored
+    field. The same check rejects the two contradictory combinations —
+    `window:` together with `terminal:` (one detaches the command, the other
+    hands it this terminal) and `focus:` without a `window:` — and relaxes
+    the "command is required" rule for a `window:` action, where opening a
+    window on a directory with no command is a complete action. All four are
+    deliberately modifiers on the existing `shell` type and not types of
+    their own, so every `Type == "shell"` gate — above all
+    `trust_strip.go`'s local-shell-sink stripping (see
+    `docs/trust-model.md`) — keeps covering them unchanged.
+
+    `window:` and `cwd:` carry template variables, so they are part of
+    `Action.Template()` (`config.go`, mirrored on `keymap.Action`) — the
+    single accessor every "does this action reference variable X?" site
+    reads: scope inference and the board/card variable restrictions here,
+    the `{comment}` Alt-overload scan and the on-demand `{pr_worktree}`
+    lookup in `action_dispatch.go`, and check 8's alt-comment shadow scan.
+    A template-bearing field added to `Action` but missed by one of those
+    sites would let a board-scope action smuggle `{number}` in through the
+    missed field, or leave `{pr_worktree}` unresolved at dispatch.
 
 Checks 1-2 run during YAML unmarshal itself; 3, 4, 5, 9, 10, and 11 run over
 `cfg.Keymaps` directly; 6, 7, and 8 run inside `validateKeymap` (`keymap_validate.go:45`),

@@ -58,26 +58,34 @@ keymaps:
         }
 
     In Review:
+      # window:/cwd: let lazyboards build (and escape) the tmux invocation;
+      # terminal: hands this terminal to the command instead, for the one
+      # that's worth watching to completion.
       W:
         {
           name: Open worktree,
           type: shell,
           scope: pr,
-          command: "tmux new-window -d -n pr-{pr_number} -c {pr_worktree}",
+          window: "pr-{pr_number}",
+          cwd: "{pr_worktree}",
         }
       S:
         {
           name: Serve worktree,
           type: shell,
           scope: pr,
-          command: 'tmux new-window -d -n pr-{pr_number} -c {pr_worktree} "go run ."',
+          window: "pr-{pr_number}",
+          cwd: "{pr_worktree}",
+          command: "go run .",
         }
       T:
         {
           name: Test worktree,
           type: shell,
           scope: pr,
-          command: 'tmux new-window -d -n pr-{pr_number} -c {pr_worktree} "go test ./..."',
+          cwd: "{pr_worktree}",
+          terminal: true,
+          command: "go test ./...",
         }
 
 # Auto-close a card's agent window when its ticket closes

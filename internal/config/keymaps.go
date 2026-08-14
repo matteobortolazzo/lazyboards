@@ -400,6 +400,9 @@ func convertKeymapBinding(b KeymapBinding) keymap.Binding {
 			Command:  b.Action.Command,
 			Scope:    b.Action.Scope,
 			Terminal: b.Action.Terminal,
+			Window:   b.Action.Window,
+			Cwd:      b.Action.Cwd,
+			Focus:    b.Action.Focus,
 			Order:    b.Order,
 		})
 	case keymap.BindingUnbound:

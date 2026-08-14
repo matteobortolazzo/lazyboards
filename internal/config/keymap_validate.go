@@ -177,7 +177,7 @@ func validateModeAltCommentShadow(sequences []string, bound map[string]keymap.Bi
 		if !exists || baseBinding.Kind != keymap.BindingAction {
 			continue
 		}
-		if !strings.Contains(baseBinding.Action.URL+baseBinding.Action.Command, "{comment}") {
+		if !strings.Contains(baseBinding.Action.Template(), "{comment}") {
 			continue
 		}
 		if column != "" {

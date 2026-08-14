@@ -15,12 +15,25 @@ type Action struct {
 	Command string `yaml:"command"`
 	Scope   string `yaml:"scope"`
 	// Terminal marks a shell action that takes over the terminal instead of
-	// having its output buffered and discarded; see config.Action.Terminal
-	// for the full contract these two hand-synced types share.
-	Terminal bool `yaml:"terminal"`
+	// having its output buffered and discarded; Window/Cwd/Focus run it in a
+	// named multiplexer window, in a given directory, optionally switching to
+	// it. See config.Action's own fields for the full contract these two
+	// hand-synced types share.
+	Terminal bool   `yaml:"terminal"`
+	Window   string `yaml:"window"`
+	Cwd      string `yaml:"cwd"`
+	Focus    bool   `yaml:"focus"`
 	// Order is derived metadata, never read from or written to YAML; see
 	// config.Action.Order for why.
 	Order int `yaml:"-"`
+}
+
+// Template returns every template-bearing field concatenated, for the checks
+// that ask "does this action reference variable X?". It mirrors
+// config.Action.Template (the two Action types are hand-synced field for
+// field); see that method for why the concatenation exists at all.
+func (a Action) Template() string {
+	return a.URL + a.Command + a.Window + a.Cwd
 }
 
 // BindingKind identifies what a Binding's right-hand side is.
