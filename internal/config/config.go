@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -21,18 +20,17 @@ type Action struct {
 	Command string `yaml:"command"`
 	Scope   string `yaml:"scope"`
 	// Order is derived metadata reflecting the action's position in its
-	// source YAML file (see assignActionOrder). It is never read from or
-	// written to the YAML file itself, so it can't be hand-set by a user
-	// and doesn't get scrambled by Save()'s random map-key re-marshal
+	// source YAML file (see stampOrderAndRejectLegacy). It is never read
+	// from or written to the YAML file itself, so it can't be hand-set by a
+	// user and doesn't get scrambled by Save()'s random map-key re-marshal
 	// order (pre-existing behavior, unaffected by this field).
 	Order int `yaml:"-"`
 }
 
-// ColumnConfig defines a column with optional per-column actions.
+// ColumnConfig defines a column and its optional cleanup command.
 type ColumnConfig struct {
-	Name    string            `yaml:"name"`
-	Actions map[string]Action `yaml:"actions"`
-	Cleanup *string           `yaml:"cleanup,omitempty"`
+	Name    string  `yaml:"name"`
+	Cleanup *string `yaml:"cleanup,omitempty"`
 }
 
 // CleanupValue returns the column's own cleanup command, or "" if unset.
@@ -54,39 +52,31 @@ const DefaultWorkingLabel = "Working"
 
 // Config holds the application configuration.
 type Config struct {
-	Provider         string            `yaml:"provider"`
-	Repo             string            `yaml:"repo"`
-	Project          string            `yaml:"project"`
-	Actions          map[string]Action `yaml:"actions"`
-	Columns          []ColumnConfig    `yaml:"columns"`
-	SessionMaxLength int               `yaml:"session_max_length"`
-	RefreshInterval  int               `yaml:"refresh_interval"`
-	WorkingLabel     *string           `yaml:"working_label,omitempty"`
-	Mouse            *bool             `yaml:"mouse,omitempty"`
-	Cenci            *bool             `yaml:"cenci,omitempty"`
-	Cleanup          *string           `yaml:"cleanup,omitempty"`
-	UpdateCheck      *bool             `yaml:"update_check,omitempty"`
-	SortOrder        *string           `yaml:"sort_order,omitempty"`
-	Keymaps          *Keymaps          `yaml:"keymaps,omitempty"`
-	// Deprecations holds human-readable notices surfaced to the user when
-	// Load() translates a legacy config construct (e.g. a top-level
-	// `actions:` or `columns[].actions:` block) onto the `keymaps:`
-	// namespace (see legacy_actions.go, #510). Never read from or written
-	// to the YAML file -- purely derived, like Action.Order.
-	Deprecations []string `yaml:"-"`
+	Provider         string         `yaml:"provider"`
+	Repo             string         `yaml:"repo"`
+	Project          string         `yaml:"project"`
+	Columns          []ColumnConfig `yaml:"columns"`
+	SessionMaxLength int            `yaml:"session_max_length"`
+	RefreshInterval  int            `yaml:"refresh_interval"`
+	WorkingLabel     *string        `yaml:"working_label,omitempty"`
+	Mouse            *bool          `yaml:"mouse,omitempty"`
+	Cenci            *bool          `yaml:"cenci,omitempty"`
+	Cleanup          *string        `yaml:"cleanup,omitempty"`
+	UpdateCheck      *bool          `yaml:"update_check,omitempty"`
+	SortOrder        *string        `yaml:"sort_order,omitempty"`
+	Keymaps          *Keymaps       `yaml:"keymaps,omitempty"`
 	// LocalHash is the content hash of the local config file Load() read
 	// (in "sha256:<hex>" form, see HashLocalConfig), or "" if no local file
 	// was ever read. Never read from or written to the YAML file -- purely
-	// derived, like Action.Order and Deprecations.
+	// derived, like Action.Order.
 	LocalHash string `yaml:"-"`
 	// Notices holds human-readable messages surfaced to the user when
 	// Load() strips an untrusted local file's shell-executing constructs
-	// (inline keymaps: shell bindings, legacy actions:/columns[].actions:
-	// shell entries, or cleanup:/columns[].cleanup commands -- see
-	// stripLocalShellSinks, trust_strip.go). Populated with at most one
-	// entry per Load() call, naming every stripped sink kind together.
-	// Never read from or written to the YAML file -- purely derived, like
-	// Action.Order and Deprecations.
+	// (inline keymaps: shell bindings, or cleanup:/columns[].cleanup
+	// commands -- see stripLocalShellSinks, trust_strip.go). Populated with
+	// at most one entry per Load() call, naming every stripped sink kind
+	// together. Never read from or written to the YAML file -- purely
+	// derived, like Action.Order.
 	Notices []string `yaml:"-"`
 }
 
@@ -156,8 +146,8 @@ func (c Config) CleanupValue() string {
 
 // DefaultScope returns "card" when s is empty, otherwise s unchanged. This is
 // a defensive passthrough for actions whose scope has already been resolved
-// by validateActions (which calls inferScope to pick "card" or "board" based
-// on the action's template) — it is not itself the source of truth for the
+// by validateKeymapActions (which calls inferScope to pick "card" or "board"
+// based on the action's template) — it is not itself the source of truth for the
 // default-scope policy.
 func DefaultScope(s string) string {
 	if s == "" {
@@ -225,8 +215,8 @@ func DefaultCrashLogPath() (string, error) {
 // Load reads configuration from globalPath and localPath YAML files.
 // Local config merges on top of global. Returns defaults if no files exist.
 // trust gates whether the local file's keystroke-triggered shell-executing
-// constructs (inline keymaps: shell bindings, legacy actions:/
-// columns[].actions: shell entries, and cleanup:/columns[].cleanup commands)
+// constructs (inline keymaps: shell bindings and cleanup:/columns[].cleanup
+// commands)
 // are honored: when the local file's content hash isn't in trust, they are
 // silently stripped before the merge (see stripLocalShellSinks,
 // trust_strip.go) -- global-declared shell constructs are never affected,
@@ -248,16 +238,13 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Config{}, err
 	}
-	var globalDecls localDecls
 	if err == nil {
 		if err := yaml.Unmarshal(globalData, &cfg); err != nil {
 			return Config{}, err
 		}
-		d, err := assignActionOrder(globalData, &cfg)
-		if err != nil {
+		if err := stampOrderAndRejectLegacy(globalData, &cfg, globalPath); err != nil {
 			return Config{}, err
 		}
-		globalDecls = d
 	}
 
 	// Identity fields (provider, repo, project) only come from local config,
@@ -266,25 +253,10 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	cfg.Repo = ""
 	cfg.Project = ""
 
-	// Save global actions and columns before local override. Columns is a
-	// genuine frozen snapshot here: yaml.v3 fully replaces a slice field on a
-	// second Unmarshal (never merges), so globalColumns keeps referring to
-	// the original global-only slice untouched by the local load below.
-	// Actions is NOT a frozen snapshot the same way: yaml.v3 reuses an
-	// existing non-nil map field and merges new/overridden keys into it in
-	// place, so cfg.Actions itself gains the local document's keys once the
-	// local unmarshal runs below -- that's why the key-existence-based Order
-	// offset further down can't rely on map identity/length here the way the
-	// column-level merge (mergeColumnActions) can; it instead tracks which
-	// keys the local document itself declared (decls.ActionKeys, from
-	// assignActionOrder's return value) to know which entries are genuinely
-	// global-only. globalActions itself DOES need to be a real copy
-	// (maps.Clone, not a plain alias): an untrusted local shell action gets
-	// deleted from cfg.Actions entirely (see stripShellFromActions,
-	// trust_strip.go) so the merge loop below can fall back to the matching
-	// global entry -- an alias would have nothing left to fall back to, since
-	// deleting from cfg.Actions would delete from the "global" snapshot too.
-	globalActions := maps.Clone(cfg.Actions)
+	// Save the global columns before the local override. This is a genuine
+	// frozen snapshot: yaml.v3 fully replaces a slice field on a second
+	// Unmarshal (never merges), so globalColumns keeps referring to the
+	// original global-only slice untouched by the local load below.
 	globalColumns := cfg.Columns
 
 	// globalCleanup MUST be a value copy, never a pointer alias
@@ -311,8 +283,7 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	// (rather than allocating a fresh one) whenever the local document also
 	// declares a keymaps: block, aliasing global's parsed value. Resetting
 	// to nil forces a fresh allocation, and mergeKeymaps below explicitly
-	// recombines the two snapshots the same way mergeColumnActions does for
-	// per-column actions.
+	// recombines the two snapshots explicitly.
 	globalKeymaps := cfg.Keymaps
 	cfg.Keymaps = nil
 
@@ -321,63 +292,32 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return Config{}, err
 	}
-	var decls localDecls
 	if err == nil {
 		if err := yaml.Unmarshal(localData, &cfg); err != nil {
 			return Config{}, err
 		}
-		d, err := assignActionOrder(localData, &cfg)
-		if err != nil {
+		if err := stampOrderAndRejectLegacy(localData, &cfg, localPath); err != nil {
 			return Config{}, err
 		}
-		decls = d
 
 		// LocalHash/trust gate whether this local document's own
 		// keystroke-triggered shell-executing constructs are honored.
 		// cfg.Keymaps is purely local at this point (global was already
 		// snapshotted into globalKeymaps above and reset to nil), and
-		// cfg.Columns/cfg.Actions still hold only what the local unmarshal
-		// just produced (the global-preserving merge steps below haven't run
-		// yet) -- exactly the provenance window stripLocalShellSinks needs to
-		// strip only local-declared shell entries and never a global one
-		// (AC9). stripLocalShellSinks compares against the globalKeymaps/
-		// globalActions/globalColumns snapshots by value (ignoring each
-		// entry's derived Order field -- see sameShellAction/sameShellBinding,
-		// trust_strip.go) rather than consulting decls -- see
-		// stripShellFromActions (trust_strip.go) for why the raw-node walk
-		// decls carries isn't a safe strip-eligibility gate.
+		// cfg.Columns still holds only what the local unmarshal just
+		// produced (the global-preserving merge steps below haven't run yet)
+		// -- exactly the provenance window stripLocalShellSinks needs to
+		// strip only local-declared shell constructs and never a global one
+		// (AC9). It compares against the globalKeymaps/globalColumns/
+		// globalCleanup snapshots by value (ignoring each entry's derived
+		// Order field -- see sameShellAction/sameShellBinding,
+		// trust_strip.go) rather than by re-walking the local document's raw
+		// YAML nodes, which a YAML merge key can bypass entirely.
 		cfg.LocalHash = hashConfigBytes(localData)
 		if !trust.Trusts(cfg.LocalHash) {
-			counts := stripLocalShellSinks(&cfg, decls, globalKeymaps, globalActions, globalColumns, globalCleanup)
+			counts := stripLocalShellSinks(&cfg, globalKeymaps, globalColumns, globalCleanup)
 			if notice := buildStripNotice(counts); notice != "" {
 				cfg.Notices = append(cfg.Notices, notice)
-			}
-		}
-	}
-
-	// Merge actions: preserve global-only entries as defaults, local entries take priority.
-	if len(globalActions) > 0 {
-		if cfg.Actions == nil {
-			cfg.Actions = make(map[string]Action)
-		}
-		for k, v := range globalActions {
-			if _, exists := cfg.Actions[k]; !exists {
-				cfg.Actions[k] = v
-			}
-		}
-	}
-
-	// Push every key the local document didn't declare itself (i.e.
-	// inherited unchanged from global, or fallen back to global after an
-	// untrusted local shell entry was stripped -- stripShellFromActions
-	// removes a stripped key from decls.ActionKeys for exactly this reason)
-	// after all locally-declared keys, preserving each group's relative
-	// order.
-	if localCount := len(decls.ActionKeys); localCount > 0 {
-		for k, v := range cfg.Actions {
-			if !decls.ActionKeys[k] {
-				v.Order += localCount
-				cfg.Actions[k] = v
 			}
 		}
 	}
@@ -386,9 +326,6 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	if cfg.Columns == nil {
 		cfg.Columns = globalColumns
 	}
-
-	// Merge per-column actions: for each local column, merge with matching global column's actions.
-	mergeColumnActions(cfg.Columns, globalColumns)
 
 	// Merge per-column cleanup: for each local column, inherit the matching
 	// global column's cleanup if the local column didn't set its own.
@@ -406,17 +343,10 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 		return Config{}, err
 	}
 
-	if err := validateActions(cfg.Actions); err != nil {
-		return Config{}, err
-	}
-
-	translateLegacyActions(&cfg, globalDecls.LegacyBlock || decls.LegacyBlock)
-
 	// validateKeymapActions must run before validateScopeConflicts: it
-	// infers and writes back the default scope for natively-declared
-	// keymaps: inline actions, the same way validateActions already did for
-	// cfg.Actions above -- validateScopeConflicts must see every action's
-	// concrete scope, not an unresolved "".
+	// infers and writes back the default scope for every keymaps: inline
+	// action -- validateScopeConflicts must see every action's concrete
+	// scope, not an unresolved "".
 	if err := validateKeymapActions(cfg.Keymaps); err != nil {
 		return Config{}, err
 	}
@@ -462,76 +392,52 @@ func Load(globalPath, localPath string, trust Trust) (Config, error) {
 	return cfg, nil
 }
 
-// localDecls records which top-level action keys a document's own raw YAML
-// declared, distinguishing genuinely-declared-by-this-document entries from
-// ones merely inherited from another document (global vs local) once the
-// two are merged together. assignActionOrder populates it as a side effect
-// of its own document-position walk; Load()'s Order-offset logic is its
-// only consumer (a purely cosmetic rendering concern, never a security
-// control) -- stripLocalShellSinks/stripShellFromActions (trust_strip.go)
-// do NOT consume it: a raw-node "was this key mentioned in the document"
-// walk can't see a YAML merge-key-smuggled entry, so it isn't a safe
-// strip-eligibility gate (see stripShellFromActions for the full
-// explanation). This struct used to also carry a HasColumns bool for the
-// analogous columns: gate; that field was removed for the same reason once
-// stripShellFromActions stopped consuming it.
-type localDecls struct {
-	// ActionKeys is the set of top-level action keys this document's own
-	// actions: mapping declares (nil if the document has none, or declares
-	// no actions: block at all).
-	ActionKeys map[string]bool
-	// LegacyBlock reports whether this document's own raw YAML declares a
-	// legacy actions: or columns[].actions: block at all -- a real mapping
-	// node (including an explicit, empty `actions: {}`), never a `!!null`
-	// scalar (`actions:`/`actions: ~`). This is a cosmetic notice signal
-	// only (see legacyDeprecationNotice, legacy_actions.go): it feeds
-	// translateLegacyActions' deprecation-notice presence check and must
-	// never be consulted as a strip/security gate the way ActionKeys
-	// explicitly is not (see stripShellFromActions, trust_strip.go).
-	LegacyBlock bool
-}
+// legacyActionsRemovedHint is appended to every legacy-block rejection: the
+// blocks are gone for good, so the error's job is to point at the one
+// supported syntax rather than at a compatibility flag.
+const legacyActionsRemovedHint = "is no longer supported; migrate to the keymaps: namespace (see README)"
 
-// assignActionOrder parses data a second time as a yaml.Node tree and stamps
-// each entry in cfg.Actions (and each column's own actions, and every
-// keymaps mode/column table) with its 1-based position in the raw document,
-// so callers can render entries in the order the user wrote them instead of
-// Go's randomized map order. cfg.Actions, cfg.Columns, and cfg.Keymaps must
-// already hold the values unmarshaled from this same data, since map values
-// holding structs aren't addressable and require a read-modify-write.
-// Columns are matched by index, not name: within one raw document, columns
-// is already in document order courtesy of normal yaml.v3 unmarshaling, so
-// columnsNode.Content[i] lines up with cfg.Columns[i] positionally.
-// Name-based matching across documents (global vs local) is a separate,
-// later concern handled by mergeColumnActions/columnsByNameLower (and, for
-// keymaps, mergeKeymaps).
+// stampOrderAndRejectLegacy parses data a second time as a yaml.Node tree
+// and stamps every keymaps mode/column table entry with its 1-based position
+// in the raw document, so callers can render entries in the order the user
+// wrote them instead of Go's randomized map order. cfg.Keymaps must already
+// hold the values unmarshaled from this same data, since map values holding
+// structs aren't addressable and require a read-modify-write.
 //
-// It returns a localDecls describing which top-level action keys this
-// document's own raw YAML declares, which Load()'s Order-offset logic uses
-// to tell genuinely local declarations apart from values merely inherited
-// unchanged from another document (see the comment on globalActions in
-// Load()) -- a purely cosmetic rendering concern; it is deliberately never
-// consumed by stripLocalShellSinks/stripShellFromActions (trust_strip.go)
-// as a strip-eligibility gate (see that function's comment for why).
-func assignActionOrder(data []byte, cfg *Config) (localDecls, error) {
+// The same walk rejects the pre-0.73 legacy action blocks: a top-level
+// `actions:` key, or an `actions:` key on any columns[] entry, fails the
+// load with an error naming path (the document's own file) and the offending
+// key. Rejection is presence-based on the raw key, whatever its value: an
+// empty mapping (`actions: {}`) and an explicit null (`actions:` /
+// `actions: ~`) are stale blocks a user should delete, not a request for
+// "no actions".
+//
+// Known gap: a legacy block reachable only through a YAML merge key or alias
+// (`base: &b {actions: ...}` plus `<<: *b`) never appears as a literal
+// `actions:` key in the node tree, so this walk cannot see it. With the
+// decoded field gone there is no second signal either, so such a block is
+// silently ignored rather than rejected -- strictly better than the old
+// behavior, where it silently worked (see docs/yaml-parsing.md).
+func stampOrderAndRejectLegacy(data []byte, cfg *Config, path string) error {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return localDecls{}, err
+		return err
 	}
 	if len(root.Content) == 0 {
-		return localDecls{}, nil
+		return nil
 	}
 	docNode := root.Content[0]
 	if docNode.Kind != yaml.MappingNode {
-		return localDecls{}, nil
+		return nil
 	}
 
-	var actionsNode, columnsNode, keymapsNode *yaml.Node
+	var columnsNode, keymapsNode *yaml.Node
 	for i := 0; i+1 < len(docNode.Content); i += 2 {
 		key := docNode.Content[i]
 		value := docNode.Content[i+1]
 		switch key.Value {
 		case "actions":
-			actionsNode = value
+			return fmt.Errorf("%s: actions: %s", path, legacyActionsRemovedHint)
 		case "columns":
 			columnsNode = value
 		case "keymaps":
@@ -539,32 +445,20 @@ func assignActionOrder(data []byte, cfg *Config) (localDecls, error) {
 		}
 	}
 
-	var decls localDecls
-
-	if actionsNode != nil {
-		decls.ActionKeys = stampActionOrder(actionsNode, cfg.Actions)
-	}
-
-	// Legacy-block presence (decls.LegacyBlock) is a separate concern from
-	// the Order-stamping this loop otherwise performs: it's about raw-syntax
-	// presence (did this document write a real actions: mapping node at all,
-	// including an explicit empty one), not about stamping Action.Order onto
-	// already-decoded map entries. Both concerns walk the same columns tree,
-	// so they share this one pass rather than each re-walking it separately.
-	decls.LegacyBlock = isLegacyActionsBlock(actionsNode)
 	if columnsNode != nil && columnsNode.Kind == yaml.SequenceNode {
-		for i, colNode := range columnsNode.Content {
-			if i >= len(cfg.Columns) || colNode.Kind != yaml.MappingNode {
+		for _, colNode := range columnsNode.Content {
+			if colNode.Kind != yaml.MappingNode {
 				continue
 			}
+			var name string
 			for j := 0; j+1 < len(colNode.Content); j += 2 {
-				key := colNode.Content[j]
-				value := colNode.Content[j+1]
-				if key.Value == "actions" {
-					stampActionOrder(value, cfg.Columns[i].Actions)
-					if isLegacyActionsBlock(value) {
-						decls.LegacyBlock = true
-					}
+				if colNode.Content[j].Value == "name" {
+					name = colNode.Content[j+1].Value
+				}
+			}
+			for j := 0; j+1 < len(colNode.Content); j += 2 {
+				if colNode.Content[j].Value == "actions" {
+					return fmt.Errorf("%s: columns[%q].actions: %s", path, name, legacyActionsRemovedHint)
 				}
 			}
 		}
@@ -574,21 +468,11 @@ func assignActionOrder(data []byte, cfg *Config) (localDecls, error) {
 		stampKeymapsOrder(keymapsNode, cfg.Keymaps)
 	}
 
-	return decls, nil
-}
-
-// isLegacyActionsBlock reports whether node is a real, declared actions:
-// mapping node -- true for an explicit empty block (`actions: {}`) as well
-// as a populated one, but false for a `!!null` scalar node (`actions:` or
-// `actions: ~`, which is never a declaration) or a nil node (key absent
-// entirely).
-func isLegacyActionsBlock(node *yaml.Node) bool {
-	return node != nil && node.Kind == yaml.MappingNode
+	return nil
 }
 
 // nodeKeysInOrder returns node's top-level mapping keys in document order,
-// or nil if node is not a mapping. Shared by stampActionOrder and the
-// keymaps order stamper below so both walk mapping nodes the same way.
+// or nil if node is not a mapping.
 func nodeKeysInOrder(node *yaml.Node) []string {
 	if node.Kind != yaml.MappingNode {
 		return nil
@@ -598,25 +482,6 @@ func nodeKeysInOrder(node *yaml.Node) []string {
 		keys = append(keys, node.Content[i].Value)
 	}
 	return keys
-}
-
-// stampActionOrder walks a YAML mapping node of action keys, assigns each
-// matching entry in actions its 1-based document position, and returns the
-// set of keys found in the node.
-func stampActionOrder(node *yaml.Node, actions map[string]Action) map[string]bool {
-	keys := nodeKeysInOrder(node)
-	if keys == nil {
-		return nil
-	}
-	declared := make(map[string]bool, len(keys))
-	for i, key := range keys {
-		declared[key] = true
-		if a, ok := actions[key]; ok {
-			a.Order = i + 1
-			actions[key] = a
-		}
-	}
-	return declared
 }
 
 // stampKeymapOrder walks a YAML mapping node of keymap keys and assigns
@@ -672,7 +537,7 @@ func LocalExists(path string) bool {
 }
 
 // Save writes provider and repo to the config file at path.
-// If the file already exists, it preserves existing fields (like actions).
+// If the file already exists, it preserves existing fields (like keymaps).
 //
 // trustPath, if non-empty, carries trust forward across the rewrite (#568):
 // when the pre-write file content was already trusted, the post-write
@@ -697,7 +562,7 @@ func Save(path, provider, repo, trustPath string) error {
 		if err := yaml.Unmarshal(preData, &cfg); err != nil {
 			return fmt.Errorf("config %q: %w", path, err)
 		}
-		if _, err := assignActionOrder(preData, &cfg); err != nil {
+		if err := stampOrderAndRejectLegacy(preData, &cfg, path); err != nil {
 			return fmt.Errorf("config %q: %w", path, err)
 		}
 	}
@@ -734,43 +599,6 @@ func columnsByNameLower(columns []ColumnConfig) map[string]ColumnConfig {
 		byName[strings.ToLower(c.Name)] = c
 	}
 	return byName
-}
-
-// mergeColumnActions merges per-column actions from globalColumns into columns.
-// For each column, if a matching global column exists (case-insensitive name),
-// global-only action keys are preserved. Local action keys take priority.
-// If a local column has nil actions, it inherits all matching global column actions.
-func mergeColumnActions(columns []ColumnConfig, globalColumns []ColumnConfig) {
-	globalByName := columnsByNameLower(globalColumns)
-
-	for i := range columns {
-		gc, found := globalByName[strings.ToLower(columns[i].Name)]
-		if !found || len(gc.Actions) == 0 {
-			continue
-		}
-		if columns[i].Actions == nil {
-			// Nil means actions were not specified; inherit all global actions.
-			columns[i].Actions = make(map[string]Action, len(gc.Actions))
-			for k, v := range gc.Actions {
-				columns[i].Actions[k] = v
-			}
-			continue
-		}
-		if len(columns[i].Actions) == 0 {
-			// Explicit empty map means "no actions"; skip merge.
-			continue
-		}
-		// Non-empty local actions: fill in global-only keys (local wins on conflicts).
-		localCount := len(columns[i].Actions)
-		for k, v := range gc.Actions {
-			if _, exists := columns[i].Actions[k]; !exists {
-				// Push global-only fill-ins after all local entries, preserving
-				// each group's relative order.
-				v.Order += localCount
-				columns[i].Actions[k] = v
-			}
-		}
-	}
 }
 
 // mergeColumnCleanup fills in a column's Cleanup from the matching global
@@ -834,11 +662,6 @@ func validateColumns(cfg *Config) error {
 			return fmt.Errorf("duplicate column %q (case-insensitive)", trimmed)
 		}
 		seen[lower] = true
-
-		// Validate per-column actions with the same rules as global actions.
-		if err := validateActions(col.Actions); err != nil {
-			return fmt.Errorf("column %q: %w", trimmed, err)
-		}
 	}
 	return nil
 }
@@ -861,46 +684,13 @@ func inferScope(template string) string {
 	return "board"
 }
 
-// validateActions checks that all action definitions are well-formed.
-func validateActions(actions map[string]Action) error {
-	for key, action := range actions {
-		// Key is a sequence of one or more keys pressed one after another
-		// (neovim-style prefix bindings), rune-concatenated with no
-		// separator (see legacySequence). #510 removed the old "first key
-		// must be an uppercase letter A-Z" requirement -- the reserved
-		// custom-action namespace is gone now that legacy actions:/
-		// columns[].actions: translate onto the unified keymaps: namespace
-		// and get validated there (validateKeymap) alongside built-ins, so
-		// any first key is permitted. Continuation keys must still be a
-		// letter or digit, since a pending sequence consumes every key
-		// until it resolves (handlePendingSeqKey only ever appends
-		// msg.Runes) and the legacy key -> canonical sequence translation
-		// depends on it.
-		runes := []rune(key)
-		if len(runes) == 0 {
-			return fmt.Errorf("action key %q must not be empty", key)
-		}
-		for _, r := range runes[1:] {
-			if !IsSequenceKey(r) {
-				return fmt.Errorf("action key %q: sequence keys after the first must be letters or digits", key)
-			}
-		}
-		if err := validateActionValue(key, &action); err != nil {
-			return err
-		}
-		actions[key] = action
-	}
-	return nil
-}
-
 // validateActionValue validates that one action definition is well-formed
 // (name, type, url/command per type, and scope, including the board/card
 // ticket-variable restrictions), inferring and writing back the default
-// scope in place when it was omitted. Shared by validateActions (top-level
-// actions:/columns[].actions:, #340) and validateKeymapActions (inline
-// keymaps: action definitions, #510) so both surfaces enforce identical
-// rules -- key only identifies the offending entry in any returned error,
-// it plays no part in the validation itself.
+// scope in place when it was omitted. Called by validateKeymapActions for
+// every inline keymaps: action definition -- key only identifies the
+// offending entry in any returned error, it plays no part in the validation
+// itself.
 func validateActionValue(key string, action *Action) error {
 	// Name is required.
 	if strings.TrimSpace(action.Name) == "" {
@@ -946,24 +736,12 @@ func validateActionValue(key string, action *Action) error {
 	return nil
 }
 
-// IsSequenceKey reports whether r is a valid continuation key of an action
-// key sequence: any letter or digit.
-func IsSequenceKey(r rune) bool {
-	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
-}
-
 // validateScopeConflicts checks that no key sequence is assigned a "card"
 // scope by one inline action and a "pr" scope by another, across
 // keymaps.normal, keymaps.detail, and every keymaps.columns.<name> table.
-// #510 rewrite: scans the unified keymaps: namespace instead of the legacy
-// cfg.Actions/cfg.Columns[].Actions maps directly. By the time this runs,
-// translateLegacyActions has already mirrored every legacy actions:/
-// columns[].actions: entry into cfg.Keymaps (see Load()), so this one scan
-// covers legacy-derived and natively-declared keymaps: actions together --
-// the "one validation path" the ticket asks for. Per the ticket's Q1
-// decision, only card<->pr conflicts are rejected; a key shared between
-// "board" and either "card" or "pr" across tables is unchanged, existing
-// behavior.
+// Per #510's Q1 decision, only card<->pr conflicts are rejected; a key shared
+// between "board" and either "card" or "pr" across tables is unchanged,
+// existing behavior.
 //
 // The grouping key is the sequence's canonical form (keymap.ParseSequence,
 // then Sequence.String() -- the same normalization normalizeTable,

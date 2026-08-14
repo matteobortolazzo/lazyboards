@@ -888,7 +888,7 @@ func TestHelp_ListsAgentListKeybindings(t *testing.T) {
 func newAgentListBoardWithColumns(t *testing.T, columns []provider.Column, fe *action.FakeExecutor, windows []cenciwatch.WindowState) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	msg := boardFetchedMsg{board: provider.Board{Columns: columns}}
 	m, _ := b.Update(msg)
 	board, ok := m.(Board)

@@ -18,6 +18,15 @@ func ResolveKeymap(cfg *Config) (*keymap.Keymap, error) {
 	return keymap.Resolve(keymap.Defaults(), cfg.Keymaps.Tables())
 }
 
+// DefaultKeymap resolves the built-in default Tables with no user config
+// layered on top -- the keymap a Board starts from before main.go applies
+// the loaded config's own ResolveKeymap result. Resolving the defaults
+// against themselves cannot fail, so any error is reported to the caller
+// only for symmetry with ResolveKeymap.
+func DefaultKeymap() (*keymap.Keymap, error) {
+	return ResolveKeymap(&Config{})
+}
+
 // validateKeymap runs the unified checks over cfg.Keymaps: first rejecting
 // any raw key sequence that mentions ctrl+c anywhere (direct binding,
 // sequence continuation, or explicit ~ unbind) -- Lookup

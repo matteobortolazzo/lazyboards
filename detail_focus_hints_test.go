@@ -106,22 +106,23 @@ func TestDetailFocusedHints_OrderingSurvivesTruncation(t *testing.T) {
 func TestDetailFocusedHints_OrderMatchesConfigOrder(t *testing.T) {
 	localYAML := `provider: github
 repo: matteobortolazzo/lazyboards
-actions:
-  Z:
-    name: Zebra action
-    type: shell
-    scope: board
-    command: "echo z"
-  A:
-    name: Apple action
-    type: shell
-    scope: board
-    command: "echo a"
-  M:
-    name: Mango action
-    type: shell
-    scope: board
-    command: "echo m"
+keymaps:
+  detail:
+    Z:
+      name: Zebra action
+      type: shell
+      scope: board
+      command: "echo z"
+    A:
+      name: Apple action
+      type: shell
+      scope: board
+      command: "echo a"
+    M:
+      name: Mango action
+      type: shell
+      scope: board
+      command: "echo m"
 `
 	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
 
@@ -236,7 +237,7 @@ func TestDetailFocusedHints_ColumnActionOverridesGlobal(t *testing.T) {
 	globalActions := map[string]config.Action{
 		"X": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
 	}
-	columnConfigs := []config.ColumnConfig{
+	columnConfigs := []testColumn{
 		{Name: "New"}, // No column-level actions.
 		{
 			Name: "Refined",
@@ -473,25 +474,24 @@ func TestView_DetailFocused_ShowsHelpAndCustomActionHints(t *testing.T) {
 	}
 }
 
-// TestDetailFocusedHints_MultiKeyLegacyActionUsesCanonicalLabel is the
-// detail-focused analog of TestAction_HintBar_MultiKeyLegacyActionUsesCanonicalLabel
-// (actions_test.go): a legacy multi-key action key ("Zf") must reach the
-// detail-focused hint bar under its canonical, space-separated form ("Z f").
-// Uses "Z" (unused by any default binding, #502) rather than "P" (now an
-// exact-match built-in after #502's remap): this test loads through
-// mustLoadConfig/config.Load, which resolves against the real built-in
-// defaults, so a legacy "Pf" key would trip the prefix-conflict validator
-// against default "P" instead of exercising the canonical-label rendering
-// this test targets.
-func TestDetailFocusedHints_MultiKeyLegacyActionUsesCanonicalLabel(t *testing.T) {
+// TestDetailFocusedHints_MultiKeyActionUsesCanonicalLabel asserts a
+// multi-key inline action reaches the detail-focused hint bar under its
+// canonical, space-separated sequence form ("Z f"), never rune-concatenated.
+// Uses "Z" (unused by any default binding, #502) rather than "P" (an
+// exact-match built-in after #502's remap): this test loads through the real
+// config.Load, which resolves against the built-in defaults, so a "P f"
+// sequence would trip the prefix-conflict validator against default "P"
+// instead of exercising the canonical-label rendering this test targets.
+func TestDetailFocusedHints_MultiKeyActionUsesCanonicalLabel(t *testing.T) {
 	localYAML := `provider: github
 repo: matteobortolazzo/lazyboards
-actions:
-  Zf:
-    name: PR frontend
-    type: url
-    scope: board
-    url: "https://example.com/frontend"
+keymaps:
+  detail:
+    Z f:
+      name: PR frontend
+      type: url
+      scope: board
+      url: "https://example.com/frontend"
 `
 	b, _ := newConfigLoadedActionTestBoard(t, localYAML)
 
@@ -502,7 +502,7 @@ actions:
 
 	hints := b.statusBar.hints
 	if hintIndex(hints, "Zf") != -1 {
-		t.Errorf("detail-focused hints should not contain the bare legacy key %q, want the canonical space-separated form", "Zf")
+		t.Errorf("detail-focused hints should not contain the rune-concatenated key %q, want the canonical space-separated form", "Zf")
 	}
 	idx := hintIndex(hints, "Z f")
 	if idx == -1 || hints[idx].Desc != "PR frontend" {

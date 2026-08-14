@@ -12,8 +12,105 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
+
+// testColumn pairs a column name with the per-column custom actions a
+// keymaps.columns.<name> table would declare. Column actions live only in
+// the keymaps: namespace now, so this is the test-side fixture shape that
+// used to be config.ColumnConfig's (deleted) Actions field.
+type testColumn struct {
+	Name    string
+	Actions map[string]config.Action
+}
+
+// columnConfigs projects the name half of cols onto the []config.ColumnConfig
+// NewBoard still takes (names, and — for cleanup fixtures — cleanup).
+func columnConfigsOf(cols []testColumn) []config.ColumnConfig {
+	if cols == nil {
+		return nil
+	}
+	out := make([]config.ColumnConfig, len(cols))
+	for i, c := range cols {
+		out[i] = config.ColumnConfig{Name: c.Name}
+	}
+	return out
+}
+
+// keymapsFromActions resolves a *keymap.Keymap from in-memory custom-action
+// literals, so the action-oriented builders below keep their convenient
+// map[string]config.Action fixtures without every test having to hand-write
+// a keymaps: YAML document.
+//
+// It is the test-only equivalent of what a real `keymaps:` config produces:
+// each global action is declared in the normal and detail mode tables (and,
+// for a single-uppercase-letter scope: pr action, in the pr_list table too,
+// mirroring what keymaps.pr_list bindings do), each column's actions land in
+// the matching keymaps.columns.<name> overlay, and the whole thing goes
+// through the one production resolution path, config.ResolveKeymap.
+//
+// Keys are canonical keymap.Sequence strings: a multi-key sequence is
+// space-separated ("Z f"), exactly as a user writes it under keymaps:.
+func keymapsFromActions(t *testing.T, actions map[string]config.Action, columns []testColumn) *keymap.Keymap {
+	t.Helper()
+
+	cfg := &config.Config{Columns: columnConfigsOf(columns)}
+
+	if len(actions) > 0 {
+		if cfg.Keymaps == nil {
+			cfg.Keymaps = &config.Keymaps{}
+		}
+		cfg.Keymaps.Modes = make(map[keymap.Mode]config.KeymapTable)
+		modes := []keymap.Mode{keymap.ModeNormal, keymap.ModeDetail}
+		for key, act := range actions {
+			for _, mode := range modes {
+				modeTable, ok := cfg.Keymaps.Modes[mode]
+				if !ok {
+					modeTable = make(config.KeymapTable)
+					cfg.Keymaps.Modes[mode] = modeTable
+				}
+				modeTable[key] = config.KeymapBinding{Kind: keymap.BindingAction, Action: act, Order: act.Order}
+			}
+			// A scope: pr action bound to a single uppercase letter is
+			// also reachable inside the PR list modal.
+			if act.Scope == "pr" && len([]rune(key)) == 1 && key[0] >= 'A' && key[0] <= 'Z' {
+				prTable, ok := cfg.Keymaps.Modes[keymap.ModePRList]
+				if !ok {
+					prTable = make(config.KeymapTable)
+					cfg.Keymaps.Modes[keymap.ModePRList] = prTable
+				}
+				prTable[key] = config.KeymapBinding{Kind: keymap.BindingAction, Action: act, Order: act.Order}
+			}
+		}
+	}
+
+	for _, col := range columns {
+		if len(col.Actions) == 0 {
+			continue
+		}
+		if cfg.Keymaps == nil {
+			cfg.Keymaps = &config.Keymaps{}
+		}
+		if cfg.Keymaps.Columns == nil {
+			cfg.Keymaps.Columns = make(map[string]config.KeymapTable)
+		}
+		colTable, ok := cfg.Keymaps.Columns[col.Name]
+		if !ok {
+			colTable = make(config.KeymapTable)
+			cfg.Keymaps.Columns[col.Name] = colTable
+		}
+		for key, act := range col.Actions {
+			colTable[key] = config.KeymapBinding{Kind: keymap.BindingAction, Action: act, Order: act.Order}
+		}
+	}
+
+	km, err := config.ResolveKeymap(cfg)
+	if err != nil {
+		t.Fatalf("config.ResolveKeymap() returned unexpected error: %v", err)
+	}
+	return km
+}
 
 // expectedColumnCount is the number of Kanban columns in the board.
 const expectedColumnCount = 3
@@ -25,7 +122,7 @@ var expectedColumnTitles = []string{"New", "Refined", "Implementing"}
 func newTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	return NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	return NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 }
 
 // newLoadedTestBoard creates a Board and sends a boardFetchedMsg to transition
@@ -33,7 +130,7 @@ func newTestBoard(t *testing.T) Board {
 func newLoadedTestBoard(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 	// Simulate the provider returning board data.
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
@@ -240,7 +337,7 @@ func newCreatingTestBoard(t *testing.T) Board {
 func newBoardWithCards(t *testing.T, cardCount, height int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	// Build provider cards.
 	providerCards := make([]provider.Card, cardCount)
@@ -273,7 +370,8 @@ func newActionTestBoard(t *testing.T, actions map[string]config.Action) (Board, 
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 	return loadFromFakeProvider(t, b, p), fe
 }
 
@@ -284,7 +382,8 @@ func newBoardWithEmptyColumn(t *testing.T, actions map[string]config.Action) (Bo
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -341,7 +440,7 @@ func mustLoadTestConfig(t *testing.T, yamlContent string) config.Config {
 func newBoardWithBody(t *testing.T, body1, body2 string) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -376,7 +475,7 @@ func newBoardWithLongBody(t *testing.T, lineCount int) Board {
 func newBoardWithCustomCard(t *testing.T, title string, labels []provider.Label, body string) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -398,7 +497,7 @@ func newBoardWithCustomCard(t *testing.T, title string, labels []provider.Label,
 func newBoardWithGeneratedCards(t *testing.T, count int, titleFmt string, width, height int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	cards := make([]provider.Card, count)
 	for i := range cards {
@@ -429,7 +528,7 @@ func newBoardWithGeneratedCards(t *testing.T, count int, titleFmt string, width,
 func newBoardWithInlineCards(t *testing.T, cards []provider.Card, width, height int) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -458,7 +557,7 @@ func cardTitlePrefixWidth(card Card) int {
 func newBoardWithInlineCardsAndExecutor(t *testing.T, cards []provider.Card, fe *action.FakeExecutor) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -481,7 +580,8 @@ func newActionTestBoardWithColumns(t *testing.T, actions map[string]config.Actio
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b = b.withKeymap(keymapsFromActions(t, actions, nil))
 
 	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
 	loaded, ok := m.(Board)
@@ -495,73 +595,103 @@ func newActionTestBoardWithColumns(t *testing.T, actions map[string]config.Actio
 
 // newColumnActionTestBoard creates a loaded Board with global actions AND
 // per-column configs. It returns the board and FakeExecutor for assertion.
-func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, columnConfigs []config.ColumnConfig) (Board, *action.FakeExecutor) {
+func newColumnActionTestBoard(t *testing.T, actions map[string]config.Action, columns []testColumn) (Board, *action.FakeExecutor) {
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, actions, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, columnConfigsOf(columns), fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b = b.withKeymap(keymapsFromActions(t, actions, columns))
 	return loadFromFakeProvider(t, b, p), fe
 }
 
 // newConfigLoadedActionTestBoard writes localYAML to a temp .lazyboards.yml,
-// loads it through the real config.Load() (so Action.Order is populated from
-// document position, unlike hand-built map[string]config.Action fixtures
-// used elsewhere, which leave Order at its zero value), and builds a loaded
-// Board from the resulting actions/columns. Returns the board and the
+// loads it through the real config.Load() (so each binding's Order is
+// populated from document position, unlike hand-built
+// map[string]config.Action fixtures used elsewhere, which leave Order at its
+// zero value), and builds a loaded Board from it. Returns the board and the
 // FakeExecutor for assertion.
 func newConfigLoadedActionTestBoard(t *testing.T, localYAML string) (Board, *action.FakeExecutor) {
 	t.Helper()
-	dir := t.TempDir()
-	localPath := filepath.Join(dir, "local.yml")
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
-	globalPath := filepath.Join(dir, "nonexistent-global.yml")
-
-	cfg, err := config.Load(globalPath, localPath, trustingLocal(t, localPath))
-	if err != nil {
-		t.Fatalf("config.Load() returned unexpected error: %v", err)
-	}
-
-	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, cfg.Actions, nil, cfg.Columns, fe, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
-	return loadFromFakeProvider(t, b, p), fe
+	return newConfigLoadedBoardWithExecutor(t, localYAML, fe), fe
 }
 
 // newKeymapConfigLoadedTestBoard writes localYAML to a temp .lazyboards.yml
 // and wires the resulting Board exactly like main.go's real startup sequence
-// does: config.Load() -> NewBoard(cfg.Actions, cfg.Columns) ->
-// config.ResolveKeymap(&cfg) -> withKeymap(). newConfigLoadedActionTestBoard
-// (above) stops at NewBoard, so its Board's active keymap is derived only
-// from cfg.Actions/cfg.Columns (config.KeymapFromLegacy) -- a keymaps:-only
-// config (no legacy actions:/columns[].actions: block at all) would resolve
-// to the built-in defaults only and could never exercise AC4's "a keymaps:-
-// only config's custom actions appear" guarantee. This builder is the one
-// test path that can.
+// does: config.Load() -> NewBoard(cfg.Columns) -> config.ResolveKeymap(&cfg)
+// -> withKeymap().
 func newKeymapConfigLoadedTestBoard(t *testing.T, localYAML string) Board {
 	t.Helper()
-	dir := t.TempDir()
-	localPath := filepath.Join(dir, "local.yml")
-	if err := os.WriteFile(localPath, []byte(localYAML), 0644); err != nil {
-		t.Fatalf("failed to write local config: %v", err)
-	}
-	globalPath := filepath.Join(dir, "nonexistent-global.yml")
+	return newConfigLoadedBoardWithExecutor(t, localYAML, nil)
+}
 
-	cfg, err := config.Load(globalPath, localPath, trustingLocal(t, localPath))
-	if err != nil {
-		t.Fatalf("config.Load() returned unexpected error: %v", err)
-	}
-
+// newConfigLoadedBoardWithExecutor is the shared body of the two builders
+// above: write localYAML, load it through the real config.Load(), build a
+// loaded Board, and apply the resolved keymap the way main.go does.
+func newConfigLoadedBoardWithExecutor(t *testing.T, localYAML string, executor action.Executor) Board {
+	t.Helper()
+	cfg := mustLoadTestConfig(t, localYAML)
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, cfg.Actions, nil, cfg.Columns, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
-	b = loadFromFakeProvider(t, b, p)
+	b := configLoadedBoard(t, cfg, p, executor)
+	return loadFromFakeProvider(t, b, p)
+}
 
+// newConfigLoadedEmptyColumnBoard is newConfigLoadedActionTestBoard's
+// empty-column sibling: same real config.Load()/ResolveKeymap wiring, but
+// the fetched board holds a single card-less column, so board-scope actions
+// can be exercised with nothing for a card-scope action to target.
+func newConfigLoadedEmptyColumnBoard(t *testing.T, localYAML string) (Board, *action.FakeExecutor) {
+	t.Helper()
+	cfg := mustLoadTestConfig(t, localYAML)
+	p := provider.NewFakeProvider()
+	fe := &action.FakeExecutor{}
+	b := configLoadedBoard(t, cfg, p, fe)
+
+	m, _ := b.Update(boardFetchedMsg{board: provider.Board{
+		Columns: []provider.Column{
+			{Title: "Empty", Cards: nil},
+		},
+	}})
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = 120
+	board.Height = 40
+	return board, fe
+}
+
+// configLoadedBoard builds an unloaded Board from an already-loaded cfg the
+// way main.go's startup does: NewBoard(cfg.Columns) then
+// withKeymap(config.ResolveKeymap(&cfg)).
+func configLoadedBoard(t *testing.T, cfg config.Config, p provider.BoardProvider, executor action.Executor) Board {
+	t.Helper()
+	b := NewBoard(p, nil, cfg.Columns, executor, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 	km, err := config.ResolveKeymap(&cfg)
 	if err != nil {
 		t.Fatalf("config.ResolveKeymap() returned unexpected error: %v", err)
 	}
 	return b.withKeymap(km)
+}
+
+// boundActionScope returns the resolved scope of the inline action bound to
+// seq in b's active normal-mode table, failing the test if no such action
+// binding exists. Tests use it to assert what config.Load()'s scope
+// inference actually resolved to, now that the resolved keymap -- not a
+// decoded actions: map -- is the only place a custom action's scope lives.
+func boundActionScope(t *testing.T, b Board, seq string) string {
+	t.Helper()
+	for _, entry := range b.keys.Entries(keymap.ModeNormal, "") {
+		if entry.Sequence != seq {
+			continue
+		}
+		if entry.Binding.Kind != keymap.BindingAction {
+			t.Fatalf("binding for %q is kind %v, want an inline action", seq, entry.Binding.Kind)
+		}
+		return entry.Binding.Action.Scope
+	}
+	t.Fatalf("no normal-mode binding found for %q", seq)
+	return ""
 }
 
 // prFixtureColumns returns the shared three-card PR fixture used by
@@ -592,7 +722,7 @@ func newBoardWithPRsAndExecutor(t *testing.T) (Board, *action.FakeExecutor) {
 	t.Helper()
 	p := provider.NewFakeProvider()
 	fe := &action.FakeExecutor{}
-	b := NewBoard(p, nil, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, fe, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{Columns: prFixtureColumns()}}
 	m, _ := b.Update(msg)
@@ -611,7 +741,7 @@ func newBoardWithPRsAndExecutor(t *testing.T) (Board, *action.FakeExecutor) {
 func newBoardWithWorkingLabel(t *testing.T) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -664,7 +794,7 @@ func newPRActionTestBoard(t *testing.T, actions map[string]config.Action) (Board
 func newBoardWithCustomWorkingLabel(t *testing.T, workingLabel string, cards []provider.Card) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, workingLabel, false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, workingLabel, false, false, nil, nil, true)
 
 	msg := boardFetchedMsg{board: provider.Board{
 		Columns: []provider.Column{
@@ -684,7 +814,7 @@ func newBoardWithCustomWorkingLabel(t *testing.T, workingLabel string, cards []p
 func newBoardWithAssignees(t *testing.T, assigneeLogins ...string) Board {
 	t.Helper()
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, nil, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
 
 	assignees := make([]provider.Assignee, len(assigneeLogins))
 	for i, login := range assigneeLogins {

@@ -73,18 +73,19 @@ func TestSave_OverwritesExistingFile(t *testing.T) {
 	}
 }
 
-func TestSave_PreservesExistingActions(t *testing.T) {
+func TestSave_PreservesExistingKeymaps(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yml")
 
-	// Write initial config with actions.
+	// Write initial config with a keymaps: inline action.
 	initialYAML := `provider: github
 repo: owner/repo
-actions:
-  o:
-    name: Open in browser
-    type: url
-    url: "https://example.com/{number}"
+keymaps:
+  normal:
+    o:
+      name: Open in browser
+      type: url
+      url: "https://example.com/{number}"
 `
 	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
 		t.Fatalf("failed to write initial config: %v", err)
@@ -115,19 +116,23 @@ actions:
 		t.Errorf("Repo = %q, want %q", cfg.Repo, "new-owner/new-repo")
 	}
 
-	// Actions should be preserved.
-	if len(cfg.Actions) != 1 {
-		t.Fatalf("Actions count = %d, want 1 (actions should be preserved)", len(cfg.Actions))
+	// The keymaps: block should be preserved.
+	if cfg.Keymaps == nil {
+		t.Fatal("Keymaps = nil, want the inline action table preserved across Save()")
 	}
-	act, ok := cfg.Actions["o"]
+	normal := cfg.Keymaps.Modes[keymap.ModeNormal]
+	if len(normal) != 1 {
+		t.Fatalf("Keymaps.Modes[normal] count = %d, want 1 (keymaps should be preserved)", len(normal))
+	}
+	binding, ok := normal["o"]
 	if !ok {
-		t.Fatal("Actions missing key 'o' (should be preserved)")
+		t.Fatal("Keymaps.Modes[normal] missing key 'o' (should be preserved)")
 	}
-	if act.Name != "Open in browser" {
-		t.Errorf("Actions[o].Name = %q, want %q (should be preserved)", act.Name, "Open in browser")
+	if binding.Action.Name != "Open in browser" {
+		t.Errorf("Keymaps.Modes[normal][o].Action.Name = %q, want %q (should be preserved)", binding.Action.Name, "Open in browser")
 	}
-	if act.Type != "url" {
-		t.Errorf("Actions[o].Type = %q, want %q (should be preserved)", act.Type, "url")
+	if binding.Action.Type != "url" {
+		t.Errorf("Keymaps.Modes[normal][o].Action.Type = %q, want %q (should be preserved)", binding.Action.Type, "url")
 	}
 }
 
@@ -430,63 +435,6 @@ keymaps:
 	}
 }
 
-// --- Save() legacy actions: round-trip preservation (#510) ---
-
-// TestSave_LegacyActionsBlock_RoundTripsWithoutSynthesizedKeymapsBlock is
-// the #510 Risks-section regression test: Save() re-reads the config
-// straight from disk and never calls Load() (and therefore never calls
-// translateLegacyActions), so an existing legacy actions: block must
-// round-trip byte-for-field intact and the file must not gain a
-// synthesized keymaps: block as a side effect of PR 1's changes to Load().
-func TestSave_LegacyActionsBlock_RoundTripsWithoutSynthesizedKeymapsBlock(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.yml")
-
-	initialYAML := `provider: github
-repo: owner/repo
-actions:
-  P:
-    name: Push
-    type: shell
-    command: "git push"
-    scope: board
-`
-	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
-		t.Fatalf("failed to write initial config: %v", err)
-	}
-
-	if err := Save(path, "ado", "new-owner/new-repo", ""); err != nil {
-		t.Fatalf("Save() returned unexpected error: %v", err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("failed to read saved config: %v", err)
-	}
-
-	if strings.Contains(string(data), "keymaps:") {
-		t.Errorf("saved file = %q, want no synthesized \"keymaps:\" key for a config that only ever had a legacy actions: block", string(data))
-	}
-
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("saved file is not valid YAML: %v", err)
-	}
-	if cfg.Keymaps != nil {
-		t.Errorf("Keymaps = %+v, want nil after Save() round-trips a legacy-only config", cfg.Keymaps)
-	}
-	if len(cfg.Actions) != 1 {
-		t.Fatalf("Actions count = %d, want 1 (legacy actions: block must round-trip intact)", len(cfg.Actions))
-	}
-	action, ok := cfg.Actions["P"]
-	if !ok {
-		t.Fatal("Actions missing key \"P\" after Save() round-trip")
-	}
-	if action.Name != "Push" || action.Type != "shell" || action.Command != "git push" {
-		t.Errorf("Actions[P] = %+v, want the original legacy action fields untouched", action)
-	}
-}
-
 // --- #569 AC19: Save must never write stripped content back to disk. ---
 
 // TestSave_AfterUntrustedLoad_ShellActionAndCleanupSurviveOnDisk is the AC19
@@ -503,25 +451,27 @@ func TestSave_AfterUntrustedLoad_ShellActionAndCleanupSurviveOnDisk(t *testing.T
 	initialYAML := `provider: github
 repo: owner/repo
 cleanup: "rm -rf /"
-actions:
-  L:
-    name: Local Legacy Shell
-    type: shell
-    command: "rm -rf /"
+keymaps:
+  normal:
+    L:
+      name: Local Inline Shell
+      type: shell
+      scope: board
+      command: "rm -rf /"
 `
 	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
 		t.Fatalf("failed to write initial config: %v", err)
 	}
 
-	// Load with a zero-value (untrusted) Trust: both the legacy shell action
+	// Load with a zero-value (untrusted) Trust: both the inline shell binding
 	// and the cleanup: command must be stripped from the in-memory Config.
 	nonexistentGlobal := filepath.Join(dir, "nonexistent-global.yml")
 	cfg, err := Load(nonexistentGlobal, path, Trust{})
 	if err != nil {
 		t.Fatalf("Load() returned unexpected error: %v", err)
 	}
-	if _, exists := cfg.Actions["L"]; exists {
-		t.Fatalf("cfg.Actions[%q] survived untrusted stripping: %+v", "L", cfg.Actions["L"])
+	if binding, exists := cfg.Keymaps.Modes[keymap.ModeNormal]["L"]; exists {
+		t.Fatalf("cfg.Keymaps.Modes[normal][%q] survived untrusted stripping: %+v", "L", binding)
 	}
 	if got := cfg.CleanupValue(); got != "" {
 		t.Fatalf("cfg.CleanupValue() = %q, want empty after untrusted stripping", got)
@@ -543,10 +493,6 @@ actions:
 	if strings.Contains(afterStr, "notices:") {
 		t.Errorf("saved file = %q, want no \"notices:\" key written (Notices is a derived, yaml:\"-\" field)", afterStr)
 	}
-	if strings.Contains(afterStr, "deprecations:") {
-		t.Errorf("saved file = %q, want no \"deprecations:\" key written (Deprecations is a derived, yaml:\"-\" field)", afterStr)
-	}
-
 	var reloaded Config
 	if err := yaml.Unmarshal(after, &reloaded); err != nil {
 		t.Fatalf("saved file is not valid YAML: %v", err)
@@ -554,9 +500,48 @@ actions:
 	if reloaded.CleanupValue() != "rm -rf /" {
 		t.Errorf("reloaded raw file's Cleanup = %v, want the original untrusted cleanup: command preserved", reloaded.Cleanup)
 	}
-	action, ok := reloaded.Actions["L"]
-	if !ok || action.Command != "rm -rf /" {
-		t.Errorf("reloaded raw file's Actions[L] = %+v, want the original untrusted shell action preserved", reloaded.Actions["L"])
+	binding, ok := reloaded.Keymaps.Modes[keymap.ModeNormal]["L"]
+	if !ok || binding.Action.Command != "rm -rf /" {
+		t.Errorf("reloaded raw file's Keymaps.Modes[normal][L] = %+v, want the original untrusted shell binding preserved", binding)
+	}
+}
+
+// TestSave_LegacyActionsBlock_ReturnsError pins the other half of the
+// hard-rejection decision: Save() re-reads the file from disk without going
+// through Load(), so it needs its own refusal -- a config still declaring a
+// pre-0.73 actions: block must not be silently rewritten (which would drop
+// the block's meaning while keeping its bytes) but reported.
+func TestSave_LegacyActionsBlock_ReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+
+	initialYAML := `provider: github
+repo: owner/repo
+actions:
+  P:
+    name: Push
+    type: shell
+    command: "git push"
+    scope: board
+`
+	if err := os.WriteFile(path, []byte(initialYAML), 0644); err != nil {
+		t.Fatalf("failed to write initial config: %v", err)
+	}
+
+	err := Save(path, "ado", "new-owner/new-repo", "")
+	if err == nil {
+		t.Fatal("Save() returned nil error for a config declaring a legacy actions: block, want a rejection")
+	}
+	if !strings.Contains(err.Error(), "actions:") || !strings.Contains(err.Error(), "keymaps:") {
+		t.Errorf("error = %q, want it to name actions: and point at the keymaps: namespace", err)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to re-read config: %v", err)
+	}
+	if string(after) != initialYAML {
+		t.Errorf("config file = %q, want it left byte-identical after a refused Save()", string(after))
 	}
 }
 

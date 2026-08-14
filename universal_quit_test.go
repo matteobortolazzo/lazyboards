@@ -63,7 +63,7 @@ func newUniversalQuitBoard(t *testing.T, localYAML string, defaultActions map[st
 	cfg := newUniversalQuitConfig(t, localYAML)
 
 	p := provider.NewFakeProvider()
-	b := NewBoard(p, cfg.Actions, defaultActions, cfg.Columns, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+	b := NewBoard(p, defaultActions, cfg.Columns, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
 
 	if columns != nil {
 		m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
@@ -240,13 +240,17 @@ func TestUniversalQuit_DispatchesInEveryMode(t *testing.T) {
 			return b
 		}},
 		{"comment", keymap.ModeComment, func(t *testing.T) Board {
-			yamlContent := `actions:
-  X:
-    name: Annotate
-    type: shell
-    scope: card
-    command: "echo {comment} {number}"
-` + universalQuitKeymapYAML(keymap.ModeComment)
+			// The alt-overload of a {comment}-bearing normal-mode action is
+			// what opens comment mode, so both tables live under one
+			// keymaps: block (a second top-level keymaps: key would be a
+			// duplicate-mapping-key YAML error).
+			yamlContent := universalQuitKeymapYAML(keymap.ModeComment) + `  normal:
+    X:
+      name: Annotate
+      type: shell
+      scope: card
+      command: "echo {comment} {number}"
+`
 			b, _ := newUniversalQuitBoard(t, yamlContent, nil, nil)
 			b = sendKey(t, b, altKeyMsg("X"))
 			if b.mode != commentMode {
@@ -391,13 +395,17 @@ func TestUniversalQuit_R1_BareRuneStillReachesTextInputNotQuit(t *testing.T) {
 			return b
 		}, func(b Board) string { return b.searchInput.Value() }},
 		{"comment", func(t *testing.T) Board {
-			yamlContent := `actions:
-  X:
-    name: Annotate
-    type: shell
-    scope: card
-    command: "echo {comment} {number}"
-` + universalQuitKeymapYAML(keymap.ModeComment)
+			// The alt-overload of a {comment}-bearing normal-mode action is
+			// what opens comment mode, so both tables live under one
+			// keymaps: block (a second top-level keymaps: key would be a
+			// duplicate-mapping-key YAML error).
+			yamlContent := universalQuitKeymapYAML(keymap.ModeComment) + `  normal:
+    X:
+      name: Annotate
+      type: shell
+      scope: card
+      command: "echo {comment} {number}"
+`
 			b, _ := newUniversalQuitBoard(t, yamlContent, nil, nil)
 			b = sendKey(t, b, altKeyMsg("X"))
 			if b.mode != commentMode {

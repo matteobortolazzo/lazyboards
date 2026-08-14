@@ -9,10 +9,10 @@ import (
 
 // --- #584: stripShellFromKeymapTable compares each local-origin `keymaps:`
 // shell binding against the trusted global snapshot (mirroring
-// stripShellFromActions/stripLocalCleanup), so a local binding that is
+// stripLocalCleanup), so a local binding that is
 // value-equivalent to its global counterpart is inherited rather than
 // stripped and counted. This file is the keymap half of that coverage (the
-// legacy actions:/columns[].actions: half lives in trust_strip_legacy_test.go).
+// cleanup: half lives in trust_strip_test.go).
 //
 // Per the ticket's binding Q&A:
 //   - Q1: the equivalence comparison excludes KeymapBinding.Order (and the
@@ -40,7 +40,7 @@ import (
 // the contradiction ("stripped" reported, but the same command still runs)
 // this ticket exists to close.
 //
-// Plan Assumption: this comparison runs before validateActions/
+// Plan Assumption: this comparison runs before
 // validateKeymapActions infer a default scope:. A local binding omitting
 // scope: while global specifies one therefore compares as differing and is
 // stripped, then falls back to the identical global entry -- safe, and
@@ -304,7 +304,7 @@ func TestLoad_Untrusted_KeymapLocalOnly_StrippedFallsBackToBuiltinDefaultNoticed
 // --- Case: case-insensitive column match -- global declares the column as
 // "Refined", local declares the byte-identical binding under "refined". Not
 // stripped, no notice: the comparator must resolve the matching global
-// column case-insensitively, mirroring stripShellFromActions'
+// column case-insensitively, mirroring mergeKeymaps'
 // columnsByNameLower/mergeKeymaps' globalColumnsByLower. ---
 
 func TestLoad_Untrusted_KeymapColumnCaseInsensitiveMatch_IdenticalNotStrippedNoNotice(t *testing.T) {

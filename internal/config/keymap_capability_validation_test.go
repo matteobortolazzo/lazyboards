@@ -439,7 +439,7 @@ func assertCapabilityError(t *testing.T, err error, want ...string) {
 // -- the "self-referential matrix" risk the plan names), an exhaustive
 // detail-matrix test sourced from keymap.Defaults() (the raw table, not the
 // derived index), an inline-action reject matrix over every non-dispatching
-// mode, and legacy-translation parity coverage.
+// mode, and the pr_list scope rule.
 // =====================================================================
 
 // --- Full 19-mode command capability matrix ---
@@ -670,82 +670,25 @@ func TestLoad_KeymapCapability_InlineAction_FullModeMatrix(t *testing.T) {
 	}
 }
 
-// --- Legacy-translation parity ---
-//
-// translateLegacyActions (legacy_actions.go) runs before this validator and
-// is documented as purely additive -- these tests pin that the mode-
-// capability check doesn't reject what it produces.
+// --- pr_list scope rule ---
 
-// TestLoad_KeymapCapability_LegacyTopLevelActions_MirrorIntoNormalAndDetail_LoadsCleanly
-// mirrors legacy_actions_test.go's translation-shape test at this
-// validator's boundary: a top-level actions: entry mirrors into both
-// keymaps.normal and keymaps.detail (#510), both inline-action dispatchers,
-// so the mirrored entries must load cleanly.
-func TestLoad_KeymapCapability_LegacyTopLevelActions_MirrorIntoNormalAndDetail_LoadsCleanly(t *testing.T) {
-	localYAML := `actions:
-  Z:
-    name: Push
-    type: shell
-    command: "git push"
-    scope: board
-`
-	cfg := mustLoadConfig(t, "", localYAML)
-
-	for _, mode := range []keymap.Mode{keymap.ModeNormal, keymap.ModeDetail} {
-		table, ok := cfg.Keymaps.Modes[mode]
-		if !ok {
-			t.Fatalf("Keymaps.Modes missing mode %q after legacy translation", mode)
-		}
-		binding, ok := table["Z"]
-		if !ok || binding.Kind != keymap.BindingAction {
-			t.Fatalf("Keymaps.Modes[%q][\"Z\"] = %+v, ok=%v, want a BindingAction surviving validateModeCapabilities", mode, binding, ok)
-		}
-	}
-}
-
-// TestLoad_KeymapCapability_LegacyColumnActions_LoadsCleanly mirrors a
-// columns[].actions: block (#510) into keymaps.columns.<name>, which
-// dispatches inline actions -- must load cleanly.
-func TestLoad_KeymapCapability_LegacyColumnActions_LoadsCleanly(t *testing.T) {
-	localYAML := `columns:
-  - name: Implementing
-    actions:
-      Q:
-        name: Custom action
-        type: shell
-        command: "echo hi"
-        scope: board
-`
-	cfg := mustLoadConfig(t, "", localYAML)
-
-	table, ok := cfg.Keymaps.Columns["Implementing"]
-	if !ok {
-		t.Fatal(`Keymaps.Columns missing "Implementing" after legacy column-action translation`)
-	}
-	binding, ok := table["Q"]
-	if !ok || binding.Kind != keymap.BindingAction {
-		t.Fatalf(`Keymaps.Columns["Implementing"]["Q"] = %+v, ok=%v, want a BindingAction surviving validateModeCapabilities`, binding, ok)
-	}
-}
-
-// TestLoad_KeymapCapability_LegacyScopePRAction_ReachesPRList_LoadsCleanly
-// pins the uppercase-letter, scope: pr legacy-action path
-// (translateLegacyActions' isUppercaseLetterKey gate): the mirrored
-// keymaps.pr_list entry must satisfy the pr_list scope=="pr" rule, exactly
-// the scope the legacy action declares.
-func TestLoad_KeymapCapability_LegacyScopePRAction_ReachesPRList_LoadsCleanly(t *testing.T) {
-	localYAML := `actions:
-  P:
-    name: Open PR checks
-    type: url
-    scope: pr
-    url: "{pr_url}"
+// TestLoad_KeymapCapability_ScopePRAction_InPRList_LoadsCleanly pins the
+// pr_list mode's scope=="pr" rule from the accepting side: an inline action
+// declaring scope: pr survives validateModeCapabilities there.
+func TestLoad_KeymapCapability_ScopePRAction_InPRList_LoadsCleanly(t *testing.T) {
+	localYAML := `keymaps:
+  pr_list:
+    P:
+      name: Open PR checks
+      type: url
+      scope: pr
+      url: "{pr_url}"
 `
 	cfg := mustLoadConfig(t, "", localYAML)
 
 	table, ok := cfg.Keymaps.Modes[keymap.ModePRList]
 	if !ok {
-		t.Fatal("Keymaps.Modes missing pr_list after legacy scope:pr translation")
+		t.Fatal("Keymaps.Modes missing pr_list")
 	}
 	binding, ok := table["P"]
 	if !ok || binding.Kind != keymap.BindingAction || binding.Action.Scope != "pr" {

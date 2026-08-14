@@ -97,7 +97,7 @@ func TestStatusBar_HintsUpdateOnColumnSwitch(t *testing.T) {
 	globalActions := map[string]config.Action{
 		"X": {Name: "Global Open", Type: "url", URL: "https://global.com/{number}"},
 	}
-	columnConfigs := []config.ColumnConfig{
+	columnConfigs := []testColumn{
 		{Name: "New"}, // No column-level actions.
 		{
 			Name: "Refined",
@@ -221,7 +221,7 @@ func TestNormalHints_TrimmedAndReorderedAfterFetch(t *testing.T) {
 func TestStatusBar_ColumnOnlyActionAppearsOnlyInColumn(t *testing.T) {
 	// No global action for "X".
 	globalActions := map[string]config.Action{}
-	columnConfigs := []config.ColumnConfig{
+	columnConfigs := []testColumn{
 		{
 			Name: "New",
 			Actions: map[string]config.Action{

@@ -11,11 +11,9 @@ import (
 )
 
 // validateKeymapActions validates every inline action definition in
-// keymaps.<mode> and keymaps.columns.<name> with the same rules
-// validateActions applies to the legacy actions:/columns[].actions: blocks
-// (see validateActionValue), inferring and writing back the default scope
-// in place when it was omitted (closes #526: previously only the top-level
-// actions: block got this inference).
+// keymaps.<mode> and keymaps.columns.<name> (see validateActionValue),
+// inferring and writing back the default scope in place when it was
+// omitted (closes #526).
 func validateKeymapActions(keymaps *Keymaps) error {
 	if keymaps == nil {
 		return nil
@@ -36,7 +34,7 @@ func validateKeymapActions(keymaps *Keymaps) error {
 // validateKeymapActionTable validates every BindingAction entry of table in
 // place, writing back any inferred scope (KeymapBinding.Action sits inside
 // a map value, not addressable, so this is an explicit read-modify-write --
-// see validateActions' analogous actions[key] = action write-back).
+// the table[key] = binding write-back below).
 func validateKeymapActionTable(table KeymapTable) error {
 	for key, binding := range table {
 		if binding.Kind != keymap.BindingAction {

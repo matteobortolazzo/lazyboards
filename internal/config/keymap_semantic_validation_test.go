@@ -341,6 +341,59 @@ keymaps:
 	}
 }
 
+func TestLoad_KeymapInlineAction_URLTypeMissingURL_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: No url
+      type: url
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for a type: url inline action with no url")
+	}
+	if !strings.Contains(err.Error(), "url is required") {
+		t.Errorf("error = %q, want it to mention that url is required", err.Error())
+	}
+}
+
+func TestLoad_KeymapInlineAction_ShellTypeMissingCommand_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: No command
+      type: shell
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for a type: shell inline action with no command")
+	}
+	if !strings.Contains(err.Error(), "command is required") {
+		t.Errorf("error = %q, want it to mention that command is required", err.Error())
+	}
+}
+
+func TestLoad_KeymapInlineAction_InvalidScope_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: Bad scope
+      type: shell
+      scope: galaxy
+      command: "echo hi"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for an inline action with an unrecognized scope")
+	}
+	if !strings.Contains(err.Error(), "scope must be") {
+		t.Errorf("error = %q, want it to mention the allowed scopes", err.Error())
+	}
+}
+
 func TestLoad_KeymapInlineAction_BoardScopeWithNumberVar_ReturnsError(t *testing.T) {
 	yamlContent := `provider: github
 keymaps:
@@ -357,6 +410,25 @@ keymaps:
 	}
 	if !strings.Contains(err.Error(), "card-specific variables") {
 		t.Errorf("error = %q, want it to mention card-specific variables", err.Error())
+	}
+}
+
+func TestLoad_KeymapInlineAction_BoardScopeWithPRVar_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: Board with pr var
+      type: shell
+      scope: board
+      command: "cd {pr_branch}"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for a board-scope inline action using {pr_branch}")
+	}
+	if !strings.Contains(err.Error(), "pr-specific variables") {
+		t.Errorf("error = %q, want it to mention pr-specific variables", err.Error())
 	}
 }
 

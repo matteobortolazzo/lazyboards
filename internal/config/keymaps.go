@@ -272,7 +272,7 @@ func cloneKeymapTable(table KeymapTable) KeymapTable {
 // survive untouched); global-only keys are added afterward, each Order
 // offset by localTable's own key count so the merged group's relative
 // order matches Load()'s existing action-merge convention (see
-// mergeColumnActions).
+// the per-column merge below).
 func mergeKeymapTable(localTable, globalTable KeymapTable) {
 	localCount := len(localTable)
 	for key, binding := range globalTable {
@@ -290,9 +290,9 @@ func mergeKeymapTable(localTable, globalTable KeymapTable) {
 // Per mode: a mode local never mentioned at all inherits the whole global
 // table; an explicit local table (including an explicit empty one) is
 // merged key-by-key with mergeKeymapTable, so an explicit empty table means
-// "no bindings" (matches mergeColumnActions' nil-vs-empty distinction).
+// "no bindings" (the nil-vs-empty distinction).
 //
-// Per column: same nil-vs-empty distinction, matching mergeColumnActions
+// Per column: same nil-vs-empty distinction, matching the mode tables
 // exactly, with case-insensitive column-name matching.
 //
 // Both local and global may be nil; the result is nil only when both are.

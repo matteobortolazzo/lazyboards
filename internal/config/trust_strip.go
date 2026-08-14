@@ -16,62 +16,47 @@ type stripCounts struct {
 	// KeymapBindings is the number of inline keymaps: shell bindings removed
 	// (mode and column tables combined).
 	KeymapBindings int
-	// LegacyActions is the number of legacy actions:/columns[].actions: shell
-	// entries removed (top-level and per-column combined).
-	LegacyActions int
 	// CleanupFields is the number of cleanup:/columns[].cleanup fields
 	// removed (top-level counts as 1, plus 1 per column stripped).
 	CleanupFields int
 }
 
 // stripLocalShellSinks removes every local-origin shell-executing construct
-// from cfg before it can reach the merge/translate/resolve pipeline: inline
-// keymaps: shell bindings (mode and column tables), legacy actions:/
-// columns[].actions: shell entries, and cleanup:/columns[].cleanup commands
-// the local document itself declared. Load() calls this only when the local
-// file's content hash isn't in the caller's trust store -- a stripped sink
-// never produces an error, it is silently absent from the resolved config;
-// Load() surfaces the returned stripCounts as a single Config.Notices entry
-// (see buildStripNotice) when any count is non-zero.
+// from cfg before it can reach the merge/resolve pipeline: inline keymaps:
+// shell bindings (mode and column tables) and cleanup:/columns[].cleanup
+// commands the local document itself declared. Load() calls this only when
+// the local file's content hash isn't in the caller's trust store -- a
+// stripped sink never produces an error, it is silently absent from the
+// resolved config; Load() surfaces the returned stripCounts as a single
+// Config.Notices entry (see buildStripNotice) when any count is non-zero.
 //
-// globalKeymaps/globalActions/globalColumns/globalCleanup are the snapshots
-// Load() took of the global document BEFORE the local unmarshal ran (see
-// the comments on globalKeymaps/globalActions/globalColumns/globalCleanup
-// in config.go): they are the trusted source of truth this function
-// compares cfg.Keymaps/cfg.Actions/cfg.Columns/cfg.Cleanup against to decide
-// strip-eligibility by value, not by re-walking the local document's raw
-// YAML nodes (see stripShellFromActions for why the raw-node approach was a
-// security bug -- a YAML merge key can populate cfg.Actions/cfg.Columns/
-// cfg.Keymaps without ever appearing as a literal mapping key the raw-node
-// walk can find). Global-declared shell constructs are never touched,
-// whatever the local document's trust state (AC9): they always compare
-// equal (Order aside -- see sameShellAction/sameShellBinding) to their own
-// global snapshot entry.
-//
-// decls is never consulted to decide what gets stripped, but it is not
-// passed through untouched: stripShellFromActions mutates
-// decls.ActionKeys as a side effect, deleting each key it strips so a
-// key that falls back to global after being stripped is treated as if the
-// local document never declared it at all. That mutation is consumed only
-// by Load()'s later Order-offset bookkeeping (a cosmetic rendering concern,
-// see config.go).
-func stripLocalShellSinks(cfg *Config, decls localDecls, globalKeymaps *Keymaps, globalActions map[string]Action, globalColumns []ColumnConfig, globalCleanup *string) stripCounts {
+// globalKeymaps/globalColumns/globalCleanup are the snapshots Load() took of
+// the global document BEFORE the local unmarshal ran (see their comments in
+// config.go): they are the trusted source of truth this function compares
+// cfg.Keymaps/cfg.Columns/cfg.Cleanup against to decide strip-eligibility by
+// value, not by re-walking the local document's raw YAML nodes. The raw-node
+// approach was a security bug: a YAML merge key can populate cfg.Columns/
+// cfg.Keymaps without ever appearing as a literal mapping key such a walk
+// could find, so a smuggled shell construct would never be stripped.
+// Global-declared shell constructs are never touched, whatever the local
+// document's trust state (AC9): they always compare equal (Order aside --
+// see sameShellAction/sameShellBinding) to their own global snapshot entry.
+func stripLocalShellSinks(cfg *Config, globalKeymaps *Keymaps, globalColumns []ColumnConfig, globalCleanup *string) stripCounts {
 	return stripCounts{
 		KeymapBindings: stripShellFromKeymapTable(cfg.Keymaps, globalKeymaps),
-		LegacyActions:  stripShellFromActions(cfg, decls, globalActions, globalColumns),
 		CleanupFields:  stripLocalCleanup(cfg, globalCleanup, globalColumns),
 	}
 }
 
 // sameShellAction reports whether a and b represent the same executing
 // shell action, ignoring each side's own derived Order (see the doc comment
-// on Action.Order in config.go): Order reflects document position, is
-// never execution-relevant, and a YAML alias/merge-key-populated actions:
-// block leaves every aliased entry's Order at 0 regardless of the aliased
-// content's true position (stampActionOrder bails out as soon as the
-// actions: value node isn't a MappingNode) -- comparing it would spuriously
-// treat a global-equivalent aliased or merely-repositioned local entry as
-// different, which is exactly the false-positive strip this ticket fixes.
+// on Action.Order in config.go): Order reflects document position, is never
+// execution-relevant, and a YAML alias/merge-key-populated keymaps: block
+// leaves every aliased entry's Order at 0 regardless of the aliased
+// content's true position (stampKeymapsOrder bails out as soon as the value
+// node isn't a MappingNode) -- comparing it would spuriously treat a
+// global-equivalent aliased or merely-repositioned local entry as different,
+// which is exactly the false-positive strip #568 fixes.
 // Zeroing Order and then comparing by value (rather than listing the
 // remaining fields explicitly) means any future field added to Action is
 // compared by default -- fail-safe, since an unlisted field would otherwise
@@ -111,9 +96,6 @@ func buildStripNotice(counts stripCounts) string {
 	if counts.KeymapBindings > 0 {
 		kinds = append(kinds, fmt.Sprintf("%d keymap shell binding(s)", counts.KeymapBindings))
 	}
-	if counts.LegacyActions > 0 {
-		kinds = append(kinds, fmt.Sprintf("%d legacy shell action(s)", counts.LegacyActions))
-	}
 	if counts.CleanupFields > 0 {
 		kinds = append(kinds, fmt.Sprintf("%d cleanup field(s)", counts.CleanupFields))
 	}
@@ -128,8 +110,7 @@ func buildStripNotice(counts stripCounts) string {
 // entry in globalKeymaps (the pre-local snapshot Load() took -- see the
 // comment on globalKeymaps in config.go): a local binding sameShellBinding-
 // equivalent to its global counterpart is genuinely global-equivalent and is
-// left alone, uncounted, mirroring stripShellFromActions' value-comparison
-// gate. Mode tables are matched by exact keymap.Mode key; column tables are
+// left alone, uncounted, by the same value-comparison gate. Mode tables are matched by exact keymap.Mode key; column tables are
 // matched case-insensitively, mirroring mergeKeymaps' globalColumnsByLower.
 //
 // If stripping actually removed something AND that emptied a mode or column
@@ -143,8 +124,7 @@ func buildStripNotice(counts stripCounts) string {
 // that was already explicit-and-empty (keymaps: {normal: {}}), with nothing
 // to strip, must keep its explicit-empty "no bindings" meaning instead of
 // being reinterpreted as "never declared" and wrongly inheriting the whole
-// global table -- exactly the guard stripShellFromActions already applies
-// to its own per-column reset.
+// global table.
 func stripShellFromKeymapTable(km, globalKeymaps *Keymaps) int {
 	if km == nil {
 		return 0
@@ -202,95 +182,6 @@ func stripShellBindings(table, globalTable KeymapTable) int {
 	return count
 }
 
-// stripShellFromActions removes local-origin shell actions from cfg.Actions
-// and every cfg.Columns[i].Actions, gated by a value comparison against the
-// trusted globalActions/globalColumns snapshots instead of the raw-node
-// "was this key mentioned in the local document" walk the previous
-// implementation used (assignActionOrder's decls.ActionKeys/decls.HasColumns
-// -- decls.ActionKeys is still consumed here, but only to keep a stripped
-// key's later Order-offset bookkeeping identical to Load()'s pre-existing,
-// non-security cosmetic behavior; decls.HasColumns is gone entirely, and
-// neither field is ever consulted to decide what gets stripped anymore).
-//
-// The raw-node walk was a security bug: cfg.Actions/cfg.Columns have no
-// custom UnmarshalYAML, so yaml.v3's own generic decoder -- which resolves
-// YAML merge keys (`<<: *anchor`) -- populates them directly, while
-// assignActionOrder's hand-rolled walk over the literal yaml.Node tree never
-// expands a merge key. A local document could therefore smuggle a shell
-// action into cfg.Actions/cfg.Columns via a merge key without it ever
-// appearing as a literal mapping key the raw-node walk could find, leaving
-// decls.ActionKeys[key]/decls.HasColumns false for an entry that had
-// genuine (if indirect) local provenance -- the old gate then never
-// stripped it.
-//
-// Comparing against the global snapshot instead makes provenance a value
-// check: an entry present in cfg.Actions[key]/cfg.Columns[i].Actions[key]
-// that is sameShellAction-equivalent to the corresponding globalActions[key]/
-// matching global column's Actions[key] entry could only have come from the
-// global document, so it is never stripped, whatever the local document's
-// trust state (AC9). sameShellAction deliberately excludes Action.Order from
-// that comparison (see its doc comment): Order is derived document-position
-// metadata, not part of "is this the same executing construct", and an
-// entry declared at a different position in the local document -- or
-// aliased via `actions: *anchor`, which leaves Order at 0 entirely -- would
-// otherwise compare as different from a byte-identical global entry purely
-// because of where it sits in the file. This stays fail-safe: ignoring
-// Order can only make a local override look MORE like its global
-// counterpart, never less, so the sole tolerated relaxation is an
-// identical-looking local override losing its Order stamp and falling back
-// to the global entry -- never a local override surviving that shouldn't.
-// Anything else -- genuinely local, or merge-key-smuggled -- still gets
-// stripped unconditionally.
-func stripShellFromActions(cfg *Config, decls localDecls, globalActions map[string]Action, globalColumns []ColumnConfig) int {
-	count := 0
-	for key, action := range cfg.Actions {
-		if action.Type != "shell" {
-			continue
-		}
-		if g, ok := globalActions[key]; ok && sameShellAction(g, action) {
-			continue // equivalent (Order aside) to the global entry: genuinely global, not stripped
-		}
-		delete(cfg.Actions, key)
-		// Cosmetic only (see Load()'s Order-offset comment): a key that
-		// falls back to global after being stripped renders the same as a
-		// key the local document never declared at all.
-		delete(decls.ActionKeys, key)
-		count++
-	}
-
-	globalColumnsByName := columnsByNameLower(globalColumns)
-	for i := range cfg.Columns {
-		gc, hasGlobalCol := globalColumnsByName[strings.ToLower(cfg.Columns[i].Name)]
-		strippedAny := false
-		for key, action := range cfg.Columns[i].Actions {
-			if action.Type != "shell" {
-				continue
-			}
-			if hasGlobalCol {
-				if g, ok := gc.Actions[key]; ok && sameShellAction(g, action) {
-					continue // equivalent (Order aside) to the matching global column's entry
-				}
-			}
-			delete(cfg.Columns[i].Actions, key)
-			strippedAny = true
-			count++
-		}
-		// Only reset to nil ("no local declaration, inherit global") when
-		// this pass actually deleted something. An untrusted local column
-		// that already declared an explicit, empty actions: {} (nothing
-		// shell to strip at all) must stay explicit-empty -- resetting it
-		// to nil purely because its post-strip length happens to be zero
-		// would silently re-enable inherited global column actions that
-		// today's existing (non-security) merge semantics say should stay
-		// suppressed, diverging an untrusted load from a trusted load of
-		// the identical bytes (LOW finding).
-		if strippedAny && len(cfg.Columns[i].Actions) == 0 {
-			cfg.Columns[i].Actions = nil
-		}
-	}
-	return count
-}
-
 // stripLocalCleanup strips an untrusted local cleanup:/columns[].cleanup
 // command, restoring the matching global value (nil, if none exists) so the
 // existing merge steps (mergeColumnCleanup, applyDefaultCleanup) resolve it
@@ -304,7 +195,7 @@ func stripShellFromActions(cfg *Config, decls localDecls, globalActions map[stri
 // the global document BEFORE the local unmarshal ran (see the comment on
 // globalCleanup in config.go for why a value copy, not a pointer alias, is
 // required -- yaml.v3's second Unmarshal reuses and overwrites the existing
-// *string pointee). Per-column matching mirrors stripShellFromActions: when
+// *string pointee). Per-column matching is by lowercased name: when
 // the local document declares no columns: block at all, cfg.Columns IS
 // globalColumns (same backing slice), so every column's local Cleanup
 // pointer is already byte-identical to its own "global" snapshot entry and

@@ -35,6 +35,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - [Configuration](#configuration)
   - [Keymaps](#keymaps)
   - [Trust Model](#trust-model)
+  - [Column Cleanup](#column-cleanup)
 - [Editing Cards](#editing-cards)
 - [Custom Actions](#custom-actions)
 - [Keybindings](#keybindings)
@@ -129,23 +130,26 @@ This walks through wiring lazyboards to a real [cenci-watch](https://github.com/
 
    columns:
      - name: New
-       actions:
-         R: { name: Refine, type: shell, command: "cenci run refine {number} --model sonnet -- {comment}" }
      - name: Refined
-       actions:
+     - name: Planned
+     - name: In Review
+
+   keymaps:
+     columns:
+       New:
+         R: { name: Refine, type: shell, command: "cenci run refine {number} --model sonnet -- {comment}" }
+       Refined:
          D: { name: Design, type: shell, command: "cenci run design {number} --model sonnet -- {comment}" }
          I: { name: Implement, type: shell, command: "cenci run implement {number} --model sonnet -- {comment}" }
-     - name: Planned
-       actions:
+       Planned:
          I: { name: Implement, type: shell, command: "cenci run implement {number} --model sonnet -- {comment}" }
-     - name: In Review
-       actions:
+       In Review:
          W: { name: Open worktree, type: shell, scope: pr, command: 'tmux new-window -d -n pr-{pr_number} "cd {pr_worktree}"' }
    ```
 
    Pressing `R` on a `New` card runs `cenci run refine 42 -- <comment>` in a detached tmux window named `42-refine`. The live ▶/✓ badge matches that window by its `42-` prefix, and the top-level `cleanup` command reaps the window once the card leaves the column — see [Column Cleanup](#column-cleanup). When the agent's PR lands the card in `In Review`, `W` opens its worktree in a fresh tmux window so you can review and run it locally — append the project's run command (`ng serve`, `dotnet run`, …) in a per-project `.lazyboards.yml` (see [Action Scope](#action-scope)).
 
-   Note: the `Refined` column's `D:` (Design) action shadows the built-in `D` (`view.dispatch`) while that column is active — column overlays always win over the global default for their own column, by design (see [Keymaps](#keymaps)). `W:` (Open worktree) is a plain uppercase custom action with no built-in collision of its own.
+   Note: the `Refined` overlay's `D:` (Design) action shadows the built-in `D` (`view.dispatch`) while that column is active — column overlays always win over the global default for their own column, by design (see [Keymaps](#keymaps)). `W:` (Open worktree) is a plain uppercase custom action with no built-in collision of its own.
 
    Jumping to a card's agent window is built in — no custom action needed. Press `g a` on a card to jump straight to its agent's tmux window (a picker opens if several windows match), or press `A` to open the full Agents modal listing every cenci-watch window.
 
@@ -166,7 +170,7 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 
 **Note:** `provider`, `repo`, and `project` are project-specific and cannot be set in global config — they come from `.lazyboards.yml` or git remote auto-detection.
 
-**Note on `columns`:** scalar fields and the `actions` map merge across the two files, but the `columns` list does not — defining `columns` locally replaces the global list entirely (column order is the board layout, so it always comes from one file). To override a single column's actions or cleanup, re-list every column name locally; bare `- name:` entries still inherit that column's global actions and cleanup, so nothing else needs restating (see [Column-Specific Actions](#column-specific-actions)).
+**Note on `columns`:** scalar fields and the `keymaps` tables merge across the two files, but the `columns` list does not — defining `columns` locally replaces the global list entirely (column order is the board layout, so it always comes from one file). To override a single column's cleanup, re-list every column name locally; bare `- name:` entries still inherit that column's global cleanup, so nothing else needs restating. Per-column key bindings live in `keymaps.columns.<name>` and merge normally (see [Column-Specific Actions](#column-specific-actions)).
 
 ### Config Reference
 
@@ -182,9 +186,8 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `update_check` | bool | `true` | Check for newer lazyboards releases on startup and show a sticky notice when one is available |
 | `sort_order` | string | `oldest` | Card sort direction by creation date: `oldest` or `newest` created first (board-wide; sets the starting direction, and `s` toggles it) |
 | `cleanup` | string | — | Default cleanup command applied to every column that doesn't set its own (see [Column Cleanup](#column-cleanup)) |
-| `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, actions, cleanup) |
-| `actions` | map | — | Global custom actions (see [Custom Actions](#custom-actions)) |
-| `keymaps` | map | — | Per-mode key bindings: command ids, inline actions, or `~` to unbind (see [Keymaps](#keymaps)) |
+| `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, cleanup) |
+| `keymaps` | map | — | Per-mode and per-column key bindings: command ids, inline actions, or `~` to unbind (see [Keymaps](#keymaps)) |
 
 **Note on remembered state:** pressing `s` to flip the sort order writes your choice to `~/.config/lazyboards/state.yml`, so it survives a restart. That file is written by lazyboards alone — your config files are never rewritten — and a remembered direction takes precedence over `sort_order`. Delete it to go back to the configured default.
 
@@ -197,7 +200,7 @@ Every key press in lazyboards resolves through a single `keymaps:` namespace: on
 keymaps:
   normal:
     q: app.quit          # a built-in command id (see the per-mode tables in Keybindings)
-    O:                   # an inline action mapping, same shape as top-level actions:
+    O:                   # an inline action mapping (see Custom Actions)
       name: Open issue
       type: url
       url: "https://github.com/{repo_owner}/{repo_name}/issues/{number}"
@@ -205,7 +208,9 @@ keymaps:
 ```
 <!-- keymap-schema-example:end -->
 
-A key is any BubbleTea key notation exactly as shown in the Keybindings tables (`q`, `ctrl+a`, `alt+enter`, `shift+tab`, ...). A key **sequence** is space-separated (`"g d"`), the canonical form of a neovim-style prefix binding — this replaces the legacy `actions:` sequence notation (`Rf`), which concatenated keys with no separator; see [Key Sequences (Prefix Keys)](#key-sequences-prefix-keys) below. A bound key that is a strict prefix of another bound key in the same table (e.g. `R` and `R f` both bound) is a load-time config error, since the shorter key could never dispatch — Lookup always waits for a continuation key once a prefix is pending.
+A key is any BubbleTea key notation exactly as shown in the Keybindings tables (`q`, `ctrl+a`, `alt+enter`, `shift+tab`, ...). A key **sequence** is space-separated (`"g d"`), the canonical form of a neovim-style prefix binding — see [Key Sequences (Prefix Keys)](#key-sequences-prefix-keys) below. A bound key that is a strict prefix of another bound key in the same table (e.g. `R` and `R f` both bound) is a load-time config error, since the shorter key could never dispatch — Lookup always waits for a continuation key once a prefix is pending.
+
+`keymaps:` is the only key-binding syntax. A config declaring a top-level `actions:` key, or an `actions:` key on any `columns:` entry, **fails to load** — the error names the file and the offending key.
 
 <!-- keymap-bindable-modes:start -->
 Bindable modes: `normal`, `detail`, `create`, `error`, `config`, `pr_picker`, `search`, `help`, `label_confirm`, `close_confirm`, `comment`, `delete`, `filter`, `assign`, `git_panel`, `dispatch`, `pr_list`, `milestone_list`, `agent_list`. See [Keybindings](#keybindings) for each mode's shipped command-id table.
@@ -213,7 +218,7 @@ Bindable modes: `normal`, `detail`, `create`, `error`, `config`, `pr_picker`, `s
 
 **Mode capabilities:** not every mode's dispatch seam can do everything a binding might ask of it. Multi-key sequences dispatch only in `normal`, `detail`, and per-column `keymaps.columns.<name>` overlays — every other mode resolves a single key by exact match only. Inline actions dispatch only in `normal`, `detail`, `git_panel`, `pr_list` (restricted there to `scope: pr` actions, never inferred — see [Pull Requests](#pull-requests)), and `keymaps.columns.<name>` overlays — every other mode can only bind a built-in command id. A bare printable-rune key (a single character, no modifier) is rejected in `create`, `config`, `search`, `comment`, and `delete` — those modes' text inputs swallow every printable keystroke before any lookup runs; a named key (`enter`, `esc`, `ctrl+n`, ...) or an `alt+<rune>` form is exempt and binds normally. A binding one of these seams can never reach is a load-time config error, not a silent no-op — see [`docs/keymaps.md#mode-capability-matrix`](docs/keymaps.md#mode-capability-matrix) for the full per-mode matrix.
 
-**Merge and precedence:** local config (`.lazyboards.yml`) merges over global config (`~/.config/lazyboards/config.yml`) per key, mirroring the `actions:`/`columns[].actions:` merge rules above — a mode or column the local file never mentions at all inherits the global table wholesale; an explicitly empty local table (`keymaps.normal: {}`) means "inherit nothing from global," not "unbind the built-in defaults" — unbinding a specific built-in still requires an explicit `~` entry for that key. Once merged, the resulting user config always wins over the built-in defaults, key by key — a user binding overrides a default with the same key, and every default key the user config doesn't mention is left untouched.
+**Merge and precedence:** local config (`.lazyboards.yml`) merges over global config (`~/.config/lazyboards/config.yml`) per key — a mode or column the local file never mentions at all inherits the global table wholesale; an explicitly empty local table (`keymaps.normal: {}`) means "inherit nothing from global," not "unbind the built-in defaults" — unbinding a specific built-in still requires an explicit `~` entry for that key. Once merged, the resulting user config always wins over the built-in defaults, key by key — a user binding overrides a default with the same key, and every default key the user config doesn't mention is left untouched.
 
 **Column overlays:** `keymaps.columns.<name>` binds keys scoped to one column, matched case-insensitively. Column overlays apply to `normal` and `detail` only — no other mode can be overlaid per column. The full precedence for a bound key inside a column is `default-mode < default-column < user-mode < user-column`: a column's own user binding wins over everything, then a mode-wide user binding, then a column's own default, then the mode-wide default.
 
@@ -221,7 +226,7 @@ Bindable modes: `normal`, `detail`, `create`, `error`, `config`, `pr_picker`, `s
 
 **`app.quit` may be bound in any mode:** unlike other built-in commands, `app.quit` isn't limited to the four modes that ship it by default (`normal`, `detail`, `help`, `error` — see their tables in [Keybindings](#keybindings)). It's a universal command, valid and dispatchable in every bindable mode listed above, without changing any of those four defaults. Outside `normal`/`detail`, dispatch is single-key only — a multi-key sequence bound to `app.quit` in any other mode's table is a documented no-op, since those modes' key-resolution seams have no pending-sequence machinery.
 
-**Security note:** `.lazyboards.yml` is repo-local and is typically checked into the repository, so it is attacker-controlled the moment you clone someone else's repo. Any key — including built-in lowercase keys like `j`, `k`, or `q` — can be rebound to an inline action. A `type: url` action, or a rebind onto a catalogued built-in command id, applies immediately regardless of trust. A `type: shell` action is inert until you explicitly run `lazyboards trust` for that exact file content — an untrusted repo's `.lazyboards.yml` loads and applies its non-executing settings normally, but every shell-executing construct it declares (inline `keymaps:` shell bindings, legacy `actions:`/`columns[].actions:` shell entries, `cleanup:`/`columns[].cleanup`) is silently stripped before it can run. See [Trust Model](#trust-model) for the full mechanism, and note that this does not cover a rebind of a destructive built-in (e.g. `card.delete`) onto an innocuous key — every destructive built-in still sits behind its own confirm step.
+**Security note:** `.lazyboards.yml` is repo-local and is typically checked into the repository, so it is attacker-controlled the moment you clone someone else's repo. Any key — including built-in lowercase keys like `j`, `k`, or `q` — can be rebound to an inline action. A `type: url` action, or a rebind onto a catalogued built-in command id, applies immediately regardless of trust. A `type: shell` action is inert until you explicitly run `lazyboards trust` for that exact file content — an untrusted repo's `.lazyboards.yml` loads and applies its non-executing settings normally, but every shell-executing construct it declares (inline `keymaps:` shell bindings, `cleanup:`/`columns[].cleanup`) is silently stripped before it can run. See [Trust Model](#trust-model) for the full mechanism, and note that this does not cover a rebind of a destructive built-in (e.g. `card.delete`) onto an innocuous key — every destructive built-in still sits behind its own confirm step.
 
 ### Trust Model
 
@@ -235,6 +240,43 @@ never grants trust on its own, only preserves it across the rewrite. See
 [`docs/trust-model.md`](docs/trust-model.md) for the full mechanism (what
 counts as a sink, hash identity, store format, and the residual risk this
 model deliberately doesn't cover).
+
+### Column Cleanup
+
+Run a command automatically when a card leaves a column (detected on board refresh):
+
+```yaml
+columns:
+  - name: New
+    cleanup: 'tmux kill-window -t {window} 2>/dev/null || true'
+  - name: Refined
+```
+
+The `cleanup` command uses the same [template variables](#template-variables) as custom actions. It runs when a card moves to another column or disappears.
+
+If you're running cenci, prefer `cenci close {number}` over a raw `tmux kill-window`:
+
+```yaml
+cleanup: 'cenci close {number}'
+```
+
+`cenci close` asks the daemon for the window's exact `session:index` target instead of guessing a name, so it reaps the right window regardless of which tmux session it's running in. It also refuses to kill a window whose agent is still `running` or waiting for input (unless passed `--force`), exits non-zero without touching tmux if the daemon is unreachable, and exits `0` when no window matches (safe to run even if the agent already finished). No `|| true` needed.
+
+`tmux kill-window -t {window}` still works, but has a sharp edge: a bare window name is resolved by tmux **only within lazyboards' own tmux session**. If the agent's window lives in a different session, the kill silently no-ops; if you run one lazyboards instance per session, each instance only ever reaps windows in its own session. Prefer `{window}` over `{session}` for this target — cenci names dispatched windows `{number}-{skill}` (e.g. `230-refine`), not the reconstructed `{session}` name — but be aware of the cross-session limitation either way.
+
+Set a top-level `cleanup` to apply the same command to every column that doesn't define its own:
+
+```yaml
+cleanup: 'tmux kill-window -t {window} 2>/dev/null || true'
+columns:
+  - name: New
+  - name: Refined
+    cleanup: ''                          # explicitly disables cleanup for this column
+  - name: Implementing
+    cleanup: 'docker stop {window}'      # overrides the top-level default
+```
+
+A column's own `cleanup` (including an explicit empty string) always wins over the top-level default. Global and local config follow the usual precedence: a local top-level `cleanup` overrides global, and omitting it locally inherits the global value.
 
 ## Editing Cards
 
@@ -252,52 +294,52 @@ Save and close to apply changes. Leave the title blank to cancel. If you add lab
 
 ## Custom Actions
 
-> **Deprecated:** the top-level `actions:` block is deprecated in favor of the [`keymaps:`](#keymaps) namespace (`keymaps.normal`/`keymaps.detail`).
-
 Bind keys to URL or shell actions in your config. Any key, uppercase or lowercase, can bind a built-in command or an inline action — a user binding always wins over a default. Normal mode's shipped defaults aren't lowercase-only: `D`/`P`/`A`/`G` ship as the wider-scope uppercase siblings of their lowercase counterparts (`D`ispatch vs. `d`elete, `P`R list vs. `p`R open, `A`gents list vs. `g a` go-to-agent, `G`it menu — see [Normal Mode](#normal-mode)), and rebinding any of them still lets a user binding win over the default. The built-in git shortcuts inside the [Git Menu](#git-menu) itself are scoped to their own modal, independent of whatever normal mode binds on the same key. The dispatch panel's own cenci controls (enroll, dispatch-once, loop on/off) are built in — see the [Dispatch Panel](#dispatch-panel) — so you only need custom actions for cenci commands the panel doesn't cover:
 
 ```yaml
-actions:
-  O:
-    name: Open issue
-    type: url
-    url: "https://github.com/{repo_owner}/{repo_name}/issues/{number}"
-  B:
-    name: Branch
-    type: shell
-    command: "git checkout -b {number}-{title}"
+keymaps:
+  normal:
+    O:
+      name: Open issue
+      type: url
+      url: "https://github.com/{repo_owner}/{repo_name}/issues/{number}"
+    B:
+      name: Branch
+      type: shell
+      command: "git checkout -b {number}-{title}"
 ```
+
+Declare the same key under `keymaps.detail` to make it available while the [detail panel](#detail-panel) is focused as well.
 
 Press the key to execute the action on the selected card. Custom actions and their `Alt`-held [comment-mode](#comment-mode) overload work identically whether the card list or the [detail panel](#detail-panel) is focused.
 
 ### Key Sequences (Prefix Keys)
 
-When single keys run out — a monorepo where you want to run several projects from a PR, say — bind multi-key sequences, neovim-style. A key is a sequence when it's longer than one character; every key of the sequence, including the first, can be any letter or digit (uppercase or lowercase) — not just uppercase, since any key can bind a built-in command or an inline action, and built-in commands can participate in a sequence too, not just custom actions:
+When single keys run out — a monorepo where you want to run several projects from a PR, say — bind multi-key sequences, neovim-style. A key is a sequence when it names more than one key, space-separated; every key of the sequence, including the first, can be any letter or digit (uppercase or lowercase) — not just uppercase, since any key can bind a built-in command or an inline action, and built-in commands can participate in a sequence too, not just custom actions:
 
 ```yaml
-actions:
-  Rf:
-    name: "Run frontend"
-    type: shell
-    scope: pr
-    command: 'tmux new-window -d -n fe-{pr_number} "cd {pr_worktree}/frontend && npm run dev"'
-  Rb:
-    name: "Run backend"
-    type: shell
-    scope: pr
-    command: 'tmux new-window -d -n be-{pr_number} "cd {pr_worktree}/backend && dotnet run"'
-  Rw:
-    name: "Run worker"
-    type: shell
-    scope: pr
-    command: 'tmux new-window -d -n wk-{pr_number} "cd {pr_worktree}/worker && go run ."'
+keymaps:
+  normal:
+    "R f":
+      name: "Run frontend"
+      type: shell
+      scope: pr
+      command: 'tmux new-window -d -n fe-{pr_number} "cd {pr_worktree}/frontend && npm run dev"'
+    "R b":
+      name: "Run backend"
+      type: shell
+      scope: pr
+      command: 'tmux new-window -d -n be-{pr_number} "cd {pr_worktree}/backend && dotnet run"'
+    "R w":
+      name: "Run worker"
+      type: shell
+      scope: pr
+      command: 'tmux new-window -d -n wk-{pr_number} "cd {pr_worktree}/worker && go run ."'
 ```
 
-Press `R` and the status bar switches to a which-key style list of everything the prefix can complete to, rendered in canonical, space-separated form (`R f: Run frontend | R b: Run backend | R w: Run worker | esc: cancel`); press the next key to run it. While a sequence is pending it owns the keyboard — built-in keys like `j`/`k` act as continuation keys, not navigation. `Esc` cancels, as does any key that doesn't match a bound sequence. Holding `Alt` on any key of the sequence gives the same [comment-first flow](#comment-mode) as `Alt+key` on a single-key action — though on a non-final key it only resolves when every binding under that prefix is an inline action.
+Press `R` and the status bar switches to a which-key style list of everything the prefix can complete to (`R f: Run frontend | R b: Run backend | R w: Run worker | esc: cancel`); press the next key to run it. While a sequence is pending it owns the keyboard — built-in keys like `j`/`k` act as continuation keys, not navigation. `Esc` cancels, as does any key that doesn't match a bound sequence. Holding `Alt` on any key of the sequence gives the same [comment-first flow](#comment-mode) as `Alt+key` on a single-key action — though on a non-final key it only resolves when every binding under that prefix is an inline action.
 
-Sequences can be any length (`R`, `Rf`, `RFa1`, ...) and follow all the usual action rules: scopes, template variables, per-column overrides, and gating (a prefix whose only completions are `pr`-scope won't even open on a card with no linked PRs). One constraint is validated at startup: a key can't be a strict prefix of another key that can be active at the same time — a standalone `P` action plus a `Pf` sequence is a config error, because `P` could then never fire.
-
-The legacy `actions:` notation above concatenates a sequence's keys with no separator (`Rf`); the canonical [`keymaps:`](#keymaps) form space-separates them instead (`"R f"`) — this is the form `legacySequence` translates a legacy key into internally, and the form the which-key hint bar and `keymaps.<mode>` tables always use.
+Sequences can be any length (`"R f"`, `"R F a 1"`, ...) and follow all the usual action rules: scopes, template variables, per-column overrides, and gating (a prefix whose only completions are `pr`-scope won't even open on a card with no linked PRs). One constraint is validated at startup: a key can't be a strict prefix of another key that can be active at the same time — a standalone `P` action plus a `"P f"` sequence is a config error, because `P` could then never fire.
 
 ### Template Variables
 
@@ -333,9 +375,9 @@ Set `scope: "pr"` for actions that operate on a card's linked pull request — a
 A typical PR action opens the card's worktree and runs the project, so reviewing a PR is one keypress on the card:
 
 ```yaml
-columns:
-  - name: In Review
-    actions:
+keymaps:
+  columns:
+    In Review:
       W:
         name: Run worktree
         type: shell
@@ -388,61 +430,25 @@ If lazyboards panics, the stack trace is normally printed to stderr as the termi
 
 ### Column-Specific Actions
 
-> **Deprecated:** `columns[].actions` is deprecated in favor of `keymaps.columns.<name>` in the [`keymaps:`](#keymaps) namespace.
-
-Define actions under a column to override global actions for that column:
+Bind a key under `keymaps.columns.<name>` to scope it to one column, overriding whatever that key does board-wide:
 
 ```yaml
 columns:
   - name: New
-    actions:
+  - name: Refined
+
+keymaps:
+  columns:
+    New:
       R:
         name: Refine ticket
         type: shell
         command: 'tmux new-window -d -n {session} "claude --comment {comment}"'
-  - name: Refined
 ```
 
-Within one column, local and global actions merge by key: local keys win, global-only keys are kept, and a bare `- name:` entry (no `actions`) inherits the matching global column's actions in full (columns match by name, case-insensitively). An explicit empty `actions: {}` disables all actions for that column. But remember the list itself doesn't merge — a local `columns:` replaces the global list, so re-list every column you want to keep (see [Global Config](#global-config)).
+Column names are matched case-insensitively and need not appear in `columns:` — the overlay applies to whichever board column carries that title. Any key — one that binds a built-in command by default, or an inline action — can be overridden this way; a column-scoped binding wins over both the global default and the global user binding for that key. Column overlays apply to `normal` and `detail` only.
 
-Any key — one that binds a built-in command by default, or an inline action — can be overridden per column via `keymaps.columns.<name>`; a column-scoped binding wins over both the global default and the global user binding for that key.
-
-### Column Cleanup
-
-Run a command automatically when a card leaves a column (detected on board refresh):
-
-```yaml
-columns:
-  - name: New
-    cleanup: 'tmux kill-window -t {window} 2>/dev/null || true'
-  - name: Refined
-```
-
-The `cleanup` command uses the same template variables as actions. It runs when a card moves to another column or disappears.
-
-If you're running cenci, prefer `cenci close {number}` over a raw `tmux kill-window`:
-
-```yaml
-cleanup: 'cenci close {number}'
-```
-
-`cenci close` asks the daemon for the window's exact `session:index` target instead of guessing a name, so it reaps the right window regardless of which tmux session it's running in. It also refuses to kill a window whose agent is still `running` or waiting for input (unless passed `--force`), exits non-zero without touching tmux if the daemon is unreachable, and exits `0` when no window matches (safe to run even if the agent already finished). No `|| true` needed.
-
-`tmux kill-window -t {window}` still works, but has a sharp edge: a bare window name is resolved by tmux **only within lazyboards' own tmux session**. If the agent's window lives in a different session, the kill silently no-ops; if you run one lazyboards instance per session, each instance only ever reaps windows in its own session. Prefer `{window}` over `{session}` for this target — cenci names dispatched windows `{number}-{skill}` (e.g. `230-refine`), not the reconstructed `{session}` name — but be aware of the cross-session limitation either way.
-
-Set a top-level `cleanup` to apply the same command to every column that doesn't define its own:
-
-```yaml
-cleanup: 'tmux kill-window -t {window} 2>/dev/null || true'
-columns:
-  - name: New
-  - name: Refined
-    cleanup: ''                          # explicitly disables cleanup for this column
-  - name: Implementing
-    cleanup: 'docker stop {window}'      # overrides the top-level default
-```
-
-A column's own `cleanup` (including an explicit empty string) always wins over the top-level default. Global and local config follow the usual precedence: a local top-level `cleanup` overrides global, and omitting it locally inherits the global value.
+Local and global `keymaps.columns.<name>` tables merge by key like every other keymap table: local keys win, global-only keys are kept, and a column the local file never mentions inherits the global table wholesale (see [Keymaps](#keymaps)).
 
 ### Comment Mode
 
@@ -497,11 +503,12 @@ Over SSH and inside tmux the same rule holds — only the setting of the termina
 Open a new tmux window for each card:
 
 ```yaml
-actions:
-  T:
-    name: Tmux window
-    type: shell
-    command: "tmux new-window -d -n {session}"
+keymaps:
+  normal:
+    T:
+      name: Tmux window
+      type: shell
+      command: "tmux new-window -d -n {session}"
 ```
 
 The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 40). Punctuation and non-ASCII characters in the title are dropped (not hyphenated).
@@ -626,11 +633,9 @@ the fetch fails, that fallback is kept with an explicit note. PRs linked to
 a card show the owning column and card next to the title; unlinked PRs are
 listed plainly.
 
-Keys bound via `keymaps.pr_list` run your global `scope: pr` [custom
+Keys bound via `keymaps.pr_list` run `scope: pr` [custom
 actions](#custom-actions) against the selected PR, with the same template
-variables as a normal-mode dispatch (legacy `actions:` entries only
-translate into `pr_list` bindings for uppercase single-letter keys, mirroring
-the pre-registry behavior). On a PR with no linked card, the card-derived
+variables as a normal-mode dispatch. On a PR with no linked card, the card-derived
 variables (`{number}`, `{title}`, `{tags}`, `{session}`, `{window}`) expand
 to empty strings. Per-column action overrides and the `Alt` comment variant
 are not available inside the modal. Every `keymaps.pr_list` inline action's
@@ -841,13 +846,6 @@ If you bind a sequence under `D`/`P`/`A`/`G`, or bind `g` itself, unbind the
 colliding default first — e.g. `P: ~` — otherwise `config.Load` rejects the
 config with a prefix-conflict error (a key that's also a bound default can
 never dispatch once a longer sequence shares its prefix).
-
-This also applies to the legacy `actions:` block: an entry like `Pf:` is
-translated internally to the same canonical `"P f"` sequence, so it collides
-with the new `P` default exactly like a `keymaps:` sequence would, and the
-resulting error names the resolved sequence (e.g. `"P f"`), not your
-original `Pf:` key. Unbind the collision the same way (`P: ~` under
-`keymaps.normal`), or migrate the entry to `keymaps:` directly.
 
 To restore every pre-#502 key exactly as it worked before, add this to your
 `keymaps:` block (global `~/.config/lazyboards/config.yml` or per-project

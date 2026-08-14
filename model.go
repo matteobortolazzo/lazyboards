@@ -773,7 +773,7 @@ type Board struct {
 	// pendingSeq holds the canonical, space-separated keys typed so far of an
 	// unfinished multi-key sequence (e.g. "P" while waiting for the "f" of
 	// "P f") -- stored in keymap.Sequence.String()'s canonical form, not the
-	// legacy rune-concatenated "Pf". Since #489 this is the registry's own
+	// rune-concatenated "Pf". Since #489 this is the registry's own
 	// pending-sequence state (keymap_dispatch.go's dispatchKey/
 	// handlePendingSeqKey): built-ins and inline actions both participate,
 	// on any key, upper or lower -- there is no separate uppercase-only gate
@@ -866,10 +866,10 @@ type Board struct {
 	// keys is the active, immutable, resolved keymap that dispatchKey/
 	// handlePendingSeqKey/registryHints consult (#489). *keymap.Keymap never
 	// mutates after keymap.Resolve constructs it, so it is safe to share
-	// across Board's value copies without a deep copy. NewBoard seeds it by
-	// deriving from the legacy actions/columnConfigs params (via
-	// config.KeymapFromLegacy); main.go overrides it once at startup with the
-	// fully resolved config.ResolveKeymap result via withKeymap.
+	// across Board's value copies without a deep copy. NewBoard seeds it with
+	// the built-in defaults (config.DefaultKeymap); main.go layers the loaded
+	// config's own keymaps: on top once at startup, with the fully resolved
+	// config.ResolveKeymap result via withKeymap.
 	keys *keymap.Keymap
 	// providerFactory builds a BoardProvider for a provider name and an
 	// owner/repo pair. Providers are bound to one repository at construction,
@@ -893,7 +893,7 @@ func splitRepo(repo string) (owner, name string, ok bool) {
 
 // NewBoard creates a Board in loadingMode (or configMode if firstLaunch).
 // Call Init() to start fetching data.
-func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher cenciwatch.Watcher, gitReader gitdetect.Reader, updateCheckEnabled bool) Board {
+func NewBoard(p provider.BoardProvider, defaultActions map[string]config.Action, columnConfigs []config.ColumnConfig, executor action.Executor, repoOwner, repoName, providerName string, sessionMaxLen int, refreshInterval time.Duration, workingLabel string, mouseEnabled bool, firstLaunch bool, watcher cenciwatch.Watcher, gitReader gitdetect.Reader, updateCheckEnabled bool) Board {
 	ti := textarea.New()
 	ti.Placeholder = "Title"
 	ti.CharLimit = 0
@@ -907,18 +907,15 @@ func NewBoard(p provider.BoardProvider, actions map[string]config.Action, defaul
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 
-	// Derive the active keymap from the legacy actions/columnConfigs params
-	// this constructor already receives (#489 step 2): main.go later
-	// overrides this with the fully resolved config.ResolveKeymap result via
-	// withKeymap, once cfg.Keymaps (including any native keymaps: entries)
-	// is available. A resolution error here can only mean an invalid
-	// hand-built test fixture (production actions/columns are already
-	// validated by config.Load()) -- fall back to the built-in defaults only
-	// rather than leaving keys nil.
-	keys, err := config.KeymapFromLegacy(actions, columnConfigs)
+	// Seed the active keymap with the built-in defaults. main.go layers the
+	// loaded config's keymaps: on top via withKeymap once config.Load() has
+	// produced it; a Board built without that step (tests, the first-launch
+	// config modal) still dispatches every built-in command.
+	keys, err := config.DefaultKeymap()
 	if err != nil {
-		debuglog.Errorf("keymap: failed to resolve legacy actions/columns into the registry: %v", err)
-		keys, _ = config.KeymapFromLegacy(nil, nil)
+		// Unreachable in practice: the built-in default tables always
+		// resolve against themselves. Log rather than leave keys nil.
+		debuglog.Errorf("keymap: failed to resolve the built-in default tables: %v", err)
 	}
 
 	ri := textinput.New()
