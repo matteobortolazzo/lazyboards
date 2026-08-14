@@ -107,6 +107,9 @@ func TestAction_FieldsAreTagCompatibleWithConfigAction(t *testing.T) {
 		"Command":  "command",
 		"Scope":    "scope",
 		"Terminal": "terminal",
+		"Window":   "window",
+		"Cwd":      "cwd",
+		"Focus":    "focus",
 		"Order":    "-",
 	}
 	typ := reflect.TypeOf(Action{})

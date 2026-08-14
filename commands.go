@@ -421,6 +421,17 @@ func resolveCenciPathSuffix(executor action.Executor) string {
 	return " (using " + path + ")"
 }
 
+// insideTmux reports whether lazyboards is running inside a tmux client,
+// which a window: action needs: outside one there is no session for
+// `tmux new-window` to create a window in, and tmux would fail with its own
+// "no server running" stderr. Checking $TMUX directly (rather than reading
+// Board.tmuxSession) keeps the guard honest about the one thing that
+// matters -- resolveTmuxSession also returns "" when the session-name query
+// merely failed, which is not a reason to refuse the action.
+func insideTmux() bool {
+	return os.Getenv("TMUX") != ""
+}
+
 // resolveTmuxSession returns the tmux session name this process runs in, used
 // to scope the agents list to the instance's own session (#410). It returns ""
 // when not running inside tmux (no $TMUX) or when the query fails, which the

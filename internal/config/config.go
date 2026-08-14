@@ -27,12 +27,41 @@ type Action struct {
 	// own so every Type == "shell" gate -- above all the trust model's
 	// local-shell-sink stripping in trust_strip.go -- keeps covering it.
 	Terminal bool `yaml:"terminal"`
+	// Window, when non-empty, runs the command in a new multiplexer window
+	// of that name instead of in lazyboards' own process (#624). It is
+	// template-expanded and then escaped as a single shell token by
+	// action.TmuxNewWindow, so a card title or branch name can't break out
+	// of the assembled command line.
+	Window string `yaml:"window"`
+	// Cwd is the working directory the command runs in, for every shell
+	// path: the new window's start directory when Window is set, and a
+	// composed chdir (action.WithDir) otherwise. Template-expanded and
+	// escaped the same way Window is.
+	Cwd string `yaml:"cwd"`
+	// Focus switches to the spawned window instead of leaving it detached.
+	// Only meaningful together with Window.
+	Focus bool `yaml:"focus"`
 	// Order is derived metadata reflecting the action's position in its
 	// source YAML file (see stampOrderAndRejectLegacy). It is never read
 	// from or written to the YAML file itself, so it can't be hand-set by a
 	// user and doesn't get scrambled by Save()'s random map-key re-marshal
 	// order (pre-existing behavior, unaffected by this field).
 	Order int `yaml:"-"`
+}
+
+// Template returns every template-bearing field of the action concatenated,
+// for the checks that ask "does this action reference variable X?" -- scope
+// inference and the board/card scope restrictions here, the `{comment}`
+// Alt-overload scan and `{pr_worktree}` resolution at dispatch, and the
+// alt-comment shadow check in keymap_validate.go. It exists so those sites
+// can't drift apart: a template-bearing field added to Action but missed by
+// one of them would let a board-scope action smuggle `{number}` through the
+// missed field, or leave `{pr_worktree}` unresolved at dispatch.
+//
+// The fields are joined without a separator; every consumer only ever
+// substring-matches variable placeholders, none parses the result.
+func (a Action) Template() string {
+	return a.URL + a.Command + a.Window + a.Cwd
 }
 
 // ColumnConfig defines a column and its optional cleanup command.
@@ -712,19 +741,42 @@ func validateActionValue(key string, action *Action) error {
 	if action.Type == "url" && strings.TrimSpace(action.URL) == "" {
 		return fmt.Errorf("action %q: url is required when type is \"url\"", key)
 	}
-	// Command required for shell type.
-	if action.Type == "shell" && strings.TrimSpace(action.Command) == "" {
+	// Command required for shell type -- except when the action opens a
+	// window, where "open a window in this directory" with no command is a
+	// complete action of its own (tmux runs the default shell there).
+	if action.Type == "shell" && strings.TrimSpace(action.Command) == "" && strings.TrimSpace(action.Window) == "" {
 		return fmt.Errorf("action %q: command is required when type is \"shell\"", key)
 	}
-	// terminal: only means something for a command that runs in a terminal.
-	// Rejecting it on type: url rather than ignoring it keeps a user from
-	// believing a flag applies when nothing reads it.
-	if action.Terminal && action.Type != "shell" {
-		return fmt.Errorf("action %q: terminal is only valid when type is \"shell\"", key)
+	// terminal:/window:/cwd:/focus: only mean something for a command that
+	// runs. Rejecting them on type: url rather than ignoring them keeps a
+	// user from believing a field applies when nothing reads it.
+	if action.Type != "shell" {
+		for _, f := range []struct {
+			name string
+			set  bool
+		}{
+			{"terminal", action.Terminal},
+			{"window", strings.TrimSpace(action.Window) != ""},
+			{"cwd", strings.TrimSpace(action.Cwd) != ""},
+			{"focus", action.Focus},
+		} {
+			if f.set {
+				return fmt.Errorf("action %q: %s is only valid when type is \"shell\"", key, f.name)
+			}
+		}
+	}
+	// window: and terminal: are contradictory: one detaches the command into
+	// a window of its own, the other hands it lazyboards' terminal.
+	if strings.TrimSpace(action.Window) != "" && action.Terminal {
+		return fmt.Errorf("action %q: window and terminal cannot both be set -- window runs the command in a separate window, terminal hands it this one", key)
+	}
+	// focus: only says which window to switch to, so it needs a window.
+	if action.Focus && strings.TrimSpace(action.Window) == "" {
+		return fmt.Errorf("action %q: focus is only valid together with window", key)
 	}
 	// Default empty scope: infer "board" when the template has no
 	// ticket-specific placeholders, otherwise "card" (today's default).
-	template := action.URL + action.Command
+	template := action.Template()
 	if action.Scope == "" {
 		action.Scope = inferScope(template)
 	}

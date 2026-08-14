@@ -20,7 +20,7 @@ import (
 // under a mixed prefix the Alt keystroke resolves to nothing rather than
 // firing a built-in. The final key is the reliable place to hold Alt.
 func (b Board) dispatchActionWithAlt(act config.Action, alt bool) (tea.Model, tea.Cmd) {
-	if alt && strings.Contains(act.URL+act.Command, "{comment}") {
+	if alt && strings.Contains(act.Template(), "{comment}") {
 		// Resolve the pending card (if card-scope or pr-scope) before
 		// touching any state, so a "no card visible" refusal leaves b
 		// untouched.
@@ -96,6 +96,22 @@ func (b Board) dispatchExpandedAction(act config.Action, vars map[string]string)
 	case "shell":
 		shellVars := action.BuildShellSafeVars(vars)
 		expanded := action.ExpandTemplate(act.Command, shellVars)
+		// window:/cwd: are expanded from the RAW variable map and escaped as
+		// whole tokens by action.TmuxNewWindow/WithDir. Using shellVars here
+		// would double-escape them: their values are single arguments
+		// lazyboards assembles itself, not fragments of a command line the
+		// user wrote.
+		cwd := action.ExpandTemplate(act.Cwd, vars)
+		if act.Window != "" {
+			if !insideTmux() {
+				cmd := b.statusBar.SetTimedMessage("Not inside tmux: window actions need a tmux session", StatusError, statusMessageDuration)
+				return b, cmd
+			}
+			window := action.ExpandTemplate(act.Window, vars)
+			cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
+			return b, tea.Batch(cmd, runShellCmd(b.executor, action.TmuxNewWindow(window, cwd, expanded, act.Focus)))
+		}
+		expanded = action.WithDir(cwd, expanded)
 		if act.Terminal {
 			// No "Running..." message: the board is about to be suspended,
 			// and the command's own output is what the user watches instead.
@@ -149,7 +165,7 @@ func (b Board) runPRAction(act config.Action, card Card, pr LinkedPR, comment st
 // card-less dispatch path.
 func (b Board) runPRActionWithVars(act config.Action, pr LinkedPR, baseVars map[string]string) (tea.Model, tea.Cmd) {
 	prWorktree := ""
-	if strings.Contains(act.URL+act.Command, "{pr_worktree}") {
+	if strings.Contains(act.Template(), "{pr_worktree}") {
 		var err error
 		prWorktree, err = b.resolvePRWorktree(pr.Branch)
 		if err != nil {

@@ -245,6 +245,9 @@ func configActionFromKeymap(a keymap.Action) config.Action {
 		Command:  a.Command,
 		Scope:    a.Scope,
 		Terminal: a.Terminal,
+		Window:   a.Window,
+		Cwd:      a.Cwd,
+		Focus:    a.Focus,
 		Order:    a.Order,
 	}
 }

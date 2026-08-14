@@ -711,3 +711,194 @@ func TestValidateCapabilityTable_UnrecognizedBindingKind_ReturnsError(t *testing
 		}
 	}
 }
+
+// --- #624: window:/cwd:/focus: inline action fields ---
+
+// resolveInlineAction loads yamlContent, resolves it, and returns the inline
+// action bound to key in normal mode. It fails the test if the key does not
+// resolve to an inline action, so every caller below asserts on real
+// post-resolution state rather than raw config maps.
+func resolveInlineAction(t *testing.T, yamlContent, key string) keymap.Action {
+	t.Helper()
+	cfg, err := loadConfigFromStrings(t, yamlContent, "")
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+	km, err := ResolveKeymap(&cfg)
+	if err != nil {
+		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
+	}
+	result := km.Lookup(keymap.ModeNormal, "", keymap.Sequence{keymap.Key(key)})
+	if result.Binding.Kind != keymap.BindingAction {
+		t.Fatalf("Lookup(%q) kind = %v, want BindingAction", key, result.Binding.Kind)
+	}
+	return result.Binding.Action
+}
+
+func TestLoad_KeymapInlineAction_WindowFieldsResolve(t *testing.T) {
+	yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: Serve worktree
+      type: shell
+      scope: board
+      window: "srv"
+      cwd: "/srv/app"
+      focus: true
+      command: "go run ."
+`
+	act := resolveInlineAction(t, yamlContent, "G")
+	if act.Window != "srv" || act.Cwd != "/srv/app" || !act.Focus {
+		t.Errorf("resolved action = %+v, want window/cwd/focus carried through resolution", act)
+	}
+}
+
+// A window: action needs no command: opening a window in a directory is a
+// complete action on its own.
+func TestLoad_KeymapInlineAction_WindowWithoutCommand_Loads(t *testing.T) {
+	yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: Open worktree
+      type: shell
+      scope: board
+      window: "wt"
+      cwd: "/srv/app"
+`
+	act := resolveInlineAction(t, yamlContent, "G")
+	if act.Command != "" || act.Window != "wt" {
+		t.Errorf("resolved action = %+v, want an empty command and window \"wt\"", act)
+	}
+}
+
+func TestLoad_KeymapInlineAction_WindowFieldRejections(t *testing.T) {
+	cases := []struct {
+		name     string
+		entry    string
+		wantWord string
+	}{
+		{
+			name:     "window on a url action",
+			entry:    "{ name: Open, type: url, window: w, url: \"https://example.com\" }",
+			wantWord: "window",
+		},
+		{
+			name:     "cwd on a url action",
+			entry:    "{ name: Open, type: url, cwd: /tmp, url: \"https://example.com\" }",
+			wantWord: "cwd",
+		},
+		{
+			name:     "focus on a url action",
+			entry:    "{ name: Open, type: url, focus: true, url: \"https://example.com\" }",
+			wantWord: "focus",
+		},
+		{
+			name:     "window together with terminal",
+			entry:    "{ name: Test, type: shell, scope: board, window: w, terminal: true, command: \"go test ./...\" }",
+			wantWord: "terminal",
+		},
+		{
+			name:     "focus without window",
+			entry:    "{ name: Test, type: shell, scope: board, focus: true, command: \"go test ./...\" }",
+			wantWord: "focus",
+		},
+		{
+			name:     "shell action with neither command nor window",
+			entry:    "{ name: Test, type: shell, scope: board }",
+			wantWord: "command is required",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			yamlContent := "provider: github\nkeymaps:\n  normal:\n    G: " + tc.entry + "\n"
+			_, err := loadConfigFromStrings(t, yamlContent, "")
+			if err == nil {
+				t.Fatalf("Load() returned nil error, want a rejection for %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wantWord) {
+				t.Errorf("error = %q, want it to mention %q", err.Error(), tc.wantWord)
+			}
+			if !strings.Contains(err.Error(), "G") {
+				t.Errorf("error = %q, want it to identify the offending key", err.Error())
+			}
+		})
+	}
+}
+
+// TestLoad_KeymapInlineAction_WindowAndCwdCountAsTemplate pins that the two
+// new template-bearing fields are part of the action's template everywhere
+// the template is inspected: scope inference sees them, and the board-scope
+// restriction can't be bypassed by moving a card variable out of command:
+// and into cwd:/window:.
+func TestLoad_KeymapInlineAction_WindowAndCwdCountAsTemplate(t *testing.T) {
+	t.Run("card variable in window infers card scope", func(t *testing.T) {
+		yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: Open
+      type: shell
+      window: "card-{number}"
+`
+		if got := resolveInlineAction(t, yamlContent, "G").Scope; got != "card" {
+			t.Errorf("inferred scope = %q, want \"card\": {number} in window: is a card-specific variable", got)
+		}
+	})
+
+	t.Run("card variable in cwd infers card scope", func(t *testing.T) {
+		yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: Open
+      type: shell
+      window: "w"
+      cwd: "/repos/{title}"
+`
+		if got := resolveInlineAction(t, yamlContent, "G").Scope; got != "card" {
+			t.Errorf("inferred scope = %q, want \"card\": {title} in cwd: is a card-specific variable", got)
+		}
+	})
+
+	t.Run("board scope rejects a card variable smuggled into cwd", func(t *testing.T) {
+		yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: Open
+      type: shell
+      scope: board
+      window: "w"
+      cwd: "/repos/{number}"
+`
+		_, err := loadConfigFromStrings(t, yamlContent, "")
+		if err == nil {
+			t.Fatal("Load() returned nil error, want board scope to reject {number} in cwd:")
+		}
+		if !strings.Contains(err.Error(), "card-specific") {
+			t.Errorf("error = %q, want it to name the card-specific-variable restriction", err.Error())
+		}
+	})
+
+	t.Run("card scope rejects a pr variable smuggled into cwd", func(t *testing.T) {
+		yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: Open
+      type: shell
+      scope: card
+      window: "w"
+      cwd: "{pr_worktree}"
+`
+		_, err := loadConfigFromStrings(t, yamlContent, "")
+		if err == nil {
+			t.Fatal("Load() returned nil error, want card scope to reject {pr_worktree} in cwd:")
+		}
+		if !strings.Contains(err.Error(), "pr-specific") {
+			t.Errorf("error = %q, want it to name the pr-specific-variable restriction", err.Error())
+		}
+	})
+}
