@@ -16,7 +16,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Search cards by title and filter by label, assignee, or milestone
 - PR linking with picker modal
 - Milestones modal: every open milestone in the repository with progress bar, counts, and due date, `Enter` to filter the board by milestone (`m`)
-- Custom actions: open URLs or run shell commands bound to any key (not just Shift+key — see [Keymaps](#keymaps)) or multi-key sequences (neovim-style prefix keys), with column cleanup on departure
+- Custom actions: open URLs or run shell commands bound to any key (not just Shift+key — see [Keymaps](#keymaps)) or multi-key sequences (neovim-style prefix keys), with column cleanup on departure — run a command in the background, in the [foreground](#terminal-actions) so you can watch it, or in a [tmux window](#window-actions) of its own
 - Mouse support: scroll, click tabs, click cards
 - Auto-detection of provider and repo from git remote
 - In-app configuration UI (first-launch flow or press `c`)
