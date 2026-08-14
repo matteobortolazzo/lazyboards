@@ -394,12 +394,13 @@ func convertKeymapBinding(b KeymapBinding) keymap.Binding {
 		return keymap.CommandBinding(b.Command)
 	case keymap.BindingAction:
 		return keymap.ActionBinding(keymap.Action{
-			Name:    b.Action.Name,
-			Type:    b.Action.Type,
-			URL:     b.Action.URL,
-			Command: b.Action.Command,
-			Scope:   b.Action.Scope,
-			Order:   b.Order,
+			Name:     b.Action.Name,
+			Type:     b.Action.Type,
+			URL:      b.Action.URL,
+			Command:  b.Action.Command,
+			Scope:    b.Action.Scope,
+			Terminal: b.Action.Terminal,
+			Order:    b.Order,
 		})
 	case keymap.BindingUnbound:
 		return keymap.UnboundBinding()

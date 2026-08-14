@@ -13,6 +13,7 @@ type Executor interface {
 	OpenURL(url string) error
 	RunShell(command string) (stderr string, err error)
 	RunShellOutput(command string) (stdout, stderr string, err error)
+	ShellCommand(command string) *exec.Cmd
 }
 
 // DefaultExecutor executes actions using real OS calls.
@@ -58,6 +59,17 @@ func (d DefaultExecutor) RunShell(command string) (string, error) {
 	return "", nil
 }
 
+// ShellCommand builds -- but does not start -- the same `sh -c command`
+// process RunShell would run. It exists for the terminal: true action path
+// (#623), where the caller must hand the unstarted *exec.Cmd to BubbleTea's
+// tea.ExecProcess so the program can release the terminal, let the command
+// own stdin/stdout/stderr, and restore the board when it exits. Nothing here
+// touches the process's streams: tea.ExecProcess wires them to the real
+// terminal, which is the entire point of the flag.
+func (d DefaultExecutor) ShellCommand(command string) *exec.Cmd {
+	return exec.Command("sh", "-c", command)
+}
+
 // RunShellOutput executes a command via sh -c and returns stdout, stderr, and error.
 func (d DefaultExecutor) RunShellOutput(command string) (string, string, error) {
 	cmd := exec.Command("sh", "-c", command)
@@ -97,6 +109,12 @@ type FakeExecutor struct {
 	RunShellOutputStdout string
 	RunShellOutputStderr string
 	RunShellOutputErr    error
+
+	// ShellCommandCalls records every command handed to ShellCommand, i.e.
+	// every terminal: true action dispatched. It is a separate recorder from
+	// RunShellCalls on purpose: the two lists are how a test tells the
+	// terminal path from the buffered one.
+	ShellCommandCalls []string
 }
 
 // OpenURL records the call and returns the configured error.
@@ -109,6 +127,16 @@ func (f *FakeExecutor) OpenURL(url string) error {
 func (f *FakeExecutor) RunShell(command string) (string, error) {
 	f.RunShellCalls = append(f.RunShellCalls, command)
 	return f.RunShellStderr, f.RunShellErr
+}
+
+// ShellCommand records the call and returns an unstarted *exec.Cmd shaped
+// like DefaultExecutor's. The process is never started by the fake -- the
+// tea.Cmd tea.ExecProcess returns only carries the command to BubbleTea's
+// runtime, which no test runs -- so recording the string is the whole
+// observable contract.
+func (f *FakeExecutor) ShellCommand(command string) *exec.Cmd {
+	f.ShellCommandCalls = append(f.ShellCommandCalls, command)
+	return exec.Command("sh", "-c", command)
 }
 
 // RunShellOutput records the call and returns the next scripted result from

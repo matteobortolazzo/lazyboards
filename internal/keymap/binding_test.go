@@ -101,12 +101,13 @@ func TestAction_FieldsAreTagCompatibleWithConfigAction(t *testing.T) {
 	// so the tag strings are pinned here as the cross-package contract
 	// #509 relies on to convert config.Action <-> keymap.Action field-for-field.
 	wantTags := map[string]string{
-		"Name":    "name",
-		"Type":    "type",
-		"URL":     "url",
-		"Command": "command",
-		"Scope":   "scope",
-		"Order":   "-",
+		"Name":     "name",
+		"Type":     "type",
+		"URL":      "url",
+		"Command":  "command",
+		"Scope":    "scope",
+		"Terminal": "terminal",
+		"Order":    "-",
 	}
 	typ := reflect.TypeOf(Action{})
 	if typ.NumField() != len(wantTags) {

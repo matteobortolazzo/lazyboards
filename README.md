@@ -387,7 +387,38 @@ keymaps:
 
 Swap `ng serve` for whatever the project runs — `dotnet run`, `npm run dev`, `go run .`, `make dev`. `{pr_worktree}` finds the PR branch's registered Git worktree, so the action does not depend on a worktree directory naming convention. Since the run command is project-specific, define it in that project's `.lazyboards.yml`; a global `~/.config/lazyboards/config.yml` can keep a command-agnostic variant (open the worktree only, no run step) that works everywhere.
 
-Long-running or foreground shell commands will block that action's key slot until the command exits. Prefer a self-detaching command such as `tmux new-window -d '<command>'` for anything long-running (like the `ng serve` example above) — see [Tmux Integration](#tmux-integration).
+Long-running or foreground shell commands will block that action's key slot until the command exits. Prefer a self-detaching command such as `tmux new-window -d '<command>'` for anything long-running (like the `ng serve` example above) — see [Tmux Integration](#tmux-integration) — or `terminal: true` when you want to watch it run, see below.
+
+### Terminal Actions
+
+A plain `type: shell` action runs with its output buffered and thrown away: the status bar reports `Done` or a one-line error, and nothing the command printed is ever shown. That's fine for `git fetch`, and useless for anything you need to watch.
+
+Add `terminal: true` to hand the command the real terminal instead:
+
+```yaml
+keymaps:
+  columns:
+    In Review:
+      T:
+        name: Test worktree
+        type: shell
+        scope: pr
+        terminal: true
+        command: 'cd {pr_worktree} && go test ./...'
+```
+
+Pressing `T` clears the board, runs `go test ./...` in the foreground with full output, colors, and keyboard input, and restores the board when the command exits. The status bar then reports success or the exit error. No tmux involved — it works over a plain SSH session.
+
+`terminal: true` is valid only on `type: shell` (a `type: url` action opens a browser, it never runs a command); declaring it elsewhere is a load-time config error. Every other action rule is unchanged: scopes, template variables, escaping, key sequences, per-column overrides, and the `Alt`-held [comment overload](#comment-mode) all behave exactly as they do for a buffered shell action. Trust is unchanged too — it is still a `type: shell` action, so an untrusted `.lazyboards.yml` has it stripped like any other shell binding (see [Trust Model](#trust-model)).
+
+Choose between the two long-running patterns by what you need afterwards:
+
+| Need | Use |
+|------|-----|
+| Watch it to completion, then get the board back (tests, a build, a one-off script, an interactive command) | `terminal: true` |
+| Keep it running alongside the board (dev server, API, worker, log tail) | `tmux new-window -d …`, see [Tmux Integration](#tmux-integration) |
+
+A `terminal: true` action owns the terminal until it exits, so don't point one at a process that never returns — the board is unreachable until you stop it.
 
 ### Git Menu
 
@@ -514,6 +545,8 @@ keymaps:
 The `{session}` variable generates a tmux-friendly name (e.g., `42-fix-login-bug`), capped at `session_max_length` (default: 40). Punctuation and non-ASCII characters in the title are dropped (not hyphenated).
 
 Agent-status matching (the live ▶/✓/… badges) does **not** rely on this name. Cards join cenci windows by **ticket-number prefix**: a card matches a window whose name is exactly the card number or starts with `<number>-` (cenci names dispatched windows `<number>-<skill>`, e.g. `230-refine`). The `-` boundary keeps card #23 from matching `230-…`, and the scheme is backward-compatible with cenci's older `<number>-<title-slug>` names.
+
+A detached tmux window is the right tool for a process that must keep running after the action returns — a dev server, an API, a worker. For a command you want to watch to completion and then return to the board (a test run, a build), `terminal: true` does it natively with no multiplexer at all — see [Terminal Actions](#terminal-actions).
 
 Use `{window}` (not `{session}`) when an action or `cleanup` command needs to target that live cenci window by name — for example `tmux kill-window -t {window}` to reap it. `{session}` still generates the reconstructed name above and is the right choice for actions that create a window before cenci has dispatched one.
 

@@ -487,3 +487,43 @@ keymaps:
 		t.Fatalf("cfg.Notices = %v, want empty: an explicitly-empty local column keymap table stripped nothing, so it must not raise a strip notice either", untrusted.Notices)
 	}
 }
+
+// --- #623: a terminal: true binding is a shell sink like any other. ---
+//
+// terminal: true is a modifier on type: shell, not a new type, precisely so
+// the existing Action.Type == "shell" gate in stripShellBindings covers it
+// with no change. This test is the standing proof of that: an untrusted
+// local terminal: true binding must be stripped and counted exactly like a
+// plain shell binding, and must not resolve into the dispatchable keymap.
+// If someone later promotes the flag to its own type: value without widening
+// the gate, this fails.
+
+func TestLoad_Untrusted_KeymapTerminalShellBinding_IsStrippedLikeAnyShellSink(t *testing.T) {
+	for _, p := range keymapCasePlacements() {
+		t.Run(p.name, func(t *testing.T) {
+			localYAML := "provider: github\nrepo: owner/repo\n" +
+				p.embed(`b: { name: Run tests, type: shell, scope: board, terminal: true, command: "go test ./..." }`)
+
+			globalPath, localPath := writeTempConfigs(t, "", localYAML)
+			cfg, err := Load(globalPath, localPath, Trust{})
+			if err != nil {
+				t.Fatalf("Load() returned unexpected error: %v", err)
+			}
+			km, err := ResolveKeymap(&cfg)
+			if err != nil {
+				t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
+			}
+
+			result := km.Lookup(keymap.ModeNormal, p.column, keymap.Sequence{keymap.Key("b")})
+			if result.Outcome == keymap.OutcomeMatch && result.Binding.Kind == keymap.BindingAction {
+				t.Fatalf("Lookup(normal, %q, b) = %+v, want the untrusted terminal: true shell binding stripped", p.column, result)
+			}
+			if len(cfg.Notices) != 1 {
+				t.Fatalf("cfg.Notices = %v, want exactly one strip notice", cfg.Notices)
+			}
+			if !strings.Contains(cfg.Notices[0], "keymap shell binding") {
+				t.Errorf("notice = %q, want it to report a stripped keymap shell binding", cfg.Notices[0])
+			}
+		})
+	}
+}
