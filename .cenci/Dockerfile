@@ -1,5 +1,6 @@
 # cenci:managed-begin
-ARG BASE_VERSION=1.3.0
+ARG BASE_VERSION=latest
+# No cenci-sandbox plugin version detected — using the :latest base image alias. See sandbox/README.md to pin BASE_VERSION manually, or install the cenci-sandbox plugin and re-run /cenci:configure.
 FROM cenci-sandbox-base:${BASE_VERSION}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
