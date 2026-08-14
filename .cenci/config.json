@@ -1,5 +1,5 @@
 {
-  "configVersion": "0.51.1",
+  "configVersion": "0.58.1",
   "branchPattern": "feature/<id>-<description>",
   "stack": {
     "backend": "go-bubbletea",
@@ -24,7 +24,7 @@
   },
   "sandbox": {
     "enabled": true,
-    "baseVersion": "1.3.0"
+    "baseVersion": null
   },
   "lazyboards": {
     "enabled": true,

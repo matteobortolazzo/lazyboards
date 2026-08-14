@@ -30,12 +30,6 @@ keymaps:
         }
 
     Refined:
-      D:
-        {
-          name: Design,
-          type: shell,
-          command: "cenci run design {number} --model sonnet --no-sandbox -- {comment}",
-        }
       I:
         {
           name: Implement,
