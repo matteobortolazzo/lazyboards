@@ -14,6 +14,10 @@ type Action struct {
 	URL     string `yaml:"url"`
 	Command string `yaml:"command"`
 	Scope   string `yaml:"scope"`
+	// Terminal marks a shell action that takes over the terminal instead of
+	// having its output buffered and discarded; see config.Action.Terminal
+	// for the full contract these two hand-synced types share.
+	Terminal bool `yaml:"terminal"`
 	// Order is derived metadata, never read from or written to YAML; see
 	// config.Action.Order for why.
 	Order int `yaml:"-"`

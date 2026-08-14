@@ -310,7 +310,7 @@ explicitly.
 
 ## Load-time validation
 
-Ten checks run before a resolved `*keymap.Keymap` is ever handed to the
+Eleven checks run before a resolved `*keymap.Keymap` is ever handed to the
 runtime, in `Load`'s order:
 
 1. **Unknown mode name** — `Keymaps.UnmarshalYAML` (`keymaps.go:143`), via
@@ -373,8 +373,17 @@ runtime, in `Load`'s order:
     `keymaps.normal`, `keymaps.detail`, and every `keymaps.columns.<name>`
     table. An action key that fails to parse is a contextual load error
     (naming the owning table and the raw key), not a silently skipped entry.
+11. **`terminal:` on a non-shell action** — `validateActionValue` (`config.go`,
+    #623): `terminal: true` hands the running command lazyboards' own
+    terminal (dispatched via `tea.ExecProcess` instead of the buffered
+    `runShellCmd`), which only means anything for `type: shell`. Declaring
+    it on a `type: url` action is a load-time error naming the offending
+    key, rather than a silently ignored field. It is deliberately a modifier
+    on the existing `shell` type and not a type of its own, so every
+    `Type == "shell"` gate — above all `trust_strip.go`'s local-shell-sink
+    stripping (see `docs/trust-model.md`) — keeps covering it unchanged.
 
-Checks 1-2 run during YAML unmarshal itself; 3, 4, 5, 9, and 10 run over
+Checks 1-2 run during YAML unmarshal itself; 3, 4, 5, 9, 10, and 11 run over
 `cfg.Keymaps` directly; 6, 7, and 8 run inside `validateKeymap` (`keymap_validate.go:45`),
 which calls `ResolveKeymap` itself so the prefix/alt-shadow checks see
 built-ins and user config together, exactly what a real `Lookup` would see.

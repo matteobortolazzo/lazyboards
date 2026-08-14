@@ -96,6 +96,11 @@ func (b Board) dispatchExpandedAction(act config.Action, vars map[string]string)
 	case "shell":
 		shellVars := action.BuildShellSafeVars(vars)
 		expanded := action.ExpandTemplate(act.Command, shellVars)
+		if act.Terminal {
+			// No "Running..." message: the board is about to be suspended,
+			// and the command's own output is what the user watches instead.
+			return b, runShellTerminalCmd(b.executor, expanded)
+		}
 		cmd := b.statusBar.SetTimedMessage("Running...", StatusInfo, longStatusMessageDuration)
 		return b, tea.Batch(cmd, runShellCmd(b.executor, expanded))
 	}

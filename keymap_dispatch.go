@@ -239,12 +239,13 @@ func (b Board) dispatchBinding(mode keymap.Mode, binding keymap.Binding, alt boo
 // field copy.
 func configActionFromKeymap(a keymap.Action) config.Action {
 	return config.Action{
-		Name:    a.Name,
-		Type:    a.Type,
-		URL:     a.URL,
-		Command: a.Command,
-		Scope:   a.Scope,
-		Order:   a.Order,
+		Name:     a.Name,
+		Type:     a.Type,
+		URL:      a.URL,
+		Command:  a.Command,
+		Scope:    a.Scope,
+		Terminal: a.Terminal,
+		Order:    a.Order,
 	}
 }
 

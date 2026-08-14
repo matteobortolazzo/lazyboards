@@ -29,7 +29,13 @@ tallied and stripped independently by `internal/config/trust_strip.go`'s
 
 `type: url` actions, and keymap bindings to a catalogued built-in command id,
 are never candidates for stripping — only `type: shell` is an executing
-construct. That claim is sound only because `internal/action.OpenURL` is
+construct. This is why `terminal: true` (#623) is a *modifier* on `type:
+shell` rather than a type of its own: a terminal action still executes a
+shell command — a more dangerous one, since it also owns the terminal's
+stdin — so it must be stripped by the same gate, and it is, with no change
+to `stripShellBindings`. Any future "run a command" construct must either
+keep `Type == "shell"` or widen that gate in the same change; a new type
+value that shells out and isn't added here is a silent trust bypass. That claim is sound only because `internal/action.OpenURL` is
 itself a non-shell sink on every platform (see `docs/shell-and-url-safety.md`;
 #576) — if it ever regressed to shelling out, an untrusted `type: url`
 binding would reopen the exact command-injection gap this trust model exists

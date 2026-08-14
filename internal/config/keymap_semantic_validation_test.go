@@ -358,6 +358,65 @@ keymaps:
 	}
 }
 
+// TestLoad_KeymapInlineAction_TerminalOnURLType_ReturnsError pins #623's
+// only new validation rule: terminal: true means "hand this command the
+// terminal", which is meaningless for a type: url action (it opens a
+// browser, it never runs a command). Accepting it silently would leave the
+// user believing a flag applies when nothing reads it.
+func TestLoad_KeymapInlineAction_TerminalOnURLType_ReturnsError(t *testing.T) {
+	yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: Open issue
+      type: url
+      terminal: true
+      url: "https://example.com"
+`
+	_, err := loadConfigFromStrings(t, yamlContent, "")
+	if err == nil {
+		t.Fatal("Load() returned nil error, want error for terminal: true on a type: url action")
+	}
+	if !strings.Contains(err.Error(), "terminal") {
+		t.Errorf("error = %q, want it to name the terminal option", err.Error())
+	}
+	if !strings.Contains(err.Error(), "G") {
+		t.Errorf("error = %q, want it to identify the offending key", err.Error())
+	}
+}
+
+// TestLoad_KeymapInlineAction_TerminalOnShellType_Resolves is the positive
+// control: a terminal: true shell action loads and the flag survives all the
+// way through ResolveKeymap into the resolved keymap.Action the dispatcher
+// consumes (config.Action -> keymap.Action conversion, #623 AC1).
+func TestLoad_KeymapInlineAction_TerminalOnShellType_Resolves(t *testing.T) {
+	yamlContent := `provider: github
+keymaps:
+  normal:
+    G:
+      name: Run tests
+      type: shell
+      scope: board
+      terminal: true
+      command: "go test ./..."
+`
+	cfg, err := loadConfigFromStrings(t, yamlContent, "")
+	if err != nil {
+		t.Fatalf("Load() returned unexpected error: %v", err)
+	}
+	km, err := ResolveKeymap(&cfg)
+	if err != nil {
+		t.Fatalf("ResolveKeymap() returned unexpected error: %v", err)
+	}
+	result := km.Lookup(keymap.ModeNormal, "", keymap.Sequence{keymap.Key("G")})
+	if result.Binding.Kind != keymap.BindingAction {
+		t.Fatalf("Lookup(G) kind = %v, want BindingAction", result.Binding.Kind)
+	}
+	if !result.Binding.Action.Terminal {
+		t.Error("resolved keymap.Action.Terminal = false, want true -- the flag must survive config resolution")
+	}
+}
+
 func TestLoad_KeymapInlineAction_ShellTypeMissingCommand_ReturnsError(t *testing.T) {
 	yamlContent := `provider: github
 keymaps:

@@ -19,6 +19,14 @@ type Action struct {
 	URL     string `yaml:"url"`
 	Command string `yaml:"command"`
 	Scope   string `yaml:"scope"`
+	// Terminal, on a type: shell action, hands the real terminal to the
+	// command instead of buffering its output away: the board suspends, the
+	// command runs in the foreground with the terminal's own
+	// stdin/stdout/stderr, and the board is restored when it exits (#623).
+	// It is a modifier on the existing shell type rather than a type of its
+	// own so every Type == "shell" gate -- above all the trust model's
+	// local-shell-sink stripping in trust_strip.go -- keeps covering it.
+	Terminal bool `yaml:"terminal"`
 	// Order is derived metadata reflecting the action's position in its
 	// source YAML file (see stampOrderAndRejectLegacy). It is never read
 	// from or written to the YAML file itself, so it can't be hand-set by a
@@ -707,6 +715,12 @@ func validateActionValue(key string, action *Action) error {
 	// Command required for shell type.
 	if action.Type == "shell" && strings.TrimSpace(action.Command) == "" {
 		return fmt.Errorf("action %q: command is required when type is \"shell\"", key)
+	}
+	// terminal: only means something for a command that runs in a terminal.
+	// Rejecting it on type: url rather than ignoring it keeps a user from
+	// believing a flag applies when nothing reads it.
+	if action.Terminal && action.Type != "shell" {
+		return fmt.Errorf("action %q: terminal is only valid when type is \"shell\"", key)
 	}
 	// Default empty scope: infer "board" when the template has no
 	// ticket-specific placeholders, otherwise "card" (today's default).

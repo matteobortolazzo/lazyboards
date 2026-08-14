@@ -282,6 +282,35 @@ func runShellCmd(executor action.Executor, command string) tea.Cmd {
 	}
 }
 
+// runShellTerminalCmd returns a tea.Cmd that runs a terminal: true shell
+// action (#623): BubbleTea releases the terminal, the command runs in the
+// foreground owning stdin/stdout/stderr -- so a test run, dev server, or
+// device run can actually be watched -- and the board is restored when it
+// exits. Unlike runShellCmd, nothing is captured here: the output already
+// reached the user's terminal, so only the outcome comes back.
+//
+// The *exec.Cmd is built eagerly (tea.ExecProcess needs it up front) but not
+// started; only BubbleTea's runtime runs it, when it processes the message
+// this tea.Cmd yields.
+func runShellTerminalCmd(executor action.Executor, command string) tea.Cmd {
+	return tea.ExecProcess(executor.ShellCommand(command), terminalActionResult)
+}
+
+// terminalActionResult maps a finished terminal action's exit error onto the
+// same actionResultMsg a buffered shell action reports, so both paths share
+// update.go's status-bar and git-status-refresh handling. err's text is
+// untrusted (it can carry whatever the spawned process produced), so it is
+// flattened and bounded exactly like runShellCmd's.
+func terminalActionResult(err error) tea.Msg {
+	if err != nil {
+		return actionResultMsg{
+			success: false,
+			message: "Error: " + truncateCell(sanitizeSingleLine(err.Error()), maxErrorOutputLen),
+		}
+	}
+	return actionResultMsg{success: true, message: "Done"}
+}
+
 // saveConfigCmd returns a tea.Cmd that saves the config file. trustPath, if
 // non-empty, is passed through to config.Save so a pre-write-trusted config
 // carries that trust forward onto the post-write hash (#568).
