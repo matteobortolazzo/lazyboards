@@ -1407,7 +1407,7 @@ func TestCardStatusLines_AgentOnly_SkipsIdleRendersRunning(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (one running agent window, no linked PRs); got %v", len(lines), lines)
 	}
@@ -1431,7 +1431,7 @@ func TestCardStatusLines_IdleWindow_SkippedEntirely(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 0 {
 		t.Errorf("cardStatusLines() = %v, want no lines for an idle-only agent window", lines)
 	}
@@ -1454,7 +1454,7 @@ func TestCardStatusLines_MultipleAgentWindows_OneLineEach(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2 (one per non-idle window); got %v", len(lines), lines)
 	}
@@ -1480,7 +1480,7 @@ func TestCardStatusLines_PROnly_ShowsNumberAndStatus(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (one linked PR, no agent windows); got %v", len(lines), lines)
 	}
@@ -1504,7 +1504,7 @@ func TestCardStatusLines_MultiplePRs_EachShowsOwnStatus_NotWorst(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2 (one per linked PR); got %v", len(lines), lines)
 	}
@@ -1535,7 +1535,7 @@ func TestCardStatusLines_AgentThenPR_AgentLinesBeforePRLines(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2 (1 agent + 1 PR); got %v", len(lines), lines)
 	}
@@ -1558,7 +1558,7 @@ func TestCardStatusLines_NoAgentNoPR_ReturnsNoLines(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 0 {
 		t.Errorf("cardStatusLines() = %v, want no lines for a card with no agent windows and no linked PRs", lines)
 	}
@@ -1587,7 +1587,7 @@ func TestCardStatusLines_Indentation_MatchesGivenIndentWidth(t *testing.T) {
 		t.Fatalf("test setup: indentWidth = %d, want 4 for card #42", indentWidth)
 	}
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2; got %v", len(lines), lines)
 	}
@@ -1626,7 +1626,7 @@ func TestCardStatusLines_UnstablePR_ShowsDotGlyphNotExclamation(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1; got %v", len(lines), lines)
 	}
@@ -1658,7 +1658,7 @@ func TestCardStatusLines_PRLine_PrefixedWithPurpleLinkedPRGlyph(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1; got %v", len(lines), lines)
 	}
@@ -1685,7 +1685,7 @@ func TestCardStatusLines_UnknownPRLine_StillGetsPurpleGlyphPrefix(t *testing.T) 
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1; got %v", len(lines), lines)
 	}
@@ -1738,7 +1738,7 @@ func TestCardStatusLines_ParentOnly_ShowsGlyphAndSubIssueCount(t *testing.T) {
 	card := Card{Number: 1, Title: "Parent issue", SubIssueCount: 3, SubIssueCompleted: 2}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (parent-only card); got %v", len(lines), lines)
 	}
@@ -1761,7 +1761,7 @@ func TestCardStatusLines_ParentOnly_FullyComplete(t *testing.T) {
 	card := Card{Number: 8, Title: "Fully complete parent", SubIssueCount: 3, SubIssueCompleted: 3}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (parent-only card); got %v", len(lines), lines)
 	}
@@ -1783,7 +1783,7 @@ func TestCardStatusLines_ParentOnly_ZeroCompleted(t *testing.T) {
 	card := Card{Number: 9, Title: "Zero completed parent", SubIssueCount: 3, SubIssueCompleted: 0}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (parent-only card); got %v", len(lines), lines)
 	}
@@ -1805,7 +1805,7 @@ func TestCardStatusLines_ChildOnly_ShowsGlyphAndParentNumber(t *testing.T) {
 	card := Card{Number: 2, Title: "Child issue", ParentNumber: 12}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 1 {
 		t.Fatalf("cardStatusLines() = %d lines, want 1 (child-only card); got %v", len(lines), lines)
 	}
@@ -1827,7 +1827,7 @@ func TestCardStatusLines_ParentAndChild_ShowsBothLinesParentFirst(t *testing.T) 
 	card := Card{Number: 3, Title: "Both parent and child", ParentNumber: 12, SubIssueCount: 2, SubIssueCompleted: 1}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 2 {
 		t.Fatalf("cardStatusLines() = %d lines, want 2 (card is both parent and child); got %v", len(lines), lines)
 	}
@@ -1848,7 +1848,7 @@ func TestCardStatusLines_NoParentNoChild_ReturnsNoSubIssueLines(t *testing.T) {
 	card := Card{Number: 4, Title: "Plain issue"}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 0 {
 		t.Errorf("cardStatusLines() = %v, want no lines for a card with no parent and no sub-issues", lines)
 	}
@@ -1881,7 +1881,7 @@ func TestCardStatusLines_SubIssueLinesPrecedeAgentAndPRLines(t *testing.T) {
 	}
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 	if len(lines) != 4 {
 		t.Fatalf("cardStatusLines() = %d lines, want 4 (parent + child + agent + PR); got %v", len(lines), lines)
 	}
@@ -2149,7 +2149,7 @@ func TestCardStatusLines_AgentAndPRGlyphsKeepStatusColor(t *testing.T) {
 	card := b.Columns[0].Cards[0]
 	indentWidth := cardTitlePrefixWidth(card)
 
-	lines := b.cardStatusLines(card, indentWidth)
+	lines := b.cardStatusLines(card, indentWidth, 80)
 
 	coloredAgentBadge := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
 	coloredPRGlyph := prStatusPrefix("mergeable")

@@ -646,15 +646,131 @@ const subIssueParentGlyph = "\U000F0645"
 // direction reads as "this points to its parent" at a glance.
 const subIssueChildGlyph = "\U000F17AB"
 
+// blockedByGlyph marks a card that is blocked by at least one open issue,
+// followed by up to 3 named "#N"/"owner/repo#N" blockers and a "+N"
+// remainder -- e.g. "󰂭 #1 #2 #3 +2" (#631, PR 1/2).
+const blockedByGlyph = "\U000F00AD"
+
+// openBlockers filters card's Blockers to the open ones, preserving
+// GitHub's returned order. State is compared case-insensitively against
+// "OPEN" (provider.go documents the enum string carried verbatim).
+func openBlockers(card Card) []Blocker {
+	var open []Blocker
+	for _, blocker := range card.Blockers {
+		if strings.EqualFold(blocker.State, "OPEN") {
+			open = append(open, blocker)
+		}
+	}
+	return open
+}
+
+// blockerLabel renders a single blocker as a bare "#N" when it belongs to
+// the board's own configured repo, or "owner/repo#N" when it is
+// cross-repo. It defaults to the same-repo bare form whenever the board's
+// own repo is unknown (empty repoOwner/repoName -- an unconfigured/test-only
+// state) or the blocker carries no RepoNameWithOwner. The comparison is
+// case-insensitive (GitHub repo slugs are case-insensitive). A hostile
+// RepoNameWithOwner is routed through sanitizeSingleLine before being
+// composed into the label.
+func (b Board) blockerLabel(blocker Blocker) string {
+	suffix := fmt.Sprintf("#%d", blocker.Number)
+	if b.repoOwner == "" || b.repoName == "" || blocker.RepoNameWithOwner == "" {
+		return suffix
+	}
+	if strings.EqualFold(blocker.RepoNameWithOwner, b.repoOwner+"/"+b.repoName) {
+		return suffix
+	}
+	return sanitizeSingleLine(blocker.RepoNameWithOwner) + suffix
+}
+
+// composeBlockedLine joins the blocked-by glyph, each named blocker's label
+// (in order, via blockerLabel), and a "+N" remainder when non-zero, into a
+// single plain (unstyled) string. named=nil composes the degenerate k=0
+// form ("<glyph> +N").
+func (b Board) composeBlockedLine(named []Blocker, remainder int) string {
+	parts := make([]string, 0, len(named)+2)
+	parts = append(parts, blockedByGlyph)
+	for _, blocker := range named {
+		parts = append(parts, b.blockerLabel(blocker))
+	}
+	if remainder > 0 {
+		parts = append(parts, fmt.Sprintf("+%d", remainder))
+	}
+	return strings.Join(parts, " ")
+}
+
+// blockedByLine returns the fully rendered (indented + styled) blocked-by
+// status row for card, or "" when card has no open blockers
+// (BlockedByCount <= 0 -- the summary's open count is the display
+// authority, per AC1; a non-positive count, whether zero or a
+// malformed/negative value from a hostile or buggy GraphQL-compatible
+// host, renders no line). It is fitted to contentWidth-indentWidth via a
+// descending-fit loop: starting from up to 3 named open blockers, it drops
+// one name at a time (rolling it into the "+N" remainder) until the line
+// fits the budget, degrading to "<glyph> +N" (bounded by construction) when
+// nothing else fits -- that degenerate form is itself truncated via
+// truncateCell so it can never exceed budget either, since it is otherwise
+// unbounded by N's digit count. A non-positive budget (including
+// contentWidth == 0, the pre-WindowSizeMsg state, or an indent that alone
+// consumes the width) skips the fit loop entirely and falls straight to the
+// bounded degenerate form -- never the unbounded up-to-3-named form, which
+// could carry arbitrarily long untrusted owner/repo#N labels with no width
+// bound at all. Fitting changes line content only, never line count -- the
+// line always occupies exactly one physical row.
+func (b Board) blockedByLine(card Card, indentWidth, contentWidth int) string {
+	if card.BlockedByCount <= 0 {
+		return ""
+	}
+	open := openBlockers(card)
+	named := len(open)
+	if named > 3 {
+		named = 3
+	}
+	if named > card.BlockedByCount {
+		named = card.BlockedByCount
+	}
+	if named < 0 {
+		// Defense in depth: the BlockedByCount <= 0 gate above already
+		// makes this unreachable, but never let a malformed/negative count
+		// drive a negative slice index into open[:named].
+		named = 0
+	}
+	indent := strings.Repeat(" ", indentWidth)
+	render := func(content string) string {
+		return indent + prBlockedStyle.Render(content)
+	}
+	remainderFor := func(k int) int {
+		remainder := card.BlockedByCount - k
+		if remainder < 0 {
+			remainder = 0
+		}
+		return remainder
+	}
+
+	budget := contentWidth - indentWidth
+	if budget <= 0 {
+		return render(truncateCell(b.composeBlockedLine(nil, card.BlockedByCount), budget))
+	}
+	for k := named; k > 0; k-- {
+		content := b.composeBlockedLine(open[:k], remainderFor(k))
+		if lipgloss.Width(content) <= budget {
+			return render(content)
+		}
+	}
+	return render(truncateCell(b.composeBlockedLine(nil, card.BlockedByCount), budget))
+}
+
 // cardStatusLines returns the status lines rendered under a card's title:
-// sub-issue relationship lines first (parent line, then child line -- #460,
-// structural context takes precedence per CLAUDE.md's state-struct
-// precedence rule), then one line per non-idle agent window joined to the
-// card (agent lines), then one line per linked PR (PR lines last), each
-// prefixed with indentWidth spaces to align under the title text -- the same
-// continuation indent wrapTitle uses for the "#N " prefix. Idle/badge-less
-// agent windows and a card with neither sub-issue relationship are skipped
-// entirely (no line, no vertical cost).
+// the blocked-by line first (#631, PR 1/2 -- width-fitted, see
+// blockedByLine), then sub-issue relationship lines (parent line, then
+// child line -- #460, structural context takes precedence per CLAUDE.md's
+// state-struct precedence rule), then one line per non-idle agent window
+// joined to the card (agent lines), then one line per linked PR (PR lines
+// last), each prefixed with indentWidth spaces to align under the title
+// text -- the same continuation indent wrapTitle uses for the "#N " prefix.
+// Idle/badge-less agent windows and a card with neither sub-issue
+// relationship nor open blockers are skipped entirely (no line, no
+// vertical cost).
 //
 // Status lines keep their own colors on every card, focused or not
 // (#493): agent badges and PR glyphs are what make "this
@@ -662,9 +778,14 @@ const subIssueChildGlyph = "\U000F17AB"
 // board, so they are deliberately exempt from the non-selected muting
 // convention that grays plain row text (see selectedRowStyle). Sub-issue
 // lines render in their own muted gray on every card, as they always have.
-func (b Board) cardStatusLines(card Card, indentWidth int) []string {
+// The blocked-by line is likewise exempt, keeping its hue-215 warning color
+// on every card regardless of focus.
+func (b Board) cardStatusLines(card Card, indentWidth, contentWidth int) []string {
 	indent := strings.Repeat(" ", indentWidth)
 	var lines []string
+	if line := b.blockedByLine(card, indentWidth, contentWidth); line != "" {
+		lines = append(lines, line)
+	}
 	if card.SubIssueCount > 0 {
 		lines = append(lines, indent+subIssueStyle.Render(fmt.Sprintf("%s %d/%d", subIssueParentGlyph, card.SubIssueCompleted, card.SubIssueCount)))
 	}
@@ -693,7 +814,7 @@ func (b Board) cardStatusLines(card Card, indentWidth int) []string {
 // card's rendered height.
 func (b Board) cardLineCount(card Card, contentWidth int, columnNames []string) int {
 	text, prefixLen := cardDisplayText(card, columnNames, b.workingLabel)
-	return len(wrapTitle(text, contentWidth, prefixLen)) + len(b.cardStatusLines(card, prefixLen))
+	return len(wrapTitle(text, contentWidth, prefixLen)) + len(b.cardStatusLines(card, prefixLen, contentWidth))
 }
 
 func (b *Board) clampScrollOffset() {
@@ -880,7 +1001,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 			prefix := fmt.Sprintf("#%d ", card.Number)
 			lines[0] = strings.Replace(lines[0], prefix, cardNumberStyle.Render(prefix), 1)
 		}
-		lines = append(lines, b.cardStatusLines(card, prefixLen)...)
+		lines = append(lines, b.cardStatusLines(card, prefixLen, contentWidth)...)
 		allCards = append(allCards, wrappedCard{lines: lines, selected: j == col.Cursor})
 	}
 
