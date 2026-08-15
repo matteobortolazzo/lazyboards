@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -583,5 +585,229 @@ func TestRefIssueURL_NoValidURLReturnsNotOK(t *testing.T) {
 				t.Errorf("refIssueURL(%q, 458) url = %q, want empty", tc.cardURL, got)
 			}
 		})
+	}
+}
+
+// --- Blocker-derived references (#632) ---
+//
+// #632 extends the g r reference source from "body #N refs" to "body refs +
+// the card's open blockers", with a cross-repo blocker carrying its own
+// explicit URL so resolveReference opens it directly instead of colliding
+// with a same-numbered card on this board.
+
+func TestReferenceNav_BlockersOnlyCardEntersPendingState(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{
+			{
+				Number: 1, Title: "Source", Body: "",
+				URL: "https://github.com/matteobortolazzo/lazyboards/issues/1",
+				Blockers: []provider.Blocker{
+					{Number: 42, State: "OPEN", RepoNameWithOwner: "matteobortolazzo/lazyboards", URL: "https://github.com/matteobortolazzo/lazyboards/issues/42"},
+				},
+			},
+		}},
+	}
+	b, _ := newActionTestBoardWithColumns(t, nil, columns)
+
+	b = sendKeys(t, b, "g", "r")
+
+	if len(b.pendingRefs) != 1 {
+		t.Fatalf("pendingRefs = %+v, want 1 entry -- a card whose only references are open blockers must enter reference-navigation, not fall into the \"No references\" no-op path (AC2)", b.pendingRefs)
+	}
+	if b.pendingRefs[0].Number != 42 || b.pendingRefs[0].Label != 'a' {
+		t.Errorf("pendingRefs[0] = %+v, want {Number: 42, Label: 'a'}", b.pendingRefs[0])
+	}
+	if b.statusBar.message == "No references" {
+		t.Error("status message = \"No references\", want the pending-state hints instead (AC2)")
+	}
+}
+
+func TestReferenceNav_HintsIncludeCrossRepoBlockerLabelForm(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{
+			{
+				Number: 1, Title: "Source", Body: "See #2",
+				URL: "https://github.com/matteobortolazzo/lazyboards/issues/1",
+				Blockers: []provider.Blocker{
+					{Number: 200, State: "OPEN", RepoNameWithOwner: "other/repo", URL: "https://github.com/other/repo/issues/200"},
+				},
+			},
+			{Number: 2, Title: "Target"},
+		}},
+	}
+	b, _ := newActionTestBoardWithColumns(t, nil, columns)
+
+	b = sendKeys(t, b, "g", "r")
+
+	wantHints := []Hint{
+		{Key: "a", Desc: "#2"},
+		{Key: "b", Desc: "other/repo#200"},
+		{Key: "esc", Desc: "cancel"},
+	}
+	if !reflect.DeepEqual(b.statusBar.hints, wantHints) {
+		t.Errorf("hints = %v, want %v", b.statusBar.hints, wantHints)
+	}
+}
+
+func TestReferenceNav_SameRepoBlockerOnBoardJumpsViaFindCard(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{
+			{
+				Number: 1, Title: "Source", Body: "",
+				URL: "https://github.com/matteobortolazzo/lazyboards/issues/1",
+				Blockers: []provider.Blocker{
+					{Number: 2, State: "OPEN", RepoNameWithOwner: "matteobortolazzo/lazyboards", URL: "https://github.com/matteobortolazzo/lazyboards/issues/2"},
+				},
+			},
+		}},
+		{Title: "Column B", Cards: []provider.Card{
+			{Number: 2, Title: "Target"},
+		}},
+	}
+	b, fe := newActionTestBoardWithColumns(t, nil, columns)
+
+	b = sendKeys(t, b, "g", "r")
+	b = sendKey(t, b, keyMsg("a"))
+
+	if b.ActiveTab != 1 {
+		t.Fatalf("ActiveTab = %d, want 1 (Column B, where the same-repo blocker #2 lives on the board)", b.ActiveTab)
+	}
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("cursor = %d, want 0", got)
+	}
+	if len(fe.OpenURLCalls) != 0 {
+		t.Errorf("OpenURL calls = %d, want 0 -- a same-repo on-board blocker must jump via findCard, not open a URL", len(fe.OpenURLCalls))
+	}
+}
+
+// TestReferenceNav_CrossRepoBlockerCollidingNumberOpensForeignURLNotOnBoardJump
+// is the highest-value risk in #632's plan (AC3): a cross-repo blocker whose
+// issue number collides with a real on-board card must open the blocker's
+// own foreign URL and must NOT jump to (or otherwise change ActiveTab/cursor
+// toward) the same-numbered on-board card. The blocker's number (2) is
+// deliberately chosen to match a real card on the board (Column B, #2) --
+// this test would still pass with a non-colliding number even if
+// resolveReference's findCard shortcut incorrectly fired first, since
+// findCard would simply miss. It is the collision that makes this test able
+// to fail when the URL-first branch is missing.
+func TestReferenceNav_CrossRepoBlockerCollidingNumberOpensForeignURLNotOnBoardJump(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{
+			{
+				Number: 1, Title: "Source", Body: "",
+				URL: "https://github.com/matteobortolazzo/lazyboards/issues/1",
+				Blockers: []provider.Blocker{
+					{Number: 2, State: "OPEN", RepoNameWithOwner: "other/repo", URL: "https://github.com/other/repo/issues/2"},
+				},
+			},
+		}},
+		{Title: "Column B", Cards: []provider.Card{
+			{Number: 2, Title: "Colliding on-board card"},
+		}},
+	}
+	b, fe := newActionTestBoardWithColumns(t, nil, columns)
+	activeTabBefore := b.ActiveTab
+	cursorBefore := b.Columns[b.ActiveTab].Cursor
+
+	b = sendKeys(t, b, "g", "r")
+	b = sendKey(t, b, keyMsg("a"))
+
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL calls = %d, want 1 -- a cross-repo blocker must open its own URL", len(fe.OpenURLCalls))
+	}
+	wantURL := "https://github.com/other/repo/issues/2"
+	if fe.OpenURLCalls[0] != wantURL {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], wantURL)
+	}
+	if b.ActiveTab != activeTabBefore {
+		t.Errorf("ActiveTab = %d after selecting a cross-repo blocker with a colliding number, want unchanged %d -- must not jump to the same-numbered on-board card", b.ActiveTab, activeTabBefore)
+	}
+	if got := b.Columns[activeTabBefore].Cursor; got != cursorBefore {
+		t.Errorf("cursor = %d after selecting a cross-repo blocker with a colliding number, want unchanged %d", got, cursorBefore)
+	}
+}
+
+func TestReferenceNav_CrossRepoBlockerOpenURLErrorSurfacesAsStatusError(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{
+			{
+				Number: 1, Title: "Source", Body: "",
+				URL: "https://github.com/matteobortolazzo/lazyboards/issues/1",
+				Blockers: []provider.Blocker{
+					{Number: 5, State: "OPEN", RepoNameWithOwner: "other/repo", URL: "https://github.com/other/repo/issues/5"},
+				},
+			},
+		}},
+	}
+	b, fe := newActionTestBoardWithColumns(t, nil, columns)
+	fe.OpenURLErr = errors.New("no browser configured")
+
+	b = sendKeys(t, b, "g", "r")
+	b = sendKey(t, b, keyMsg("a"))
+
+	if b.statusBar.level != StatusError {
+		t.Errorf("status level = %v, want StatusError", b.statusBar.level)
+	}
+	if b.statusBar.message == "" {
+		t.Error("expected an error status message after a failed cross-repo OpenURL, got none")
+	}
+}
+
+func TestReferenceNav_HostileRepoNameWithOwnerFlattensInHint(t *testing.T) {
+	hostile := "evil/repo\n\x1b[31mRED\x1b[0m" + string(rune(0x202E)) + "hack"
+	columns := []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{
+			{
+				Number: 1, Title: "Source", Body: "",
+				URL: "https://github.com/matteobortolazzo/lazyboards/issues/1",
+				Blockers: []provider.Blocker{
+					{Number: 9, State: "OPEN", RepoNameWithOwner: hostile, URL: "https://github.com/evil/repo/issues/9"},
+				},
+			},
+		}},
+	}
+	b, _ := newActionTestBoardWithColumns(t, nil, columns)
+
+	b = sendKeys(t, b, "g", "r")
+
+	if len(b.statusBar.hints) == 0 {
+		t.Fatalf("hints = %v, want at least one hint for the blocker", b.statusBar.hints)
+	}
+	hintDesc := b.statusBar.hints[0].Desc
+	if strings.Contains(hintDesc, "\n") {
+		t.Errorf("hint Desc = %q, contains a raw newline -- a hostile RepoNameWithOwner must be flattened via sanitizeSingleLine", hintDesc)
+	}
+	if strings.Contains(hintDesc, "\x1b") {
+		t.Errorf("hint Desc = %q, contains a raw ANSI escape byte", hintDesc)
+	}
+	if strings.ContainsRune(hintDesc, rune(0x202E)) {
+		t.Errorf("hint Desc = %q, contains a raw bidi-override rune", hintDesc)
+	}
+	if !strings.HasSuffix(hintDesc, "#9") {
+		t.Errorf("hint Desc = %q, want it to end with %q", hintDesc, "#9")
+	}
+}
+
+func TestReferenceNav_UnknownOwnRepoBoardTakesForeignPath(t *testing.T) {
+	fe := &action.FakeExecutor{}
+	cards := []provider.Card{
+		{
+			Number: 1, Title: "Source", Body: "",
+			URL: "https://github.com/owner/repo/issues/1",
+			Blockers: []provider.Blocker{
+				{Number: 5, State: "OPEN", RepoNameWithOwner: "owner/repo", URL: "https://github.com/owner/repo/issues/5"},
+			},
+		},
+	}
+	b := newBoardWithInlineCardsAndExecutor(t, cards, fe)
+
+	b = sendKeys(t, b, "g", "r")
+	sendKey(t, b, keyMsg("a"))
+
+	if len(fe.OpenURLCalls) != 1 {
+		t.Fatalf("OpenURL calls = %d, want 1 -- an unconfigured board's own repo slug is unknown, so a blocker with a non-empty RepoNameWithOwner must fail safe to foreign", len(fe.OpenURLCalls))
+	}
+	if fe.OpenURLCalls[0] != "https://github.com/owner/repo/issues/5" {
+		t.Errorf("OpenURL called with %q, want %q", fe.OpenURLCalls[0], "https://github.com/owner/repo/issues/5")
 	}
 }
