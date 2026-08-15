@@ -802,7 +802,7 @@ func TestReferenceNav_UnknownOwnRepoBoardTakesForeignPath(t *testing.T) {
 	b := newBoardWithInlineCardsAndExecutor(t, cards, fe)
 
 	b = sendKeys(t, b, "g", "r")
-	b = sendKey(t, b, keyMsg("a"))
+	sendKey(t, b, keyMsg("a"))
 
 	if len(fe.OpenURLCalls) != 1 {
 		t.Fatalf("OpenURL calls = %d, want 1 -- an unconfigured board's own repo slug is unknown, so a blocker with a non-empty RepoNameWithOwner must fail safe to foreign", len(fe.OpenURLCalls))
