@@ -614,7 +614,7 @@ config and want the old keys back.
 | `e` | `card.edit` | Edit card |
 | `c` | `app.config` | Configuration |
 | `o` | `card.open_ticket` | Open ticket |
-| `g r` | `nav.reference` | Go to referenced issue |
+| `g r` | `nav.reference` | Go to referenced issue (offers the card's `#N` body references plus its open blockers; a cross-repo blocker opens its own URL instead of jumping) |
 | `r` | `board.refresh` | Refresh board |
 | `p` | `card.open_pr` | Open PR |
 | `x` | `card.close` | Close card (with confirmation) |
@@ -654,7 +654,7 @@ Mode](#normal-mode).
 | `shift+tab` | `nav.column_prev` | Previous column |
 | `1`-`9` | `nav.column_1` … `nav.column_9` | Jump to column |
 | `o` | `card.open_ticket` | Open ticket |
-| `g r` | `nav.reference` | Go to referenced issue |
+| `g r` | `nav.reference` | Go to referenced issue (offers the card's `#N` body references plus its open blockers; a cross-repo blocker opens its own URL instead of jumping) |
 | `p` | `card.open_pr` | Open PR |
 | `r` | `board.refresh` | Refresh |
 | `q` | `app.quit` | Quit |

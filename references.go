@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -14,10 +15,15 @@ import (
 const maxRefDigits = 10
 
 // cardRef is a distinct #N reference found in a card body, assigned a
-// stable single-letter label ('a'-'z') in first-appearance order.
+// stable single-letter label ('a'-'z') in first-appearance order. Body refs
+// leave URL and Repo empty. A blocker-derived ref carries them only when the
+// blocker is cross-repo: a non-empty URL means an explicit foreign target
+// that resolveReference must open directly, bypassing findCard entirely.
 type cardRef struct {
 	Number int
 	Label  rune
+	URL    string
+	Repo   string
 }
 
 // refMatch is an internal record of a validated #N match: end is the byte
@@ -169,6 +175,123 @@ func refIssueURL(cardURL string, number int) (string, bool) {
 	return trailingNumberPattern.ReplaceAllString(cardURL, strconv.Itoa(number)), true
 }
 
+// cardReferences returns card's full set of g r reference-navigation
+// targets: the #N references parsed from its body, followed by refs derived
+// from its open blockers (see appendBlockerRefs). This is the single source
+// handleReferenceNavKey consumes; annotateBodyRefs deliberately keeps
+// calling parseCardRefs directly so blocker labels never leak into rendered
+// body text.
+func (b Board) cardReferences(card Card) []cardRef {
+	refs := parseCardRefs(card.Body)
+	ownRepo := ""
+	if b.repoOwner != "" && b.repoName != "" {
+		ownRepo = b.repoOwner + "/" + b.repoName
+	}
+	return appendBlockerRefs(refs, card.Blockers, ownRepo)
+}
+
+// appendBlockerRefs appends card's open blockers to refs (already-parsed
+// body refs) as additional reference-navigation targets: closed blockers are
+// excluded, a same-repo blocker already present in refs (by number) is
+// deduped, foreign blockers dedup among themselves by URL (not number, since
+// the same number in two different repos is a distinct target), and a
+// foreign blocker with no URL is omitted entirely (unreachable target).
+// Labels continue from the last existing ref's label + 1, and the 26-label
+// cap is enforced by omitting any ref beyond it entirely -- never truncating
+// onto 'z' (parseCardRefs' contract).
+func appendBlockerRefs(refs []cardRef, blockers []Blocker, ownRepo string) []cardRef {
+	seenNumbers := make(map[int]bool, len(refs))
+	for _, r := range refs {
+		seenNumbers[r.Number] = true
+	}
+	seenForeignURLs := make(map[string]bool)
+
+	nextLabel := rune('a')
+	if len(refs) > 0 {
+		nextLabel = refs[len(refs)-1].Label + 1
+	}
+
+	for _, bl := range blockers {
+		if !strings.EqualFold(bl.State, "OPEN") {
+			continue
+		}
+
+		url, repo := blockerRefTarget(bl, ownRepo)
+		if repo == "" {
+			// Same-repo target: dedup by number against body refs and
+			// already-appended same-repo blockers.
+			if seenNumbers[bl.Number] {
+				continue
+			}
+		} else {
+			// Foreign target: an empty URL is unreachable and must be
+			// omitted entirely; otherwise dedup among foreign blockers by
+			// URL (the same number in a different repo is a distinct
+			// target).
+			if url == "" {
+				continue
+			}
+			if seenForeignURLs[url] {
+				continue
+			}
+		}
+
+		if nextLabel > 'z' {
+			break
+		}
+
+		if repo == "" {
+			seenNumbers[bl.Number] = true
+		} else {
+			seenForeignURLs[url] = true
+		}
+
+		refs = append(refs, cardRef{Number: bl.Number, Label: nextLabel, URL: url, Repo: repo})
+		nextLabel++
+	}
+
+	return refs
+}
+
+// blockerRefTarget classifies a single blocker as same-repo (returns empty
+// url/repo, so resolveReference's findCard shortcut still fires) or foreign
+// (returns bl.URL/bl.RepoNameWithOwner). The comparison is EqualFold against
+// ownRepo. When ownRepo is empty (the board's own repo slug is unknown), any
+// blocker with a non-empty RepoNameWithOwner fails safe to foreign --
+// opening its own URL is never wrong, only less convenient, while a mistaken
+// jump could silently land on the wrong ticket. A blocker with an empty
+// RepoNameWithOwner AND an empty URL (a non-GitHub provider genuinely
+// carrying neither) is always treated as same-repo, even when ownRepo is
+// unknown, since there is no repo/URL to fail safe toward. A blocker with an
+// empty RepoNameWithOwner but a non-empty URL (e.g. a GraphQL response whose
+// repository field came back null due to a permission/field-level error
+// while url still resolved) fails safe to that explicit URL with repo left
+// empty -- resolveReference's ref.URL != "" check still bypasses
+// findCard/refIssueURL and opens the correct URL directly, while
+// refLabelText renders a bare "#N" since the repo slug is genuinely
+// unknown.
+func blockerRefTarget(bl Blocker, ownRepo string) (url, repo string) {
+	if bl.RepoNameWithOwner == "" {
+		return bl.URL, ""
+	}
+	if ownRepo != "" && strings.EqualFold(bl.RepoNameWithOwner, ownRepo) {
+		return "", ""
+	}
+	return bl.URL, bl.RepoNameWithOwner
+}
+
+// refLabelText renders the which-key hint label / success-message text for
+// a cardRef: a bare "#N" for a same-repo (body or on-board blocker) ref, or
+// "owner/repo#N" for a foreign blocker ref. This is the single sanitization
+// choke point for Repo, an untrusted API-sourced value -- both refHints and
+// the "Opened ..." success message route through it.
+func refLabelText(r cardRef) string {
+	if r.Repo == "" {
+		return fmt.Sprintf("#%d", r.Number)
+	}
+	return sanitizeSingleLine(r.Repo) + fmt.Sprintf("#%d", r.Number)
+}
+
 // refHints builds the which-key hint bar for a pending reference-navigation
 // prompt: one hint per reference label, plus a trailing "esc: cancel" hint.
 // The trailing "esc" hint is an intentional hard-wired exception (#583
@@ -178,7 +301,7 @@ func refIssueURL(cardURL string, number int) (string, bool) {
 func refHints(refs []cardRef) []Hint {
 	hints := make([]Hint, 0, len(refs)+1)
 	for _, r := range refs {
-		hints = append(hints, Hint{Key: string(r.Label), Desc: fmt.Sprintf("#%d", r.Number)})
+		hints = append(hints, Hint{Key: string(r.Label), Desc: refLabelText(r)})
 	}
 	hints = append(hints, Hint{Key: "esc", Desc: "cancel"})
 	return hints
@@ -190,16 +313,17 @@ func (b *Board) clearPendingRefs() {
 }
 
 // handleReferenceNavKey is the shared nav.reference (default "g r") trigger
-// for normal mode and detail-focused mode: it parses the selected card's
-// body for #N references and, if any exist, enters the pending
-// reference-navigation state with one which-key hint per reference. A card
-// with no references is a no-op with a status message.
+// for normal mode and detail-focused mode: it collects the selected card's
+// references (body #N refs plus its open blockers, see cardReferences) and,
+// if any exist, enters the pending reference-navigation state with one
+// which-key hint per reference. A card with no references is a no-op with a
+// status message.
 func (b Board) handleReferenceNavKey() (tea.Model, tea.Cmd) {
 	if len(b.Columns) == 0 || len(b.visibleCards()) == 0 {
 		return b, nil
 	}
 	card := b.selectedCard()
-	refs := parseCardRefs(card.Body)
+	refs := b.cardReferences(card)
 	if len(refs) == 0 {
 		cmd := b.statusBar.SetTimedMessage("No references", StatusWarning, statusMessageDuration)
 		return b, cmd
@@ -228,11 +352,11 @@ func (b Board) handlePendingRefKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	label := msg.Runes[0]
-	number := 0
+	var matched cardRef
 	found := false
 	for _, r := range b.pendingRefs {
 		if r.Label == label {
-			number = r.Number
+			matched = r
 			found = true
 			break
 		}
@@ -243,16 +367,23 @@ func (b Board) handlePendingRefKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := b.statusBar.SetTimedMessage("No reference bound to "+string(label), StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
-	return b.resolveReference(number)
+	return b.resolveReference(matched)
 }
 
-// resolveReference jumps to the referenced card if it's on the board
-// (findCard), or opens its constructed same-repo URL otherwise.
-func (b Board) resolveReference(number int) (tea.Model, tea.Cmd) {
-	if colIdx, cardIdx, ok := b.findCard(number); ok {
+// resolveReference resolves a selected reference: a ref carrying an
+// explicit foreign URL (a cross-repo blocker) is opened directly, bypassing
+// findCard/refIssueURL entirely -- refIssueURL's trailing-digit substitution
+// derives a same-repo URL and would silently resolve a cross-repo blocker to
+// the wrong issue if reached. Otherwise, it jumps to the referenced card if
+// it's on the board (findCard), or opens its constructed same-repo URL.
+func (b Board) resolveReference(ref cardRef) (tea.Model, tea.Cmd) {
+	if ref.URL != "" {
+		return b.openReferenceTarget(ref, ref.URL)
+	}
+	if colIdx, cardIdx, ok := b.findCard(ref.Number); ok {
 		return b.jumpToReferencedCard(colIdx, cardIdx)
 	}
-	return b.openReferenceURL(number)
+	return b.openReferenceURL(ref)
 }
 
 // jumpToReferencedCard switches to the referenced card's column and
@@ -301,22 +432,29 @@ func (b Board) jumpToReferencedCard(colIdx, cardIdx int) (tea.Model, tea.Cmd) {
 }
 
 // openReferenceURL opens the constructed same-repo issue/PR URL for a
-// referenced number that isn't on the board, mirroring
-// handleTicketOpenKey's error surfacing (including its "URL not available"
-// guard when no valid URL can be constructed).
-func (b Board) openReferenceURL(number int) (tea.Model, tea.Cmd) {
+// referenced ref that isn't on the board, mirroring handleTicketOpenKey's
+// error surfacing (including its "URL not available" guard when no valid
+// URL can be constructed).
+func (b Board) openReferenceURL(ref cardRef) (tea.Model, tea.Cmd) {
 	card := b.selectedCard()
-	url, ok := refIssueURL(card.URL, number)
+	url, ok := refIssueURL(card.URL, ref.Number)
 	if !ok {
 		cmd := b.statusBar.SetTimedMessage("URL not available", StatusWarning, statusMessageDuration)
 		return b, cmd
 	}
+	return b.openReferenceTarget(ref, url)
+}
 
+// openReferenceTarget opens url (either ref's own explicit foreign URL, or
+// a same-repo URL constructed by openReferenceURL) via the executor,
+// surfacing an executor error verbatim (mirroring handleTicketOpenKey) or a
+// success message naming ref via refLabelText on success.
+func (b Board) openReferenceTarget(ref cardRef, url string) (tea.Model, tea.Cmd) {
 	if err := b.executor.OpenURL(url); err != nil {
 		cmd := b.statusBar.SetTimedMessage("Error: "+err.Error(), StatusError, statusMessageDuration)
 		return b, cmd
 	}
 
-	cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Opened #%d", number), StatusSuccess, statusMessageDuration)
+	cmd := b.statusBar.SetTimedMessage("Opened "+refLabelText(ref), StatusSuccess, statusMessageDuration)
 	return b, cmd
 }

@@ -808,10 +808,11 @@ type Board struct {
 	// comment mode exactly like Alt on a single-key action.
 	pendingSeq    string
 	pendingSeqAlt bool
-	// pendingRefs holds the #N references parsed from the selected card's
-	// body while the nav.reference (default "g r") which-key prompt is active
-	// (see handleReferenceNavKey/handlePendingRefKey in references.go). It
-	// is a dedicated state, not a reuse of pendingSeq, so reference labels
+	// pendingRefs holds the selected card's references (body #N refs plus
+	// the card's open blockers) while the nav.reference (default "g r")
+	// which-key prompt is active (see handleReferenceNavKey/
+	// handlePendingRefKey/cardReferences in references.go). It is a
+	// dedicated state, not a reuse of pendingSeq, so reference labels
 	// ('a'-'z') can never collide with or be swallowed by an unrelated
 	// in-flight keymap sequence.
 	pendingRefs       []cardRef
