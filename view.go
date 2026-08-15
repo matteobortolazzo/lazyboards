@@ -651,6 +651,13 @@ const subIssueChildGlyph = "\U000F17AB"
 // remainder -- e.g. "󰂭 #1 #2 #3 +2" (#631, PR 1/2).
 const blockedByGlyph = "\U000F00AD"
 
+// blockingGlyph marks a card that blocks at least one other open issue,
+// followed by the open blocking count -- e.g. "󰳘 3" (#631, PR 2/2). The
+// blocking direction is deliberately count-only: it is structural context
+// ("other work waits on this"), not a call to action, so it never names
+// the blocked issues the way the blocked-by line names blockers.
+const blockingGlyph = "\U000F0CD8"
+
 // openBlockers filters card's Blockers to the open ones, preserving
 // GitHub's returned order. State is compared case-insensitively against
 // "OPEN" (provider.go documents the enum string carried verbatim).
@@ -760,16 +767,44 @@ func (b Board) blockedByLine(card Card, indentWidth, contentWidth int) string {
 	return render(truncateCell(b.composeBlockedLine(nil, card.BlockedByCount), budget))
 }
 
+// blockingLine returns the fully rendered (indented + styled) blocking
+// status row for card, or "" when the card blocks nothing open
+// (BlockingCount <= 0 -- the summary's open count is the display
+// authority, so a card whose blocked dependents have all closed shows no
+// line; a malformed/negative value from a hostile or buggy
+// GraphQL-compatible host is treated as "none" rather than composing a
+// "󰳘 -1" row).
+//
+// Unlike the blocked-by line this one needs no width *fitting*: "<glyph> N"
+// is bounded by construction, with nothing to drop. It is still clamped to
+// the payload budget via truncateCell so a pathologically narrow column
+// cannot spill it onto a second physical row, which would desync
+// cardLineCount from viewCardList (docs/list-cursor-invariants.md) -- the
+// same hardening blockedByLine's degenerate "<glyph> +N" form carries. A
+// non-positive budget (contentWidth == 0, the pre-WindowSizeMsg state, or
+// an indent that alone consumes the width) clamps the payload away
+// entirely, leaving the indent: still exactly one row, never zero.
+func (b Board) blockingLine(card Card, indentWidth, contentWidth int) string {
+	if card.BlockingCount <= 0 {
+		return ""
+	}
+	content := fmt.Sprintf("%s %d", blockingGlyph, card.BlockingCount)
+	return strings.Repeat(" ", indentWidth) + subIssueStyle.Render(truncateCell(content, contentWidth-indentWidth))
+}
+
 // cardStatusLines returns the status lines rendered under a card's title:
 // the blocked-by line first (#631, PR 1/2 -- width-fitted, see
-// blockedByLine), then sub-issue relationship lines (parent line, then
+// blockedByLine), then the blocking line (#631, PR 2/2 -- see
+// blockingLine), then sub-issue relationship lines (parent line, then
 // child line -- #460, structural context takes precedence per CLAUDE.md's
 // state-struct precedence rule), then one line per non-idle agent window
 // joined to the card (agent lines), then one line per linked PR (PR lines
 // last), each prefixed with indentWidth spaces to align under the title
 // text -- the same continuation indent wrapTitle uses for the "#N " prefix.
-// Idle/badge-less agent windows and a card with neither sub-issue
-// relationship nor open blockers are skipped entirely (no line, no
+// Dependency state leads because it is the strongest "can I work on this?"
+// signal, ahead of structure and then activity. Idle/badge-less agent
+// windows and a card with neither sub-issue relationship nor any open
+// dependency in either direction are skipped entirely (no line, no
 // vertical cost).
 //
 // Status lines keep their own colors on every card, focused or not
@@ -784,6 +819,9 @@ func (b Board) cardStatusLines(card Card, indentWidth, contentWidth int) []strin
 	indent := strings.Repeat(" ", indentWidth)
 	var lines []string
 	if line := b.blockedByLine(card, indentWidth, contentWidth); line != "" {
+		lines = append(lines, line)
+	}
+	if line := b.blockingLine(card, indentWidth, contentWidth); line != "" {
 		lines = append(lines, line)
 	}
 	if card.SubIssueCount > 0 {

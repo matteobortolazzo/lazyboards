@@ -6,14 +6,16 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 	"github.com/muesli/termenv"
 )
 
-// card_dependency_lines_test.go covers PR 1/2 of #631: the blocked-by
-// status line rendered ahead of the sub-issue lines inside cardStatusLines
-// (the blocking line is PR 2/2, not covered here).
+// card_dependency_lines_test.go covers #631's two dependency status lines
+// rendered ahead of the sub-issue lines inside cardStatusLines: the
+// width-fitted blocked-by line (PR 1/2) and the blocking count line
+// (PR 2/2).
 
 // --- openBlockers ---
 
@@ -732,4 +734,304 @@ func TestCardStatusLines_BlockedByLine_ColorsOnUnfocusedCard(t *testing.T) {
 	if !strings.Contains(out, wantBlockedLine) {
 		t.Errorf("unfocused card's blocked-by line missing hue-215 styled rendering %q; got:\n%s", wantBlockedLine, out)
 	}
+}
+
+// --- blockingLine (PR 2/2) ---
+
+// TestBlockingLine_Gate covers the open-count display gate: the line
+// renders only when the summary's open blocking count is positive. A card
+// whose blocked dependents have all closed (BlockingCount == 0 while
+// TotalBlockingCount is non-zero) renders nothing, and a malformed
+// negative count is treated as "none" rather than composing a "󰳘 -1" row.
+func TestBlockingLine_Gate(t *testing.T) {
+	tests := []struct {
+		name          string
+		card          Card
+		wantRendered  bool
+		wantCountText string
+	}{
+		{
+			name:          "positive open count renders the line",
+			card:          Card{BlockingCount: 3, TotalBlockingCount: 3},
+			wantRendered:  true,
+			wantCountText: "3",
+		},
+		{
+			name:         "zero open count renders nothing even with closed dependents",
+			card:         Card{BlockingCount: 0, TotalBlockingCount: 4},
+			wantRendered: false,
+		},
+		{
+			name:         "negative open count renders nothing",
+			card:         Card{BlockingCount: -1, TotalBlockingCount: 2},
+			wantRendered: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Board{}.blockingLine(tt.card, 3, 40)
+			if !tt.wantRendered {
+				if got != "" {
+					t.Fatalf("blockingLine() = %q, want an empty string (no line)", got)
+				}
+				return
+			}
+			if !strings.Contains(got, blockingGlyph) {
+				t.Errorf("blockingLine() = %q, want it to carry the blocking glyph %q", got, blockingGlyph)
+			}
+			if !strings.Contains(got, tt.wantCountText) {
+				t.Errorf("blockingLine() = %q, want it to name the open blocking count %q", got, tt.wantCountText)
+			}
+		})
+	}
+}
+
+// TestBlockingLine_UsesOpenCountNeverTotal is the direct AC6 authority
+// assertion: the line reports the summary's open blocking count, never the
+// closed-inclusive total.
+func TestBlockingLine_UsesOpenCountNeverTotal(t *testing.T) {
+	card := Card{BlockingCount: 2, TotalBlockingCount: 7}
+
+	got := Board{}.blockingLine(card, 0, 40)
+
+	if want := fmt.Sprintf("%s %d", blockingGlyph, card.BlockingCount); !strings.Contains(got, want) {
+		t.Errorf("blockingLine() = %q, want it to contain %q (the open count)", got, want)
+	}
+	if strings.Contains(got, fmt.Sprintf("%d", card.TotalBlockingCount)) {
+		t.Errorf("blockingLine() = %q, want it never to render TotalBlockingCount (%d)", got, card.TotalBlockingCount)
+	}
+}
+
+// TestBlockingLine_RendersInStructuralGrayNotWarningHue is the AC6 color
+// assertion: the blocking direction is quiet structural context in the
+// existing muted gray (subIssueStyle's hue 245), deliberately not the
+// blocked-by line's hue-215 warning style.
+func TestBlockingLine_RendersInStructuralGrayNotWarningHue(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	card := Card{BlockingCount: 3}
+	content := fmt.Sprintf("%s %d", blockingGlyph, card.BlockingCount)
+	if subIssueStyle.Render(content) == prBlockedStyle.Render(content) {
+		t.Fatal("test setup: structural-gray and warning-hue renderings must differ (color profile not forced?)")
+	}
+
+	got := Board{}.blockingLine(card, 0, 40)
+
+	if want := subIssueStyle.Render(content); got != want {
+		t.Errorf("blockingLine() = %q, want %q (structural gray, the sub-issue lines' hue)", got, want)
+	}
+}
+
+// TestBlockingLine_IndentedUnderTitle asserts the line carries the same
+// continuation indent every other status line uses to align under the card
+// title text.
+func TestBlockingLine_IndentedUnderTitle(t *testing.T) {
+	indentWidth := 4
+
+	got := Board{}.blockingLine(Card{BlockingCount: 1}, indentWidth, 40)
+
+	if want := strings.Repeat(" ", indentWidth); !strings.HasPrefix(got, want) {
+		t.Errorf("blockingLine() = %q, want it to start with %d spaces of continuation indent", got, indentWidth)
+	}
+}
+
+// TestBlockingLine_ClampedAtPathologicalWidth covers the bounds guard the
+// blocked-by line's degenerate form already has (see the Sibling Code Path
+// Auditing rule in .claude/rules/testing.md): although "󰳘 N" is bounded by
+// construction, a column narrower than the glyph plus the count's digits
+// would spill onto a second physical row and desync cardLineCount. The
+// line is clamped to the payload budget instead, never wrapped -- and with
+// a non-positive budget only the continuation indent survives, exactly as
+// blockedByLine's degenerate form behaves at the same widths.
+func TestBlockingLine_ClampedAtPathologicalWidth(t *testing.T) {
+	tests := []struct {
+		name         string
+		indentWidth  int
+		contentWidth int
+	}{
+		{name: "budget narrower than the composed line", indentWidth: 3, contentWidth: 5},
+		{name: "budget of exactly one cell", indentWidth: 0, contentWidth: 1},
+		{name: "indent alone consumes the width", indentWidth: 4, contentWidth: 4},
+		{name: "pre-WindowSizeMsg zero width", indentWidth: 0, contentWidth: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			card := Card{BlockingCount: 123456}
+
+			got := Board{}.blockingLine(card, tt.indentWidth, tt.contentWidth)
+
+			if strings.Contains(got, "\n") {
+				t.Fatalf("blockingLine() = %q, want a single physical row", got)
+			}
+			budget := tt.contentWidth - tt.indentWidth
+			// With a positive budget the whole line must fit contentWidth;
+			// with a non-positive one the payload is clamped away and only
+			// the indent remains.
+			maxWidth := tt.indentWidth
+			if budget > 0 {
+				maxWidth = tt.contentWidth
+			}
+			if w := lipgloss.Width(got); w > maxWidth {
+				t.Errorf("blockingLine() width = %d, want <= %d so it cannot wrap onto a second row", w, maxWidth)
+			}
+			if budget > 0 && got == "" {
+				t.Error("blockingLine() returned no line at a positive budget; want a clamped one -- dropping it would misreport the card as unblocking")
+			}
+			if budget <= 0 && strings.TrimSpace(got) != "" {
+				t.Errorf("blockingLine() = %q at a non-positive budget, want the payload clamped away to at most the indent", got)
+			}
+		})
+	}
+}
+
+// --- cardStatusLines integration: blocking line placement ---
+
+// TestCardStatusLines_BlockingLine_BetweenBlockedAndSubIssue verifies the
+// full status-line order the ticket specifies: blocked-by, blocking,
+// sub-issue(s), agent(s), PR(s).
+func TestCardStatusLines_BlockingLine_BetweenBlockedAndSubIssue(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{
+			Number:         7,
+			Title:          "Blocked and blocking card",
+			BlockedByCount: 1,
+			Blockers:       []provider.Blocker{{Number: 3, State: "OPEN"}},
+			BlockingCount:  2,
+			SubIssueCount:  2,
+			LinkedPRs: []provider.LinkedPR{
+				{Number: 11, Title: "feat: PR", URL: "https://github.com/o/r/pull/11", Mergeable: "MERGEABLE", MergeStateStatus: "CLEAN"},
+			},
+		},
+	}, 120, 40)
+	b.agentSnapshot = &cenciwatch.StateSnapshot{
+		Windows: []cenciwatch.WindowState{{WindowName: "7", Status: "running", Agent: "claude"}},
+	}
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth, 100)
+	if len(lines) != 5 {
+		t.Fatalf("cardStatusLines() = %d lines, want 5 (blocked + blocking + sub-issue + agent + PR); got %v", len(lines), lines)
+	}
+	if !strings.Contains(lines[0], blockedByGlyph) {
+		t.Errorf("lines[0] = %q, want the blocked-by line first", lines[0])
+	}
+	if !strings.Contains(lines[1], blockingGlyph) {
+		t.Errorf("lines[1] = %q, want the blocking line second", lines[1])
+	}
+	if !strings.Contains(lines[2], subIssueParentGlyph) {
+		t.Errorf("lines[2] = %q, want the sub-issue line third", lines[2])
+	}
+	wantAgentBadge := agentBadgeStyle("running").Render(agentBadgeText("running", "claude"))
+	if !strings.Contains(lines[3], wantAgentBadge) {
+		t.Errorf("lines[3] = %q, want the agent line fourth", lines[3])
+	}
+	wantPR := prStatusPrefix("mergeable") + "#11"
+	if !strings.Contains(lines[4], wantPR) {
+		t.Errorf("lines[4] = %q, want the PR line fifth", lines[4])
+	}
+}
+
+// TestCardStatusLines_BlockingLine_AbsentWhenBlockingCountZero is the AC6
+// gate at the cardStatusLines level: a card whose blocked dependents have
+// all closed renders no blocking line even though TotalBlockingCount is
+// non-zero, and incurs no vertical cost.
+func TestCardStatusLines_BlockingLine_AbsentWhenBlockingCountZero(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{
+			Number:             8,
+			Title:              "All dependents closed",
+			BlockingCount:      0,
+			TotalBlockingCount: 3,
+			SubIssueCount:      1,
+		},
+	}, 120, 40)
+	card := b.Columns[0].Cards[0]
+	indentWidth := cardTitlePrefixWidth(card)
+
+	lines := b.cardStatusLines(card, indentWidth, 100)
+	for _, line := range lines {
+		if strings.Contains(line, blockingGlyph) {
+			t.Fatalf("cardStatusLines() = %v, want no blocking line when BlockingCount == 0 (even though TotalBlockingCount > 0)", lines)
+		}
+	}
+	if len(lines) != 1 {
+		t.Fatalf("cardStatusLines() = %d lines, want 1 (only the sub-issue line); got %v", len(lines), lines)
+	}
+}
+
+// --- Height ripple ---
+
+// TestCardLineCount_BlockingCard_HeightGrowsByExactlyOne is the AC8
+// assertion for the blocking direction: producing the line inside
+// cardStatusLines means every height consumer picks it up automatically,
+// and it costs exactly one row -- at any width, since the line's content is
+// bounded rather than width-fitted.
+func TestCardLineCount_BlockingCard_HeightGrowsByExactlyOne(t *testing.T) {
+	board := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "X"},
+		{Number: 2, Title: "X", BlockingCount: 4, TotalBlockingCount: 4},
+	}, 120, 40)
+	plainCard := board.Columns[0].Cards[0]
+	blockingCard := board.Columns[0].Cards[1]
+	columnNames := []string{board.Columns[0].Title}
+
+	for _, width := range []int{100, 10} {
+		plain := board.cardLineCount(plainCard, width, columnNames)
+		blocking := board.cardLineCount(blockingCard, width, columnNames)
+		if got := blocking - plain; got != 1 {
+			t.Errorf("cardLineCount() at width %d grew by %d rows for a blocking card, want exactly 1 (plain=%d, blocking=%d)", width, got, plain, blocking)
+		}
+	}
+}
+
+// TestViewCardList_BlockingCard_NarrowWidth_RowCountMatchesCardLineCount
+// pins the height invariant against the real renderer: an unclamped
+// blocking line wider than contentWidth wraps onto a second physical row
+// (lipgloss's panel Width wraps overflowing content) while cardLineCount
+// still counts one, corrupting clampScrollOffset and handleCardClick
+// (docs/list-cursor-invariants.md). The 6-digit count is what makes the
+// composed line overflow this deliberately narrow column.
+//
+// The rows are counted by occupancy rather than by matching the glyph:
+// a wrapped continuation row carries only the count's spilled digits and
+// no glyph, so a glyph-matching count cannot see the very wrap this test
+// exists to catch (verified by mutation -- removing the clamp from
+// blockingLine must fail this test).
+func TestViewCardList_BlockingCard_NarrowWidth_RowCountMatchesCardLineCount(t *testing.T) {
+	board := newBoardWithInlineCards(t, []provider.Card{
+		// A 2-rune title keeps "#1 Hi" on a single unwrapped title row at
+		// the narrow contentWidth below, so the only row count that can
+		// vary is the status line's.
+		{Number: 1, Title: "Hi", BlockingCount: 987654, TotalBlockingCount: 987654},
+	}, 120, 40)
+	card := board.Columns[0].Cards[0]
+	columnNames := []string{board.Columns[0].Title}
+	contentWidth := 6
+
+	view := board.viewCardList(board.Columns[0], 20, contentWidth, leftPanelStyle)
+	assertOneRow(t, view, blockingGlyph)
+
+	actualRows := occupiedPanelRows(view)
+	gotLines := board.cardLineCount(card, contentWidth, columnNames)
+	if gotLines != actualRows {
+		t.Errorf("cardLineCount() = %d, want %d to match the card's actual occupied physical rows at a narrow width -- a clamped-away blocking line must not spill onto a second row", gotLines, actualRows)
+	}
+}
+
+// occupiedPanelRows counts the rows of a rendered card-list panel that
+// carry any content, excluding the panel's border rows and its blank
+// filler rows. Unlike matching a specific glyph or title substring, this
+// also counts a wrapped continuation row, which carries neither.
+func occupiedPanelRows(view string) int {
+	count := 0
+	for _, row := range strings.Split(view, "\n") {
+		inner := strings.TrimSpace(strings.Trim(ansi.Strip(row), "│╭╮╰╯─"))
+		if inner != "" {
+			count++
+		}
+	}
+	return count
 }
