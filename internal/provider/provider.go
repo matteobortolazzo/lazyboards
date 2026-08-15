@@ -47,19 +47,51 @@ type Assignee struct {
 // reparents sub-issues, it only displays the relationship GitHub already
 // has. The Azure DevOps provider has no equivalent concept, so its cards
 // leave all three fields at the zero-value "none" sentinel.
+//
+// BlockedByCount/TotalBlockedByCount/BlockingCount/TotalBlockingCount/
+// Blockers carry GitHub's native issue-dependency relationship (#628, #630)
+// verbatim from issueDependenciesSummary and the bounded blockedBy(first:
+// 10) connection: BlockedByCount/BlockingCount are GitHub's open-only
+// counts, while TotalBlockedByCount/TotalBlockingCount include closed
+// issues too. Blockers is a bounded (first 10) list of the issues blocking
+// this one, carried through with no state filtering or dedup -- a consumer
+// wanting only open blockers must filter Blockers by State itself. All five
+// are read-only, additive fields defaulting to the zero-value "none"
+// sentinel for providers without the concept.
 type Card struct {
+	Number              int
+	Title               string
+	Labels              []Label
+	Body                string
+	URL                 string
+	LinkedPRs           []LinkedPR
+	Assignees           []Assignee
+	Milestone           string
+	CreatedAt           time.Time
+	ParentNumber        int
+	SubIssueCount       int
+	SubIssueCompleted   int
+	BlockedByCount      int
+	TotalBlockedByCount int
+	BlockingCount       int
+	TotalBlockingCount  int
+	Blockers            []Blocker
+}
+
+// Blocker represents a GitHub issue that blocks a card, as returned by the
+// issue's blockedBy connection.
+//
+// Number/State/URL/RepoNameWithOwner carry GitHub's raw number/state/url/
+// repository.nameWithOwner GraphQL fields through verbatim (State as its
+// enum string value, e.g. "OPEN"/"CLOSED"). Deriving a human-facing status
+// glyph/style, or comparing RepoNameWithOwner against the board's own
+// configured repo to detect a cross-repo blocker, is presentation logic and
+// belongs in view.go, not in this package.
+type Blocker struct {
 	Number            int
-	Title             string
-	Labels            []Label
-	Body              string
+	State             string
 	URL               string
-	LinkedPRs         []LinkedPR
-	Assignees         []Assignee
-	Milestone         string
-	CreatedAt         time.Time
-	ParentNumber      int
-	SubIssueCount     int
-	SubIssueCompleted int
+	RepoNameWithOwner string
 }
 
 // Milestone represents a repository-wide GitHub milestone, independent of

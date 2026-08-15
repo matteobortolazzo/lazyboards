@@ -255,6 +255,18 @@ type LinkedPR struct {
 	State            string
 }
 
+// Blocker mirrors provider.Blocker's raw GitHub fields verbatim: a single
+// issue from a card's blockedBy connection (#628, #630). Deriving a
+// human-facing status glyph/style, or comparing RepoNameWithOwner against
+// the board's own configured repo to detect a cross-repo blocker, is
+// presentation logic that lives in view.go, not here.
+type Blocker struct {
+	Number            int
+	State             string
+	URL               string
+	RepoNameWithOwner string
+}
+
 // Milestone represents a repository-wide GitHub milestone shown in the
 // Milestones modal (i), independent of any board card. Distinct from
 // Card.Milestone (a plain string naming the milestone a card belongs to,
@@ -289,6 +301,13 @@ type Assignee struct {
 // parent issue number (0 if none), SubIssueCount is this card's sub-issue
 // count (0 if none), and SubIssueCompleted is how many of those sub-issues
 // are closed (0 if none).
+//
+// BlockedByCount/TotalBlockedByCount/BlockingCount/TotalBlockingCount/
+// Blockers mirror provider.Card's issue-dependency fields (#628, #630)
+// verbatim: BlockedByCount/BlockingCount are GitHub's open-only counts,
+// TotalBlockedByCount/TotalBlockingCount include closed issues too, and
+// Blockers is the bounded (first 10) list of issues blocking this one, with
+// no state filtering or dedup applied.
 type Card struct {
 	Number            int
 	Title             string
@@ -302,6 +321,12 @@ type Card struct {
 	ParentNumber      int
 	SubIssueCount     int
 	SubIssueCompleted int
+
+	BlockedByCount      int
+	TotalBlockedByCount int
+	BlockingCount       int
+	TotalBlockingCount  int
+	Blockers            []Blocker
 }
 
 // refreshTickMsg is sent when the periodic refresh timer fires.
@@ -1232,6 +1257,19 @@ func mapLinkedPRs(prs []provider.LinkedPR) []LinkedPR {
 	})
 }
 
+// mapBlockers converts provider-layer blockers to app-layer Blocker values,
+// mirroring the LinkedPR/mapLinkedPRs convention.
+func mapBlockers(blockers []provider.Blocker) []Blocker {
+	return mapSlice(blockers, func(bl provider.Blocker) Blocker {
+		return Blocker{
+			Number:            bl.Number,
+			State:             bl.State,
+			URL:               bl.URL,
+			RepoNameWithOwner: bl.RepoNameWithOwner,
+		}
+	})
+}
+
 // mapMilestones converts provider-layer milestones to app-layer Milestone
 // values, mirroring the LinkedPR/mapLinkedPRs convention.
 func mapMilestones(milestones []provider.Milestone) []Milestone {
@@ -1274,6 +1312,12 @@ func mapProviderCard(c provider.Card) Card {
 		ParentNumber:      c.ParentNumber,
 		SubIssueCount:     c.SubIssueCount,
 		SubIssueCompleted: c.SubIssueCompleted,
+
+		BlockedByCount:      c.BlockedByCount,
+		TotalBlockedByCount: c.TotalBlockedByCount,
+		BlockingCount:       c.BlockingCount,
+		TotalBlockingCount:  c.TotalBlockingCount,
+		Blockers:            mapBlockers(c.Blockers),
 	}
 }
 

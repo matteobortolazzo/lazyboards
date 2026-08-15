@@ -345,6 +345,61 @@ func TestBoardFetched_MapsLinkedPRs(t *testing.T) {
 	}
 }
 
+// TestMapProviderCard_MapsIssueDependencyFields asserts mapProviderCard
+// carries provider.Card's five issue-dependency fields (#628, #630) through
+// to the main-package Card verbatim, including a blocker's own four fields.
+// A dropped field here compiles cleanly (Go does not warn on an unassigned
+// struct literal field) and stays unobservable until a UI child renders
+// blanks, so this is the only test that can catch it.
+func TestMapProviderCard_MapsIssueDependencyFields(t *testing.T) {
+	pc := provider.Card{
+		Number:              4,
+		Title:               "Blocked card",
+		BlockedByCount:      2,
+		TotalBlockedByCount: 3,
+		BlockingCount:       1,
+		TotalBlockingCount:  4,
+		Blockers: []provider.Blocker{
+			{Number: 50, State: "OPEN", URL: "https://github.com/owner/repo/issues/50", RepoNameWithOwner: "owner/repo"},
+			{Number: 51, State: "CLOSED", URL: "https://github.com/other-owner/other-repo/issues/51", RepoNameWithOwner: "other-owner/other-repo"},
+		},
+	}
+
+	got := mapProviderCard(pc)
+
+	if got.BlockedByCount != 2 || got.TotalBlockedByCount != 3 || got.BlockingCount != 1 || got.TotalBlockingCount != 4 {
+		t.Fatalf("mapProviderCard() dependency counts = %+v, want BlockedByCount=2 TotalBlockedByCount=3 BlockingCount=1 TotalBlockingCount=4", got)
+	}
+	if len(got.Blockers) != 2 {
+		t.Fatalf("mapProviderCard().Blockers has %d entries, want 2: %+v", len(got.Blockers), got.Blockers)
+	}
+	want0 := Blocker{Number: 50, State: "OPEN", URL: "https://github.com/owner/repo/issues/50", RepoNameWithOwner: "owner/repo"}
+	if got.Blockers[0] != want0 {
+		t.Fatalf("mapProviderCard().Blockers[0] = %+v, want %+v", got.Blockers[0], want0)
+	}
+	want1 := Blocker{Number: 51, State: "CLOSED", URL: "https://github.com/other-owner/other-repo/issues/51", RepoNameWithOwner: "other-owner/other-repo"}
+	if got.Blockers[1] != want1 {
+		t.Fatalf("mapProviderCard().Blockers[1] = %+v, want %+v", got.Blockers[1], want1)
+	}
+}
+
+// TestMapProviderCard_NoDependencies_ZeroSentinels asserts a provider.Card
+// with no dependency data (the zero-value fields) maps to all four counts
+// at 0 and no Blockers, matching the AC's "0/none means no dependency data"
+// contract at the main-package boundary too.
+func TestMapProviderCard_NoDependencies_ZeroSentinels(t *testing.T) {
+	pc := provider.Card{Number: 1, Title: "Plain card"}
+
+	got := mapProviderCard(pc)
+
+	if got.BlockedByCount != 0 || got.TotalBlockedByCount != 0 || got.BlockingCount != 0 || got.TotalBlockingCount != 0 {
+		t.Fatalf("mapProviderCard() dependency counts = %+v, want all 0 (no dependency data)", got)
+	}
+	if len(got.Blockers) != 0 {
+		t.Fatalf("mapProviderCard().Blockers = %+v, want none", got.Blockers)
+	}
+}
+
 // --- Label Color ---
 
 func TestLabelColor_SemanticLabelsGetFixedColors(t *testing.T) {

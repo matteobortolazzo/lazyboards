@@ -64,7 +64,10 @@ func NewGitHubProvider(client GitHubClient, gql graphQLBoardClient, owner, repo 
 // Issues with more than 100 closing PRs (issue.hasMoreClosingPRs)
 // trigger a bounded per-issue follow-up query via fetchClosingPRFollowups.
 // Mentions beyond the first 100 are not paginated (see TimelineItems' doc
-// comment in graphql.go) -- a deliberate scope cut, not an oversight.
+// comment in graphql.go) -- a deliberate scope cut, not an oversight. The
+// blockedBy connection (#628, #630) is likewise a bounded first page (first:
+// 10) with no follow-up pagination -- the issueDependenciesSummary counts,
+// not len(blockers), are the display authority.
 func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 	if len(g.columns) == 0 {
 		return Board{}, errors.New("at least one column is required")
@@ -114,18 +117,23 @@ func (g *GitHubProvider) FetchBoard(ctx context.Context) (Board, error) {
 			}
 
 			card := Card{
-				Number:            issue.number,
-				Title:             issue.title,
-				Body:              issue.body,
-				URL:               issue.url,
-				Labels:            issue.labels,
-				Assignees:         issue.assignees,
-				LinkedPRs:         linkedPRs,
-				Milestone:         issue.milestone,
-				CreatedAt:         issue.createdAt,
-				ParentNumber:      issue.parentNumber,
-				SubIssueCount:     issue.subIssueCount,
-				SubIssueCompleted: issue.subIssueCompleted,
+				Number:              issue.number,
+				Title:               issue.title,
+				Body:                issue.body,
+				URL:                 issue.url,
+				Labels:              issue.labels,
+				Assignees:           issue.assignees,
+				LinkedPRs:           linkedPRs,
+				Milestone:           issue.milestone,
+				CreatedAt:           issue.createdAt,
+				ParentNumber:        issue.parentNumber,
+				SubIssueCount:       issue.subIssueCount,
+				SubIssueCompleted:   issue.subIssueCompleted,
+				BlockedByCount:      issue.blockedByCount,
+				TotalBlockedByCount: issue.totalBlockedByCount,
+				BlockingCount:       issue.blockingCount,
+				TotalBlockingCount:  issue.totalBlockingCount,
+				Blockers:            issue.blockers,
 			}
 			columns[bestIdx].Cards = append(columns[bestIdx].Cards, card)
 		}
