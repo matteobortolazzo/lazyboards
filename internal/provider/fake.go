@@ -92,7 +92,12 @@ func NewFakeProvider() *FakeProvider {
 					// card #6 is deliberately left without one, so the milestone
 					// filter dedup logic (#462) has both a shared value and an
 					// empty case to exercise.
-					{Number: 4, Title: "User auth", Labels: []Label{{Name: "feature"}}, Milestone: "v1.0", CreatedAt: fakeCreatedAt(4)},
+					// Card #4 is blocked-only (#628, #630): two open blockers,
+					// BlockedByCount matching len(Blockers) exactly.
+					{Number: 4, Title: "User auth", Labels: []Label{{Name: "feature"}}, Milestone: "v1.0", CreatedAt: fakeCreatedAt(4), BlockedByCount: 2, TotalBlockedByCount: 2, Blockers: []Blocker{
+						{Number: 100, State: "OPEN", URL: "https://github.com/owner/repo/issues/100", RepoNameWithOwner: "owner/repo"},
+						{Number: 101, State: "OPEN", URL: "https://github.com/owner/repo/issues/101", RepoNameWithOwner: "owner/repo"},
+					}},
 					// Card #5 is a parent (has sub-issues, #460): SubIssueCount > 0,
 					// no ParentNumber, exercising the parent-only sub-issue line.
 					// SubIssueCompleted: 1 of its 2 sub-issues are closed (#475),
@@ -101,21 +106,55 @@ func NewFakeProvider() *FakeProvider {
 					// Card #6 is a child of #5 (#460): ParentNumber > 0, no
 					// SubIssueCount, exercising the child-only sub-issue line.
 					{Number: 6, Title: "Error types", Labels: []Label{{Name: "backend"}}, CreatedAt: fakeCreatedAt(6), ParentNumber: 5},
-					{Number: 7, Title: "DB migrate", Labels: []Label{{Name: "infra"}}, CreatedAt: fakeCreatedAt(7)},
+					// Card #7 is blocking-only (#628, #630): it blocks 3 other
+					// issues but has no blockers of its own.
+					{Number: 7, Title: "DB migrate", Labels: []Label{{Name: "infra"}}, CreatedAt: fakeCreatedAt(7), BlockingCount: 3, TotalBlockingCount: 3},
 				},
 			},
 			{
 				Title: "Implementing",
 				Cards: []Card{
-					{Number: 8, Title: "Board view", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(8)},
-					{Number: 9, Title: "Key binds", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(9)},
-					{Number: 10, Title: "Col nav", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(10)},
+					// Card #8's blockers are all closed (#628, #630): the
+					// AC3 authority case -- BlockedByCount (open-only) is 0
+					// while TotalBlockedByCount (closed-inclusive) is 2, and
+					// both blocker nodes carry State "CLOSED" unfiltered.
+					{Number: 8, Title: "Board view", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(8), BlockedByCount: 0, TotalBlockedByCount: 2, Blockers: []Blocker{
+						{Number: 103, State: "CLOSED", URL: "https://github.com/owner/repo/issues/103", RepoNameWithOwner: "owner/repo"},
+						{Number: 104, State: "CLOSED", URL: "https://github.com/owner/repo/issues/104", RepoNameWithOwner: "owner/repo"},
+					}},
+					// Card #9 is both blocked and blocking (#628, #630): one
+					// open blocker plus a nonzero blocking count.
+					{Number: 9, Title: "Key binds", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(9), BlockedByCount: 1, TotalBlockedByCount: 1, BlockingCount: 2, TotalBlockingCount: 2, Blockers: []Blocker{
+						{Number: 102, State: "OPEN", URL: "https://github.com/owner/repo/issues/102", RepoNameWithOwner: "owner/repo"},
+					}},
+					// Card #10 has more blockers than the display/query cap
+					// (#628, #630): BlockedByCount (12) exceeds len(Blockers)
+					// (10, the blockedBy(first: 10) page), proving the count
+					// -- not len(nodes) -- is the authority.
+					{Number: 10, Title: "Col nav", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(10), BlockedByCount: 12, TotalBlockedByCount: 12, Blockers: []Blocker{
+						{Number: 105, State: "OPEN", URL: "https://github.com/owner/repo/issues/105", RepoNameWithOwner: "owner/repo"},
+						{Number: 106, State: "OPEN", URL: "https://github.com/owner/repo/issues/106", RepoNameWithOwner: "owner/repo"},
+						{Number: 107, State: "OPEN", URL: "https://github.com/owner/repo/issues/107", RepoNameWithOwner: "owner/repo"},
+						{Number: 108, State: "OPEN", URL: "https://github.com/owner/repo/issues/108", RepoNameWithOwner: "owner/repo"},
+						{Number: 109, State: "OPEN", URL: "https://github.com/owner/repo/issues/109", RepoNameWithOwner: "owner/repo"},
+						{Number: 110, State: "OPEN", URL: "https://github.com/owner/repo/issues/110", RepoNameWithOwner: "owner/repo"},
+						{Number: 111, State: "OPEN", URL: "https://github.com/owner/repo/issues/111", RepoNameWithOwner: "owner/repo"},
+						{Number: 112, State: "OPEN", URL: "https://github.com/owner/repo/issues/112", RepoNameWithOwner: "owner/repo"},
+						{Number: 113, State: "OPEN", URL: "https://github.com/owner/repo/issues/113", RepoNameWithOwner: "owner/repo"},
+						{Number: 114, State: "OPEN", URL: "https://github.com/owner/repo/issues/114", RepoNameWithOwner: "owner/repo"},
+					}},
 					// Card #11 is both a parent and a child (#460), exercising the
 					// combined-lines case, parent line before child line.
 					// SubIssueCompleted: 1 of its 1 sub-issue is closed (#475),
 					// rendering "1/1".
 					{Number: 11, Title: "Lipgloss", Labels: []Label{{Name: "ui"}}, CreatedAt: fakeCreatedAt(11), SubIssueCount: 1, SubIssueCompleted: 1, ParentNumber: 8},
-					{Number: 12, Title: "Config", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(12)},
+					// Card #12 has a cross-repo blocker (#628, #630):
+					// RepoNameWithOwner names a different owner/repo than
+					// this board's own "owner/repo", with a matching foreign
+					// issue URL.
+					{Number: 12, Title: "Config", Labels: []Label{{Name: "feature"}}, CreatedAt: fakeCreatedAt(12), BlockedByCount: 1, TotalBlockedByCount: 1, Blockers: []Blocker{
+						{Number: 200, State: "OPEN", URL: "https://github.com/other-owner/other-repo/issues/200", RepoNameWithOwner: "other-owner/other-repo"},
+					}},
 				},
 			},
 		},

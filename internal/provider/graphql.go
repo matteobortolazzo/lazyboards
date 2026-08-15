@@ -61,6 +61,12 @@ type issuePage struct {
 // sub-issue relationship (#460, #475), mapped from the parent{number} and
 // subIssuesSummary{total completed} GraphQL fields; all default to 0
 // ("none") for issues without the relationship.
+//
+// blockedByCount/totalBlockedByCount/blockingCount/totalBlockingCount/
+// blockers carry GitHub's native issue-dependency relationship (#628, #630),
+// mapped from issueDependenciesSummary and the bounded blockedBy(first: 10)
+// connection; all default to 0/nil ("none") for issues without the
+// relationship.
 type issueNode struct {
 	number            int
 	title             string
@@ -74,6 +80,12 @@ type issueNode struct {
 	parentNumber      int
 	subIssueCount     int
 	subIssueCompleted int
+
+	blockedByCount      int
+	totalBlockedByCount int
+	blockingCount       int
+	totalBlockingCount  int
+	blockers            []Blocker
 
 	hasMoreClosingPRs  bool
 	closingPREndCursor string
@@ -108,6 +120,10 @@ type issueNode struct {
 //	        }
 //	        parent { number }
 //	        subIssuesSummary { total completed }
+//	        issueDependenciesSummary { blockedBy totalBlockedBy blocking totalBlocking }
+//	        blockedBy(first: 10) {
+//	          nodes { number state url repository { nameWithOwner } }
+//	        }
 //	      }
 //	      pageInfo { hasNextPage endCursor }
 //	    }
@@ -169,6 +185,22 @@ type issueQueryNode struct {
 		Total     githubv4.Int
 		Completed githubv4.Int
 	} `graphql:"subIssuesSummary"`
+	// IssueDependenciesSummary and BlockedBy request GitHub's native
+	// issue-dependency relationship (#628, #630): the four counts are
+	// verbatim GraphQL fields (BlockedBy/Blocking are open-only counts,
+	// TotalBlockedBy/TotalBlocking include closed issues too), and
+	// BlockedBy.Nodes is a bounded first page (first: 10) of the issues
+	// blocking this one -- no follow-up pagination, mirroring TimelineItems'
+	// deliberate scope cut above.
+	IssueDependenciesSummary struct {
+		BlockedBy      githubv4.Int
+		TotalBlockedBy githubv4.Int
+		Blocking       githubv4.Int
+		TotalBlocking  githubv4.Int
+	} `graphql:"issueDependenciesSummary"`
+	BlockedBy struct {
+		Nodes []blockerQueryNode
+	} `graphql:"blockedBy(first: 10)"`
 }
 
 type labelQueryNode struct {
@@ -178,6 +210,17 @@ type labelQueryNode struct {
 
 type assigneeQueryNode struct {
 	Login githubv4.String
+}
+
+// blockerQueryNode represents a single issue from an issue's blockedBy
+// connection (#628, #630) -- the issues blocking this one.
+type blockerQueryNode struct {
+	Number     githubv4.Int
+	State      githubv4.IssueState
+	URL        githubv4.String
+	Repository struct {
+		NameWithOwner githubv4.String
+	}
 }
 
 // pullRequestQueryNode represents a PR from GitHub's
@@ -547,21 +590,64 @@ func mapIssueQueryNode(n issueQueryNode) issueNode {
 	}
 
 	return issueNode{
-		number:             int(n.Number),
-		title:              string(n.Title),
-		body:               string(n.Body),
-		url:                string(n.URL),
-		labels:             labels,
-		assignees:          assignees,
-		linkedPRs:          mergeLinkedPRs(mapLinkedPRs(n.ClosedByPullRequestsReferences.Nodes), mapMentionedPRs(n.TimelineItems.Nodes)),
-		milestone:          string(n.Milestone.Title),
-		createdAt:          n.CreatedAt.Time,
-		parentNumber:       int(n.Parent.Number),
-		subIssueCount:      int(n.SubIssuesSummary.Total),
-		subIssueCompleted:  int(n.SubIssuesSummary.Completed),
+		number:            int(n.Number),
+		title:             string(n.Title),
+		body:              string(n.Body),
+		url:               string(n.URL),
+		labels:            labels,
+		assignees:         assignees,
+		linkedPRs:         mergeLinkedPRs(mapLinkedPRs(n.ClosedByPullRequestsReferences.Nodes), mapMentionedPRs(n.TimelineItems.Nodes)),
+		milestone:         string(n.Milestone.Title),
+		createdAt:         n.CreatedAt.Time,
+		parentNumber:      int(n.Parent.Number),
+		subIssueCount:     int(n.SubIssuesSummary.Total),
+		subIssueCompleted: int(n.SubIssuesSummary.Completed),
+
+		blockedByCount:      int(n.IssueDependenciesSummary.BlockedBy),
+		totalBlockedByCount: int(n.IssueDependenciesSummary.TotalBlockedBy),
+		blockingCount:       int(n.IssueDependenciesSummary.Blocking),
+		totalBlockingCount:  int(n.IssueDependenciesSummary.TotalBlocking),
+		blockers:            mapBlockers(n.BlockedBy.Nodes),
+
 		hasMoreClosingPRs:  bool(n.ClosedByPullRequestsReferences.PageInfo.HasNextPage),
 		closingPREndCursor: string(n.ClosedByPullRequestsReferences.PageInfo.EndCursor),
 	}
+}
+
+// mapBlockers converts a bounded page of blockedBy connection nodes into
+// plain Blocker values, decoupled from any githubv4-specific types.
+//
+// Deliberately no state filtering and no dedup: per this package's
+// raw-values-verbatim convention (see the LinkedPR doc comment in
+// provider.go), a CLOSED blocker must survive the mapping unfiltered so
+// TotalBlockedByCount's closed-inclusive count stays meaningful and a
+// consumer can defensively filter to open blockers itself -- unlike
+// mapLinkedPRs/mapMentionedPRs, which dedup/filter because their consumers
+// (the linked-PR list) expect only currently-relevant open PRs.
+func mapBlockers(nodes []blockerQueryNode) []Blocker {
+	if len(nodes) == 0 {
+		return nil
+	}
+	blockers := make([]Blocker, 0, len(nodes))
+	for _, n := range nodes {
+		// A node GitHub returns as null (e.g. a blocker in a repo the token
+		// can't read) unmarshals to a zero-valued blockerQueryNode rather
+		// than being omitted from the slice. Skip it here rather than
+		// carrying through a phantom Blocker{Number: 0, URL: ""} that would
+		// render as a bogus "#0" blocker an "open blocker" action would fail
+		// to open. This is a data-hygiene guard, not state filtering -- it
+		// deliberately doesn't touch State (see the doc comment above).
+		if n.Number == 0 || n.URL == "" {
+			continue
+		}
+		blockers = append(blockers, Blocker{
+			Number:            int(n.Number),
+			State:             string(n.State),
+			URL:               string(n.URL),
+			RepoNameWithOwner: string(n.Repository.NameWithOwner),
+		})
+	}
+	return blockers
 }
 
 // mapMentionedPRs extracts open pull requests from an issue's

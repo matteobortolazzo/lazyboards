@@ -904,6 +904,151 @@ func TestMapMilestonesQuery_ProgressPercentageCarriedVerbatim(t *testing.T) {
 	}
 }
 
+// --- Issue dependencies (blockedBy, #628 -> #630) ---
+//
+// GitHub's issueDependenciesSummary exposes four verbatim counts
+// (blockedBy/totalBlockedBy/blocking/totalBlocking) and a bounded first page
+// of the blockedBy connection (the issues blocking this one). Per this
+// package's raw-values-verbatim convention (LinkedPR/Milestone doc comments,
+// provider.go), mapIssueQueryNode carries every blocker node through with no
+// state filtering -- a CLOSED blocker survives the mapping unfiltered so a
+// consumer can pair it against TotalBlockedByCount's closed-inclusive count.
+
+// buildBlockerNode constructs a node returned by GitHub's blockedBy
+// connection, mirroring buildClosingPRItem/buildMentionItem's helper style.
+func buildBlockerNode(number int, state githubv4.IssueState, url, repoNameWithOwner string) blockerQueryNode {
+	var item blockerQueryNode
+	item.Number = githubv4.Int(number)
+	item.State = state
+	item.URL = githubv4.String(url)
+	item.Repository.NameWithOwner = githubv4.String(repoNameWithOwner)
+	return item
+}
+
+// TestIssueQuery_UsesIssueDependenciesSummary reflects on issueQueryNode's
+// IssueDependenciesSummary field tag, pinning the exact GraphQL field name
+// sent to GitHub -- mirrors TestIssueQuery_UsesGitHubClosingPRConnection.
+func TestIssueQuery_UsesIssueDependenciesSummary(t *testing.T) {
+	field, ok := reflect.TypeOf(issueQueryNode{}).FieldByName("IssueDependenciesSummary")
+	if !ok {
+		t.Fatal("issueQueryNode is missing IssueDependenciesSummary")
+	}
+	if got, want := field.Tag.Get("graphql"), "issueDependenciesSummary"; got != want {
+		t.Fatalf("issueDependenciesSummary GraphQL field = %q, want %q", got, want)
+	}
+}
+
+// TestIssueQuery_UsesBoundedBlockedByConnection reflects on issueQueryNode's
+// BlockedBy field tag, pinning that the blockedBy connection is requested
+// with a bounded first page (no follow-up pagination, mirroring
+// TimelineItems' deliberate scope cut) -- mirrors
+// TestIssueQuery_UsesGitHubClosingPRConnection.
+func TestIssueQuery_UsesBoundedBlockedByConnection(t *testing.T) {
+	field, ok := reflect.TypeOf(issueQueryNode{}).FieldByName("BlockedBy")
+	if !ok {
+		t.Fatal("issueQueryNode is missing BlockedBy")
+	}
+	if got, want := field.Tag.Get("graphql"), "blockedBy(first: 10)"; got != want {
+		t.Fatalf("blockedBy GraphQL field = %q, want %q", got, want)
+	}
+}
+
+// TestMapIssueQueryNode_MapsIssueDependencies asserts mapIssueQueryNode
+// carries a fully-populated issueDependenciesSummary and blockedBy node list
+// through to issueNode's dependency fields verbatim.
+func TestMapIssueQueryNode_MapsIssueDependencies(t *testing.T) {
+	var n issueQueryNode
+	n.IssueDependenciesSummary.BlockedBy = githubv4.Int(2)
+	n.IssueDependenciesSummary.TotalBlockedBy = githubv4.Int(3)
+	n.IssueDependenciesSummary.Blocking = githubv4.Int(1)
+	n.IssueDependenciesSummary.TotalBlocking = githubv4.Int(4)
+	n.BlockedBy.Nodes = []blockerQueryNode{
+		buildBlockerNode(50, githubv4.IssueStateOpen, "https://github.com/owner/repo/issues/50", "owner/repo"),
+		buildBlockerNode(51, githubv4.IssueStateOpen, "https://github.com/other-owner/other-repo/issues/51", "other-owner/other-repo"),
+	}
+
+	got := mapIssueQueryNode(n)
+
+	if got.blockedByCount != 2 || got.totalBlockedByCount != 3 || got.blockingCount != 1 || got.totalBlockingCount != 4 {
+		t.Fatalf("mapIssueQueryNode() dependency counts = %+v, want blockedByCount=2 totalBlockedByCount=3 blockingCount=1 totalBlockingCount=4", got)
+	}
+	if len(got.blockers) != 2 {
+		t.Fatalf("mapIssueQueryNode().blockers has %d entries, want 2: %+v", len(got.blockers), got.blockers)
+	}
+	want0 := Blocker{Number: 50, State: "OPEN", URL: "https://github.com/owner/repo/issues/50", RepoNameWithOwner: "owner/repo"}
+	if got.blockers[0] != want0 {
+		t.Fatalf("mapIssueQueryNode().blockers[0] = %+v, want %+v", got.blockers[0], want0)
+	}
+	want1 := Blocker{Number: 51, State: "OPEN", URL: "https://github.com/other-owner/other-repo/issues/51", RepoNameWithOwner: "other-owner/other-repo"}
+	if got.blockers[1] != want1 {
+		t.Fatalf("mapIssueQueryNode().blockers[1] = %+v, want %+v", got.blockers[1], want1)
+	}
+}
+
+// TestMapIssueQueryNode_NoDependencies_ZeroSentinels asserts an issue with no
+// dependency data (the zero-value IssueDependenciesSummary/BlockedBy) maps to
+// all four counts at 0 and no blockers, matching the AC's "0/none means no
+// dependency data" contract.
+func TestMapIssueQueryNode_NoDependencies_ZeroSentinels(t *testing.T) {
+	var n issueQueryNode // IssueDependenciesSummary and BlockedBy left zero-valued
+
+	got := mapIssueQueryNode(n)
+
+	if got.blockedByCount != 0 || got.totalBlockedByCount != 0 || got.blockingCount != 0 || got.totalBlockingCount != 0 {
+		t.Fatalf("mapIssueQueryNode() dependency counts = %+v, want all 0 (no dependency data)", got)
+	}
+	if len(got.blockers) != 0 {
+		t.Fatalf("mapIssueQueryNode().blockers = %+v, want none", got.blockers)
+	}
+}
+
+// TestMapIssueQueryNode_ClosedBlockerNodeCarriedThrough pins the "no state
+// filtering here" convention from the plan's Risks section: a blocker node
+// with State CLOSED must survive the mapping unfiltered, so a consumer (the
+// child ticket's client) can defensively filter it, and so
+// TotalBlockedByCount's closed-inclusive count stays meaningful.
+func TestMapIssueQueryNode_ClosedBlockerNodeCarriedThrough(t *testing.T) {
+	var n issueQueryNode
+	n.IssueDependenciesSummary.TotalBlockedBy = githubv4.Int(1)
+	n.BlockedBy.Nodes = []blockerQueryNode{
+		buildBlockerNode(77, githubv4.IssueStateClosed, "https://github.com/owner/repo/issues/77", "owner/repo"),
+	}
+
+	got := mapIssueQueryNode(n)
+
+	if len(got.blockers) != 1 {
+		t.Fatalf("mapIssueQueryNode().blockers has %d entries, want 1 (a closed blocker must not be filtered out): %+v", len(got.blockers), got.blockers)
+	}
+	if got.blockers[0].State != "CLOSED" {
+		t.Fatalf("mapIssueQueryNode().blockers[0].State = %q, want %q (mapBlockers must not filter by state)", got.blockers[0].State, "CLOSED")
+	}
+}
+
+// TestMapBlockers_SkipsNullPlaceholderNode is a Phase 6 security-review
+// regression guard (#630): a node GitHub returns as null (e.g. a blocker in
+// a repo the token can't read) unmarshals to a zero-valued blockerQueryNode
+// rather than being omitted from the Nodes slice. mapBlockers must skip such
+// a placeholder (Number == 0 || URL == "") instead of appending a phantom
+// Blocker{Number: 0, URL: ""} that would render as a bogus "#0" blocker an
+// "open blocker" action would fail to open. This is a data-hygiene guard,
+// not state filtering: it doesn't touch State, so
+// TestMapIssueQueryNode_ClosedBlockerNodeCarriedThrough is unaffected -- a
+// real closed blocker always has a real Number/URL.
+func TestMapBlockers_SkipsNullPlaceholderNode(t *testing.T) {
+	valid := buildBlockerNode(50, githubv4.IssueStateOpen, "https://github.com/owner/repo/issues/50", "owner/repo")
+	var nullPlaceholder blockerQueryNode // zero-valued: Number == 0, URL == ""
+
+	got := mapBlockers([]blockerQueryNode{valid, nullPlaceholder})
+
+	if len(got) != 1 {
+		t.Fatalf("mapBlockers() returned %d blockers, want 1 (null placeholder node must be skipped): %+v", len(got), got)
+	}
+	want := Blocker{Number: 50, State: "OPEN", URL: "https://github.com/owner/repo/issues/50", RepoNameWithOwner: "owner/repo"}
+	if got[0] != want {
+		t.Fatalf("mapBlockers()[0] = %+v, want %+v", got[0], want)
+	}
+}
+
 // TestFakeGraphQLClient_FetchMilestonePage_ReturnsScriptedPageForCursor
 // mirrors TestFakeGraphQLClient_ReturnsScriptedPageForCursor's scaffolding
 // parity check for the milestones connection.

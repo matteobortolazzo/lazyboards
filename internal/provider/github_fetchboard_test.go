@@ -1212,6 +1212,99 @@ func TestGitHubFetchBoard_NoParentNoSubIssues_ZeroSentinels(t *testing.T) {
 	}
 }
 
+// --- Issue dependencies (blockedBy, #628 -> #630) ---
+
+// TestGitHubFetchBoard_IssueDependenciesPopulated asserts FetchBoard carries
+// an issueNode's blockedByCount/totalBlockedByCount/blockingCount/
+// totalBlockingCount/blockers through to Card's five mirrored fields,
+// mirroring the identical ParentNumber/SubIssueCount passthrough pattern
+// pinned above (TestGitHubFetchBoard_SubIssueRelationshipsPopulated).
+func TestGitHubFetchBoard_IssueDependenciesPopulated(t *testing.T) {
+	columns := []string{"Todo"}
+	wantBlockedByCount := 2
+	wantTotalBlockedByCount := 3
+	wantBlockingCount := 1
+	wantTotalBlockingCount := 4
+	wantBlockers := []Blocker{
+		{Number: 50, State: "OPEN", URL: "https://github.com/owner/repo/issues/50", RepoNameWithOwner: "owner/repo"},
+		{Number: 51, State: "CLOSED", URL: "https://github.com/other-owner/other-repo/issues/51", RepoNameWithOwner: "other-owner/other-repo"},
+	}
+	issue := buildIssueNode(1, "Blocked issue", "Todo")
+	issue.blockedByCount = wantBlockedByCount
+	issue.totalBlockedByCount = wantTotalBlockedByCount
+	issue.blockingCount = wantBlockingCount
+	issue.totalBlockingCount = wantTotalBlockingCount
+	issue.blockers = wantBlockers
+
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	if len(board.Columns[0].Cards) != 1 {
+		t.Fatalf("column %q has %d cards, want 1", columns[0], len(board.Columns[0].Cards))
+	}
+
+	card := board.Columns[0].Cards[0]
+	if card.BlockedByCount != wantBlockedByCount {
+		t.Errorf("card.BlockedByCount = %d, want %d", card.BlockedByCount, wantBlockedByCount)
+	}
+	if card.TotalBlockedByCount != wantTotalBlockedByCount {
+		t.Errorf("card.TotalBlockedByCount = %d, want %d", card.TotalBlockedByCount, wantTotalBlockedByCount)
+	}
+	if card.BlockingCount != wantBlockingCount {
+		t.Errorf("card.BlockingCount = %d, want %d", card.BlockingCount, wantBlockingCount)
+	}
+	if card.TotalBlockingCount != wantTotalBlockingCount {
+		t.Errorf("card.TotalBlockingCount = %d, want %d", card.TotalBlockingCount, wantTotalBlockingCount)
+	}
+	if len(card.Blockers) != len(wantBlockers) {
+		t.Fatalf("card.Blockers has %d entries, want %d: %+v", len(card.Blockers), len(wantBlockers), card.Blockers)
+	}
+	for i, want := range wantBlockers {
+		if card.Blockers[i] != want {
+			t.Errorf("card.Blockers[%d] = %+v, want %+v", i, card.Blockers[i], want)
+		}
+	}
+}
+
+// TestGitHubFetchBoard_NoDependencies_ZeroSentinels asserts an issue with no
+// dependency data (buildIssueNode leaves the five dependency fields at their
+// zero value) yields a Card with all four counts at 0 and no blockers, the
+// "none" sentinel the AC requires.
+func TestGitHubFetchBoard_NoDependencies_ZeroSentinels(t *testing.T) {
+	columns := []string{"Todo"}
+	issue := buildIssueNode(2, "Plain issue", "Todo")
+
+	gql := singlePageGQL(issue)
+	provider := NewGitHubProvider(emptyRESTClient(), gql, "owner", "repo", columns)
+
+	board, err := provider.FetchBoard(context.Background())
+	if err != nil {
+		t.Fatalf("FetchBoard returned error: %v", err)
+	}
+
+	card := board.Columns[0].Cards[0]
+	if card.BlockedByCount != 0 {
+		t.Errorf("card.BlockedByCount = %d, want 0 (no dependency data)", card.BlockedByCount)
+	}
+	if card.TotalBlockedByCount != 0 {
+		t.Errorf("card.TotalBlockedByCount = %d, want 0 (no dependency data)", card.TotalBlockedByCount)
+	}
+	if card.BlockingCount != 0 {
+		t.Errorf("card.BlockingCount = %d, want 0 (no dependency data)", card.BlockingCount)
+	}
+	if card.TotalBlockingCount != 0 {
+		t.Errorf("card.TotalBlockingCount = %d, want 0 (no dependency data)", card.TotalBlockingCount)
+	}
+	if len(card.Blockers) != 0 {
+		t.Errorf("card.Blockers = %+v, want none", card.Blockers)
+	}
+}
+
 func TestFetchBoard_GraphQL_ClosingPRFollowupError_FailsFetchBoard(t *testing.T) {
 	columns := []string{"Backlog"}
 	const issueNumber = 88
