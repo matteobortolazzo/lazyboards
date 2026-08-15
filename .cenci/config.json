@@ -32,5 +32,53 @@
     "boardKey": "S",
     "testCommand": "go test ./...",
     "testKey": "T"
+  },
+  "planning": {
+    "autonomy": "lean"
+  },
+  "automerge": {
+    "protectedPaths": [
+      "*auth*",
+      "*login*",
+      "*logout*",
+      "*session*",
+      "*password*",
+      "*passwd*",
+      "*credential*",
+      "*secret*",
+      "*secrets*",
+      "*token*",
+      "*jwt*",
+      "*apikey*",
+      "*api_key*",
+      "*.pem",
+      "*.key",
+      "*.env*",
+      "*oauth*",
+      "*sso*",
+      "*saml*",
+      "*openid*",
+      "*permission*",
+      "*acl*",
+      "*rbac*",
+      "*role*",
+      "*crypto*",
+      "*encrypt*",
+      "*decrypt*",
+      "*sign*",
+      "*hash*",
+      "*payment*",
+      "*billing*",
+      "*invoice*",
+      "*checkout*",
+      "*stripe*",
+      "*migrat*",
+      "*schema*",
+      ".github/",
+      ".cenci/"
+    ],
+    "maxChangedFiles": 10,
+    "maxDiffLines": 400,
+    "mergeMethod": "squash"
   }
 }
