@@ -13,7 +13,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Edit cards in your editor with YAML frontmatter (title, labels, body)
 - Card creation via modal form with label and assignee fields
 - Assign and unassign collaborators to cards
-- Search cards by title and filter by label, assignee, or milestone
+- Search cards by title, label, or number (`#637` and `637` are equivalent) and filter by label, assignee, or milestone; a match also surfaces that card's parent and sub-issues (one hop, board-loaded relatives only)
 - PR linking with picker modal
 - Milestones modal: every open milestone in the repository with progress bar, counts, and due date, `Enter` to filter the board by milestone (`m`)
 - Custom actions: open URLs or run shell commands bound to any key (not just Shift+key — see [Keymaps](#keymaps)) or multi-key sequences (neovim-style prefix keys), with column cleanup on departure — run a command in the background, in the [foreground](#terminal-actions) so you can watch it, or in a [tmux window](#window-actions) of its own
@@ -831,7 +831,7 @@ Entries within each section are sorted alphabetically (case-insensitive).
 | `tab` | `search.next_column` | Exit search and switch to next column |
 | `shift+tab` | `search.prev_column` | Exit search and switch to previous column |
 
-All letters and digits type into the query (queries match titles, labels, and card numbers).
+All letters and digits type into the query (queries match titles, labels, and card numbers; a leading `#` is stripped, so `#637` behaves like `637`). A match on any card also surfaces that card's immediate parent and sub-issues, in both directions — searching an epic by title reveals its sub-issues, and searching a sub-issue by title, label, or number reveals its epic. Expansion is one hop only and only sees relatives that are loaded on the board (open issues in a configured column); a closed or off-board relative isn't surfaced this way, though a card whose parent isn't loaded still matches directly when the query matches its parent's number.
 
 ### Assign
 

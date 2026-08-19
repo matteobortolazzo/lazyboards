@@ -1047,3 +1047,477 @@ func TestSearchMode_EnterFromNormalMode_HintsDeriveFromRegistry(t *testing.T) {
 		t.Errorf("statusBar hints right after entering search mode: Desc for remapped 'f1' = %q, want %q", got, "Clear")
 	}
 }
+
+// --- #637: sub-issue relatives surfaced by search ---
+//
+// Extends matchesSearch/filteredCards so a direct match (title, label, own
+// number, or ParentNumber) also surfaces that card's immediate sub-issue
+// relatives in both directions, one hop only, seeds detected board-wide.
+// See /workspace/.plans/637-search-subissue-relatives.md.
+
+// newMultiColumnSearchTestBoard builds a loaded Board from explicit
+// provider.Column data spanning more than one column, with ActiveTab left at
+// its default (0). The existing newBoardWithInlineCards (helpers_test.go) is
+// single-column only, and newActionTestBoardWithColumns drags in a
+// FakeExecutor this work does not need (plan Q&A #3) -- board-wide seed
+// detection and cross-column expansion require cards split across columns
+// while the active column stays fixed.
+func newMultiColumnSearchTestBoard(t *testing.T, columns []provider.Column) Board {
+	t.Helper()
+	p := provider.NewFakeProvider()
+	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+
+	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: columns}})
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	board.Width = 120
+	board.Height = 40
+	return board
+}
+
+// --- Query normalization: '#' stripping ---
+
+func TestSearchMode_HashPrefixQuery_MatchesLikeBareNumber(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 637, Title: "Some task"},
+		{Number: 99, Title: "Other task"},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.searchQuery = "#637"
+	filteredHash := b.filteredCards()
+
+	b.searchQuery = "637"
+	filteredBare := b.filteredCards()
+
+	if len(filteredHash) != 1 || filteredHash[0].Number != 637 {
+		t.Fatalf("filteredCards() for '#637': got %+v, want exactly card #637", filteredHash)
+	}
+	if len(filteredBare) != len(filteredHash) || filteredBare[0].Number != filteredHash[0].Number {
+		t.Errorf("filteredCards() for '#637' = %+v, want the same result as bare '637' = %+v", filteredHash, filteredBare)
+	}
+}
+
+func TestSearchMode_DoubleHashPrefixQuery_DoesNotMatchByNumber(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 637, Title: "Some task"},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.searchQuery = "##637"
+	filtered := b.filteredCards()
+
+	if len(filtered) != 0 {
+		t.Errorf("filteredCards() for '##637': got %d cards, want 0 (only a single leading '#' is stripped, so '##637' must not match #637 by number or as raw title/label text)", len(filtered))
+	}
+}
+
+func TestSearchMode_BareHashQuery_MatchesNothingByNumberButMatchesLiteralHashText(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 1, Title: "Fix login bug"},
+		{Number: 2, Title: "Handle the #hashtag feature"},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.searchQuery = "#"
+	filtered := b.filteredCards()
+
+	if len(filtered) != 1 {
+		t.Fatalf("filteredCards() for bare '#': got %d cards, want exactly 1 (an empty stripped number form must skip all number comparisons; only the title with a literal '#' should match)", len(filtered))
+	}
+	if filtered[0].Number != 2 {
+		t.Errorf("filteredCards() for bare '#' matched card #%d, want #2 (title containing literal '#')", filtered[0].Number)
+	}
+}
+
+func TestSearchMode_RawQueryMatchesLiteralHashInLabel(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 500, Title: "Task one", Labels: []provider.Label{{Name: "needs-review"}}},
+		{Number: 700, Title: "Task two", Labels: []provider.Label{{Name: "priority-#1"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.searchQuery = "#1"
+	filtered := b.filteredCards()
+
+	if len(filtered) != 1 {
+		t.Fatalf("filteredCards() for '#1': got %d cards, want exactly 1 (label text match only; numbers 500/700 don't contain the stripped form '1')", len(filtered))
+	}
+	if filtered[0].Number != 700 {
+		t.Errorf("filteredCards() for '#1' matched card #%d, want #700 (label %q contains the literal raw query text)", filtered[0].Number, "priority-#1")
+	}
+}
+
+func TestSearchMode_TitleContainingHash_MatchesRawQuery(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 500, Title: "Support C#interop"},
+		{Number: 700, Title: "Other task"},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.searchQuery = "c#interop"
+	filtered := b.filteredCards()
+
+	if len(filtered) != 1 || filtered[0].Number != 500 {
+		t.Fatalf("filteredCards() for 'c#interop': got %+v, want exactly card #500 (title contains the literal '#', raw query must still match text)", filtered)
+	}
+}
+
+// --- ParentNumber direct-match rule ---
+
+func TestSearchMode_ParentNumberMatch_SurfacesCardWithOffBoardParent(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 55, Title: "Sub task", ParentNumber: 900}, // parent #900 is not present on the board
+		{Number: 56, Title: "Unrelated task"},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.searchQuery = "900"
+	filtered := b.filteredCards()
+
+	if len(filtered) != 1 {
+		t.Fatalf("filteredCards() for '900': got %d cards, want exactly 1 (ParentNumber match works even though #900 is not itself on the board)", len(filtered))
+	}
+	if filtered[0].Number != 55 {
+		t.Errorf("filteredCards() for '900' matched card #%d, want #55 (ParentNumber == 900)", filtered[0].Number)
+	}
+}
+
+func TestSearchMode_NumberSubstring_MatchesOwnNumberAndParentNumber(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 637, Title: "Epic task"},
+		{Number: 40, Title: "Sub task", ParentNumber: 637},
+		{Number: 41, Title: "Unrelated task"},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.searchQuery = "63"
+	filtered := b.filteredCards()
+
+	got := map[int]bool{}
+	for _, c := range filtered {
+		got[c.Number] = true
+	}
+	if !got[637] {
+		t.Errorf("filteredCards() for '63' should include card #637 (own-number substring match), got %+v", filtered)
+	}
+	if !got[40] {
+		t.Errorf("filteredCards() for '63' should include card #40 (ParentNumber 637 contains the substring '63'), got %+v", filtered)
+	}
+	if got[41] {
+		t.Errorf("filteredCards() for '63' should not include card #41 (neither its own number nor a relationship matches), got %+v", filtered)
+	}
+}
+
+func TestSearchMode_ZeroQuery_DoesNotMatchParentlessCardsViaSentinel(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 5, Title: "Parentless task"}, // ParentNumber defaults to the zero-value sentinel
+		{Number: 10, Title: "Task with number containing zero"},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.searchQuery = "0"
+	filtered := b.filteredCards()
+
+	for _, c := range filtered {
+		if c.Number == 5 {
+			t.Errorf("filteredCards() for '0' should not match card #5 merely because its ParentNumber is the zero-value sentinel (no parent), got %+v", filtered)
+		}
+	}
+	found := false
+	for _, c := range filtered {
+		if c.Number == 10 {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("filteredCards() for '0' should still match card #10 by its own number substring, got %+v", filtered)
+	}
+}
+
+// --- Bidirectional one-hop expansion ---
+
+func TestSearchMode_ChildPulledIn_ByParentMatchingInDifferentColumn(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Active Column", Cards: []provider.Card{
+			{Number: 20, Title: "Child task", ParentNumber: 10},
+			{Number: 21, Title: "Unrelated task"},
+		}},
+		{Title: "Other Column", Cards: []provider.Card{
+			{Number: 10, Title: "Epic Feature"},
+		}},
+	}
+	b := newMultiColumnSearchTestBoard(t, columns)
+
+	b.searchQuery = "epic"
+	filtered := b.filteredCards()
+
+	if len(filtered) != 1 {
+		t.Fatalf("filteredCards() for 'epic': got %d cards in the active column, want exactly 1 (child pulled in by its matching parent in another column)", len(filtered))
+	}
+	if filtered[0].Number != 20 {
+		t.Errorf("filteredCards() for 'epic' matched card #%d in the active column, want #20 (child whose ParentNumber is the matching parent's number)", filtered[0].Number)
+	}
+}
+
+func TestSearchMode_ParentPulledIn_ByChildMatchingInNonActiveColumn(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Active Column", Cards: []provider.Card{
+			{Number: 10, Title: "Epic Feature"},
+			{Number: 11, Title: "Unrelated epic"},
+		}},
+		{Title: "Other Column", Cards: []provider.Card{
+			{Number: 30, Title: "Login bug fix", ParentNumber: 10},
+		}},
+	}
+	b := newMultiColumnSearchTestBoard(t, columns)
+
+	b.searchQuery = "login"
+	filtered := b.filteredCards()
+
+	if len(filtered) != 1 {
+		t.Fatalf("filteredCards() for 'login': got %d cards in the active column, want exactly 1 (parent pulled in by its matching child in a non-active column)", len(filtered))
+	}
+	if filtered[0].Number != 10 {
+		t.Errorf("filteredCards() for 'login' matched card #%d in the active column, want #10 (parent whose number equals the matching child's ParentNumber)", filtered[0].Number)
+	}
+}
+
+// TestSearchMode_ExpansionTriggeredByAnyMatchKind is the table-style
+// coverage requested by the plan: expansion must behave identically whether
+// the seed matched by title, label, own number, or the retained ParentNumber
+// direct-match rule.
+func TestSearchMode_ExpansionTriggeredByAnyMatchKind(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{name: "seed matches by title", query: "gamma widget"},
+		{name: "seed matches by label", query: "urgent-flag"},
+		{name: "seed matches by own number", query: "888"},
+		{name: "seed matches by ParentNumber", query: "999"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			columns := []provider.Column{
+				{Title: "Active Column", Cards: []provider.Card{
+					{Number: 500, Title: "Child of gamma widget", ParentNumber: 888},
+				}},
+				{Title: "Other Column", Cards: []provider.Card{
+					{Number: 888, Title: "Gamma Widget", Labels: []provider.Label{{Name: "urgent-flag"}}, ParentNumber: 999},
+				}},
+			}
+			b := newMultiColumnSearchTestBoard(t, columns)
+			b.searchQuery = tc.query
+			filtered := b.filteredCards()
+
+			found := false
+			for _, c := range filtered {
+				if c.Number == 500 {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("filteredCards() for %q: child #500 not pulled into the active column, want expansion regardless of how the seed (#888) itself matched; got %+v", tc.query, filtered)
+			}
+		})
+	}
+}
+
+// TestSearchMode_OneHopBoundary_GrandparentMatchPullsParentNotGrandchild
+// covers the "One hop only" AC: with a grandparent -> parent -> child chain,
+// a query matching only the grandparent must pull in the parent but not the
+// grandchild.
+func TestSearchMode_OneHopBoundary_GrandparentMatchPullsParentNotGrandchild(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Active Column", Cards: []provider.Card{
+			{Number: 2, Title: "Middle task", ParentNumber: 1},
+			{Number: 3, Title: "Leaf task", ParentNumber: 2},
+		}},
+		{Title: "Other Column", Cards: []provider.Card{
+			{Number: 1, Title: "Root Epic"},
+		}},
+	}
+	b := newMultiColumnSearchTestBoard(t, columns)
+
+	b.searchQuery = "root epic"
+	filtered := b.filteredCards()
+
+	got := map[int]bool{}
+	for _, c := range filtered {
+		got[c.Number] = true
+	}
+	if !got[2] {
+		t.Errorf("filteredCards() for 'root epic' should include card #2 (one hop: parent of the matching grandparent #1), got %+v", filtered)
+	}
+	if got[3] {
+		t.Errorf("filteredCards() for 'root epic' should NOT include card #3 (two hops from the matching grandparent #1; expansion is one hop only), got %+v", filtered)
+	}
+}
+
+// TestSearchMode_SeedsDetectedAcrossAllColumns covers the "Seeds are
+// board-wide" AC with a seed placed in a third, non-adjacent column.
+func TestSearchMode_SeedsDetectedAcrossAllColumns(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Active Column", Cards: []provider.Card{
+			{Number: 50, Title: "Child task", ParentNumber: 40},
+		}},
+		{Title: "Middle Column", Cards: []provider.Card{
+			{Number: 999, Title: "Unrelated"},
+		}},
+		{Title: "Far Column", Cards: []provider.Card{
+			{Number: 40, Title: "Distant Epic"},
+		}},
+	}
+	b := newMultiColumnSearchTestBoard(t, columns)
+
+	b.searchQuery = "distant epic"
+	filtered := b.filteredCards()
+
+	if len(filtered) != 1 || filtered[0].Number != 50 {
+		t.Fatalf("filteredCards() for 'distant epic': got %+v, want exactly card #50 (seed detected in a third, non-adjacent column)", filtered)
+	}
+}
+
+// TestSearchMode_GlobalFilter_GatesDisplayButNotSeeding covers "the active
+// global filter is a hard gate on what's displayed, but does NOT gate
+// seeding": a label filter excludes the matching epic from the results even
+// though it still seeds its child's inclusion, and the existing
+// filter-then-search order (filteredCards) is preserved.
+func TestSearchMode_GlobalFilter_GatesDisplayButNotSeeding(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 100, Title: "Sprint Planning"}, // no "keep" label; excluded by the active filter
+		{Number: 101, Title: "Subtask A", ParentNumber: 100, Labels: []provider.Label{{Name: "keep"}}},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+	b.activeFilterType = filterByLabel
+	b.activeFilterValue = "keep"
+	b.searchQuery = "sprint planning"
+
+	filtered := b.filteredCards()
+
+	if len(filtered) != 1 {
+		t.Fatalf("filteredCards() with filter=keep, query='sprint planning': got %d cards, want exactly 1", len(filtered))
+	}
+	if filtered[0].Number != 101 {
+		t.Errorf("filteredCards() matched card #%d, want #101 (the child passes the filter; the filtered-out epic seed must not itself display)", filtered[0].Number)
+	}
+	for _, c := range filtered {
+		if c.Number == 100 {
+			t.Errorf("filteredCards() should not display card #100 (fails the active label filter) even though it seeded the expansion that surfaced #101")
+		}
+	}
+}
+
+// TestSearchMode_SeedWithZeroParentNumber_ContributesNoParentSideLookup
+// guards the sentinel handling in the parent-side expansion lookup itself
+// (distinct from the direct-match sentinel guard above, per the plan's
+// Risks section: "ParentNumber == 0 must be guarded at three sites"): a
+// seed whose own ParentNumber is the zero-value sentinel must not seed a
+// phantom "parent" relationship to any card numbered 0.
+func TestSearchMode_SeedWithZeroParentNumber_ContributesNoParentSideLookup(t *testing.T) {
+	cards := []provider.Card{
+		{Number: 5, Title: "Parentless matching card"}, // seeds via title match; ParentNumber == 0
+		{Number: 0, Title: "Should never surface via a phantom ParentNumber==0 relationship"},
+	}
+	b := newBoardWithInlineCards(t, cards, 120, 40)
+
+	b.searchQuery = "parentless matching card"
+	filtered := b.filteredCards()
+
+	if len(filtered) != 1 {
+		t.Fatalf("filteredCards() for 'parentless matching card': got %d cards, want exactly 1 (the seed itself only; a ParentNumber == 0 sentinel must not seed a phantom relationship to a card numbered 0)", len(filtered))
+	}
+	if filtered[0].Number != 5 {
+		t.Errorf("filteredCards() matched card #%d, want #5", filtered[0].Number)
+	}
+}
+
+// TestSearchMode_CursorAndScrollStayInBoundsAsExpansionGrowsResults drives
+// keystrokes directly through b.Update, capturing both return values at
+// every step (per .claude/rules/testing.md -- never discard either with
+// "_"), asserting the active column's cursor/scroll stay valid as one-hop
+// expansion balloons the filtered set from a single direct match (the epic)
+// to all 20 cards (the epic plus its 19 children), then exercises ctrl+n
+// wraparound across that expanded set.
+func TestSearchMode_CursorAndScrollStayInBoundsAsExpansionGrowsResults(t *testing.T) {
+	cards := []provider.Card{{Number: 1, Title: "Epic Rollout"}}
+	for i := 2; i <= 20; i++ {
+		cards = append(cards, provider.Card{Number: i, Title: fmt.Sprintf("Rollout child %d", i), ParentNumber: 1})
+	}
+	b := newBoardWithInlineCards(t, cards, 40, 12)
+
+	m, cmd := b.Update(keyMsg("/"))
+	board, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	b = board
+	if cmd != nil {
+		execCmds(cmd)
+	}
+
+	for _, ch := range "epic" {
+		m, cmd = b.Update(keyMsg(string(ch)))
+		board, ok = m.(Board)
+		if !ok {
+			t.Fatalf("Update returned %T, want Board", m)
+		}
+		b = board
+		if cmd != nil {
+			execCmds(cmd)
+		}
+
+		filtered := b.filteredCards()
+		col := b.Columns[b.ActiveTab]
+		if col.Cursor != 0 {
+			t.Errorf("after typing %q: Cursor = %d, want 0 (typing resets cursor even as expansion grows the set)", b.searchQuery, col.Cursor)
+		}
+		if col.ScrollOffset != 0 {
+			t.Errorf("after typing %q: ScrollOffset = %d, want 0", b.searchQuery, col.ScrollOffset)
+		}
+		if len(filtered) > 0 && col.Cursor >= len(filtered) {
+			t.Fatalf("after typing %q: Cursor = %d out of bounds for filtered set of %d cards", b.searchQuery, col.Cursor, len(filtered))
+		}
+	}
+
+	filtered := b.filteredCards()
+	if len(filtered) != 20 {
+		t.Fatalf("precondition: filteredCards() for 'epic' = %d, want 20 (seed #1 plus all 19 children via one-hop expansion)", len(filtered))
+	}
+
+	// Navigate to the end of the now-expanded (20-card) result set and
+	// confirm ctrl+n wraps back to the first entry rather than leaving the
+	// cursor pointing past the grown slice.
+	for i := 0; i < len(filtered)-1; i++ {
+		m, cmd = b.Update(arrowMsg(tea.KeyCtrlN))
+		board, ok = m.(Board)
+		if !ok {
+			t.Fatalf("Update returned %T, want Board", m)
+		}
+		b = board
+		if cmd != nil {
+			execCmds(cmd)
+		}
+	}
+	if got := b.Columns[b.ActiveTab].Cursor; got != len(filtered)-1 {
+		t.Fatalf("precondition: cursor = %d, want %d (last card of the expanded set)", got, len(filtered)-1)
+	}
+
+	m, cmd = b.Update(arrowMsg(tea.KeyCtrlN))
+	board, ok = m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	b = board
+	if cmd != nil {
+		execCmds(cmd)
+	}
+
+	if got := b.Columns[b.ActiveTab].Cursor; got != 0 {
+		t.Errorf("Cursor after ctrl+n past the end of the expanded (20-card) result set = %d, want 0 (wrap to first)", got)
+	}
+}
