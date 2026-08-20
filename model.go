@@ -1419,10 +1419,11 @@ func (b *Board) filteredCards() []Card {
 	if b.searchQuery == "" {
 		return cards
 	}
-	query := strings.ToLower(b.searchQuery)
+	q := normalizeSearchQuery(b.searchQuery)
+	seeds := collectSearchSeeds(b.Columns, q)
 	var result []Card
 	for _, card := range cards {
-		if matchesSearch(card, query) {
+		if matchesSearch(card, seeds) {
 			result = append(result, card)
 		}
 	}
@@ -1499,19 +1500,97 @@ func (b *Board) clearFilter() {
 	}
 }
 
-// matchesSearch returns true if a card matches the search query.
-// It checks the card title, card number, and label names (all case-insensitive).
-func matchesSearch(card Card, query string) bool {
-	if strings.Contains(strings.ToLower(card.Title), query) {
-		return true
+// searchQuery holds the normalized forms of a raw search query: text is the
+// lowercased raw query used for title/label matching, and number is the
+// same query with exactly one leading '#' stripped, used for number
+// comparisons. An empty stripped form means the query was "#" (or empty)
+// and all number comparisons must be skipped -- otherwise
+// strings.Contains(s, "") would match every card.
+type searchQuery struct {
+	text   string
+	number string
+}
+
+// normalizeSearchQuery lowercases the raw query and derives its
+// number-comparison form by stripping exactly one leading '#'.
+func normalizeSearchQuery(raw string) searchQuery {
+	lowered := strings.ToLower(raw)
+	return searchQuery{
+		text:   lowered,
+		number: strings.TrimPrefix(lowered, "#"),
 	}
-	if strings.Contains(strconv.Itoa(card.Number), query) {
+}
+
+// matchesSearchDirect returns true if a card matches the search query on its
+// own -- title, label, own number, or ParentNumber (all case-insensitive).
+// Title and label matching use the raw (unstripped) query text; number
+// comparisons use the '#'-stripped form and are skipped entirely when that
+// form is empty. ParentNumber == 0 (the "no parent" sentinel) never
+// participates in the ParentNumber comparison.
+func matchesSearchDirect(card Card, q searchQuery) bool {
+	if strings.Contains(strings.ToLower(card.Title), q.text) {
 		return true
 	}
 	for _, label := range card.Labels {
-		if strings.Contains(strings.ToLower(label.Name), query) {
+		if strings.Contains(strings.ToLower(label.Name), q.text) {
 			return true
 		}
+	}
+	if q.number != "" {
+		if strings.Contains(strconv.Itoa(card.Number), q.number) {
+			return true
+		}
+		if card.ParentNumber > 0 && strings.Contains(strconv.Itoa(card.ParentNumber), q.number) {
+			return true
+		}
+	}
+	return false
+}
+
+// searchSeeds holds the board-wide lookup sets built once per filteredCards
+// call: numbers is the set of card numbers that directly match the search
+// query, and parents is the set of non-zero ParentNumber values held by
+// those matching cards.
+type searchSeeds struct {
+	numbers map[int]bool
+	parents map[int]bool
+}
+
+// collectSearchSeeds scans every card across all columns (unfiltered by the
+// active global filter -- seeding is board-wide and independent of what's
+// currently displayed) and builds the seed lookup sets used by matchesSearch
+// to expand direct matches to their immediate sub-issue relatives.
+func collectSearchSeeds(cols []Column, q searchQuery) searchSeeds {
+	seeds := searchSeeds{numbers: map[int]bool{}, parents: map[int]bool{}}
+	for _, col := range cols {
+		for _, card := range col.Cards {
+			if !matchesSearchDirect(card, q) {
+				continue
+			}
+			seeds.numbers[card.Number] = true
+			if card.ParentNumber > 0 {
+				seeds.parents[card.ParentNumber] = true
+			}
+		}
+	}
+	return seeds
+}
+
+// matchesSearch returns true if a card should be shown for the given search
+// query's seeds: it is either a direct match itself (seeds.numbers), the
+// child of a direct match (its ParentNumber is a seed's number), or the
+// parent of a direct match (its own number is a seed's ParentNumber). Both
+// expansion rules reference seeds only, never other expanded cards, so
+// expansion is exactly one hop.
+func matchesSearch(card Card, seeds searchSeeds) bool {
+	if seeds.numbers[card.Number] {
+		return true
+	}
+	if card.ParentNumber > 0 && seeds.numbers[card.ParentNumber] {
+		return true
+	}
+	if seeds.parents[card.Number] {
+		return true
 	}
 	return false
 }
