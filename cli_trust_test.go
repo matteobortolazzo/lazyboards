@@ -92,7 +92,7 @@ func TestRunTrustVerb_TrustAddsEntry(t *testing.T) {
 	writeCLITrustLocalConfig(t, localPath)
 
 	var out bytes.Buffer
-	code := runTrustVerb("trust", localPath, trustPath, "owner/repo", &out)
+	code := runTrustVerb("trust", localPath, trustPath, "identity", "owner/repo", &out)
 	if code != 0 {
 		t.Fatalf("runTrustVerb(\"trust\", ...) = %d, want 0; output: %s", code, out.String())
 	}
@@ -114,6 +114,9 @@ func TestRunTrustVerb_TrustAddsEntry(t *testing.T) {
 	if store.Trusted[0].Note != "owner/repo" {
 		t.Errorf("Trusted[0].Note = %q, want %q", store.Trusted[0].Note, "owner/repo")
 	}
+	if store.Trusted[0].Path != "identity" {
+		t.Errorf("Trusted[0].Path = %q, want %q (#642: a CLI grant must record the resolved identity)", store.Trusted[0].Path, "identity")
+	}
 }
 
 func TestRunTrustVerb_TrustTwice_NoDuplicateEntry(t *testing.T) {
@@ -123,10 +126,10 @@ func TestRunTrustVerb_TrustTwice_NoDuplicateEntry(t *testing.T) {
 	writeCLITrustLocalConfig(t, localPath)
 
 	var out bytes.Buffer
-	if code := runTrustVerb("trust", localPath, trustPath, "owner/repo", &out); code != 0 {
+	if code := runTrustVerb("trust", localPath, trustPath, "identity", "owner/repo", &out); code != 0 {
 		t.Fatalf("first runTrustVerb(\"trust\", ...) = %d, want 0", code)
 	}
-	if code := runTrustVerb("trust", localPath, trustPath, "owner/repo", &out); code != 0 {
+	if code := runTrustVerb("trust", localPath, trustPath, "identity", "owner/repo", &out); code != 0 {
 		t.Fatalf("second runTrustVerb(\"trust\", ...) = %d, want 0", code)
 	}
 
@@ -141,6 +144,63 @@ func TestRunTrustVerb_TrustTwice_NoDuplicateEntry(t *testing.T) {
 	}
 }
 
+// TestRunTrustVerb_TrustAgainAfterContentChange_ReplacesSameIdentityEntry is
+// #642's bootstrap-loop guard: a second `lazyboards trust` against the same
+// identity (repo) but changed local-config content must REPLACE the stale
+// entry rather than append a second one -- otherwise the store accumulates
+// one entry per edit forever, and #640's re-approval prompt (which keys on
+// PriorEntryForPath finding exactly one prior entry for the identity) would
+// see stale duplicates.
+func TestRunTrustVerb_TrustAgainAfterContentChange_ReplacesSameIdentityEntry(t *testing.T) {
+	dir := t.TempDir()
+	localPath := filepath.Join(dir, "local.yml")
+	trustPath := filepath.Join(dir, "trust.yml")
+	writeCLITrustLocalConfig(t, localPath)
+
+	var out bytes.Buffer
+	if code := runTrustVerb("trust", localPath, trustPath, "identity", "owner/repo", &out); code != 0 {
+		t.Fatalf("first runTrustVerb(\"trust\", ...) = %d, want 0", code)
+	}
+	firstHash, err := config.HashLocalConfig(localPath)
+	if err != nil {
+		t.Fatalf("HashLocalConfig() returned unexpected error: %v", err)
+	}
+
+	// Change the content (simulating a commit/rebase touching
+	// .lazyboards.yml) -- same identity, different hash.
+	if err := os.WriteFile(localPath, []byte("provider: github\nrepo: owner/repo\ncolumns: []\n"), 0644); err != nil {
+		t.Fatalf("failed to rewrite local config: %v", err)
+	}
+	secondHash, err := config.HashLocalConfig(localPath)
+	if err != nil {
+		t.Fatalf("HashLocalConfig() returned unexpected error: %v", err)
+	}
+	if firstHash == secondHash {
+		t.Fatalf("precondition failed: rewritten local config hashed identically to the original")
+	}
+
+	if code := runTrustVerb("trust", localPath, trustPath, "identity", "owner/repo", &out); code != 0 {
+		t.Fatalf("second runTrustVerb(\"trust\", ...) = %d, want 0", code)
+	}
+
+	store, err := config.LoadTrust(trustPath)
+	if err != nil {
+		t.Fatalf("LoadTrust() returned unexpected error: %v", err)
+	}
+	// Exactly 1: the observable no-duplicate invariant for the same
+	// identity -- a re-trust after content changed must replace the stale
+	// entry, never accumulate a second one for the same repo.
+	if len(store.Trusted) != 1 {
+		t.Fatalf("Trusted count = %d, want 1 (a same-identity re-trust must replace, not accumulate)", len(store.Trusted))
+	}
+	if store.Trusted[0].Hash != secondHash {
+		t.Errorf("Trusted[0].Hash = %q, want %q (the new content's hash)", store.Trusted[0].Hash, secondHash)
+	}
+	if store.Trusts(firstHash) {
+		t.Errorf("store still trusts the stale first-content hash %q after a same-identity re-trust", firstHash)
+	}
+}
+
 func TestRunTrustVerb_UntrustAfterTrust_RemovesEntry(t *testing.T) {
 	dir := t.TempDir()
 	localPath := filepath.Join(dir, "local.yml")
@@ -148,11 +208,11 @@ func TestRunTrustVerb_UntrustAfterTrust_RemovesEntry(t *testing.T) {
 	writeCLITrustLocalConfig(t, localPath)
 
 	var out bytes.Buffer
-	if code := runTrustVerb("trust", localPath, trustPath, "owner/repo", &out); code != 0 {
+	if code := runTrustVerb("trust", localPath, trustPath, "identity", "owner/repo", &out); code != 0 {
 		t.Fatalf("runTrustVerb(\"trust\", ...) = %d, want 0", code)
 	}
 
-	code := runTrustVerb("untrust", localPath, trustPath, "owner/repo", &out)
+	code := runTrustVerb("untrust", localPath, trustPath, "identity", "owner/repo", &out)
 	if code != 0 {
 		t.Fatalf("runTrustVerb(\"untrust\", ...) = %d, want 0; output: %s", code, out.String())
 	}
@@ -177,7 +237,7 @@ func TestRunTrustVerb_UntrustWithNothingTrusted_Idempotent(t *testing.T) {
 	writeCLITrustLocalConfig(t, localPath)
 
 	var out bytes.Buffer
-	code := runTrustVerb("untrust", localPath, trustPath, "owner/repo", &out)
+	code := runTrustVerb("untrust", localPath, trustPath, "identity", "owner/repo", &out)
 	if code != 0 {
 		t.Fatalf("runTrustVerb(\"untrust\", ...) = %d, want 0 (nothing to remove is not an error); output: %s", code, out.String())
 	}
@@ -192,7 +252,7 @@ func TestRunTrustVerb_NoLocalConfig_NonZeroExitWithMessage(t *testing.T) {
 			trustPath := filepath.Join(dir, "trust.yml")
 
 			var out bytes.Buffer
-			code := runTrustVerb(verb, localPath, trustPath, "owner/repo", &out)
+			code := runTrustVerb(verb, localPath, trustPath, "identity", "owner/repo", &out)
 			if code == 0 {
 				t.Fatalf("runTrustVerb(%q, ...) = 0, want non-zero exit when no local config exists", verb)
 			}
@@ -215,7 +275,7 @@ func TestRunTrustVerb_MalformedTrustStore_FailsClosedByteIdentical(t *testing.T)
 	}
 
 	var out bytes.Buffer
-	code := runTrustVerb("trust", localPath, trustPath, "owner/repo", &out)
+	code := runTrustVerb("trust", localPath, trustPath, "identity", "owner/repo", &out)
 	if code == 0 {
 		t.Fatalf("runTrustVerb(\"trust\", ...) = 0, want non-zero exit for a malformed trust store")
 	}
@@ -247,7 +307,7 @@ func TestRunTrustVerb_NeverWritesSiblingGlobalConfigPath(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	if code := runTrustVerb("trust", localPath, trustPath, "owner/repo", &out); code != 0 {
+	if code := runTrustVerb("trust", localPath, trustPath, "identity", "owner/repo", &out); code != 0 {
 		t.Fatalf("runTrustVerb(\"trust\", ...) = %d, want 0; output: %s", code, out.String())
 	}
 

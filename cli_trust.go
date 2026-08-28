@@ -38,10 +38,24 @@ func trustVerbExtraArgs(args []string) bool {
 // at localPath, hashing its content and adding/removing a matching entry in
 // the trust store at trustPath. note is stored alongside a newly trusted
 // entry for the user's own reference (the caller supplies os.Getwd()).
+// identity is the resolved trust identity (the caller supplies
+// resolveTrustIdentity(gitPath, localPath), trust_identity.go) recorded as
+// the new entry's Path -- resolved by the caller rather than inside this
+// function, mirroring how note is already caller-resolved, so this function
+// stays a pure hash/store transform with no git or filesystem-detection
+// logic of its own and is testable with arbitrary identity strings instead
+// of a real .git directory.
+//
+// runTrustVerb is the bootstrap path for #640's in-app re-approval prompt:
+// without it recording Path, no entry in the store ever carries an
+// identity, PriorEntryForPath/StaleTrust never hit, and the prompt can
+// never fire for anyone -- including on a stale entry that predates this
+// change, since granting through UpsertTrustEntry self-heals it (replaces
+// the identity-less or stale entry) on the very next `lazyboards trust`.
 //
 // It never touches any path other than localPath (read) and trustPath
 // (read/write) -- no global config is read or written.
-func runTrustVerb(verb, localPath, trustPath, note string, out io.Writer) int {
+func runTrustVerb(verb, localPath, trustPath, identity, note string, out io.Writer) int {
 	if !config.LocalExists(localPath) {
 		_, _ = fmt.Fprintf(out, "No local config found at %s -- nothing to %s.\n", localPath, verb)
 		return 1
@@ -63,9 +77,7 @@ func runTrustVerb(verb, localPath, trustPath, note string, out io.Writer) int {
 
 	switch verb {
 	case "trust":
-		if !store.Trusts(hash) {
-			store.Trusted = append(store.Trusted, config.TrustEntry{Hash: hash, Note: note})
-		}
+		store = config.UpsertTrustEntry(store, config.TrustEntry{Hash: hash, Note: note, Path: identity})
 	case "untrust":
 		filtered := make([]config.TrustEntry, 0, len(store.Trusted))
 		for _, entry := range store.Trusted {

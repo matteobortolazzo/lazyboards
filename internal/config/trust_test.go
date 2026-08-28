@@ -339,6 +339,234 @@ func TestTrust_Trusts_EmptyHash_ReturnsFalseEvenWithEmptyHashEntry(t *testing.T)
 	}
 }
 
+// --- TrustEntry.Path / UpsertTrustEntry / PriorEntryForPath / StaleTrust (#642) ---
+
+// TestTrust_Trusts_PathMatchDoesNotGrantTrust is the single most important
+// test in this file: a stored entry whose Path matches the identity being
+// checked, but whose Hash does not match the content hash, must NOT be
+// trusted. Path is a re-approval-UX identity only; it must never leak into
+// the trust decision itself.
+func TestTrust_Trusts_PathMatchDoesNotGrantTrust(t *testing.T) {
+	trust := Trust{Trusted: []TrustEntry{
+		{Hash: "sha256:old-content", Note: "repo", Path: "/repo/.git"},
+	}}
+
+	// Same Path (same repo identity), but the queried hash is for
+	// DIFFERENT content than what was actually reviewed and trusted.
+	if trust.Trusts("sha256:new-untrusted-content") {
+		t.Fatal("Trusts() = true for a hash not in the store, even though an entry shares its Path -- Path must never grant trust")
+	}
+}
+
+// TestTrust_PriorEntryForPath covers every match/no-match combination the
+// empty-path guard must handle on both sides of the comparison.
+func TestTrust_PriorEntryForPath(t *testing.T) {
+	trust := Trust{Trusted: []TrustEntry{
+		{Hash: "sha256:a", Note: "legacy entry, no identity recorded", Path: ""},
+		{Hash: "sha256:b", Note: "n", Path: "/repo/.git"},
+	}}
+
+	tests := []struct {
+		name      string
+		queryPath string
+		wantOK    bool
+		wantHash  string
+	}{
+		{"empty query path never matches, even a stored empty-Path entry", "", false, ""},
+		{"stored empty Path never matches a non-empty query either", "/other/.git", false, ""},
+		{"matching non-empty path hits", "/repo/.git", true, "sha256:b"},
+		{"unrelated non-empty path misses", "/unrelated/.git", false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := trust.PriorEntryForPath(tt.queryPath)
+			if ok != tt.wantOK {
+				t.Fatalf("PriorEntryForPath(%q) ok = %v, want %v", tt.queryPath, ok, tt.wantOK)
+			}
+			if ok && got.Hash != tt.wantHash {
+				t.Errorf("PriorEntryForPath(%q).Hash = %q, want %q", tt.queryPath, got.Hash, tt.wantHash)
+			}
+		})
+	}
+}
+
+// TestTrustEntry_LegacyYAML_NoPathFieldRoundTripsUnchanged asserts a store
+// written before #642 (no "path:" key at all) loads with Path == "" and,
+// once saved back out, still contains no "path:" line (thanks to
+// yaml:"path,omitempty") -- a legacy store's on-disk shape doesn't drift
+// just because it was loaded and re-saved through a #642-aware binary.
+func TestTrustEntry_LegacyYAML_NoPathFieldRoundTripsUnchanged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trust.yml")
+	legacy := "trusted:\n  - hash: \"sha256:legacy\"\n    note: \"owner/repo\"\n"
+	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
+		t.Fatalf("failed to write legacy trust store: %v", err)
+	}
+
+	trust, err := LoadTrust(path)
+	if err != nil {
+		t.Fatalf("LoadTrust() returned unexpected error: %v", err)
+	}
+	if len(trust.Trusted) != 1 {
+		t.Fatalf("Trusted count = %d, want 1", len(trust.Trusted))
+	}
+	if trust.Trusted[0].Path != "" {
+		t.Errorf("Trusted[0].Path = %q, want \"\" for a legacy entry with no path: key", trust.Trusted[0].Path)
+	}
+	if !trust.Trusts("sha256:legacy") {
+		t.Error("Trusts() = false for the legacy entry's own hash, want true")
+	}
+
+	if err := SaveTrust(path, trust); err != nil {
+		t.Fatalf("SaveTrust() returned unexpected error: %v", err)
+	}
+	saved, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved trust store: %v", err)
+	}
+	if strings.Contains(string(saved), "path:") {
+		t.Errorf("saved trust store contains a path: key for a legacy entry, want it omitted (yaml:\"path,omitempty\"); saved = %q", saved)
+	}
+}
+
+// TestUpsertTrustEntry covers both branches: entry.Path == "" preserves the
+// pre-#642 CLI idempotent-append behavior exactly (append unless the hash
+// is already trusted), while entry.Path != "" always replaces every
+// existing same-Path entry -- whether there was zero, one (the core #642
+// AC: re-trust after content changed replaces, not accumulates), or more
+// than one (self-healing an already-duplicated store) -- and never touches
+// entries under a different Path.
+func TestUpsertTrustEntry(t *testing.T) {
+	tests := []struct {
+		name        string
+		before      []TrustEntry
+		entry       TrustEntry
+		wantHashes  []string // Trusted[i].Hash in order, after the upsert
+		wantTrusted []string // hashes that must Trusts() == true afterward
+		wantStale   []string // hashes that must Trusts() == false afterward
+	}{
+		{
+			name:        "empty Path appends a new hash",
+			entry:       TrustEntry{Hash: "sha256:a", Note: "n"},
+			wantHashes:  []string{"sha256:a"},
+			wantTrusted: []string{"sha256:a"},
+		},
+		{
+			name:        "empty Path re-upserting an already-trusted hash does not duplicate",
+			before:      []TrustEntry{{Hash: "sha256:a", Note: "n"}},
+			entry:       TrustEntry{Hash: "sha256:a", Note: "n2"},
+			wantHashes:  []string{"sha256:a"},
+			wantTrusted: []string{"sha256:a"},
+		},
+		{
+			name:        "non-empty Path replaces the single existing same-identity entry",
+			before:      []TrustEntry{{Hash: "sha256:old", Note: "n", Path: "/repo/.git"}},
+			entry:       TrustEntry{Hash: "sha256:new", Note: "n2", Path: "/repo/.git"},
+			wantHashes:  []string{"sha256:new"},
+			wantTrusted: []string{"sha256:new"},
+			wantStale:   []string{"sha256:old"},
+		},
+		{
+			name: "non-empty Path self-heals an already-duplicated same-identity store",
+			before: []TrustEntry{
+				{Hash: "sha256:old1", Note: "n", Path: "/repo/.git"},
+				{Hash: "sha256:old2", Note: "n", Path: "/repo/.git"},
+			},
+			entry:      TrustEntry{Hash: "sha256:new", Note: "n2", Path: "/repo/.git"},
+			wantHashes: []string{"sha256:new"},
+		},
+		{
+			name:        "non-empty Path leaves a different identity's entry untouched",
+			before:      []TrustEntry{{Hash: "sha256:a", Note: "n", Path: "/repo-a/.git"}},
+			entry:       TrustEntry{Hash: "sha256:b", Note: "n", Path: "/repo-b/.git"},
+			wantHashes:  []string{"sha256:a", "sha256:b"},
+			wantTrusted: []string{"sha256:a", "sha256:b"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := UpsertTrustEntry(Trust{Trusted: tt.before}, tt.entry)
+
+			if len(got.Trusted) != len(tt.wantHashes) {
+				t.Fatalf("Trusted count = %d, want %d", len(got.Trusted), len(tt.wantHashes))
+			}
+			for i, want := range tt.wantHashes {
+				if got.Trusted[i].Hash != want {
+					t.Errorf("Trusted[%d].Hash = %q, want %q", i, got.Trusted[i].Hash, want)
+				}
+			}
+			for _, hash := range tt.wantTrusted {
+				if !got.Trusts(hash) {
+					t.Errorf("Trusts(%q) = false, want true", hash)
+				}
+			}
+			for _, hash := range tt.wantStale {
+				if got.Trusts(hash) {
+					t.Errorf("Trusts(%q) = true, want false (replaced/stale)", hash)
+				}
+			}
+		})
+	}
+}
+
+// TestStaleTrust covers StaleTrust's full precedence: already-trusted
+// always wins (false) regardless of Path, a matching prior entry under an
+// untrusted hash is the only true case, no prior entry for the identity is
+// false (a genuine first-ever load must never look stale), and an empty
+// identity -- on either side -- never matches.
+func TestStaleTrust(t *testing.T) {
+	tests := []struct {
+		name      string
+		trusted   []TrustEntry
+		hash      string
+		path      string
+		wantOK    bool
+		wantEntry string // wantEntry.Hash, when wantOK
+	}{
+		{
+			name:    "false when hash already trusted",
+			trusted: []TrustEntry{{Hash: "sha256:current", Note: "n", Path: "/repo/.git"}},
+			hash:    "sha256:current", path: "/repo/.git",
+			wantOK: false,
+		},
+		{
+			name:    "true when hash untrusted and identity matched",
+			trusted: []TrustEntry{{Hash: "sha256:old", Note: "n", Path: "/repo/.git"}},
+			hash:    "sha256:new", path: "/repo/.git",
+			wantOK: true, wantEntry: "sha256:old",
+		},
+		{
+			name:    "false when no prior entry for this identity",
+			trusted: []TrustEntry{{Hash: "sha256:other", Note: "n", Path: "/other-repo/.git"}},
+			hash:    "sha256:new", path: "/repo/.git",
+			wantOK: false,
+		},
+		{
+			name:    "false when the query identity is empty",
+			trusted: []TrustEntry{{Hash: "sha256:old", Note: "legacy", Path: ""}},
+			hash:    "sha256:new", path: "",
+			wantOK: false,
+		},
+		{
+			name:    "false when a legacy Path-less entry is checked against a non-empty identity",
+			trusted: []TrustEntry{{Hash: "sha256:old", Note: "legacy", Path: ""}},
+			hash:    "sha256:new", path: "/repo/.git",
+			wantOK: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			trust := Trust{Trusted: tt.trusted}
+			entry, ok := trust.StaleTrust(tt.hash, tt.path)
+			if ok != tt.wantOK {
+				t.Fatalf("StaleTrust(%q, %q) ok = %v, want %v", tt.hash, tt.path, ok, tt.wantOK)
+			}
+			if ok && entry.Hash != tt.wantEntry {
+				t.Errorf("StaleTrust(%q, %q).Hash = %q, want %q", tt.hash, tt.path, entry.Hash, tt.wantEntry)
+			}
+		})
+	}
+}
+
 // carryTrustForward fails closed on a malformed trust store (never rewrites
 // it), but that error must not vanish without a trace: main.go's own
 // startup LoadTrust call logs via debuglog before falling back, and

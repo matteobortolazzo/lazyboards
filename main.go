@@ -195,7 +195,13 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error resolving working directory: %v\n", err)
 			os.Exit(1)
 		}
-		os.Exit(runTrustVerb(verb, config.DefaultLocalPath, dispatchTrustPath, note, os.Stderr))
+		// ".git" mirrors the same cwd-relative convention used below for
+		// the normal board-launch path's own git detection
+		// (gitdetect.ResolveConfigPath(".git")) -- this dispatch runs
+		// before that path, straight from os.Args, so it resolves its own
+		// identity here rather than sharing that later call.
+		identity := resolveTrustIdentity(".git", config.DefaultLocalPath)
+		os.Exit(runTrustVerb(verb, config.DefaultLocalPath, dispatchTrustPath, identity, note, os.Stderr))
 	}
 
 	// Open the debug log before anything else that might need to log to it
