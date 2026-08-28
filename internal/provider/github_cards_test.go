@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-github/v68/github"
 )
@@ -322,6 +323,58 @@ func TestGitHubCreateCard_AssigneesPopulated(t *testing.T) {
 	}
 	if card.Assignees[0].Login != assigneeLogin {
 		t.Errorf("card.Assignees[0].Login = %q, want %q", card.Assignees[0].Login, assigneeLogin)
+	}
+}
+
+// TestGitHubCreateCard_CreatedAtPopulated asserts issueToCard carries the
+// created issue's timestamp through to the returned Card. Without it a
+// freshly created card has a zero CreatedAt, which sorts to the oldest end
+// under either sort direction and renders "created: (unknown)" in the
+// detail panel until the next board fetch.
+func TestGitHubCreateCard_CreatedAtPopulated(t *testing.T) {
+	createdAt := time.Date(2025, 3, 14, 9, 26, 53, 0, time.UTC)
+	createdIssue := &github.Issue{
+		Number:    github.Ptr(42),
+		Title:     github.Ptr("New feature"),
+		Labels:    []*github.Label{},
+		CreatedAt: &github.Timestamp{Time: createdAt},
+	}
+	client := &mockGitHubClient{createdIssue: createdIssue}
+	columns := []string{"New"}
+
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
+
+	card, err := provider.CreateCard(context.Background(), "New feature", "")
+	if err != nil {
+		t.Fatalf("CreateCard returned error: %v", err)
+	}
+
+	if !card.CreatedAt.Equal(createdAt) {
+		t.Errorf("card.CreatedAt = %v, want %v", card.CreatedAt, createdAt)
+	}
+}
+
+// TestGitHubCreateCard_CreatedAtMissingStaysZero pins the nil-safety of
+// GetCreatedAt(): an issue with no created_at yields a zero CreatedAt rather
+// than panicking.
+func TestGitHubCreateCard_CreatedAtMissingStaysZero(t *testing.T) {
+	createdIssue := &github.Issue{
+		Number: github.Ptr(43),
+		Title:  github.Ptr("No timestamp"),
+		Labels: []*github.Label{},
+	}
+	client := &mockGitHubClient{createdIssue: createdIssue}
+	columns := []string{"New"}
+
+	provider := NewGitHubProvider(client, nil, "owner", "repo", columns)
+
+	card, err := provider.CreateCard(context.Background(), "No timestamp", "")
+	if err != nil {
+		t.Fatalf("CreateCard returned error: %v", err)
+	}
+
+	if !card.CreatedAt.IsZero() {
+		t.Errorf("card.CreatedAt = %v, want the zero time when the issue carries no created_at", card.CreatedAt)
 	}
 }
 

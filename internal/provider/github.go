@@ -281,6 +281,7 @@ func issueToCard(issue *github.Issue) Card {
 		URL:       issue.GetHTMLURL(),
 		Labels:    extractLabels(issue.Labels),
 		Assignees: extractAssignees(issue.Assignees),
+		CreatedAt: issue.GetCreatedAt().Time,
 	}
 }
 

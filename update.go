@@ -1029,7 +1029,20 @@ func (b Board) handleMilestonesFetched(msg milestonesFetchedMsg) (tea.Model, tea
 
 func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 	const targetCol = 0 // create mode has no column picker; new cards always land here
-	b.Columns[targetCol].Cards = append(b.Columns[targetCol].Cards, mapProviderCard(msg.card))
+	created := mapProviderCard(msg.card)
+	if created.CreatedAt.IsZero() {
+		// Fail-safe for a provider that omits the creation timestamp: the
+		// card was just created, so it must sort to the newest end. A zero
+		// time sorts *before* everything and would park it at the oldest end
+		// in both directions instead.
+		created.CreatedAt = time.Now()
+	}
+	b.Columns[targetCol].Cards = append(b.Columns[targetCol].Cards, created)
+	// Re-sort so the new card lands at its sorted position rather than at
+	// the tail (top under newest-first, bottom under oldest-first). This is
+	// a pure reorder that never touches a cursor, so the cursor resolution
+	// below is what puts the selection back on the new card.
+	b.sortColumns()
 	b.create.titleInput.SetValue("")
 	b.create.labelInput.SetValue("")
 	b.validationErr = ""
@@ -1038,12 +1051,21 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 	// Focus the newly created card: switch to its column, drop any active
 	// search/filter that could hide it, then select it explicitly -- this
 	// runs after clearSearch/clearFilter because they reset the column
-	// cursor to 0, which we then override to point at the appended card.
+	// cursor to 0, which we then override to point at the new card. The
+	// cursor is resolved by Number, not by the append index, because the
+	// re-sort above has just moved the card (#412;
+	// docs/list-cursor-invariants.md).
 	b.ActiveTab = targetCol
 	b.clearSearch()
 	b.clearFilter()
 	col := &b.Columns[targetCol]
-	col.Cursor = len(col.Cards) - 1
+	col.Cursor = 0
+	for i, c := range col.Cards {
+		if c.Number == created.Number {
+			col.Cursor = i
+			break
+		}
+	}
 	b.onCursorMoved()
 
 	var cmd tea.Cmd
