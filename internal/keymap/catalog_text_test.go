@@ -5,9 +5,10 @@ import (
 	"testing"
 )
 
-// textModes lists the seven confirm/text-input Mode surfaces #538
+// textModes lists the eight confirm/text-input Mode surfaces this package
 // catalogues: close_confirm, label_confirm, delete, create, config, search
-// and comment -- the gap left when #508's PR 2/2 was never delivered.
+// and comment (#538, the gap left when #508's PR 2/2 was never delivered),
+// plus trust_confirm (#643, cataloged ahead of its runtime wiring, #644).
 // Mirrors pr1Modes (catalog_pr1_test.go).
 var textModes = []Mode{
 	ModeCloseConfirm,
@@ -17,6 +18,7 @@ var textModes = []Mode{
 	ModeConfig,
 	ModeSearch,
 	ModeComment,
+	ModeTrustConfirm,
 }
 
 // TestDefaults_TextModesPopulated pins that Defaults() actually carries a

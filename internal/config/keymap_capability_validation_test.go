@@ -487,6 +487,7 @@ var capabilityCommandMatrix = []capabilityCommandCase{
 	// have no textinput widget, only y/n/esc, so "z" is safe there too)
 	{keymap.ModeCloseConfirm, "z", keymap.CommandCloseConfirmConfirm, keymap.CommandErrorRetry},
 	{keymap.ModeLabelConfirm, "z", keymap.CommandLabelConfirmCreate, keymap.CommandCloseConfirmConfirm},
+	{keymap.ModeTrustConfirm, "z", keymap.CommandTrustConfirmTrust, keymap.CommandCloseConfirmConfirm},
 
 	// text -- printable-rune-consuming half (create, config, search, comment,
 	// delete): named key "f1", never a bare rune
@@ -604,6 +605,7 @@ var nonInlineActionModes = []keymap.Mode{
 	keymap.ModeDelete,
 	keymap.ModeCloseConfirm,
 	keymap.ModeLabelConfirm,
+	keymap.ModeTrustConfirm,
 }
 
 // capabilityActionYAML builds a minimal keymaps.<mode>.<key>: <inline

@@ -2,8 +2,10 @@ package keymap
 
 // Command ids for the seven confirm/text-input surfaces #538 catalogues:
 // close_confirm, label_confirm, delete, create, config, search and comment
-// -- the gap left when #508's PR 2/2 was never delivered. Each id is
-// prefixed by its own Mode constant string verbatim (close_confirm.confirm,
+// -- the gap left when #508's PR 2/2 was never delivered -- plus
+// trust_confirm (#643), an eighth confirm surface cataloged ahead of its
+// runtime wiring (#644, see mode.go's ModeTrustConfirm doc comment). Each id
+// is prefixed by its own Mode constant string verbatim (close_confirm.confirm,
 // create.submit, ...), matching the convention modalCommands/systemCommands
 // established. See defaults_text.go for the matching default Table entries.
 //
@@ -45,6 +47,9 @@ const (
 
 	CommandCommentSubmit CommandID = "comment.submit"
 	CommandCommentCancel CommandID = "comment.cancel"
+
+	CommandTrustConfirmTrust CommandID = "trust_confirm.trust"
+	CommandTrustConfirmSkip  CommandID = "trust_confirm.skip"
 )
 
 // textCommands is the Command catalogue entries (id + desc) for the seven
@@ -81,4 +86,7 @@ var textCommands = []Command{
 
 	{CommandCommentSubmit, "Submit"},
 	{CommandCommentCancel, "Cancel"},
+
+	{CommandTrustConfirmTrust, "Trust now"},
+	{CommandTrustConfirmSkip, "Skip"},
 }
