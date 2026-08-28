@@ -58,6 +58,7 @@ var helpModeSections = []helpModeSectionSpec{
 	{title: "Git Menu", mode: keymap.ModeGitPanel, openedBy: keymap.CommandViewGitPanel},
 	{title: "Dispatch (cenci)", mode: keymap.ModeDispatch, openedBy: keymap.CommandViewDispatch},
 	{title: "Label Confirm", mode: keymap.ModeLabelConfirm},
+	{title: "Trust Config", mode: keymap.ModeTrustConfirm},
 	{title: "Help", mode: keymap.ModeHelp},
 	{title: "Error", mode: keymap.ModeError},
 }

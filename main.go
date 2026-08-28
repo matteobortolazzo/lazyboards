@@ -169,6 +169,35 @@ func printNotices(w io.Writer, groups ...[]string) {
 	}
 }
 
+// trustConfirmEntry decides whether a freshly loaded, untrusted local config
+// should route the board into trustConfirmMode instead of straight into
+// loadingMode (#640). It gates strictly on cfg.LocalHash != "" &&
+// !trust.Trusts(cfg.LocalHash) -- the exact semantics config.Trust.StaleTrust
+// encapsulates -- never on len(cfg.Notices) > 0: Notices is only populated
+// when something was actually stripped, but an untrusted config with nothing
+// to strip must still prompt. The cfg.LocalHash != "" guard is required in
+// addition to StaleTrust's own checks: StaleTrust("", identity) would
+// otherwise fall through to PriorEntryForPath(identity) and could report a
+// stale match purely because some other hash was once trusted under this
+// same identity, even though there is no local file to re-approve at all
+// (e.g. it was deleted since the last trust grant).
+//
+// This is the single decision function main() calls, and the same one
+// universal_quit_test.go's trust_confirm matrix case calls directly to enter
+// the mode "the real way" -- trustConfirmMode has no tea.Msg/keypress entry
+// point, since main() decides it before tea.NewProgram(...).Run() is ever
+// called, so there is nothing for b.Update to dispatch into.
+func trustConfirmEntry(cfg config.Config, trust config.Trust, identity string) (trustConfirmState, bool) {
+	if cfg.LocalHash == "" {
+		return trustConfirmState{}, false
+	}
+	entry, ok := trust.StaleTrust(cfg.LocalHash, identity)
+	if !ok {
+		return trustConfirmState{}, false
+	}
+	return trustConfirmState{hash: cfg.LocalHash, identity: identity, note: entry.Note}, true
+}
+
 func main() {
 	if versionRequested(os.Args) {
 		fmt.Printf("lazyboards %s\n", appVersion())
@@ -195,7 +224,13 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error resolving working directory: %v\n", err)
 			os.Exit(1)
 		}
-		os.Exit(runTrustVerb(verb, config.DefaultLocalPath, dispatchTrustPath, note, os.Stderr))
+		// ".git" mirrors the same cwd-relative convention used below for
+		// the normal board-launch path's own git detection
+		// (gitdetect.ResolveConfigPath(".git")) -- this dispatch runs
+		// before that path, straight from os.Args, so it resolves its own
+		// identity here rather than sharing that later call.
+		identity := resolveTrustIdentity(".git", config.DefaultLocalPath)
+		os.Exit(runTrustVerb(verb, config.DefaultLocalPath, dispatchTrustPath, identity, note, os.Stderr))
 	}
 
 	// Open the debug log before anything else that might need to log to it
@@ -408,6 +443,20 @@ func main() {
 	// successful board fetch, then cleared (handleBoardFetched, update.go).
 	if len(cfg.Notices) > 0 {
 		board.startupWarning = strings.Join(cfg.Notices, "; ")
+	}
+	// Stale-trust re-approval prompt (#640): when the local config is
+	// untrusted but the trust store already holds an entry for a previous
+	// version of this same repo identity, offer a one-keypress in-app
+	// re-approval instead of forcing quit -> `lazyboards trust` -> relaunch.
+	// Reuses the already-loaded cfg/trust -- no extra I/O; trust is the same
+	// value loaded once above (line ~230) and passed to every config.Load
+	// call, including the first-launch reload above. Placed once, here,
+	// after both cfg paths have converged, rather than duplicated into the
+	// first-launch branch above.
+	identity := resolveTrustIdentity(".git", config.DefaultLocalPath)
+	if state, ok := trustConfirmEntry(cfg, trust, identity); ok {
+		board.mode = trustConfirmMode
+		board.trustConfirm = state
 	}
 	// Seed the board-wide card sort direction: a previously toggled direction
 	// (runtime state) wins over the configured default (#503). Cards are

@@ -165,6 +165,13 @@ const (
 	helpMode
 	labelConfirmMode
 	closeConfirmMode
+	// trustConfirmMode is the in-app re-approval prompt (#640): entered by
+	// main.go, before Update() is ever called, when the local config is
+	// untrusted but the trust store already holds an entry for a previous
+	// version of this same repo identity (trustConfirmEntry, main.go).
+	// There is no keypress that enters this mode -- it has no
+	// b.Update case that transitions into it.
+	trustConfirmMode
 	commentMode
 	deleteMode
 	filterMode
@@ -477,6 +484,17 @@ type labelConfirmState struct {
 // closeConfirmState groups fields related to the close-card confirmation prompt.
 type closeConfirmState struct {
 	card Card
+}
+
+// trustConfirmState groups fields for the stale-trust re-approval prompt
+// (trustConfirmMode, #640): the untrusted local config's current hash, the
+// repo identity it was matched against (config.TrustEntry.Path, resolved by
+// resolveTrustIdentity), and the stale entry's Note carried forward for
+// display and preservation on accept.
+type trustConfirmState struct {
+	hash     string
+	identity string
+	note     string
 }
 
 // cardClosedMsg is sent when a card has been closed successfully.
@@ -843,6 +861,7 @@ type Board struct {
 	mouseEnabled                bool
 	labelConfirm                labelConfirmState
 	closeConfirm                closeConfirmState
+	trustConfirm                trustConfirmState
 	delete                      deleteState
 	filterItems                 []filterItem
 	filterCursor                int
@@ -1920,10 +1939,39 @@ func (b Board) prIndicatorCount() int {
 	return b.prCounts()
 }
 
+// Init defers to startupCmds() for the normal case. It short-circuits to nil
+// for two startup-time interactive prompts that must not race a concurrent
+// board fetch: firstLaunch's config modal, and trustConfirmMode's re-approval
+// prompt (#640). Without this second early return, Init() would fire
+// fetchBoardCmd while the prompt is up, and handleBoardFetched's
+// non-refreshing branch -- which sets b.mode = normalMode unconditionally,
+// with no mode guard (update.go) -- would silently yank the user out of the
+// prompt mid-decision the moment the first boardFetchedMsg arrived. Skipping
+// the fetch here means that message can never be produced in the first
+// place, which is why this file does not also add a guard inside
+// handleBoardFetched itself: patching a function that central, run on every
+// refresh cycle, is unnecessary once the race is prevented at its source.
+// Both handleTrustConfirmCommand's skip/accept transitions call startupCmds()
+// directly once the prompt is resolved, so the deferred fetch/watchers still
+// run -- just after the decision instead of racing it.
 func (b Board) Init() tea.Cmd {
 	if b.config.firstLaunch {
 		return nil
 	}
+	if b.mode == trustConfirmMode {
+		return nil
+	}
+	return b.startupCmds()
+}
+
+// startupCmds is the full set of commands a normal startup issues: the
+// initial board fetch, plus every background watcher/poller Init() would
+// otherwise start (cenci-watch subscription, git status polling, the
+// update-availability check). Extracted from Init() (#640) so
+// trustConfirmMode's post-decision transition (runTrustConfirmCommand,
+// mode_handlers.go) can defer into the exact same startup sequence Init()
+// itself would have run, rather than reimplementing a partial subset of it.
+func (b Board) startupCmds() tea.Cmd {
 	cmd := tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 	if b.cenciWatcher != nil {
 		cmd = tea.Batch(cmd, subscribeCenciWatchCmd(b.cenciWatcher))

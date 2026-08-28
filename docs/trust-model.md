@@ -40,22 +40,31 @@ itself a non-shell sink on every platform (see `docs/shell-and-url-safety.md`;
 #576) — if it ever regressed to shelling out, an untrusted `type: url`
 binding would reopen the exact command-injection gap this trust model exists
 to close. Stripping is decided by comparing the local value against a
-snapshot of the *global* document taken before the local file was merged in:
-anything whose execution-relevant fields (kind, command, and the underlying
-action's name/type/url/command/scope) match its global counterpart is
-genuinely global (inherited, not locally declared) and is left alone,
-whatever the local file's trust state. This comparison deliberately excludes
-each entry's derived `Order` field -- document-position metadata used only
-for hint-bar/help ordering, never consumed at execution time -- because a
-YAML alias (`keymaps: *anchor`) leaves every aliased
-entry's `Order` at its zero value rather than stamping it from document
-position; an `Order`-inclusive comparison would misclassify an
-aliased-but-genuinely-global entry as locally differing purely because of
-where it appears in the document. Anything that doesn't match on the
-remaining fields -- a real override or a local-only declaration -- is
-stripped unconditionally and counted once. This fails safe (over-strip,
-never under-strip) and closes a YAML merge-key/alias bypass a raw "was this
-key literally in the document" walk would have missed.
+snapshot of the *global* document taken before the local file was merged in,
+via `sameShellAction`/`sameShellBinding` (`internal/config/trust_strip.go`):
+each side's derived `Order` field is zeroed out first, then the remainder is
+compared by **whole-struct equality** (`a == b`) -- not a hand-picked list of
+"execution-relevant" fields. A local binding that is `Order`-blind-equal to
+its global counterpart is genuinely global (inherited, not locally declared)
+and is left alone, whatever the local file's trust state; anything that
+differs on any other field -- a real override or a local-only declaration --
+is stripped unconditionally and counted once. `Order` alone is excluded --
+document-position metadata used only for hint-bar/help ordering, never
+consumed at execution time -- because a YAML alias (`keymaps: *anchor`)
+leaves every aliased entry's `Order` at its zero value rather than stamping
+it from document position; an `Order`-inclusive comparison would
+misclassify an aliased-but-genuinely-global entry as locally differing
+purely because of where it appears in the document. Comparing the *whole*
+remaining struct, rather than naming individual fields, is deliberate and
+fail-safe: `Terminal`, `Window`, `Cwd`, and `Focus` (#623/#624) all
+participate in the comparison automatically, and so will any field `Action`
+gains in the future, with no matching update needed here -- a hand-maintained
+field list would otherwise silently stop covering a new field the moment
+someone adds one, exactly the class of gap `AGENTS.md`'s "any new config
+construct that executes a command must be reachable by the trust model's
+gate" rule exists to prevent. This fails safe (over-strip, never
+under-strip) and closes a YAML merge-key/alias bypass a raw "was this key
+literally in the document" walk would have missed.
 
 An explicit local `cleanup: ""` is left alone even when untrusted — it's a
 disable directive, not a command, and can never reach a shell.
@@ -76,6 +85,89 @@ back to untrusted. `HashLocalConfig` is the file-reading wrapper `Load()` and
 the CLI verbs use; `Config.LocalHash` carries the hash `Load()` computed
 alongside the rest of the resolved config (empty if no local file was read).
 
+## Repo identity (`Path`) is not part of the trust decision
+
+`TrustEntry` also carries a `Path` field (`internal/config/trust.go`), the
+stable per-repo identity `resolveTrustIdentity` (`trust_identity.go`)
+resolves: the git common directory (absolute) when resolvable — so every
+worktree of a repo converges on one identity — else the absolute local
+config path, else `""`. It is easy to misread `Path` as a second trust key
+("trusted at this hash *for this repo*"); it is not. **The trust decision
+stays content-hash only** (`Trust.Trusts`, unchanged by this field): an
+entry whose `Path` matches the repo you're in but whose `Hash` doesn't match
+the file's current content is not trusted, full stop — `Path` is never
+consulted by `Trusts`.
+
+`Path`'s only job is deciding whether a *re-approval prompt* is worth
+showing: `Trust.StaleTrust(hash, path)` reports whether `hash` is currently
+untrusted **but** `path` was trusted before under a different hash — i.e.
+"you've reviewed this repo's config before, just not this exact edit of it."
+A genuinely first-ever untrusted load (no prior entry recorded for this
+`Path`) never counts as stale, so it never short-circuits the normal
+strip-and-notify flow into a prompt. An empty `Path`, on either side of any
+comparison, never matches — mirroring `Trusts`'s existing empty-hash guard —
+so every entry written before this field existed degrades to "no identity
+recorded" rather than false-matching against each other or against a
+freshly-resolved identity that happens to also be `""`.
+
+## In-app re-approval prompt (`trustConfirmMode`, #640/#644)
+
+`main()` resolves the current repo identity via `resolveTrustIdentity(".git",
+config.DefaultLocalPath)` and feeds it, alongside the already-loaded `cfg`
+and `trust` values (no extra I/O — both are the same values every other
+`config.Load` call in `main()` reuses), into `trustConfirmEntry`. That
+function's gate is deliberately narrower than "something got stripped": it
+checks `cfg.LocalHash != "" && !trust.Trusts(cfg.LocalHash)` (the exact
+semantics `Trust.StaleTrust` encapsulates) and then `trust.StaleTrust`'s own
+identity match — **never** `len(cfg.Notices) > 0`. `Notices` is populated
+only when a sink was actually stripped, so an untrusted `.lazyboards.yml`
+that happens to declare no shell bindings or `cleanup:` at all would produce
+an empty `Notices` and, if gated on that instead, never prompt — even though
+it is exactly the "content changed, please re-review" case this feature
+exists for.
+
+On a hit, `main()` starts the board in `trustConfirmMode` instead of the
+normal `loadingMode`, with `Board.trustConfirm` populated (`hash`, `identity`,
+and the stale entry's `note`, carried forward for display and for the eventual
+accept-write). `Board.Init()` returns `nil` for this mode — the same
+early-return shape it already uses for `firstLaunch` — so the initial board
+fetch and every other startup watcher (cenci-watch, git status polling, the
+update check) are deferred rather than racing the prompt; both the mode's
+`skip` and `trust` outcomes resume startup via the extracted
+`Board.startupCmds()` once the user has decided.
+
+The prompt itself (`t`/`s`/`esc`, `keymap.ModeTrustConfirm`,
+`handleTrustConfirmModeKey`/`runTrustConfirmCommand`, `mode_handlers.go`)
+offers exactly two outcomes:
+
+- **Skip** (`s`/`esc`, `trust_confirm.skip`) clears `Board.trustConfirm` and
+  transitions straight to `loadingMode`, continuing startup — byte-identical
+  to today's silent-strip behavior, including `Board.startupWarning` (seeded
+  before the mode was ever entered) still surfacing as a timed status-bar
+  warning once the first fetch lands.
+- **Trust** (`t`, `trust_confirm.trust`) runs `acceptTrustCmd`
+  asynchronously: it writes a `TrustEntry{Hash, Path, Note}` for the new
+  content via `config.UpsertTrustEntry`/`config.SaveTrust` (replacing the
+  stale entry for this identity, carrying its `Note` forward), then reloads
+  `config.Load` → `config.ResolveKeymap` against the now-trusted store and
+  applies the result via `Board.withKeymap` plus `Board.columnConfigs =
+  cfg.Columns` — mirroring `main()`'s own startup sequence (the only other
+  place that `Load` → `ResolveKeymap` → `withKeymap` chain exists), **not**
+  `handleConfigSaved`, which never re-resolves the keymap because
+  `config.Save` only ever changes provider/repo. The board's
+  `repoOwner`/`repoName`/`providerName`/`provider`/`defaultActions` are left
+  untouched: accepting a trust re-approval is not a repo retarget. Every step
+  fails closed — a malformed store is never rewritten, and a failed reload
+  never applies a half-updated board; the board stays in `trustConfirmMode`
+  with a visible error, and the user can still retry `t` or fall back to
+  `s`/`esc`.
+
+`Board.trustConfirm.note` is untrusted-ish free-form text (a hand-edited or
+malformed `trust.yml` could carry control bytes, ANSI escapes, or a bidi
+override) and is rendered through the same `fitQuotedTitle`/
+`sanitizeSingleLine` bounding every other inlined-untrusted-string prompt in
+this codebase uses — never raw.
+
 ## Store location and format
 
 The trust store lives at `~/.config/lazyboards/trust.yml`
@@ -85,11 +177,15 @@ The trust store lives at `~/.config/lazyboards/trust.yml`
 trusted:
   - hash: "sha256:<hex>"
     note: "owner/repo"
+    path: "/home/user/repos/owner-repo/.git"
 ```
 
 `note` is a free-form label (the CLI populates it with the cwd) kept purely
 for the user's own reference — it plays no role in the trust decision, which
-is hash-only.
+is hash-only. `path` (`omitempty` — absent entirely on a legacy entry) is
+the load-bearing repo identity described above: unlike `note`, it *is* read
+back by the app (`PriorEntryForPath`/`StaleTrust`), but only to decide
+whether to offer a re-approval prompt, never to decide trust itself.
 
 `SaveTrust` writes it defensively: the parent directory is created and
 explicitly `chmod`'d to `0700` (tightened even if it pre-existed looser,
@@ -116,10 +212,19 @@ is: a bare `trust` or `untrust` as the sole argument (`cli_trust.go`'s
 match either verb and falls through to the normal board-launch flow.
 
 - **`lazyboards trust`** hashes the local config at the resolved local path,
-  and adds a `TrustEntry` for that hash to the trust store (with a `note`
-  identifying the cwd) unless an entry for that exact hash is already present.
-  Idempotent: running it twice against unchanged content never appends a
-  duplicate entry.
+  resolves the repo identity (`resolveTrustIdentity`), and grants a
+  `TrustEntry` for that hash (with a `note` identifying the cwd, and `path`
+  set to the resolved identity) via `config.UpsertTrustEntry`. This is the
+  *bootstrap* path for the identity feature described above: it's the only
+  code path that ever writes a `Path`-bearing entry in the first place, so
+  running it is what makes a repo eligible for the in-app re-approval prompt
+  at all. `UpsertTrustEntry` drops any existing entry that shares the same
+  `Path` before appending the new one, so re-running `trust` after the
+  file's content changed **replaces** the stale entry for that repo instead
+  of accumulating a second one — this also self-heals a pre-existing
+  duplicated or stale entry on the very next grant. Running it twice against
+  unchanged content is still idempotent (the replacement is a same-hash
+  no-op).
 - **`lazyboards untrust`** removes every entry matching the local config's
   current hash. Idempotent: running it when nothing is trusted (or after it
   already removed the entry) is a no-op, not an error.

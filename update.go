@@ -111,6 +111,17 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, tea.Batch(fetchGitStatusCmd(b.gitReader, "."), scheduleGitStatusTick(b))
 
 	case boardFetchedMsg:
+		if b.mode == trustConfirmMode {
+			// Defensive pin, not the actual fix: Init() returns nil while
+			// mode == trustConfirmMode (model.go), so fetchBoardCmd is never
+			// issued and this message should be structurally unreachable in
+			// production. Guarding the call site (rather than patching
+			// handleBoardFetched's own unconditional b.mode = normalMode,
+			// update.go) keeps that shared, every-refresh-cycle function
+			// untouched while still pinning the invariant if the guard above
+			// is ever weakened.
+			return b, nil
+		}
 		return b.handleBoardFetched(msg)
 
 	case openPRsMsg:
@@ -163,6 +174,16 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		b.validationErr = sanitizeSingleLine(provider.SanitizeError(msg.err))
 		b.mode = configMode
 		return b, nil
+
+	case trustAcceptedMsg:
+		return b.handleTrustAccepted(msg)
+
+	case trustAcceptErrorMsg:
+		// Stays in trustConfirmMode: the store write (or the reload against
+		// it) failed, so the board must not proceed half-reloaded. The user
+		// can retry 't' or fall back to 's'/esc.
+		cmd := b.statusBar.SetTimedMessage("Trust error: "+sanitizeSingleLine(msg.err.Error()), StatusError, statusMessageDuration)
+		return b, cmd
 
 	case sortOrderSavedMsg:
 		// Persisting the sort direction is background bookkeeping — success
@@ -352,6 +373,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleLabelConfirmModeKey(msg)
 		case closeConfirmMode:
 			return b.handleCloseConfirmModeKey(msg)
+		case trustConfirmMode:
+			return b.handleTrustConfirmModeKey(msg)
 		case commentMode:
 			return b.handleCommentModeKey(msg)
 		case deleteMode:
@@ -477,6 +500,32 @@ func (b Board) handleConfigSaved(msg configSavedMsg) (tea.Model, tea.Cmd) {
 	b.resetRepoScopedState()
 	b.mode = loadingMode
 	return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
+}
+
+// handleTrustAccepted applies acceptTrustCmd's successful result (#640):
+// unlike handleConfigSaved, which never re-resolves the keymap (config.Save
+// only ever changes provider/repo), this is a reload of the keymap and
+// column cleanup config -- the two fields config.Load actually changes once
+// stripping stops being necessary. b.withKeymap both replaces the active
+// table and rebuilds every hint bar, mirroring main.go's own startup
+// sequence (config.Load -> config.ResolveKeymap -> board.withKeymap), the
+// only other place that exact chain exists. Deliberately does NOT touch
+// b.repoOwner/repoName/providerName/provider/defaultActions or call
+// resetRepoScopedState -- accepting a trust re-approval is not a repo
+// retarget, and none of those fields are affected by local-config trust.
+func (b Board) handleTrustAccepted(msg trustAcceptedMsg) (tea.Model, tea.Cmd) {
+	b = b.withKeymap(msg.keys)
+	b.columnConfigs = msg.cfg.Columns
+	b.trustConfirm = trustConfirmState{}
+	// Defensive: the reload should produce zero Notices now that nothing
+	// needs stripping, but handle a residual notice the same way main.go's
+	// own startup seeding does rather than assuming it can never happen.
+	b.startupWarning = ""
+	if len(msg.cfg.Notices) > 0 {
+		b.startupWarning = strings.Join(msg.cfg.Notices, "; ")
+	}
+	b.mode = loadingMode
+	return b, b.startupCmds()
 }
 
 // resetRepoScopedState drops every piece of board state that describes the

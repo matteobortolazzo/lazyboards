@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
+	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 )
@@ -44,6 +45,18 @@ func (b Board) View() string {
 
 	if b.mode == configMode {
 		return b.viewConfigModal()
+	}
+
+	if b.mode == trustConfirmMode {
+		// Rendered as its own standalone, centered screen (mirroring
+		// loadingMode/errorMode above) rather than spliced into the board
+		// panels' helpBar the way closeConfirmMode/labelConfirmMode are:
+		// trustConfirmMode is entered by main.go before the first board
+		// fetch ever runs (Init() returns nil for it), so b.Columns is
+		// still empty here -- the len(b.Columns) == 0 guard below would
+		// render a blank screen if this prompt tried to reuse the
+		// board-panels-plus-helpBar shape.
+		return b.viewTrustConfirmPrompt()
 	}
 
 	if len(b.Columns) == 0 {
@@ -1868,6 +1881,12 @@ const (
 	deleteConfirmPromptFmt = `Type %d to permanently delete #%d "%s":`
 	deleteCommentPromptFmt = `Delete #%d "%s" — optional comment:`
 	prPickerTitleFmt       = "#%d %s"
+	// trustConfirmPromptFmt (#640): %s slots are (config.DefaultLocalPath,
+	// notePart, key parenthetical), the same trailing-%s-suffix convention
+	// documented above. notePart is either "" or trustConfirmNoteFmt applied
+	// to the stale entry's (untrusted-ish) Note.
+	trustConfirmPromptFmt = `%s changed since you trusted it%s. Trust it now?%s`
+	trustConfirmNoteFmt   = ` (previously trusted as "%s")`
 )
 
 // inlineTitleMinCells is the floor inlineTitleBudget clamps to. Without a
@@ -1915,6 +1934,33 @@ func escapeInline(s string) string {
 func fitQuotedTitle(title string, available, chromeWidth int) string {
 	escaped := escapeInline(sanitizeSingleLine(title))
 	return truncateCell(escaped, inlineTitleBudget(available, chromeWidth))
+}
+
+// viewTrustConfirmPrompt renders trustConfirmMode's stale-trust re-approval
+// prompt as a standalone centered screen (see the View() call site for why
+// this can't reuse closeConfirmMode's board-panels-plus-helpBar shape).
+// b.trustConfirm.note is untrusted-ish free-form text from the trust store
+// (a hand-edited or malformed trust.yml could carry control bytes, ANSI
+// escapes, or a bidi override) -- it is bounded and sanitized through
+// fitQuotedTitle exactly like every other inlined-untrusted-string prompt in
+// this codebase (see inline_title.go/inline_title_test.go), never rendered
+// raw. config.DefaultLocalPath is a compile-time constant and needs none of
+// that.
+func (b Board) viewTrustConfirmPrompt() string {
+	suffix := promptParenthetical(b.keys.Entries(keymap.ModeTrustConfirm, ""),
+		keymap.CommandTrustConfirmTrust, keymap.CommandTrustConfirmSkip)
+
+	notePart := ""
+	if b.trustConfirm.note != "" {
+		// Chrome is measured with an empty note (mirroring closeConfirmMode/
+		// labelConfirmMode's chromeWidth measurement below) so the resolved
+		// suffix's true width is captured, never the bare format string.
+		chrome := lipgloss.Width(fmt.Sprintf(trustConfirmPromptFmt, config.DefaultLocalPath, fmt.Sprintf(trustConfirmNoteFmt, ""), suffix))
+		notePart = fmt.Sprintf(trustConfirmNoteFmt, fitQuotedTitle(b.trustConfirm.note, b.Width, chrome))
+	}
+
+	prompt := fmt.Sprintf(trustConfirmPromptFmt, config.DefaultLocalPath, notePart, suffix)
+	return lipgloss.Place(b.Width, b.Height, lipgloss.Center, lipgloss.Center, prompt)
 }
 
 // viewAgentListModal renders the agents list modal. State precedence mirrors

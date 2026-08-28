@@ -264,7 +264,14 @@ token.
 | `pr_list` | no | yes (scope: pr only, never inferred) | allowed | yes | no |
 | `milestone_list` | no | no | allowed | yes | no |
 | `agent_list` | no | no | allowed | yes | no |
+| `trust_confirm` | no | no | allowed | yes | no |
 <!-- keymap-capability-matrix:end -->
+
+`trust_confirm`'s capabilities mirror `close_confirm`/`label_confirm` exactly
+(#643) -- but unlike every other row above, nothing in package `main` sets a
+`Board`'s mode to `trust_confirm` yet, so `keymaps: trust_confirm: {...}` is
+accepted and fully validated at load time with no observable runtime effect
+until #644 wires up the mode's dispatch seam.
 
 `columns.<name>` overlays `normal`/`detail` (`keymap.go`'s `Resolve`), so it
 inherits both of their capabilities in full:

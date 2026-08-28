@@ -199,3 +199,146 @@ func TestResolveConfigPath(t *testing.T) {
 		}
 	})
 }
+
+func TestCommonDir(t *testing.T) {
+	t.Run("PlainDirectory", func(t *testing.T) {
+		// A normal (non-worktree) repo: ".git" is a directory, and is
+		// itself the common dir.
+		gitDir := t.TempDir()
+
+		got, ok := CommonDir(gitDir)
+
+		if !ok {
+			t.Fatalf("CommonDir() ok = false, want true")
+		}
+		if got != gitDir {
+			t.Errorf("CommonDir() = %q, want %q", got, gitDir)
+		}
+	})
+
+	t.Run("LinkedWorktree_ResolvesSharedDir", func(t *testing.T) {
+		// A linked worktree (`git worktree add`): the repo root's ".git" is
+		// a file pointing at a per-worktree gitdir under the common
+		// ".git/worktrees/<name>" directory, and that gitdir's "commondir"
+		// file records the relative path back to the shared config.
+		repoRoot := t.TempDir()
+		commonGitDir := filepath.Join(repoRoot, ".git")
+		worktreeGitDir := filepath.Join(commonGitDir, "worktrees", "wt1")
+		if err := os.MkdirAll(worktreeGitDir, 0755); err != nil {
+			t.Fatalf("failed to create worktree gitdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(worktreeGitDir, "commondir"), []byte("../..\n"), 0644); err != nil {
+			t.Fatalf("failed to write commondir file: %v", err)
+		}
+		gitFile := filepath.Join(repoRoot, ".git-worktree-entry")
+		if err := os.WriteFile(gitFile, []byte("gitdir: "+worktreeGitDir+"\n"), 0644); err != nil {
+			t.Fatalf("failed to write gitdir pointer file: %v", err)
+		}
+
+		got, ok := CommonDir(gitFile)
+
+		if !ok {
+			t.Fatalf("CommonDir() ok = false, want true")
+		}
+		if got != commonGitDir {
+			t.Errorf("CommonDir() = %q, want %q", got, commonGitDir)
+		}
+	})
+
+	t.Run("GitdirFileWithoutCommondir", func(t *testing.T) {
+		repoRoot := t.TempDir()
+		targetGitDir := filepath.Join(repoRoot, "actual-gitdir")
+		if err := os.MkdirAll(targetGitDir, 0755); err != nil {
+			t.Fatalf("failed to create target gitdir: %v", err)
+		}
+		gitFile := filepath.Join(repoRoot, ".git-worktree-entry")
+		if err := os.WriteFile(gitFile, []byte("gitdir: "+targetGitDir), 0644); err != nil {
+			t.Fatalf("failed to write gitdir pointer file: %v", err)
+		}
+
+		got, ok := CommonDir(gitFile)
+
+		if !ok {
+			t.Fatalf("CommonDir() ok = false, want true")
+		}
+		if got != targetGitDir {
+			t.Errorf("CommonDir() = %q, want %q", got, targetGitDir)
+		}
+	})
+
+	t.Run("MissingGitPath_ReturnsNotOk", func(t *testing.T) {
+		got, ok := CommonDir(filepath.Join(t.TempDir(), "nonexistent"))
+
+		if ok {
+			t.Errorf("CommonDir() ok = true, want false (got %q)", got)
+		}
+		if got != "" {
+			t.Errorf("CommonDir() = %q, want empty string", got)
+		}
+	})
+
+	t.Run("MalformedGitdirPointer_ReturnsNotOk", func(t *testing.T) {
+		repoRoot := t.TempDir()
+		gitFile := filepath.Join(repoRoot, ".git-worktree-entry")
+		if err := os.WriteFile(gitFile, []byte("not-a-gitdir-pointer"), 0644); err != nil {
+			t.Fatalf("failed to write malformed gitdir pointer file: %v", err)
+		}
+
+		got, ok := CommonDir(gitFile)
+
+		if ok {
+			t.Errorf("CommonDir() ok = true, want false (got %q)", got)
+		}
+		if got != "" {
+			t.Errorf("CommonDir() = %q, want empty string", got)
+		}
+	})
+}
+
+func TestCommonDirAbs(t *testing.T) {
+	t.Run("SameAcrossMainAndWorktree", func(t *testing.T) {
+		// The main repo's ".git" directory call (relative-style, mirroring
+		// how the app calls CommonDir(".git") from a cwd assumed to be the
+		// repo root) and a linked worktree's ".git" file call must converge
+		// on the identical absolute identity for the same physical repo.
+		repoRoot := t.TempDir()
+		commonGitDir := filepath.Join(repoRoot, ".git")
+		if err := os.MkdirAll(commonGitDir, 0755); err != nil {
+			t.Fatalf("failed to create common gitdir: %v", err)
+		}
+		worktreeGitDir := filepath.Join(commonGitDir, "worktrees", "wt1")
+		if err := os.MkdirAll(worktreeGitDir, 0755); err != nil {
+			t.Fatalf("failed to create worktree gitdir: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(worktreeGitDir, "commondir"), []byte("../..\n"), 0644); err != nil {
+			t.Fatalf("failed to write commondir file: %v", err)
+		}
+
+		linkedRoot := t.TempDir()
+		gitFile := filepath.Join(linkedRoot, ".git")
+		if err := os.WriteFile(gitFile, []byte("gitdir: "+worktreeGitDir+"\n"), 0644); err != nil {
+			t.Fatalf("failed to write gitdir pointer file: %v", err)
+		}
+
+		mainAbs, mainOk := CommonDirAbs(commonGitDir)
+		linkedAbs, linkedOk := CommonDirAbs(gitFile)
+
+		if !mainOk || !linkedOk {
+			t.Fatalf("CommonDirAbs() ok = (%v, %v), want (true, true)", mainOk, linkedOk)
+		}
+		if mainAbs != linkedAbs {
+			t.Errorf("CommonDirAbs() diverged: main = %q, linked worktree = %q", mainAbs, linkedAbs)
+		}
+	})
+
+	t.Run("NotOkOnMissingPath", func(t *testing.T) {
+		got, ok := CommonDirAbs(filepath.Join(t.TempDir(), "nonexistent"))
+
+		if ok {
+			t.Errorf("CommonDirAbs() ok = true, want false (got %q)", got)
+		}
+		if got != "" {
+			t.Errorf("CommonDirAbs() = %q, want empty string", got)
+		}
+	})
+}

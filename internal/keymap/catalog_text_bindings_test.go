@@ -66,6 +66,15 @@ var textBindingCases = []textBindingCase{
 	// comment (handleCommentModeKey, mode_handlers.go)
 	{"comment/enter", ModeComment, "enter", "comment.submit"},
 	{"comment/esc", ModeComment, "esc", "comment.cancel"},
+
+	// trust_confirm (#643): unlike every mode above, there is no
+	// handleTrustConfirmModeKey to transcribe from yet (#644) -- these
+	// three cases are transcribed from trustConfirmDefaults
+	// (defaults_text.go) instead, the closest thing to a spec until the
+	// handler lands.
+	{"trust_confirm/t", ModeTrustConfirm, "t", "trust_confirm.trust"},
+	{"trust_confirm/s", ModeTrustConfirm, "s", "trust_confirm.skip"},
+	{"trust_confirm/esc", ModeTrustConfirm, "esc", "trust_confirm.skip"},
 }
 
 // textBindingCommandIDs returns every distinct CommandID textBindingCases
@@ -90,8 +99,8 @@ func textBindingCommandIDs() []CommandID {
 // exact expected command id, mirroring TestDefaults_ModalBindings
 // (catalog_pr1_bindings_test.go).
 func TestDefaults_TextBindings(t *testing.T) {
-	if len(textBindingCases) != 28 {
-		t.Fatalf("textBindingCases has %d entries, want exactly 28 (one per current text-mode binding)", len(textBindingCases))
+	if len(textBindingCases) != 31 {
+		t.Fatalf("textBindingCases has %d entries, want exactly 31 (one per current text-mode binding)", len(textBindingCases))
 	}
 
 	km := resolveOrFatal(t, Defaults(), Tables{})

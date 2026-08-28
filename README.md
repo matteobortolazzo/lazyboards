@@ -221,7 +221,7 @@ A key is any BubbleTea key notation exactly as shown in the Keybindings tables (
 `keymaps:` is the only key-binding syntax. A config declaring a top-level `actions:` key, or an `actions:` key on any `columns:` entry, **fails to load** — the error names the file and the offending key.
 
 <!-- keymap-bindable-modes:start -->
-Bindable modes: `normal`, `detail`, `create`, `error`, `config`, `pr_picker`, `search`, `help`, `label_confirm`, `close_confirm`, `comment`, `delete`, `filter`, `assign`, `git_panel`, `dispatch`, `pr_list`, `milestone_list`, `agent_list`. See [Keybindings](#keybindings) for each mode's shipped command-id table.
+Bindable modes: `normal`, `detail`, `create`, `error`, `config`, `pr_picker`, `search`, `help`, `label_confirm`, `close_confirm`, `comment`, `delete`, `filter`, `assign`, `git_panel`, `dispatch`, `pr_list`, `milestone_list`, `agent_list`, `trust_confirm`. See [Keybindings](#keybindings) for each mode's shipped command-id table.
 <!-- keymap-bindable-modes:end -->
 
 **Mode capabilities:** not every mode's dispatch seam can do everything a binding might ask of it. Multi-key sequences dispatch only in `normal`, `detail`, and per-column `keymaps.columns.<name>` overlays — every other mode resolves a single key by exact match only. Inline actions dispatch only in `normal`, `detail`, `git_panel`, `pr_list` (restricted there to `scope: pr` actions, never inferred — see [Pull Requests](#pull-requests)), and `keymaps.columns.<name>` overlays — every other mode can only bind a built-in command id. A bare printable-rune key (a single character, no modifier) is rejected in `create`, `config`, `search`, `comment`, and `delete` — those modes' text inputs swallow every printable keystroke before any lookup runs; a named key (`enter`, `esc`, `ctrl+n`, ...) or an `alt+<rune>` form is exempt and binds normally. A binding one of these seams can never reach is a load-time config error, not a silent no-op — see [`docs/keymaps.md#mode-capability-matrix`](docs/keymaps.md#mode-capability-matrix) for the full per-mode matrix.
@@ -244,7 +244,18 @@ untrust` revokes that. Both are argument-free, idempotent, and never touch
 your global `~/.config/lazyboards/config.yml`. The trust store lives at
 `~/.config/lazyboards/trust.yml`. Editing and saving a trusted config through
 the in-app config modal (`c`) carries its trust forward automatically — it
-never grants trust on its own, only preserves it across the rewrite. See
+never grants trust on its own, only preserves it across the rewrite.
+
+When `.lazyboards.yml` is untrusted but you've trusted a previous version of
+this same repo before (any commit, rebase, branch/worktree switch, or config
+regen that changes the file's bytes), lazyboards shows an in-app re-approval
+prompt at startup instead of forcing you to quit and re-run `lazyboards
+trust`: press `t` to trust the new content now (writes the new hash and
+reloads instantly, no restart) or `s`/esc to skip (today's silent-strip
+behavior, unchanged). A genuinely first-ever untrusted repo never shows this
+prompt — see [Trust Config](#trust-config) for the keybindings and
+[`docs/trust-model.md`](docs/trust-model.md#repo-identity-path-is-not-part-of-the-trust-decision)
+for how the "same repo" identity is determined. See
 [`docs/trust-model.md`](docs/trust-model.md) for the full mechanism (what
 counts as a sink, hash identity, store format, and the residual risk this
 model deliberately doesn't cover).
@@ -808,6 +819,18 @@ time; once every unknown label is resolved, the edit is applied.
 |-----|---------|--------|
 | `y` | `label_confirm.create` | Create this label, continue to the next unknown label (or apply the edit if none remain) |
 | `n` / `esc` | `label_confirm.cancel` | Cancel the whole edit |
+
+### Trust Config
+
+The in-app stale-trust re-approval prompt — see [Trust Model](#trust-model).
+Not entered by any keypress: lazyboards shows it at startup, in place of the
+normal loading screen, when `.lazyboards.yml` is untrusted but you've
+trusted a previous version of this same repo before.
+
+| Key | Command | Action |
+|-----|---------|--------|
+| `t` | `trust_confirm.trust` | Trust now |
+| `s` / `esc` | `trust_confirm.skip` | Skip |
 
 ### Filter
 

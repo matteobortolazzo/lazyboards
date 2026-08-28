@@ -74,7 +74,17 @@ var commentDefaults = Table{
 	"esc":   CommandBinding(CommandCommentCancel),
 }
 
-// textDefaultTables aggregates the seven confirm/text-input default tables
+// trustConfirmDefaults is the default ModeTrustConfirm table: t/s/esc for
+// trust-now/skip, dispatched by package main's handleTrustConfirmModeKey
+// (#644) via textBinding, mirroring closeConfirmDefaults' y/n/esc shape --
+// see mode.go's ModeTrustConfirm doc comment.
+var trustConfirmDefaults = Table{
+	"t":   CommandBinding(CommandTrustConfirmTrust),
+	"s":   CommandBinding(CommandTrustConfirmSkip),
+	"esc": CommandBinding(CommandTrustConfirmSkip),
+}
+
+// textDefaultTables aggregates the eight confirm/text-input default tables
 // by Mode. catalog.go merges this into the package-level defaultModeTables.
 var textDefaultTables = map[Mode]Table{
 	ModeCloseConfirm: closeConfirmDefaults,
@@ -84,4 +94,5 @@ var textDefaultTables = map[Mode]Table{
 	ModeConfig:       configDefaults,
 	ModeSearch:       searchDefaults,
 	ModeComment:      commentDefaults,
+	ModeTrustConfirm: trustConfirmDefaults,
 }
