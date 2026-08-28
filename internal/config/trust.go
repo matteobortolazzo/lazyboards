@@ -14,10 +14,19 @@ import (
 
 // TrustEntry records a single trusted local-config hash, along with a
 // human-readable note (e.g. the repo it belongs to) for the user's own
-// reference.
+// reference, and Path, the stable per-repo identity (see
+// trust_identity.go's resolveTrustIdentity) the entry was granted under.
+// Path is purely a re-approval-UX identity (#640): it decides which prior
+// entry a fresh grant replaces, and which stale entry the in-app re-trust
+// prompt offers to refresh -- it never participates in the trust decision
+// itself (see Trusts, which is Hash-only). An entry written before #640
+// existed has Path == "", and an empty Path never matches, on either side
+// of any comparison (see PriorEntryForPath), so every legacy entry degrades
+// to "no identity recorded" rather than false-matching.
 type TrustEntry struct {
 	Hash string `yaml:"hash"`
 	Note string `yaml:"note"`
+	Path string `yaml:"path,omitempty"`
 }
 
 // Trust is the on-disk trust store: the set of local-config hashes the user
@@ -31,6 +40,10 @@ type Trust struct {
 // Trusts reports whether hash matches a trusted entry. An empty hash never
 // matches, even against a stored entry that also has an empty Hash --
 // otherwise a malformed entry could accidentally trust every unhashed input.
+// This is the sole trust decision in the whole store: TrustEntry.Path is
+// never consulted here, deliberately -- Path identifies "the same repo",
+// not "reviewed and approved content", so it must never grant trust on its
+// own.
 func (t Trust) Trusts(hash string) bool {
 	if hash == "" {
 		return false
@@ -41,6 +54,71 @@ func (t Trust) Trusts(hash string) bool {
 		}
 	}
 	return false
+}
+
+// PriorEntryForPath returns the trusted entry recorded under path, if any.
+// An empty path never matches, on either side of the comparison -- an entry
+// whose own Path is "" (every entry written before #640) is never matched
+// by a "" query, mirroring Trusts's existing empty-hash guard, so a legacy,
+// identity-less entry degrades to "no identity recorded" instead of
+// colliding with every other identity-less caller.
+func (t Trust) PriorEntryForPath(path string) (TrustEntry, bool) {
+	if path == "" {
+		return TrustEntry{}, false
+	}
+	for _, entry := range t.Trusted {
+		if entry.Path == path {
+			return entry, true
+		}
+	}
+	return TrustEntry{}, false
+}
+
+// StaleTrust reports whether hash is currently untrusted but path was
+// trusted before under a different hash -- the single predicate the in-app
+// re-approval prompt (#640) keys its trigger on. It returns false
+// immediately when hash is already trusted (via Trusts), so a caller can
+// never mistake "already trusted" for "stale and needs re-approval";
+// otherwise it delegates to PriorEntryForPath, inheriting its empty-path
+// guard (a hash with no identity to check against is never "stale", only
+// ever "never trusted before").
+func (t Trust) StaleTrust(hash, path string) (TrustEntry, bool) {
+	if t.Trusts(hash) {
+		return TrustEntry{}, false
+	}
+	return t.PriorEntryForPath(path)
+}
+
+// UpsertTrustEntry adds entry to t, self-healing against duplicate
+// same-identity entries. When entry.Path != "", every existing entry
+// sharing that Path is dropped (whether there was zero, one, or -- from an
+// already-duplicated store -- more than one) before entry is appended, so a
+// second grant against the same identity always replaces rather than
+// accumulates. When entry.Path == "", the pre-#640 CLI behavior is
+// preserved exactly: entry is appended unless t.Trusts(entry.Hash) already
+// holds (idempotent re-trust of unchanged content never duplicates).
+//
+// Trust remains Hash-only (see Trusts): Path here only ever decides which
+// *existing* entry a new grant replaces, never whether the new entry itself
+// is trusted.
+func UpsertTrustEntry(t Trust, entry TrustEntry) Trust {
+	if entry.Path == "" {
+		if t.Trusts(entry.Hash) {
+			return t
+		}
+		t.Trusted = append(t.Trusted, entry)
+		return t
+	}
+
+	kept := make([]TrustEntry, 0, len(t.Trusted)+1)
+	for _, existing := range t.Trusted {
+		if existing.Path == entry.Path {
+			continue
+		}
+		kept = append(kept, existing)
+	}
+	t.Trusted = append(kept, entry)
+	return t
 }
 
 // hashConfigBytes hashes data already read into memory, so a caller that has
