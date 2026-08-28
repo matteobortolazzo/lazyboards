@@ -17,6 +17,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/config"
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
+	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
 
@@ -320,6 +321,55 @@ func saveConfigCmd(path, provider, repo, trustPath string) tea.Cmd {
 			return configSaveErrorMsg{err: err}
 		}
 		return configSavedMsg{provider: provider, repo: repo}
+	}
+}
+
+// trustAcceptedMsg is sent when acceptTrustCmd successfully writes the new
+// trust entry and reloads config+keymap against it (#640).
+type trustAcceptedMsg struct {
+	cfg  config.Config
+	keys *keymap.Keymap
+}
+
+// trustAcceptErrorMsg is sent when any step of acceptTrustCmd fails --
+// writing the trust store, or reloading config/keymap against it.
+type trustAcceptErrorMsg struct{ err error }
+
+// acceptTrustCmd writes an updated TrustEntry (identity, hash, and the stale
+// entry's carried-forward note) to the trust store, then reloads
+// local+global config against the now-trusted store and resolves a fresh
+// keymap -- so the shell-executing constructs the last Load() stripped
+// become live without a restart (#640). Fails closed at every step: a
+// malformed store is never rewritten (LoadTrust error), and a config/keymap
+// reload error surfaces after the store write but never applies a
+// half-reloaded board (the caller, handleTrustAccepted, only runs on
+// trustAcceptedMsg -- a trustAcceptErrorMsg leaves the board in
+// trustConfirmMode untouched). Uses the just-upserted in-memory store
+// directly for the reload -- no second LoadTrust round trip, so there is no
+// TOCTOU window between "wrote trust" and "reloaded against trust".
+func acceptTrustCmd(trustPath, localPath, identity, hash, note string) tea.Cmd {
+	return func() tea.Msg {
+		store, err := config.LoadTrust(trustPath)
+		if err != nil {
+			return trustAcceptErrorMsg{err: err}
+		}
+		store = config.UpsertTrustEntry(store, config.TrustEntry{Hash: hash, Path: identity, Note: note})
+		if err := config.SaveTrust(trustPath, store); err != nil {
+			return trustAcceptErrorMsg{err: err}
+		}
+		globalPath, err := config.DefaultGlobalPath()
+		if err != nil {
+			return trustAcceptErrorMsg{err: err}
+		}
+		cfg, err := config.Load(globalPath, localPath, store)
+		if err != nil {
+			return trustAcceptErrorMsg{err: err}
+		}
+		km, err := config.ResolveKeymap(&cfg)
+		if err != nil {
+			return trustAcceptErrorMsg{err: err}
+		}
+		return trustAcceptedMsg{cfg: cfg, keys: km}
 	}
 }
 

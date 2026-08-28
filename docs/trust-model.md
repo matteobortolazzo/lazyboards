@@ -110,6 +110,64 @@ so every entry written before this field existed degrades to "no identity
 recorded" rather than false-matching against each other or against a
 freshly-resolved identity that happens to also be `""`.
 
+## In-app re-approval prompt (`trustConfirmMode`, #640/#644)
+
+`main()` resolves the current repo identity via `resolveTrustIdentity(".git",
+config.DefaultLocalPath)` and feeds it, alongside the already-loaded `cfg`
+and `trust` values (no extra I/O — both are the same values every other
+`config.Load` call in `main()` reuses), into `trustConfirmEntry`. That
+function's gate is deliberately narrower than "something got stripped": it
+checks `cfg.LocalHash != "" && !trust.Trusts(cfg.LocalHash)` (the exact
+semantics `Trust.StaleTrust` encapsulates) and then `trust.StaleTrust`'s own
+identity match — **never** `len(cfg.Notices) > 0`. `Notices` is populated
+only when a sink was actually stripped, so an untrusted `.lazyboards.yml`
+that happens to declare no shell bindings or `cleanup:` at all would produce
+an empty `Notices` and, if gated on that instead, never prompt — even though
+it is exactly the "content changed, please re-review" case this feature
+exists for.
+
+On a hit, `main()` starts the board in `trustConfirmMode` instead of the
+normal `loadingMode`, with `Board.trustConfirm` populated (`hash`, `identity`,
+and the stale entry's `note`, carried forward for display and for the eventual
+accept-write). `Board.Init()` returns `nil` for this mode — the same
+early-return shape it already uses for `firstLaunch` — so the initial board
+fetch and every other startup watcher (cenci-watch, git status polling, the
+update check) are deferred rather than racing the prompt; both the mode's
+`skip` and `trust` outcomes resume startup via the extracted
+`Board.startupCmds()` once the user has decided.
+
+The prompt itself (`t`/`s`/`esc`, `keymap.ModeTrustConfirm`,
+`handleTrustConfirmModeKey`/`runTrustConfirmCommand`, `mode_handlers.go`)
+offers exactly two outcomes:
+
+- **Skip** (`s`/`esc`, `trust_confirm.skip`) clears `Board.trustConfirm` and
+  transitions straight to `loadingMode`, continuing startup — byte-identical
+  to today's silent-strip behavior, including `Board.startupWarning` (seeded
+  before the mode was ever entered) still surfacing as a timed status-bar
+  warning once the first fetch lands.
+- **Trust** (`t`, `trust_confirm.trust`) runs `acceptTrustCmd`
+  asynchronously: it writes a `TrustEntry{Hash, Path, Note}` for the new
+  content via `config.UpsertTrustEntry`/`config.SaveTrust` (replacing the
+  stale entry for this identity, carrying its `Note` forward), then reloads
+  `config.Load` → `config.ResolveKeymap` against the now-trusted store and
+  applies the result via `Board.withKeymap` plus `Board.columnConfigs =
+  cfg.Columns` — mirroring `main()`'s own startup sequence (the only other
+  place that `Load` → `ResolveKeymap` → `withKeymap` chain exists), **not**
+  `handleConfigSaved`, which never re-resolves the keymap because
+  `config.Save` only ever changes provider/repo. The board's
+  `repoOwner`/`repoName`/`providerName`/`provider`/`defaultActions` are left
+  untouched: accepting a trust re-approval is not a repo retarget. Every step
+  fails closed — a malformed store is never rewritten, and a failed reload
+  never applies a half-updated board; the board stays in `trustConfirmMode`
+  with a visible error, and the user can still retry `t` or fall back to
+  `s`/`esc`.
+
+`Board.trustConfirm.note` is untrusted-ish free-form text (a hand-edited or
+malformed `trust.yml` could carry control bytes, ANSI escapes, or a bidi
+override) and is rendered through the same `fitQuotedTitle`/
+`sanitizeSingleLine` bounding every other inlined-untrusted-string prompt in
+this codebase uses — never raw.
+
 ## Store location and format
 
 The trust store lives at `~/.config/lazyboards/trust.yml`
