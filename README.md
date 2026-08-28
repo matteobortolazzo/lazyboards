@@ -221,7 +221,7 @@ A key is any BubbleTea key notation exactly as shown in the Keybindings tables (
 `keymaps:` is the only key-binding syntax. A config declaring a top-level `actions:` key, or an `actions:` key on any `columns:` entry, **fails to load** — the error names the file and the offending key.
 
 <!-- keymap-bindable-modes:start -->
-Bindable modes: `normal`, `detail`, `create`, `error`, `config`, `pr_picker`, `search`, `help`, `label_confirm`, `close_confirm`, `comment`, `delete`, `filter`, `assign`, `git_panel`, `dispatch`, `pr_list`, `milestone_list`, `agent_list`. See [Keybindings](#keybindings) for each mode's shipped command-id table.
+Bindable modes: `normal`, `detail`, `create`, `error`, `config`, `pr_picker`, `search`, `help`, `label_confirm`, `close_confirm`, `comment`, `delete`, `filter`, `assign`, `git_panel`, `dispatch`, `pr_list`, `milestone_list`, `agent_list`, `trust_confirm`. See [Keybindings](#keybindings) for each mode's shipped command-id table.
 <!-- keymap-bindable-modes:end -->
 
 **Mode capabilities:** not every mode's dispatch seam can do everything a binding might ask of it. Multi-key sequences dispatch only in `normal`, `detail`, and per-column `keymaps.columns.<name>` overlays — every other mode resolves a single key by exact match only. Inline actions dispatch only in `normal`, `detail`, `git_panel`, `pr_list` (restricted there to `scope: pr` actions, never inferred — see [Pull Requests](#pull-requests)), and `keymaps.columns.<name>` overlays — every other mode can only bind a built-in command id. A bare printable-rune key (a single character, no modifier) is rejected in `create`, `config`, `search`, `comment`, and `delete` — those modes' text inputs swallow every printable keystroke before any lookup runs; a named key (`enter`, `esc`, `ctrl+n`, ...) or an `alt+<rune>` form is exempt and binds normally. A binding one of these seams can never reach is a load-time config error, not a silent no-op — see [`docs/keymaps.md#mode-capability-matrix`](docs/keymaps.md#mode-capability-matrix) for the full per-mode matrix.
@@ -808,6 +808,18 @@ time; once every unknown label is resolved, the edit is applied.
 |-----|---------|--------|
 | `y` | `label_confirm.create` | Create this label, continue to the next unknown label (or apply the edit if none remain) |
 | `n` / `esc` | `label_confirm.cancel` | Cancel the whole edit |
+
+### Trust Config
+
+Registered in the keymap registry ahead of its runtime wiring (#643) — see
+[Trust Model](#trust-model). Not entered by any keypress yet: nothing in the
+app produces this mode today, so the table below is cataloged and
+user-overridable but currently unreachable.
+
+| Key | Command | Action |
+|-----|---------|--------|
+| `t` | `trust_confirm.trust` | Trust now |
+| `s` / `esc` | `trust_confirm.skip` | Skip |
 
 ### Filter
 

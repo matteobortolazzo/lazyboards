@@ -21,16 +21,29 @@ import (
 // command, not a mode feature: Lookup's unconditional "ctrl+c" short-circuit
 // (internal/keymap/lookup.go) already treats it that way at the key-
 // resolution layer. This file's dispatch matrix proves the same holds at the
-// dispatch layer, in every one of the 19 resolvable modes
-// (keymap.Modes()) -- a user-bound keymaps.<mode>.<key>: app.quit must both
-// load (internal/config, keymap_universal_quit_validation_test.go) and
-// dispatch tea.Quit end-to-end through b.Update, regardless of whether that
-// mode binds app.quit by default.
+// dispatch layer, in every one of the resolvable modes (keymap.Modes()) --
+// a user-bound keymaps.<mode>.<key>: app.quit must both load (internal/config,
+// keymap_universal_quit_validation_test.go) and dispatch tea.Quit end-to-end
+// through b.Update, regardless of whether that mode binds app.quit by
+// default.
 //
 // Every case below enters its mode the real way (a production message or
 // keypress through b.Update), never a raw b.mode assignment -- see
 // keymap_panels_test.go's errorMode precedent and AGENTS.md's "enter modes
 // the real way" rule.
+//
+// One documented exception: keymap.ModeTrustConfirm (#643) has no
+// tea.Msg/keypress entry point at all -- it is cataloged ahead of its
+// runtime wiring (#644), so package main has no boardMode constant or
+// Update() case for it yet, and "the real way" is not reachable. Rather than
+// fake a b.mode assignment that would route through Update()'s default case
+// (handleNormalModeKey, the wrong dispatch table) or skip its coverage
+// silently, trustConfirmExemptFromUpdateMatrix documents the one mode this
+// file's matrix cannot include, and
+// TestUniversalQuit_TrustConfirm_DispatchesAppQuit below proves the same
+// thing at the layer that actually exists today: b.textBinding +
+// b.universalDispatch, the exact two calls a future
+// handleTrustConfirmModeKey will make.
 
 // newUniversalQuitConfig loads localYAML through the real config.Load
 // pipeline, failing the test on error.
@@ -330,8 +343,8 @@ func TestUniversalQuit_DispatchesInEveryMode(t *testing.T) {
 		}},
 	}
 
-	if len(cases) != len(keymap.Modes()) {
-		t.Fatalf("dispatch matrix has %d cases, want %d (one per keymap.Modes())", len(cases), len(keymap.Modes()))
+	if len(cases)+len(trustConfirmExemptFromUpdateMatrix) != len(keymap.Modes()) {
+		t.Fatalf("dispatch matrix has %d cases (+%d documented exemptions), want %d (one per keymap.Modes())", len(cases), len(trustConfirmExemptFromUpdateMatrix), len(keymap.Modes()))
 	}
 
 	for _, tc := range cases {
@@ -343,6 +356,38 @@ func TestUniversalQuit_DispatchesInEveryMode(t *testing.T) {
 			}
 			assertQuitCmd(t, tc.mode, cmd)
 		})
+	}
+}
+
+// trustConfirmExemptFromUpdateMatrix names the one keymap.Modes() entry the
+// dispatch matrix above cannot include -- see this file's header comment
+// for why. TestUniversalQuit_TrustConfirm_DispatchesAppQuit (below) covers
+// it instead.
+var trustConfirmExemptFromUpdateMatrix = map[keymap.Mode]bool{
+	keymap.ModeTrustConfirm: true,
+}
+
+// TestUniversalQuit_TrustConfirm_DispatchesAppQuit covers keymap.ModeTrustConfirm,
+// the one mode TestUniversalQuit_DispatchesInEveryMode's matrix cannot drive
+// through b.Update (see trustConfirmExemptFromUpdateMatrix and this file's
+// header comment). It dispatches through the same two calls a future
+// handleTrustConfirmModeKey will make: b.textBinding resolves the key
+// against ModeTrustConfirm's table, then b.universalDispatch recognizes
+// app.quit as a universal command -- proving the registry seam itself,
+// independent of the b.mode/Update() wiring #644 has not added yet.
+func TestUniversalQuit_TrustConfirm_DispatchesAppQuit(t *testing.T) {
+	b, _ := newUniversalQuitBoard(t, universalQuitKeymapYAML(keymap.ModeTrustConfirm), nil, nil)
+
+	binding, ok := b.textBinding(keymap.ModeTrustConfirm, quitDispatchKey())
+	if !ok {
+		t.Fatalf("textBinding(ModeTrustConfirm, ctrl+q) did not resolve, want the app.quit override to match")
+	}
+	cmd, handled := b.universalDispatch(binding)
+	if !handled {
+		t.Fatalf("universalDispatch(%+v) handled = false, want true (app.quit is a universal command)", binding)
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("universalDispatch's Cmd did not produce tea.QuitMsg")
 	}
 }
 
