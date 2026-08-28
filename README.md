@@ -244,7 +244,18 @@ untrust` revokes that. Both are argument-free, idempotent, and never touch
 your global `~/.config/lazyboards/config.yml`. The trust store lives at
 `~/.config/lazyboards/trust.yml`. Editing and saving a trusted config through
 the in-app config modal (`c`) carries its trust forward automatically — it
-never grants trust on its own, only preserves it across the rewrite. See
+never grants trust on its own, only preserves it across the rewrite.
+
+When `.lazyboards.yml` is untrusted but you've trusted a previous version of
+this same repo before (any commit, rebase, branch/worktree switch, or config
+regen that changes the file's bytes), lazyboards shows an in-app re-approval
+prompt at startup instead of forcing you to quit and re-run `lazyboards
+trust`: press `t` to trust the new content now (writes the new hash and
+reloads instantly, no restart) or `s`/esc to skip (today's silent-strip
+behavior, unchanged). A genuinely first-ever untrusted repo never shows this
+prompt — see [Trust Config](#trust-config) for the keybindings and
+[`docs/trust-model.md`](docs/trust-model.md#repo-identity-path-is-not-part-of-the-trust-decision)
+for how the "same repo" identity is determined. See
 [`docs/trust-model.md`](docs/trust-model.md) for the full mechanism (what
 counts as a sink, hash identity, store format, and the residual risk this
 model deliberately doesn't cover).
@@ -811,10 +822,10 @@ time; once every unknown label is resolved, the edit is applied.
 
 ### Trust Config
 
-Registered in the keymap registry ahead of its runtime wiring (#643) — see
-[Trust Model](#trust-model). Not entered by any keypress yet: nothing in the
-app produces this mode today, so the table below is cataloged and
-user-overridable but currently unreachable.
+The in-app stale-trust re-approval prompt — see [Trust Model](#trust-model).
+Not entered by any keypress: lazyboards shows it at startup, in place of the
+normal loading screen, when `.lazyboards.yml` is untrusted but you've
+trusted a previous version of this same repo before.
 
 | Key | Command | Action |
 |-----|---------|--------|

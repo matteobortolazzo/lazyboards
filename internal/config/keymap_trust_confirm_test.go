@@ -9,15 +9,16 @@ import (
 
 // --- #643: trust_confirm keymap registry scaffolding ---
 //
-// trust_confirm is cataloged ahead of its runtime wiring (#644): nothing in
-// package main produces this mode yet (see internal/keymap/mode.go's
-// ModeTrustConfirm doc comment), so there is no Board/handler to dispatch
-// through here -- these tests instead prove the config layer (Load,
-// ResolveKeymap, validateModeCapabilities) treats keymaps.trust_confirm
-// exactly like every other bindable mode's config surface: defaults
-// resolve, a user override wins, an explicit unbind is honoured, and a
-// command id foreign to the mode is rejected at load time rather than
-// silently no-opped at runtime.
+// trust_confirm was cataloged ahead of its runtime wiring (#643); #644
+// wires it into package main (Board.mode, handleTrustConfirmModeKey) --
+// see internal/keymap/mode.go's ModeTrustConfirm doc comment. This
+// internal/config package still cannot see Board/handler-level dispatch
+// (it doesn't import package main), so these tests keep proving the config
+// layer's own surface instead (Load, ResolveKeymap, validateModeCapabilities):
+// defaults resolve, a user override wins, an explicit unbind is honoured, and
+// a command id foreign to the mode is rejected at load time rather than
+// silently no-opped at runtime. Package main's end-to-end dispatch coverage
+// lives in trust_confirm_mode_test.go.
 
 // trustConfirmKeymap loads localYAML (as the global config -- trust_confirm
 // bindings are BindingCommand, never a shell sink, so global-vs-local is

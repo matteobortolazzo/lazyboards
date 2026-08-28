@@ -1036,6 +1036,46 @@ func (b Board) runCloseConfirmCommand(id keymap.CommandID) (tea.Model, tea.Cmd) 
 	return b, nil
 }
 
+// handleTrustConfirmModeKey routes a key press in trustConfirmMode through
+// the ModeTrustConfirm registry (textBinding, keymap_text.go), mirroring
+// handleCloseConfirmModeKey's binding->dispatch->run shape exactly (#640).
+func (b Board) handleTrustConfirmModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	binding, ok := b.textBinding(keymap.ModeTrustConfirm, msg)
+	if !ok || binding.Kind != keymap.BindingCommand {
+		return b, nil
+	}
+	if cmd, ok := b.universalDispatch(binding); ok {
+		return b, cmd
+	}
+	return b.runTrustConfirmCommand(binding.Command)
+}
+
+// runTrustConfirmCommand runs the trust_confirm command id resolves to.
+// Skip clears the prompt state and transitions to loadingMode, continuing
+// startup via b.startupCmds() -- byte-identical to today's silent-strip
+// flow, including b.startupWarning still being shown once the fetch lands
+// (it was already seeded before trustConfirmMode was ever entered, main.go).
+// Trust stays in trustConfirmMode until acceptTrustCmd's async result
+// arrives (trustAcceptedMsg/trustAcceptErrorMsg, handled in update.go) --
+// mirroring runConfigCommand's CommandConfigSave case, which doesn't leave
+// configMode until its own async result arrives either.
+func (b Board) runTrustConfirmCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	switch id {
+	case keymap.CommandTrustConfirmSkip:
+		b.trustConfirm = trustConfirmState{}
+		b.mode = loadingMode
+		return b, b.startupCmds()
+	case keymap.CommandTrustConfirmTrust:
+		// b.config.localPath (not the bare config.DefaultLocalPath constant)
+		// -- the same field saveConfigCmd's call site reads (keymap_text.go)
+		// -- so a test board pointed at a non-default local path reloads
+		// against that same path, not the cwd-relative default.
+		return b, acceptTrustCmd(b.trustPath, b.config.localPath,
+			b.trustConfirm.identity, b.trustConfirm.hash, b.trustConfirm.note)
+	}
+	return b, nil
+}
+
 // handleDeleteModeKey drives the two-step delete-confirm flow: an optional
 // comment step, then a retype-to-confirm step. It routes through the
 // ModeDelete registry (textBinding, keymap_text.go) but deliberately

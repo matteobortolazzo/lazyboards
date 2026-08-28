@@ -74,10 +74,9 @@ var commentDefaults = Table{
 	"esc":   CommandBinding(CommandCommentCancel),
 }
 
-// trustConfirmDefaults is the default ModeTrustConfirm table. #643
-// catalogues this mode ahead of its runtime wiring (#644): nothing in
-// package main sets a Board's mode to trust_confirm yet, so this table is
-// resolvable and user-overridable but currently unreachable at runtime --
+// trustConfirmDefaults is the default ModeTrustConfirm table: t/s/esc for
+// trust-now/skip, dispatched by package main's handleTrustConfirmModeKey
+// (#644) via textBinding, mirroring closeConfirmDefaults' y/n/esc shape --
 // see mode.go's ModeTrustConfirm doc comment.
 var trustConfirmDefaults = Table{
 	"t":   CommandBinding(CommandTrustConfirmTrust),

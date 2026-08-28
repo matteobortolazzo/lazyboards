@@ -77,17 +77,16 @@ const (
 	// cenci windows).
 	ModeAgentList Mode = "agent_list"
 
-	// ModeTrustConfirm is the in-app re-trust prompt (#640/#643): unlike
-	// every other mode above, it has no handleXModeKey in mode_handlers.go
-	// and no keypress/tea.Msg entry point at all -- it is decided by
-	// main.go, before tea.NewProgram(...).Run() is ever called, when the
-	// local config is untrusted but the trust store holds a stale entry for
-	// it (see the plan's trustConfirmEntry). #643 catalogues this mode
-	// (command ids, default table, capability metadata, help section, docs)
-	// so it is fully user-overridable and validated ahead of time; #644
-	// wires up the Board state/dispatch/view that actually produces it.
-	// Until #644 lands, nothing sets a Board's mode to trust_confirm, so
-	// this mode is cataloged but completely unreachable at runtime.
+	// ModeTrustConfirm is the in-app re-trust prompt (#640/#643/#644):
+	// unlike every other mode above, it has no keypress/tea.Msg entry point
+	// -- it is decided by main.go's trustConfirmEntry, before
+	// tea.NewProgram(...).Run() is ever called, when the local config is
+	// untrusted but the trust store holds a stale entry for it. #643
+	// catalogued this mode (command ids, default table, capability
+	// metadata, help section, docs) so it was fully user-overridable and
+	// validated ahead of its runtime wiring; #644 wires up the Board
+	// state/dispatch (handleTrustConfirmModeKey, mode_handlers.go)/view
+	// that actually produces and resolves it.
 	ModeTrustConfirm Mode = "trust_confirm"
 
 	// ModeColumns is not a resolvable key surface -- it is a config

@@ -32,18 +32,14 @@ import (
 // keymap_panels_test.go's errorMode precedent and AGENTS.md's "enter modes
 // the real way" rule.
 //
-// One documented exception: keymap.ModeTrustConfirm (#643) has no
-// tea.Msg/keypress entry point at all -- it is cataloged ahead of its
-// runtime wiring (#644), so package main has no boardMode constant or
-// Update() case for it yet, and "the real way" is not reachable. Rather than
-// fake a b.mode assignment that would route through Update()'s default case
-// (handleNormalModeKey, the wrong dispatch table) or skip its coverage
-// silently, trustConfirmExemptFromUpdateMatrix documents the one mode this
-// file's matrix cannot include, and
-// TestUniversalQuit_TrustConfirm_DispatchesAppQuit below proves the same
-// thing at the layer that actually exists today: b.textBinding +
-// b.universalDispatch, the exact two calls a future
-// handleTrustConfirmModeKey will make.
+// keymap.ModeTrustConfirm (#640/#643/#644) is folded into the matrix below
+// like every other mode, but it needs its own "real way": it has no
+// tea.Msg/keypress entry point at all, since main.go decides it before
+// tea.NewProgram(...).Run() is ever called -- there is nothing for b.Update
+// to dispatch into. Its case drives the exact production decision function
+// (trustConfirmEntry, main.go) against a deliberately stale trust store,
+// then applies the result the same way main.go does, rather than a bare
+// b.mode assignment that would bypass that decision logic entirely.
 
 // newUniversalQuitConfig loads localYAML through the real config.Load
 // pipeline, failing the test on error.
@@ -149,7 +145,7 @@ func cmdIsQuit(cmd tea.Cmd) bool {
 	return reflect.ValueOf(cmd).Pointer() == reflect.ValueOf(tea.Cmd(tea.Quit)).Pointer()
 }
 
-// TestUniversalQuit_DispatchesInEveryMode is the 19-mode dispatch matrix
+// TestUniversalQuit_DispatchesInEveryMode is the 20-mode dispatch matrix
 // (AC1; AC8's pending-sequence case is covered separately below by
 // TestUniversalQuit_PendingSequence_GQ_DispatchesViaHandlePendingSeqKey,
 // since none of these 19 cases exercises a multi-key binding). Each case
@@ -341,10 +337,45 @@ func TestUniversalQuit_DispatchesInEveryMode(t *testing.T) {
 			}
 			return b
 		}},
+		{"trust_confirm", keymap.ModeTrustConfirm, func(t *testing.T) Board {
+			dir := t.TempDir()
+			localPath := filepath.Join(dir, "local.yml")
+			if err := os.WriteFile(localPath, []byte(universalQuitKeymapYAML(keymap.ModeTrustConfirm)), 0644); err != nil {
+				t.Fatalf("failed to write local config: %v", err)
+			}
+			globalPath := filepath.Join(dir, "nonexistent-global.yml")
+			// A deliberately stale trust store: some other hash was
+			// trusted under this identity, but not the content just
+			// written above -- exactly the condition trustConfirmEntry
+			// gates on, and proof this fires even though nothing here
+			// needs stripping (the local config's only binding is a
+			// built-in command override, not a shell action).
+			identity := "trust-confirm-matrix-identity"
+			trust := config.Trust{Trusted: []config.TrustEntry{{Hash: "sha256:stale", Path: identity}}}
+			cfg, err := config.Load(globalPath, localPath, trust)
+			if err != nil {
+				t.Fatalf("config.Load() returned unexpected error: %v", err)
+			}
+			p := provider.NewFakeProvider()
+			b := NewBoard(p, nil, cfg.Columns, nil, "matteobortolazzo", "lazyboards", "github", 0, 0, "Working", false, false, nil, nil, true)
+			km, err := config.ResolveKeymap(&cfg)
+			if err != nil {
+				t.Fatalf("config.ResolveKeymap() returned unexpected error: %v", err)
+			}
+			b = b.withKeymap(km)
+
+			state, ok := trustConfirmEntry(cfg, trust, identity)
+			if !ok {
+				t.Fatalf("precondition: trustConfirmEntry(cfg, trust, %q) ok = false, want true", identity)
+			}
+			b.mode = trustConfirmMode
+			b.trustConfirm = state
+			return b
+		}},
 	}
 
-	if len(cases)+len(trustConfirmExemptFromUpdateMatrix) != len(keymap.Modes()) {
-		t.Fatalf("dispatch matrix has %d cases (+%d documented exemptions), want %d (one per keymap.Modes())", len(cases), len(trustConfirmExemptFromUpdateMatrix), len(keymap.Modes()))
+	if len(cases) != len(keymap.Modes()) {
+		t.Fatalf("dispatch matrix has %d cases, want %d (one per keymap.Modes())", len(cases), len(keymap.Modes()))
 	}
 
 	for _, tc := range cases {
@@ -359,44 +390,12 @@ func TestUniversalQuit_DispatchesInEveryMode(t *testing.T) {
 	}
 }
 
-// trustConfirmExemptFromUpdateMatrix names the one keymap.Modes() entry the
-// dispatch matrix above cannot include -- see this file's header comment
-// for why. TestUniversalQuit_TrustConfirm_DispatchesAppQuit (below) covers
-// it instead.
-var trustConfirmExemptFromUpdateMatrix = map[keymap.Mode]bool{
-	keymap.ModeTrustConfirm: true,
-}
-
-// TestUniversalQuit_TrustConfirm_DispatchesAppQuit covers keymap.ModeTrustConfirm,
-// the one mode TestUniversalQuit_DispatchesInEveryMode's matrix cannot drive
-// through b.Update (see trustConfirmExemptFromUpdateMatrix and this file's
-// header comment). It dispatches through the same two calls a future
-// handleTrustConfirmModeKey will make: b.textBinding resolves the key
-// against ModeTrustConfirm's table, then b.universalDispatch recognizes
-// app.quit as a universal command -- proving the registry seam itself,
-// independent of the b.mode/Update() wiring #644 has not added yet.
-func TestUniversalQuit_TrustConfirm_DispatchesAppQuit(t *testing.T) {
-	b, _ := newUniversalQuitBoard(t, universalQuitKeymapYAML(keymap.ModeTrustConfirm), nil, nil)
-
-	binding, ok := b.textBinding(keymap.ModeTrustConfirm, quitDispatchKey())
-	if !ok {
-		t.Fatalf("textBinding(ModeTrustConfirm, ctrl+q) did not resolve, want the app.quit override to match")
-	}
-	cmd, handled := b.universalDispatch(binding)
-	if !handled {
-		t.Fatalf("universalDispatch(%+v) handled = false, want true (app.quit is a universal command)", binding)
-	}
-	if _, ok := cmd().(tea.QuitMsg); !ok {
-		t.Fatalf("universalDispatch's Cmd did not produce tea.QuitMsg")
-	}
-}
-
 // --- #589 explicit risk-guard coverage (.claude/rules/testing.md) ---
 //
 // git_panel's "user-bound key" requirement (Test Strategy: runGitPanelCommand
 // accepts CommandQuit today while gitPanelDefaults binds no app.quit key by
 // default, so a default-table-only test could never observe the dispatch)
-// is already satisfied by the 19-mode matrix above: its "git_panel" case
+// is already satisfied by the 20-mode matrix above: its "git_panel" case
 // binds ctrl+q via universalQuitKeymapYAML and dispatches through the real
 // config.DefaultGitActions()-gated panel, so it is not duplicated here.
 
