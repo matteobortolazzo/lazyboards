@@ -195,6 +195,8 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 
 Inline action fields (`keymaps.<mode>.<key>` mappings): `name`, `type` (`url`/`shell`), `url`, `command`, `scope` (`card`/`board`/`pr` — see [Action Scope](#action-scope)), plus the shell-only run-mode fields `terminal` (see [Terminal Actions](#terminal-actions)) and `window`/`cwd`/`focus` (see [Window Actions](#window-actions)).
 
+**Note on new cards:** a card you create with `n` is placed at its sorted position in the first column right away — at the top under newest-first, at the bottom under oldest-first — rather than being appended to the bottom regardless of direction. The cursor follows it there.
+
 **Note on remembered state:** pressing `s` to flip the sort order writes your choice to `~/.config/lazyboards/state.yml`, so it survives a restart. That file is written by lazyboards alone — your config files are never rewritten — and a remembered direction takes precedence over `sort_order`. Delete it to go back to the configured default.
 
 ### Keymaps

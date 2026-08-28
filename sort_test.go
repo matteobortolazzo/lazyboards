@@ -285,3 +285,166 @@ func TestBackgroundRefresh_WithSort_FilteredResetsCursorToZero(t *testing.T) {
 		t.Errorf("Cursor = %d after refresh with filter active, want 0 (existing filtered-refresh reset behavior preserved)", b.Columns[0].Cursor)
 	}
 }
+
+// --- New card placement (created cards land at their sorted position) ---
+//
+// handleCardCreated appends the created card and re-sorts the column, so the
+// new card lands where the active sort order says it belongs rather than
+// always at the tail. The cursor is then resolved by Number, not by index,
+// because the sort has just moved everything around.
+
+// newCardPlacementCards is the shared three-card fixture for the placement
+// tests: oldest (#1), middle (#3), newest (#2).
+func newCardPlacementCards() []provider.Card {
+	return []provider.Card{
+		{Number: 1, Title: "Oldest", CreatedAt: sortTestOlder},
+		{Number: 2, Title: "Newest", CreatedAt: sortTestNewest},
+		{Number: 3, Title: "Middle", CreatedAt: sortTestNewer},
+	}
+}
+
+// createCard drives a cardCreatedMsg through Update and returns the resulting
+// Board, capturing both return values per .claude/rules/testing.md.
+func createCard(t *testing.T, b Board, card provider.Card) Board {
+	t.Helper()
+	m, cmd := b.Update(cardCreatedMsg{card: card})
+	updated, ok := m.(Board)
+	if !ok {
+		t.Fatalf("Update returned %T, want Board", m)
+	}
+	if cmd != nil {
+		t.Errorf("cardCreatedMsg with no pending assignee should return a nil cmd, got %T", cmd)
+	}
+	return updated
+}
+
+func TestCardCreated_NewestFirst_PlacesNewCardAtTop(t *testing.T) {
+	b := newBoardWithInlineCards(t, newCardPlacementCards(), 120, 40)
+	b.sortNewestFirst = true
+	b.sortColumns()
+	assertCardOrder(t, b.Columns[0].Cards, []int{2, 3, 1}) // precondition
+
+	updated := createCard(t, b, provider.Card{Number: 99, Title: "Brand new", CreatedAt: time.Now()})
+
+	assertCardOrder(t, updated.Columns[0].Cards, []int{99, 2, 3, 1})
+	col := updated.Columns[0]
+	if col.Cursor != 0 {
+		t.Errorf("Cursor = %d after creating a card under newest-first, want 0 (the new card sits at the top)", col.Cursor)
+	}
+}
+
+func TestCardCreated_OldestFirst_PlacesNewCardAtBottom(t *testing.T) {
+	b := newBoardWithInlineCards(t, newCardPlacementCards(), 120, 40)
+	assertCardOrder(t, b.Columns[0].Cards, []int{1, 3, 2}) // precondition: default oldest-first
+
+	updated := createCard(t, b, provider.Card{Number: 99, Title: "Brand new", CreatedAt: time.Now()})
+
+	assertCardOrder(t, updated.Columns[0].Cards, []int{1, 3, 2, 99})
+	col := updated.Columns[0]
+	if col.Cursor != len(col.Cards)-1 {
+		t.Errorf("Cursor = %d after creating a card under oldest-first, want %d (the new card sits at the bottom)", col.Cursor, len(col.Cards)-1)
+	}
+}
+
+// TestCardCreated_ZeroCreatedAt_LandsAtNewestEnd covers the fail-safe for
+// providers that omit the creation timestamp (FakeProvider.CreateCard does):
+// the card was just created, so it must sort to the newest end in either
+// direction, never the oldest. Without the fallback a zero timestamp would
+// silently invert the placement.
+func TestCardCreated_ZeroCreatedAt_LandsAtNewestEnd(t *testing.T) {
+	tests := []struct {
+		name            string
+		sortNewestFirst bool
+		want            []int
+	}{
+		{name: "newest first", sortNewestFirst: true, want: []int{99, 2, 3, 1}},
+		{name: "oldest first", sortNewestFirst: false, want: []int{1, 3, 2, 99}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := newBoardWithInlineCards(t, newCardPlacementCards(), 120, 40)
+			b.sortNewestFirst = tt.sortNewestFirst
+			b.sortColumns()
+
+			// No CreatedAt: the FakeProvider.CreateCard shape.
+			updated := createCard(t, b, provider.Card{Number: 99, Title: "No timestamp"})
+
+			assertCardOrder(t, updated.Columns[0].Cards, tt.want)
+			col := updated.Columns[0]
+			if col.Cards[col.Cursor].Number != 99 {
+				t.Errorf("cursor card = %d, want 99 (the newly created card)", col.Cards[col.Cursor].Number)
+			}
+		})
+	}
+}
+
+// TestCardCreated_RealCreatedAt_SortsIntoTheMiddle proves the fallback only
+// fires for a zero timestamp: a provider-supplied CreatedAt is honored as-is
+// and is not overwritten with time.Now().
+func TestCardCreated_RealCreatedAt_SortsIntoTheMiddle(t *testing.T) {
+	b := newBoardWithInlineCards(t, newCardPlacementCards(), 120, 40)
+	assertCardOrder(t, b.Columns[0].Cards, []int{1, 3, 2}) // precondition: oldest-first
+
+	// Between sortTestOlder (#1) and sortTestNewer (#3).
+	between := sortTestOlder.Add(sortTestNewer.Sub(sortTestOlder) / 2)
+	updated := createCard(t, b, provider.Card{Number: 99, Title: "Backdated", CreatedAt: between})
+
+	assertCardOrder(t, updated.Columns[0].Cards, []int{1, 99, 3, 2})
+	col := updated.Columns[0]
+	if col.Cards[col.Cursor].Number != 99 {
+		t.Errorf("cursor card = %d, want 99 (cursor follows the new card to its sorted position)", col.Cards[col.Cursor].Number)
+	}
+}
+
+// TestCardCreated_CursorResolvesByNumberNotIndex pins the cursor-restore
+// contract: after the re-sort the appended index is stale, so the cursor is
+// resolved by the created card's Number.
+func TestCardCreated_CursorResolvesByNumberNotIndex(t *testing.T) {
+	b := newBoardWithInlineCards(t, newCardPlacementCards(), 120, 40)
+	b.sortNewestFirst = true
+	b.sortColumns()
+
+	created := provider.Card{Number: 99, Title: "Brand new", CreatedAt: time.Now()}
+	updated := createCard(t, b, created)
+
+	col := updated.Columns[0]
+	if col.Cursor < 0 || col.Cursor >= len(col.Cards) {
+		t.Fatalf("Cursor = %d out of bounds for %d cards", col.Cursor, len(col.Cards))
+	}
+	if col.Cards[col.Cursor].Number != created.Number {
+		t.Errorf("cursor card = %d, want %d (cursor must track the new card by Number, not by the pre-sort append index)", col.Cards[col.Cursor].Number, created.Number)
+	}
+	if updated.selectedCard().Number != created.Number {
+		t.Errorf("selectedCard().Number = %d, want %d", updated.selectedCard().Number, created.Number)
+	}
+}
+
+// TestCardCreated_NewestFirst_LongListKeepsNewCardOnScreen is the newest-first
+// counterpart of create_mode_test.go's AC4 scroll test: at the top of a long
+// list the scroll offset must go back to 0 so the new card is on screen.
+func TestCardCreated_NewestFirst_LongListKeepsNewCardOnScreen(t *testing.T) {
+	cardCount := 30
+	b := newBoardWithGeneratedCards(t, cardCount, "Card %d", 120, 15)
+	b.sortNewestFirst = true
+	b.sortColumns()
+	// Scroll away from the top so a reset to 0 is observable.
+	b.Columns[0].Cursor = cardCount - 1
+	b.clampScrollOffset()
+	if b.Columns[0].ScrollOffset == 0 {
+		t.Fatalf("precondition: ScrollOffset = 0, want > 0 after moving the cursor to the end of a long list")
+	}
+
+	created := provider.Card{Number: cardCount + 1, Title: "Top-of-list task", CreatedAt: time.Now()}
+	updated := createCard(t, b, created)
+
+	col := updated.Columns[0]
+	if col.Cards[0].Number != created.Number {
+		t.Errorf("first card = %d, want %d (newest-first puts the new card at the top)", col.Cards[0].Number, created.Number)
+	}
+	if col.Cursor != 0 {
+		t.Errorf("Cursor = %d, want 0", col.Cursor)
+	}
+	if col.ScrollOffset != 0 {
+		t.Errorf("ScrollOffset = %d, want 0 (the new card sits at the top and must be on screen)", col.ScrollOffset)
+	}
+}
