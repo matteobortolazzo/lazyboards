@@ -319,8 +319,7 @@ func TestItemNavigation_KWrapsToLastFilteredCard_WhenFilterActive(t *testing.T) 
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	filtered := b.filteredCards()
 	if len(filtered) != 2 {
@@ -344,8 +343,7 @@ func TestItemNavigation_JWrapsToFirstFilteredCard_WhenFilterActive(t *testing.T)
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	filtered := b.filteredCards()
 	if len(filtered) != 2 {

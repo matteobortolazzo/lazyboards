@@ -278,8 +278,7 @@ func TestConfigSaved_RepoChange_ClearsPreviousRepoState(t *testing.T) {
 func TestConfigSaved_RepoChange_ClearsSearchAndFilter(t *testing.T) {
 	b, _, _ := newRepoSwitchBoard(t, singleCardBoard("New", 900, "New repo card"))
 	b.searchQuery = "auth"
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "infra"
+	setActiveFilter(&b, filterByLabel, "infra")
 	b.ActiveTab = 2
 
 	m, _ := b.Update(configSavedMsg{provider: "github", repo: "new-owner/new-repo"})

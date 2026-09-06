@@ -270,8 +270,7 @@ func TestDeleteMode_DKey_FilterActive_TargetsFilteredCard(t *testing.T) {
 
 	// Cards #1, #3, #5 in "Backlog" carry the "bug" label; none of the fixture
 	// cards carry LinkedPRs, so the gate always passes here.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.Columns[b.ActiveTab].Cursor = 1 // second bug card in the filtered list -> #3
 
 	m, _ := b.Update(keyMsg("d"))

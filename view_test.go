@@ -2492,8 +2492,7 @@ func TestBorderTitleCounts_SearchWinsOverFilter(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 	b.ActiveTab = 0 // "Backlog": bug-labeled cards are #1, #3, #5
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.searchQuery = "Specific" // narrows further to #5 "Specific bug"
 
 	fc := b.borderTitleCounts()
@@ -2523,8 +2522,7 @@ func TestBorderTitleCounts_SearchWinsOverFilter(t *testing.T) {
 func TestBorderTitleCounts_GlobalFilterAppliesToAllColumns(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.searchQuery = ""
 
 	fc := b.borderTitleCounts()
@@ -2547,7 +2545,7 @@ func TestBorderTitleCounts_GlobalFilterAppliesToAllColumns(t *testing.T) {
 func TestBorderTitleCounts_NeitherActiveReturnsNil(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
-	b.activeFilterType = filterTypeNone
+	setActiveFilter(&b, filterTypeNone, "")
 	b.searchQuery = ""
 
 	fc := b.borderTitleCounts()
