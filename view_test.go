@@ -1281,7 +1281,7 @@ func TestHelpModal_ShowsTicketOpenBinding(t *testing.T) {
 	}
 }
 
-func TestHelpModal_ShowsFilterToggle(t *testing.T) {
+func TestHelpModal_ShowsFilter(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
@@ -1290,9 +1290,14 @@ func TestHelpModal_ShowsFilterToggle(t *testing.T) {
 	b = sendKey(t, b, keyMsg("?"))
 
 	view := b.View()
-	// The help modal should show "f" mapped to "Filter (toggle)" in the Normal Mode section.
-	if !strings.Contains(view, "Filter (toggle)") {
-		t.Errorf("help modal should contain %q key binding, got:\n%s", "Filter (toggle)", view)
+	// The help modal should show "f" mapped to "Filter" (no longer "Filter
+	// (toggle)", since #653 makes f always-open and enter the toggle) in the
+	// Normal Mode section.
+	if !strings.Contains(view, "Filter") {
+		t.Errorf("help modal should contain %q key binding, got:\n%s", "Filter", view)
+	}
+	if strings.Contains(view, "Filter (toggle)") {
+		t.Errorf("help modal should no longer contain the stale %q label, got:\n%s", "Filter (toggle)", view)
 	}
 }
 

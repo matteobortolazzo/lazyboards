@@ -679,26 +679,30 @@ func TestFilter_JK_NavigatesFilteredCards(t *testing.T) {
 
 // --- Clear filter ---
 
+// TestFilter_ClearFilter_RestoresAllCards (#653): 'f' no longer clears, so
+// clearing now goes through the picker's filter.clear_all command ('c')
+// instead of a direct normal-mode 'f' press.
 func TestFilter_ClearFilter_RestoresAllCards(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Set a filter.
 	setActiveFilter(&b, filterByLabel, "bug")
 
-	// Press 'f' to clear the filter (toggle behavior: clears when active).
-	m, cmd := b.Update(keyMsg("f"))
+	// Open the picker ('f' never clears), then clear via filter.clear_all ('c').
+	b = sendKey(t, b, keyMsg("f"))
+	m, cmd := b.Update(keyMsg("c"))
 	b = m.(Board)
 
 	// The cmd should be non-nil (timed message).
 	if cmd == nil {
-		t.Error("'f' key should return a non-nil cmd for timed message")
+		t.Error("'c' (filter.clear_all) should return a non-nil cmd for timed message")
 	}
 
 	if b.hasActiveFilters() {
-		t.Errorf("after 'f': hasActiveFilters() = true, want false")
+		t.Errorf("after 'c': hasActiveFilters() = true, want false")
 	}
 	if filterCount(&b) != 0 {
-		t.Errorf("after 'f': filterCount = %d, want 0", filterCount(&b))
+		t.Errorf("after 'c': filterCount = %d, want 0", filterCount(&b))
 	}
 
 	// All cards should now be returned.
@@ -741,43 +745,49 @@ func TestFilter_FilterPersistsAcrossTabSwitch(t *testing.T) {
 	}
 }
 
-// --- applyFilter() guards against empty/out-of-range Columns (#486) ---
+// --- toggleFilter() guards against empty/out-of-range Columns (#486, #653) ---
+//
+// #653 deletes applyFilter (its clamping tail is extracted verbatim into
+// clampAfterFilterChange, which toggleFilter now calls); these two guards
+// carry forward onto toggleFilter, the surviving choke point.
 
-// TestFilter_ApplyFilter_EmptyColumns_DoesNotPanic asserts applyFilter still
-// sets the active filter fields even when the board has no columns yet (e.g.
-// before the first successful fetch) -- handleFilterModeKey's inlined block
-// never needed this guard because it's only reachable once filterItems has
-// been populated from a fetched board, but applyFilter is a shared building
-// block for future callers (e.g. the milestones view) that may invoke it
-// before Columns is populated.
-func TestFilter_ApplyFilter_EmptyColumns_DoesNotPanic(t *testing.T) {
+// TestFilter_ToggleFilter_EmptyColumns_DoesNotPanic (formerly
+// TestFilter_ApplyFilter_EmptyColumns_DoesNotPanic) asserts toggleFilter
+// still sets the active filter fields even when the board has no columns yet
+// (e.g. before the first successful fetch) -- handleFilterModeKey's inlined
+// block never needed this guard because it's only reachable once filterItems
+// has been populated from a fetched board, but toggleFilter is a shared
+// building block for future callers (e.g. the milestones view) that may
+// invoke it before Columns is populated.
+func TestFilter_ToggleFilter_EmptyColumns_DoesNotPanic(t *testing.T) {
 	b := Board{Columns: nil}
 
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("applyFilter panicked with empty Columns: %v", r)
+			t.Fatalf("toggleFilter panicked with empty Columns: %v", r)
 		}
 	}()
-	b.applyFilter(filterByMilestone, "v1.0")
+	b.toggleFilter(filterByMilestone, "v1.0")
 
 	if !hasFilter(&b, filterByMilestone, "v1.0") {
 		t.Errorf("filters = %+v, want a (filterByMilestone, %q) selection", b.filters, "v1.0")
 	}
 }
 
-// TestFilter_ApplyFilter_ActiveTabOutOfRange_DoesNotPanic asserts applyFilter
-// does not index b.Columns[b.ActiveTab] when ActiveTab is out of range for a
-// non-empty Columns slice.
-func TestFilter_ApplyFilter_ActiveTabOutOfRange_DoesNotPanic(t *testing.T) {
+// TestFilter_ToggleFilter_ActiveTabOutOfRange_DoesNotPanic (formerly
+// TestFilter_ApplyFilter_ActiveTabOutOfRange_DoesNotPanic) asserts
+// toggleFilter does not index b.Columns[b.ActiveTab] when ActiveTab is out
+// of range for a non-empty Columns slice.
+func TestFilter_ToggleFilter_ActiveTabOutOfRange_DoesNotPanic(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 	b.ActiveTab = len(b.Columns) // one past the end
 
 	defer func() {
 		if r := recover(); r != nil {
-			t.Fatalf("applyFilter panicked with out-of-range ActiveTab: %v", r)
+			t.Fatalf("toggleFilter panicked with out-of-range ActiveTab: %v", r)
 		}
 	}()
-	b.applyFilter(filterByLabel, "bug")
+	b.toggleFilter(filterByLabel, "bug")
 
 	if !hasFilter(&b, filterByLabel, "bug") {
 		t.Errorf("filters = %+v, want a (filterByLabel, %q) selection", b.filters, "bug")

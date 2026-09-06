@@ -153,8 +153,8 @@ func newLoadedTestBoard(t *testing.T) Board {
 // never appended-to, since Board is copied by value through Update().
 //
 // Deliberately does NOT clamp cursor/scroll — matching what today's inline
-// assignments do — per docs/list-cursor-invariants.md's applyFilter clamp
-// contract, which is production's job, not a test fixture's. A future reader
+// assignments do — per docs/list-cursor-invariants.md's clampAfterFilterChange
+// clamp contract, which is production's job, not a test fixture's. A future reader
 // must not "fix" that by adding clamping here.
 func setActiveFilter(b *Board, itemType filterType, value string) {
 	if itemType == filterTypeNone {

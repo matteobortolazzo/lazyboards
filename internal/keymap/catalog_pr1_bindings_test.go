@@ -61,6 +61,7 @@ var modalBindingCases = []modalBindingCase{
 	{"filter/down", ModeFilter, "down", BindingCommand, "filter.next", Action{}},
 	{"filter/k", ModeFilter, "k", BindingCommand, "filter.prev", Action{}},
 	{"filter/up", ModeFilter, "up", BindingCommand, "filter.prev", Action{}},
+	{"filter/c", ModeFilter, "c", BindingCommand, "filter.clear_all", Action{}},
 
 	// assign (handleAssignModeKey, mode_handlers.go)
 	{"assign/esc", ModeAssign, "esc", BindingCommand, "assign.close", Action{}},

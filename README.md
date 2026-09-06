@@ -645,7 +645,7 @@ config and want the old keys back.
 | `G` | `view.git_panel` | Git menu |
 | `D` | `view.dispatch` | (cenci) Dispatch |
 | `s` | `board.sort_order` | Toggle sort order (oldest/newest created first; board-wide, applies to all columns; remembered across restarts) |
-| `f` | `board.filter` | Filter (toggle) |
+| `f` | `board.filter` | Filter |
 | `l` / `right` (→) | `nav.detail_focus` | Detail panel |
 | `j` / `down` (↓) | `nav.cursor_down` | Next card |
 | `k` / `up` (↑) | `nav.cursor_up` | Previous card |
@@ -745,14 +745,14 @@ repository** on one line each: title, a block progress bar, percentage,
 Three states: `Loading milestones...` while the fetch is in flight, the list
 on success, and `Couldn't load milestones` (no rows) on error.
 
-`enter` sets the selected milestone as the active board filter and closes the
-modal, exactly like the filter picker; `f` clears it. `o` opens the
-milestone's GitHub URL in your browser without closing the modal.
+`enter` toggles the selected milestone into the board's active filter set and
+leaves the modal open, matching the filter picker's multi-select semantics.
+`o` opens the milestone's GitHub URL in your browser without closing the modal.
 
 | Key | Command | Action |
 |-----|---------|--------|
 | `esc` | `milestone_list.close` | Cancel |
-| `enter` | `milestone_list.filter` | Filter board |
+| `enter` | `milestone_list.filter` | Toggle filter |
 | `j` / `down` (↓) | `milestone_list.next` | Navigate |
 | `k` / `up` (↑) | `milestone_list.prev` | Navigate |
 | `o` | `milestone_list.open` | Open in browser |
@@ -838,10 +838,17 @@ The picker lists Labels, Assignees, and Milestones sections (only sections with
 at least one value are shown), built from the cards currently on the board.
 Entries within each section are sorted alphabetically (case-insensitive).
 
+`f` always opens the picker, even while a filter is already active — it never
+clears it. `enter` toggles the selection on/off for the row under the cursor,
+re-applying the filter to the board immediately and leaving the modal open;
+selected rows show a `*` prefix. `c` clears every selection at once (also
+leaving the modal open).
+
 | Key | Command | Action |
 |-----|---------|--------|
 | `esc` | `filter.close` | Cancel |
-| `enter` | `filter.select` | Select |
+| `enter` | `filter.select` | Toggle selection |
+| `c` | `filter.clear_all` | Clear all |
 | `j` / `down` (↓) | `filter.next` | Navigate |
 | `k` / `up` (↑) | `filter.prev` | Navigate |
 

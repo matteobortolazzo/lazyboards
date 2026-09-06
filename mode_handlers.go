@@ -306,14 +306,14 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		b.statusBar.SetActionHints(b.assignHints())
 		return b, nil
 	case keymap.CommandBoardFilter:
-		if b.hasActiveFilters() {
-			b.clearFilter()
-			b.clampScrollOffset()
-			cmd := b.statusBar.SetTimedMessage("Filter cleared", StatusSuccess, statusMessageDuration)
-			return b, cmd
-		}
+		// #653: 'f' always opens the picker and never clears (AC1). The
+		// empty-items guard is relaxed to Q8's "still open when a filter is
+		// already active" so filter.clear_all stays reachable even on a
+		// board whose own collectFilterItems() yields zero rows (e.g. a
+		// selection made from the Milestones modal on a board whose cards
+		// carry no labels/assignees/milestones of their own).
 		items := b.collectFilterItems()
-		if len(items) == 0 {
+		if len(items) == 0 && !b.hasActiveFilters() {
 			return b, nil
 		}
 		b.filterItems = items
@@ -440,13 +440,21 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.restoreFocusHints()
 			return b, nil
 		case keymap.CommandFilterSelect:
+			// #653 AC2: Enter toggles the cursor's item into/out of the
+			// filter set, re-applies immediately, and leaves the modal open
+			// with the cursor unchanged -- filterItems is not recollected
+			// while the picker is open (epic assumption: the list can't
+			// shrink under the cursor), so filterCursor needs no adjustment.
 			if b.filterCursor < len(b.filterItems) && !b.filterItems[b.filterCursor].isHeader {
 				item := b.filterItems[b.filterCursor]
-				b.applyFilter(item.itemType, item.value)
+				b.toggleFilter(item.itemType, item.value)
 			}
-			b.mode = normalMode
-			b.restoreFocusHints()
 			return b, nil
+		case keymap.CommandFilterClearAll:
+			b.clearFilter()
+			b.clampScrollOffset()
+			cmd := b.statusBar.SetTimedMessage("Filters cleared", StatusSuccess, statusMessageDuration)
+			return b, cmd
 		case keymap.CommandFilterNext:
 			b.filterMoveDown()
 		case keymap.CommandFilterPrev:
@@ -759,16 +767,15 @@ const milestoneStatusTitleMaxLen = 60
 // handleMilestoneListModeKey routes a Milestones modal (i) key through the
 // ModeMilestoneList registry table (#490 PR 7b), mirroring
 // handleFilterModeKey/handleAssignModeKey's shape -- this modal has no
-// inline-action dispatch path (Q4). Enter closes the modal and, mirroring
-// handlePRListModeKey's "close first, then guard" shape, applies the
-// selected milestone as the board filter (applyFilter) only when entries is
-// non-empty and cursor is in range (loading/err/empty all leave entries nil,
-// per milestoneListState's doc comment, so this one guard covers every
-// non-loaded state uniformly) -- the modal always closes on the bound key,
-// but no filter or status message is applied when there is nothing to
-// select. Esc cancels without applying anything. o opens the selected
-// milestone's URL and leaves the modal open, mirroring
-// handleTicketOpenKey's empty-URL guard ("URL not available",
+// inline-action dispatch path (Q4). Enter (#653 AC7) toggles the selected
+// milestone into the active filter set (toggleFilter) rather than closing
+// the modal, only when entries is non-empty and cursor is in range
+// (loading/err/empty all leave entries nil, per milestoneListState's doc
+// comment, so this one guard covers every non-loaded state uniformly) --
+// the modal stays open regardless, but no filter or status message is
+// applied when there is nothing to select. Esc cancels without applying
+// anything. o opens the selected milestone's URL and leaves the modal open,
+// mirroring handleTicketOpenKey's empty-URL guard ("URL not available",
 // StatusWarning).
 func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	result := b.lookupModalBinding(keymap.ModeMilestoneList, msg)
@@ -798,15 +805,20 @@ func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			b.restoreFocusHints()
 			return b, nil
 		case keymap.CommandMilestoneListFilter:
-			b.mode = normalMode
-			b.restoreFocusHints()
 			if len(b.milestoneList.entries) == 0 || b.milestoneList.cursor >= len(b.milestoneList.entries) {
 				return b, nil
 			}
 			m := b.milestoneList.entries[b.milestoneList.cursor]
-			b.applyFilter(filterByMilestone, m.Title)
+			wasSelected := b.filters.contains(filterByMilestone, m.Title)
+			b.toggleFilter(filterByMilestone, m.Title)
 			title := truncateCell(sanitizeSingleLine(m.Title), milestoneStatusTitleMaxLen)
-			cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Filtered by milestone: %s", title), StatusSuccess, statusMessageDuration)
+			var msg string
+			if wasSelected {
+				msg = fmt.Sprintf("Milestone filter cleared: %s", title)
+			} else {
+				msg = fmt.Sprintf("Filtered by milestone: %s", title)
+			}
+			cmd := b.statusBar.SetTimedMessage(msg, StatusSuccess, statusMessageDuration)
 			return b, cmd
 		case keymap.CommandMilestoneListNext:
 			b.milestoneList.cursor = moveCursor(b.milestoneList.cursor, len(b.milestoneList.entries), true)

@@ -201,6 +201,101 @@ func TestKeymapModals_Filter_InlineActionBindingDoesNotDispatch(t *testing.T) {
 	}
 }
 
+// --- filter.clear_all (#653): default-parity dispatch/hints, remap/unbind,
+// and the hint<->dispatch invariant, mirroring the established shape above.
+
+func TestKeymapModals_Filter_ClearAll_DefaultKeyDispatches(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	setActiveFilter(&b, filterByLabel, "bug")
+
+	b = sendKey(t, b, keyMsg("f"))
+	if b.mode != filterMode {
+		t.Fatalf("test setup: expected filterMode after 'f', got %d", b.mode)
+	}
+
+	b = sendKey(t, b, keyMsg("c"))
+
+	if b.mode != filterMode {
+		t.Errorf("mode = %d after default 'c' (filter.clear_all), want filterMode (modal stays open)", b.mode)
+	}
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true after default 'c', want false")
+	}
+}
+
+func TestKeymapModals_Filter_ClearAll_RemapMovesDispatchAndHint(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	setActiveFilter(&b, filterByLabel, "bug")
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeFilter: {
+			"c": keymap.UnboundBinding(),
+			"x": keymap.CommandBinding(keymap.CommandFilterClearAll),
+		},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("f"))
+	if b.mode != filterMode {
+		t.Fatalf("test setup: expected filterMode after 'f', got %d", b.mode)
+	}
+
+	// The old default key must now no-op.
+	b = sendKey(t, b, keyMsg("c"))
+	if !b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = false after pressing the unbound old 'c', want true (unbound key must be a no-op)")
+	}
+
+	// The new remapped key must dispatch.
+	b = sendKey(t, b, keyMsg("x"))
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true after pressing the remapped 'x', want false (filter.clear_all should have dispatched)")
+	}
+
+	hints := b.filterHints()
+	foundNewKey, foundOldKey := false, false
+	for _, h := range hints {
+		if h.Desc != "Clear all" {
+			continue
+		}
+		if strings.Contains(h.Key, "x") {
+			foundNewKey = true
+		}
+		if strings.Contains(h.Key, "c") {
+			foundOldKey = true
+		}
+	}
+	if !foundNewKey {
+		t.Errorf("filterHints() = %+v, want a Clear all hint advertising the remapped key 'x'", hints)
+	}
+	if foundOldKey {
+		t.Errorf("filterHints() = %+v, still advertises the remapped-away 'c'", hints)
+	}
+}
+
+func TestKeymapModals_Filter_ClearAll_UnboundIsNoOpAndHintDisappears(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	setActiveFilter(&b, filterByLabel, "bug")
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeFilter: {"c": keymap.UnboundBinding()},
+	}, nil)
+
+	b = sendKey(t, b, keyMsg("f"))
+	if b.mode != filterMode {
+		t.Fatalf("test setup: expected filterMode after 'f', got %d", b.mode)
+	}
+
+	b = sendKey(t, b, keyMsg("c"))
+	if !b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = false after pressing an unbound 'c', want true (unbind must be a no-op)")
+	}
+
+	hints := b.filterHints()
+	for _, h := range hints {
+		if h.Desc == "Clear all" {
+			t.Errorf("filterHints() = %+v, want no 'Clear all' hint once its only key is unbound", hints)
+		}
+	}
+}
+
 // --- Assign mode ---
 
 func TestKeymapModals_Assign_UserOverrideWinsOverBuiltinKey(t *testing.T) {
@@ -742,9 +837,10 @@ func TestKeymapModals_PRList_MultiKeyInlineActionExcludedFromHints(t *testing.T)
 // milestoneListState's loading -> err -> empty -> loaded precedence into
 // just the loaded happy path. The default "enter" binding for
 // milestone_list.filter is unbound and remapped onto "f"; every state must
-// still gate on cursor/entries emptiness exactly as before -- the modal
-// always closes to normalMode on the key, but only the loaded state (with a
-// valid cursor) actually applies the milestone filter.
+// still gate on cursor/entries emptiness exactly as before -- #653 makes the
+// modal stay open in milestoneListMode on the key regardless of state, but
+// only the loaded state (with a valid cursor) actually toggles the
+// milestone into the filter set.
 func TestKeymapModals_MilestoneList_RemappedFilterKeyRespectsViewStatePrecedence(t *testing.T) {
 	loadedFixture := []provider.Milestone{
 		{Title: "v1.0", URL: "https://github.com/owner/repo/milestone/2", DueOn: dueDate(2024, 3, 15), OpenIssueCount: 3, ClosedIssueCount: 1, ProgressPercentage: 25.0},
@@ -804,8 +900,8 @@ func TestKeymapModals_MilestoneList_RemappedFilterKeyRespectsViewStatePrecedence
 			b = m.(Board)
 			execCmds(cmd)
 
-			if b.mode != normalMode {
-				t.Errorf("[%s] mode after remapped filter key = %d, want normalMode (%d) -- the modal always closes on the bound key regardless of state", tc.name, b.mode, normalMode)
+			if b.mode != milestoneListMode {
+				t.Errorf("[%s] mode after remapped filter key = %d, want milestoneListMode (%d) -- the modal stays open on the bound key regardless of state", tc.name, b.mode, milestoneListMode)
 			}
 			gotFilterApplied := hasFilter(&b, filterByMilestone, "v1.0")
 			if gotFilterApplied != tc.wantFilterApplied {
