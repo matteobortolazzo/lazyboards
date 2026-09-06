@@ -117,7 +117,7 @@ func (b Board) handleMouseScroll(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Button == tea.MouseButtonWheelDown {
 			maxIdx := len(col.Cards) - 1
-			if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
+			if b.searchQuery != "" || b.hasActiveFilters() {
 				maxIdx = len(b.filteredCards()) - 1
 			}
 			if col.Cursor < maxIdx {
@@ -180,7 +180,7 @@ func (b Board) handleCardClick(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 	// Use filtered cards when search or a filter is active.
 	cards := col.Cards
-	if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
+	if b.searchQuery != "" || b.hasActiveFilters() {
 		cards = b.filteredCards()
 	}
 	if len(cards) == 0 {

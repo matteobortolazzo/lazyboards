@@ -245,6 +245,20 @@ type filterItem struct {
 	isHeader bool
 }
 
+// filterSelection is a single (category, value) entry in a Board's active
+// filter set (#652). filterSet stores these as an ordered slice -- deterministic
+// iteration, copy-safe under BubbleTea's value-copied Board, and comparable
+// elements for slices.Equal in tests.
+type filterSelection struct {
+	itemType filterType
+	value    string
+}
+
+// filterSet is the set of active filter selections. It is always replaced
+// wholesale (a fresh slice or nil), never appended-to or element-mutated in
+// place, since Board is copied by value through every Update() handler.
+type filterSet []filterSelection
+
 // LinkedPR represents a pull request linked to a card.
 //
 // IsDraft/Mergeable/MergeStateStatus/State mirror provider.LinkedPR's raw
@@ -865,8 +879,7 @@ type Board struct {
 	delete                      deleteState
 	filterItems                 []filterItem
 	filterCursor                int
-	activeFilterType            filterType
-	activeFilterValue           string
+	filters                     filterSet
 	collaborators               []Assignee
 	authenticatedUser           string
 	repoLabels                  []string
@@ -1383,26 +1396,46 @@ func (b *Board) visibleCards() []Card {
 	if len(b.Columns) == 0 || b.ActiveTab < 0 || b.ActiveTab >= len(b.Columns) {
 		return nil
 	}
-	if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
+	if b.searchQuery != "" || b.hasActiveFilters() {
 		return b.filteredCards()
 	}
 	return b.Columns[b.ActiveTab].Cards
 }
 
-// matchesGlobalFilter returns true if a card matches the active global filter.
-// Uses case-insensitive comparison (strings.EqualFold) per lessons-learned.
-func (b *Board) matchesGlobalFilter(card Card) bool {
-	switch b.activeFilterType {
+// hasActiveFilters reports whether b.filters has any selections. It replaces
+// the old activeFilterType != filterTypeNone guard: an empty set is
+// "unfiltered", while any non-empty set (even one holding an empty-value
+// selection that matches nothing) is "active".
+func (b *Board) hasActiveFilters() bool {
+	return len(b.filters) > 0
+}
+
+// cardMatchesSelection returns true if card matches a single filter
+// selection. Uses case-insensitive comparison (strings.EqualFold) per
+// lessons-learned at every comparison. An empty selection value never
+// matches anything, even a card whose own field is also empty (Q5) -- the
+// milestone case already got this for free via the pre-existing
+// card.Milestone == "" early return, but label/assignee need it stated
+// explicitly since a card can carry a literal empty-name label/assignee
+// entry. The default branch (an unknown or filterTypeNone category placed
+// directly in the set) returns false -- an unknown category matches
+// nothing, distinct from the *empty set* matching everything at the
+// filterSet.matches level.
+func cardMatchesSelection(card Card, sel filterSelection) bool {
+	if sel.value == "" {
+		return false
+	}
+	switch sel.itemType {
 	case filterByLabel:
 		for _, label := range card.Labels {
-			if strings.EqualFold(label.Name, b.activeFilterValue) {
+			if strings.EqualFold(label.Name, sel.value) {
 				return true
 			}
 		}
 		return false
 	case filterByAssignee:
 		for _, a := range card.Assignees {
-			if strings.EqualFold(a.Login, b.activeFilterValue) {
+			if strings.EqualFold(a.Login, sel.value) {
 				return true
 			}
 		}
@@ -1411,10 +1444,41 @@ func (b *Board) matchesGlobalFilter(card Card) bool {
 		if card.Milestone == "" {
 			return false
 		}
-		return strings.EqualFold(card.Milestone, b.activeFilterValue)
+		return strings.EqualFold(card.Milestone, sel.value)
 	default:
-		return true
+		return false
 	}
+}
+
+// matches returns true if card matches the filter set: OR within a category,
+// AND across categories with at least one selection. An empty set matches
+// everything. Groups selections by itemType (whatever category is actually
+// present in fs, including an unrecognized/filterTypeNone one placed
+// directly in the set -- cardMatchesSelection's default branch returns false
+// for it, so a card never matches such a selection, distinct from the
+// *empty set* matching everything) and requires at least one match per
+// group.
+func (fs filterSet) matches(card Card) bool {
+	matchedByCategory := make(map[filterType]bool, len(fs))
+	for _, sel := range fs {
+		if _, seen := matchedByCategory[sel.itemType]; !seen {
+			matchedByCategory[sel.itemType] = false
+		}
+		if cardMatchesSelection(card, sel) {
+			matchedByCategory[sel.itemType] = true
+		}
+	}
+	for _, matched := range matchedByCategory {
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesGlobalFilter returns true if a card matches the active global filter.
+func (b *Board) matchesGlobalFilter(card Card) bool {
+	return b.filters.matches(card)
 }
 
 // filteredCards returns the cards in the active column that match the current
@@ -1424,7 +1488,7 @@ func (b *Board) filteredCards() []Card {
 	cards := col.Cards
 
 	// Apply global filter first.
-	if b.activeFilterType != filterTypeNone {
+	if b.hasActiveFilters() {
 		var filtered []Card
 		for _, card := range cards {
 			if b.matchesGlobalFilter(card) {
@@ -1466,7 +1530,7 @@ func (b *Board) totalFilteredCards() int {
 // filteredCardsForColumn returns the number of cards in the given column
 // that match the active global filter. Returns -1 if no filter is active.
 func (b *Board) filteredCardsForColumn(colIdx int) int {
-	if b.activeFilterType == filterTypeNone {
+	if !b.hasActiveFilters() {
 		return -1
 	}
 	if colIdx < 0 || colIdx >= len(b.Columns) {
@@ -1482,13 +1546,18 @@ func (b *Board) filteredCardsForColumn(colIdx int) int {
 }
 
 // applyFilter is the single choke point for applying a global filter
-// (per docs/list-cursor-invariants.md): it sets the active filter fields and
-// clamps the active column's cursor/scroll to the newly filtered card count.
-// The active-tab guard exists for future repo-derived callers that may
-// invoke this on a board with no columns yet (e.g. before the first fetch).
+// (per docs/list-cursor-invariants.md): it replaces the filter set with the
+// given selection (or clears it entirely when itemType is filterTypeNone)
+// and clamps the active column's cursor/scroll to the newly filtered card
+// count. The active-tab guard exists for future repo-derived callers that
+// may invoke this on a board with no columns yet (e.g. before the first
+// fetch).
 func (b *Board) applyFilter(itemType filterType, value string) {
-	b.activeFilterType = itemType
-	b.activeFilterValue = value
+	if itemType == filterTypeNone {
+		b.filters = nil
+	} else {
+		b.filters = filterSet{{itemType: itemType, value: value}}
+	}
 	if len(b.Columns) == 0 || b.ActiveTab < 0 || b.ActiveTab >= len(b.Columns) {
 		return
 	}
@@ -1505,8 +1574,7 @@ func (b *Board) applyFilter(itemType filterType, value string) {
 
 // clearFilter resets the global filter state and clamps cursor/scroll for the active column.
 func (b *Board) clearFilter() {
-	b.activeFilterType = filterTypeNone
-	b.activeFilterValue = ""
+	b.filters = nil
 	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
 		col := &b.Columns[b.ActiveTab]
 		if col.Cursor >= len(col.Cards) {

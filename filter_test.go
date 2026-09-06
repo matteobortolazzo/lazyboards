@@ -364,11 +364,8 @@ func TestFilter_PersistsAcrossRefresh(t *testing.T) {
 	b = simulateRefreshWithCards(t, b, refreshColumnsWithBugCards())
 
 	// The filter should persist — not be cleared.
-	if b.activeFilterType != filterByLabel {
-		t.Errorf("after refresh: activeFilterType = %d, want %d (filterByLabel)", b.activeFilterType, filterByLabel)
-	}
-	if b.activeFilterValue != "bug" {
-		t.Errorf("after refresh: activeFilterValue = %q, want %q", b.activeFilterValue, "bug")
+	if !hasFilter(&b, filterByLabel, "bug") {
+		t.Errorf("after refresh: filters = %+v, want a (filterByLabel, %q) selection", b.filters, "bug")
 	}
 }
 
@@ -423,8 +420,8 @@ func TestFilter_CursorClampedAfterRefreshShrinks(t *testing.T) {
 	b = simulateRefreshWithCards(t, b, shrunkColumns)
 
 	// The filter must persist after refresh.
-	if b.activeFilterType != filterByLabel {
-		t.Fatalf("after refresh: activeFilterType = %d, want %d (filterByLabel) — filter should persist", b.activeFilterType, filterByLabel)
+	if !hasFilter(&b, filterByLabel, "bug") {
+		t.Fatalf("after refresh: filters = %+v, want a (filterByLabel, %q) selection — filter should persist", b.filters, "bug")
 	}
 
 	// After refresh, filtered list in Backlog has only 1 bug card.
@@ -545,9 +542,9 @@ func TestFilter_CursorClampedOnFilterApply(t *testing.T) {
 	m, _ := b.Update(arrowMsg(tea.KeyEnter))
 	b = m.(Board)
 
-	// After applying filter: activeFilterType should be set to filterByAssignee.
-	if b.activeFilterType != filterByAssignee {
-		t.Fatalf("after Enter: activeFilterType = %d, want filterByAssignee", b.activeFilterType)
+	// After applying filter: filters should hold a filterByAssignee selection.
+	if !hasFilter(&b, filterByAssignee, "alice") {
+		t.Fatalf("after Enter: filters = %+v, want a (filterByAssignee, %q) selection", b.filters, "alice")
 	}
 
 	// After filtering by "alice", the Backlog column should show only 2 cards.
@@ -697,11 +694,11 @@ func TestFilter_ClearFilter_RestoresAllCards(t *testing.T) {
 		t.Error("'f' key should return a non-nil cmd for timed message")
 	}
 
-	if b.activeFilterType != filterTypeNone {
-		t.Errorf("after 'f': activeFilterType = %d, want %d (filterTypeNone)", b.activeFilterType, filterTypeNone)
+	if b.hasActiveFilters() {
+		t.Errorf("after 'f': hasActiveFilters() = true, want false")
 	}
-	if b.activeFilterValue != "" {
-		t.Errorf("after 'f': activeFilterValue = %q, want empty", b.activeFilterValue)
+	if filterCount(&b) != 0 {
+		t.Errorf("after 'f': filterCount = %d, want 0", filterCount(&b))
 	}
 
 	// All cards should now be returned.
@@ -724,11 +721,8 @@ func TestFilter_FilterPersistsAcrossTabSwitch(t *testing.T) {
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
 
 	// The filter state should persist.
-	if b.activeFilterType != filterByLabel {
-		t.Errorf("after tab switch: activeFilterType = %d, want %d (filterByLabel)", b.activeFilterType, filterByLabel)
-	}
-	if b.activeFilterValue != "bug" {
-		t.Errorf("after tab switch: activeFilterValue = %q, want %q", b.activeFilterValue, "bug")
+	if !hasFilter(&b, filterByLabel, "bug") {
+		t.Errorf("after tab switch: filters = %+v, want a (filterByLabel, %q) selection", b.filters, "bug")
 	}
 
 	// The filtered cards in the new column should also respect the filter.
@@ -766,11 +760,8 @@ func TestFilter_ApplyFilter_EmptyColumns_DoesNotPanic(t *testing.T) {
 	}()
 	b.applyFilter(filterByMilestone, "v1.0")
 
-	if b.activeFilterType != filterByMilestone {
-		t.Errorf("activeFilterType = %d, want %d (filterByMilestone)", b.activeFilterType, filterByMilestone)
-	}
-	if b.activeFilterValue != "v1.0" {
-		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, "v1.0")
+	if !hasFilter(&b, filterByMilestone, "v1.0") {
+		t.Errorf("filters = %+v, want a (filterByMilestone, %q) selection", b.filters, "v1.0")
 	}
 }
 
@@ -788,11 +779,8 @@ func TestFilter_ApplyFilter_ActiveTabOutOfRange_DoesNotPanic(t *testing.T) {
 	}()
 	b.applyFilter(filterByLabel, "bug")
 
-	if b.activeFilterType != filterByLabel {
-		t.Errorf("activeFilterType = %d, want %d (filterByLabel)", b.activeFilterType, filterByLabel)
-	}
-	if b.activeFilterValue != "bug" {
-		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, "bug")
+	if !hasFilter(&b, filterByLabel, "bug") {
+		t.Errorf("filters = %+v, want a (filterByLabel, %q) selection", b.filters, "bug")
 	}
 }
 

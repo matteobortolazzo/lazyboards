@@ -306,7 +306,7 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		b.statusBar.SetActionHints(b.assignHints())
 		return b, nil
 	case keymap.CommandBoardFilter:
-		if b.activeFilterType != filterTypeNone {
+		if b.hasActiveFilters() {
 			b.clearFilter()
 			b.clampScrollOffset()
 			cmd := b.statusBar.SetTimedMessage("Filter cleared", StatusSuccess, statusMessageDuration)

@@ -126,8 +126,8 @@ func TestKeymapModals_Filter_OutcomePendingPrefixIsNoOp(t *testing.T) {
 	if b.filterCursor != initialCursor {
 		t.Errorf("filterCursor = %d after pressing a pending prefix key, want unchanged (%d)", b.filterCursor, initialCursor)
 	}
-	if b.activeFilterValue != "" {
-		t.Errorf("activeFilterValue = %q after pressing a pending prefix key, want empty (must not partially dispatch filter.select)", b.activeFilterValue)
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true after pressing a pending prefix key, want false (must not partially dispatch filter.select)")
 	}
 }
 
@@ -807,9 +807,9 @@ func TestKeymapModals_MilestoneList_RemappedFilterKeyRespectsViewStatePrecedence
 			if b.mode != normalMode {
 				t.Errorf("[%s] mode after remapped filter key = %d, want normalMode (%d) -- the modal always closes on the bound key regardless of state", tc.name, b.mode, normalMode)
 			}
-			gotFilterApplied := b.activeFilterType == filterByMilestone
+			gotFilterApplied := hasFilter(&b, filterByMilestone, "v1.0")
 			if gotFilterApplied != tc.wantFilterApplied {
-				t.Errorf("[%s] filter applied = %v (activeFilterType=%d), want %v", tc.name, gotFilterApplied, b.activeFilterType, tc.wantFilterApplied)
+				t.Errorf("[%s] filter applied = %v (filters=%+v), want %v", tc.name, gotFilterApplied, b.filters, tc.wantFilterApplied)
 			}
 		})
 	}

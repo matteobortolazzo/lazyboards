@@ -84,7 +84,7 @@ func (b Board) View() string {
 	// Compute filtered cards once and reuse throughout View().
 	displayCol := col
 	var filtered []Card
-	if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
+	if b.searchQuery != "" || b.hasActiveFilters() {
 		filtered = b.filteredCards()
 		cursor := col.Cursor
 		if len(filtered) == 0 {
@@ -384,7 +384,7 @@ func (b *Board) borderTitleCounts() []int {
 		}
 		return fc
 	}
-	if b.activeFilterType != filterTypeNone {
+	if b.hasActiveFilters() {
 		fc := make([]int, len(b.Columns))
 		for i := range b.Columns {
 			fc[i] = b.filteredCardsForColumn(i)
@@ -876,7 +876,7 @@ func (b *Board) clampScrollOffset() {
 
 	// Use filtered cards when a search or global filter is active.
 	cards := col.Cards
-	if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
+	if b.searchQuery != "" || b.hasActiveFilters() {
 		cards = b.filteredCards()
 	}
 	totalCards := len(cards)
@@ -1000,7 +1000,7 @@ func (b Board) viewCardList(col Column, panelHeight, contentWidth int, style lip
 	}
 
 	// Show empty state when search or global filter matches no cards.
-	if len(col.Cards) == 0 && ((b.mode == searchMode && b.searchQuery != "") || b.activeFilterType != filterTypeNone) {
+	if len(col.Cards) == 0 && ((b.mode == searchMode && b.searchQuery != "") || b.hasActiveFilters()) {
 		leftContent := "No matching cards"
 		actualHeight := panelHeight
 		if searchLine != "" {

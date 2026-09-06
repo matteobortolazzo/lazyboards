@@ -410,11 +410,8 @@ func TestMilestoneList_Enter_AppliesFilterAndClosesToNormal(t *testing.T) {
 	if b.mode != normalMode {
 		t.Errorf("mode after enter = %d, want normalMode (%d)", b.mode, normalMode)
 	}
-	if b.activeFilterType != filterByMilestone {
-		t.Errorf("activeFilterType = %d, want filterByMilestone (%d)", b.activeFilterType, filterByMilestone)
-	}
-	if b.activeFilterValue != "v1.0" {
-		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, "v1.0")
+	if !hasFilter(&b, filterByMilestone, "v1.0") {
+		t.Errorf("filters = %+v, want a (filterByMilestone, %q) selection", b.filters, "v1.0")
 	}
 	if got := b.filteredCardsForColumn(1); got != 2 {
 		t.Errorf("filteredCardsForColumn(1) = %d, want 2 (cards #4 and #5)", got)
@@ -517,8 +514,8 @@ func TestMilestoneList_Enter_EmptyList_ClosesWithNoFilterAndNoMessage(t *testing
 	if b.mode != normalMode {
 		t.Errorf("mode after enter on empty list = %d, want normalMode (%d)", b.mode, normalMode)
 	}
-	if b.activeFilterType != filterTypeNone {
-		t.Errorf("activeFilterType = %d, want filterTypeNone (%d) (no filter applied)", b.activeFilterType, filterTypeNone)
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true, want false (no filter applied)")
 	}
 	if b.statusBar.message != "" {
 		t.Errorf("statusBar.message = %q, want empty (no status message on empty-list enter)", b.statusBar.message)
@@ -557,8 +554,8 @@ func TestMilestoneList_Enter_CursorOutOfRange_NoOp(t *testing.T) {
 	if b.mode != normalMode {
 		t.Errorf("mode after enter with out-of-range cursor = %d, want normalMode (%d)", b.mode, normalMode)
 	}
-	if b.activeFilterType != filterTypeNone {
-		t.Errorf("activeFilterType = %d, want filterTypeNone (%d) (no filter applied)", b.activeFilterType, filterTypeNone)
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true, want false (no filter applied)")
 	}
 }
 
