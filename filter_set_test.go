@@ -161,20 +161,126 @@ func TestFilterSet_FilterTypeNoneSelectionInSet_MatchesNothing(t *testing.T) {
 	}
 }
 
-func TestFilterSet_ApplyFilterTypeNone_ClearsTheSet(t *testing.T) {
-	// Q4: applyFilter(filterTypeNone, v) must clear the set entirely
-	// (b.filters = nil), symmetric with setActiveFilter's filterTypeNone
-	// convention.
+// TestFilterSet_ClearFilter_ClearsTheSet (formerly
+// TestFilterSet_ApplyFilterTypeNone_ClearsTheSet, #653): applyFilter is
+// deleted -- clearFilter is the surviving choke point that must clear the
+// set entirely (b.filters = nil), symmetric with setActiveFilter's
+// filterTypeNone convention.
+func TestFilterSet_ClearFilter_ClearsTheSet(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 	setActiveFilters(&b, filterSelection{itemType: filterByLabel, value: "bug"})
 
-	b.applyFilter(filterTypeNone, "anything")
+	b.clearFilter()
 
 	if b.hasActiveFilters() {
-		t.Error("applyFilter(filterTypeNone, ...) should clear the filter set entirely")
+		t.Error("clearFilter() should clear the filter set entirely")
 	}
 	if filterCount(&b) != 0 {
-		t.Errorf("filterCount after applyFilter(filterTypeNone, ...) = %d, want 0", filterCount(&b))
+		t.Errorf("filterCount after clearFilter() = %d, want 0", filterCount(&b))
+	}
+}
+
+// --- filterSet.contains / filterSet.toggled (#653) ---
+//
+// Pure unit tests over the new toggle-set algebra: neither method exists in
+// production yet (they land in model.go during the GREEN phase) -- this
+// section is expected to fail to compile until then.
+
+func TestFilterSet_Contains_MatchesExactSelection(t *testing.T) {
+	fs := filterSet{{itemType: filterByLabel, value: "bug"}}
+	if !fs.contains(filterByLabel, "bug") {
+		t.Error("contains should report true for a selection present in the set")
+	}
+	if fs.contains(filterByLabel, "feature") {
+		t.Error("contains should report false for a value not present in the set")
+	}
+}
+
+// TestFilterSet_Contains_CaseInsensitive pins the EqualFold membership
+// comparison convention (Q7): a milestone toggled from the Milestones modal
+// and the same milestone's picker row must resolve to one selection
+// regardless of case.
+func TestFilterSet_Contains_CaseInsensitive(t *testing.T) {
+	fs := filterSet{{itemType: filterByLabel, value: "bug"}}
+
+	if !fs.contains(filterByLabel, "BUG") {
+		t.Error("contains should match case-insensitively (strings.EqualFold), like cardMatchesSelection")
+	}
+	if fs.contains(filterByAssignee, "bug") {
+		t.Error("contains should not match a different itemType even with the same value")
+	}
+}
+
+func TestFilterSet_Toggled_AddsNewSelection(t *testing.T) {
+	fs := filterSet{{itemType: filterByLabel, value: "bug"}}
+	sel := filterSelection{itemType: filterByAssignee, value: "alice"}
+
+	got := fs.toggled(sel)
+
+	if !got.contains(filterByAssignee, "alice") {
+		t.Errorf("toggled(%+v) = %+v, want it to contain the new selection", sel, got)
+	}
+	if !got.contains(filterByLabel, "bug") {
+		t.Errorf("toggled(%+v) = %+v, want the pre-existing selection to remain", sel, got)
+	}
+	if len(got) != 2 {
+		t.Errorf("len(toggled(...)) = %d, want 2", len(got))
+	}
+}
+
+// TestFilterSet_Toggled_RemovesExistingSelection is the toggle-off case
+// named in the plan's Test Strategy.
+func TestFilterSet_Toggled_RemovesExistingSelection(t *testing.T) {
+	fs := filterSet{
+		{itemType: filterByLabel, value: "bug"},
+		{itemType: filterByAssignee, value: "alice"},
+	}
+	sel := filterSelection{itemType: filterByLabel, value: "bug"}
+
+	got := fs.toggled(sel)
+
+	if got.contains(filterByLabel, "bug") {
+		t.Errorf("toggled(%+v) = %+v, want the existing selection removed", sel, got)
+	}
+	if !got.contains(filterByAssignee, "alice") {
+		t.Errorf("toggled(%+v) = %+v, want the other selection to remain", sel, got)
+	}
+	if len(got) != 1 {
+		t.Errorf("len(toggled(...)) = %d, want 1", len(got))
+	}
+}
+
+// TestFilterSet_Toggled_CaseInsensitiveMembership_RemovesRegardlessOfCase
+// pins toggled's use of the same EqualFold membership check as contains: a
+// case-variant of an already-selected value must toggle it OFF, not add a
+// second, distinct-cased entry.
+func TestFilterSet_Toggled_CaseInsensitiveMembership_RemovesRegardlessOfCase(t *testing.T) {
+	fs := filterSet{{itemType: filterByMilestone, value: "v1.0"}}
+	sel := filterSelection{itemType: filterByMilestone, value: "V1.0"}
+
+	got := fs.toggled(sel)
+
+	if got.contains(filterByMilestone, "v1.0") {
+		t.Errorf("toggled(%+v) = %+v, want the case-variant existing selection removed (EqualFold membership)", sel, got)
+	}
+	if len(got) != 0 {
+		t.Errorf("len(toggled(...)) = %d, want 0 (toggle-off, not a second case-distinct entry)", len(got))
+	}
+}
+
+// TestFilterSet_Toggled_ReturnsFreshSlice_NoAliasing guards the slice-aliasing
+// hazard named in the plan's Risks section: toggled must allocate a new
+// backing array rather than appending in place, since Board is copied by
+// value through every Update() handler and a pre-Update snapshot of b.filters
+// must never observe a later mutation.
+func TestFilterSet_Toggled_ReturnsFreshSlice_NoAliasing(t *testing.T) {
+	original := filterSet{{itemType: filterByLabel, value: "bug"}}
+	snapshot := original
+
+	_ = original.toggled(filterSelection{itemType: filterByAssignee, value: "alice"})
+
+	if len(snapshot) != 1 || snapshot[0].value != "bug" {
+		t.Errorf("pre-toggle snapshot mutated: got %+v, want unchanged single 'bug' selection", snapshot)
 	}
 }
 
@@ -297,6 +403,9 @@ func TestFilterSet_Integration_BorderTitleCounts_TwoCategorySet(t *testing.T) {
 // toggle. This snapshots the slice value (a header copy sharing the same
 // backing array) before Update() runs and asserts it is still byte-for-byte
 // the original two selections afterward.
+// TestFilterSet_PreUpdateSnapshotUnaffectedByLaterMutation (#653: 'f' no
+// longer clears, so the clearing dispatch now goes through the picker's
+// filter.clear_all command ('c') instead of a direct normal-mode 'f' press).
 func TestFilterSet_PreUpdateSnapshotUnaffectedByLaterMutation(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 	setActiveFilters(&b,
@@ -306,13 +415,14 @@ func TestFilterSet_PreUpdateSnapshotUnaffectedByLaterMutation(t *testing.T) {
 
 	before := b.filters
 
-	m, _ := b.Update(keyMsg("f"))
+	b = sendKey(t, b, keyMsg("f")) // open the picker; 'f' never clears
+	m, _ := b.Update(keyMsg("c"))  // filter.clear_all
 	updated, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 	if filterCount(&updated) != 0 {
-		t.Fatalf("precondition: 'f' should clear the filter set, got %d selections", filterCount(&updated))
+		t.Fatalf("precondition: 'c' (filter.clear_all) should clear the filter set, got %d selections", filterCount(&updated))
 	}
 
 	want := filterSet{

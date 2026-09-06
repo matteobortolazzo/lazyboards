@@ -1545,19 +1545,48 @@ func (b *Board) filteredCardsForColumn(colIdx int) int {
 	return count
 }
 
-// applyFilter is the single choke point for applying a global filter
-// (per docs/list-cursor-invariants.md): it replaces the filter set with the
-// given selection (or clears it entirely when itemType is filterTypeNone)
-// and clamps the active column's cursor/scroll to the newly filtered card
-// count. The active-tab guard exists for future repo-derived callers that
-// may invoke this on a board with no columns yet (e.g. before the first
-// fetch).
-func (b *Board) applyFilter(itemType filterType, value string) {
-	if itemType == filterTypeNone {
-		b.filters = nil
-	} else {
-		b.filters = filterSet{{itemType: itemType, value: value}}
+// contains reports whether fs holds a selection matching (itemType, value),
+// using strings.EqualFold per Q7 -- the same case-insensitive comparison
+// convention as cardMatchesSelection and collectFilterItems' dedup, so a
+// milestone toggled from the Milestones modal and the same milestone's
+// picker row always resolve to one selection.
+func (fs filterSet) contains(itemType filterType, value string) bool {
+	for _, sel := range fs {
+		if sel.itemType == itemType && strings.EqualFold(sel.value, value) {
+			return true
+		}
 	}
+	return false
+}
+
+// toggled returns a fresh filterSet with sel added if absent, or removed
+// (case-insensitively, matching contains) if already present. It never
+// mutates fs's backing array -- Board is copied by value through every
+// Update() handler, so a pre-toggle snapshot of b.filters must never
+// observe a later mutation (docs/list-cursor-invariants.md's "always
+// replaced wholesale" invariant, restated on filterSet's own doc comment).
+func (fs filterSet) toggled(sel filterSelection) filterSet {
+	if fs.contains(sel.itemType, sel.value) {
+		next := make(filterSet, 0, len(fs))
+		for _, existing := range fs {
+			if existing.itemType == sel.itemType && strings.EqualFold(existing.value, sel.value) {
+				continue
+			}
+			next = append(next, existing)
+		}
+		return next
+	}
+	next := make(filterSet, len(fs), len(fs)+1)
+	copy(next, fs)
+	return append(next, sel)
+}
+
+// clampAfterFilterChange is the single cursor/scroll clamp seam
+// (docs/list-cursor-invariants.md) for any mutation of b.filters, extracted
+// verbatim from the deleted applyFilter's clamping tail. The active-tab
+// guard exists for future repo-derived callers that may invoke this on a
+// board with no columns yet (e.g. before the first fetch).
+func (b *Board) clampAfterFilterChange() {
 	if len(b.Columns) == 0 || b.ActiveTab < 0 || b.ActiveTab >= len(b.Columns) {
 		return
 	}
@@ -1570,6 +1599,16 @@ func (b *Board) applyFilter(itemType filterType, value string) {
 	}
 	col.ScrollOffset = 0
 	b.clampScrollOffset()
+}
+
+// toggleFilter toggles a single (itemType, value) selection into or out of
+// b.filters (#653) and clamps the active column's cursor/scroll via
+// clampAfterFilterChange -- the surviving choke point after applyFilter's
+// deletion (its replace-the-whole-set semantics have zero production callers
+// once every entry point toggles).
+func (b *Board) toggleFilter(itemType filterType, value string) {
+	b.filters = b.filters.toggled(filterSelection{itemType: itemType, value: value})
+	b.clampAfterFilterChange()
 }
 
 // clearFilter resets the global filter state and clamps cursor/scroll for the active column.

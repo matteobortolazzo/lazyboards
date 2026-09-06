@@ -1510,7 +1510,10 @@ func (b Board) viewDeleteModal() string {
 }
 
 func (b Board) viewFilterModal() string {
-	modalWidth := 50
+	// modalWidth widened from the pre-#653 50 to fit the new "Clear all" hint
+	// (filter.clear_all) alongside Cancel/Navigate/Select in the hint bar
+	// without truncation.
+	modalWidth := 62
 
 	var lines []string
 	lines = append(lines, "Filter")
@@ -1521,14 +1524,18 @@ func (b Board) viewFilterModal() string {
 			lines = append(lines, helpStyle.Render(item.value))
 			continue
 		}
-		display := "  " + sanitizeSingleLine(item.value)
+		prefix := "  "
+		if b.filters.contains(item.itemType, item.value) {
+			prefix = "* "
+		}
+		display := prefix + sanitizeSingleLine(item.value)
 		display = selectedRowStyle(display, i == b.filterCursor)
 		lines = append(lines, display)
 	}
 
 	lines = append(lines, "")
 	filterHints := NewStatusBar(b.filterHints())
-	lines = append(lines, filterHints.View(modalWidth, 0, 0))
+	lines = append(lines, filterHints.View(modalContentWidth(modalWidth), 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)

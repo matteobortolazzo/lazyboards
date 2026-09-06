@@ -43,6 +43,7 @@ var filterDefaults = Table{
 	"down":  CommandBinding(CommandFilterNext),
 	"k":     CommandBinding(CommandFilterPrev),
 	"up":    CommandBinding(CommandFilterPrev),
+	"c":     CommandBinding(CommandFilterClearAll),
 }
 
 // assignDefaults is the default ModeAssign table, transcribed from
