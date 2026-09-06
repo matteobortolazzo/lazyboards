@@ -1649,7 +1649,7 @@ func TestFormatFilterSegment_TwoLabels_NamesCaseInsensitivelyFirst(t *testing.T)
 // newline, an ANSI SGR escape, and a bidi-override rune must all be stripped
 // by sanitizeSingleLine, collapsing to one flattened line.
 func TestFormatFilterSegment_SanitizesHostileName(t *testing.T) {
-	hostileName := "Annotate\n\x1b[31mHACKED\x1b[0m ‮RTL"
+	hostileName := "Annotate\n\x1b[31mHACKED\x1b[0m \u202eRTL"
 	fs := filterSet{{itemType: filterByLabel, value: hostileName}}
 
 	full, _ := formatFilterSegment(fs)
@@ -1657,7 +1657,7 @@ func TestFormatFilterSegment_SanitizesHostileName(t *testing.T) {
 	if strings.Contains(full, "\x1b[31m") {
 		t.Errorf("formatFilterSegment(...) full = %q, contains a raw ANSI escape sequence from the untrusted name", full)
 	}
-	if strings.Contains(full, "‮") {
+	if strings.Contains(full, "\u202e") {
 		t.Errorf("formatFilterSegment(...) full = %q, contains a raw bidi-override rune from the untrusted name", full)
 	}
 	want := "Annotate HACKED RTL"
@@ -1893,7 +1893,7 @@ func TestStatusBar_FilterSegmentDegradationLadder(t *testing.T) {
 	w3 := C + 1 + G         // compact git (filter degraded)
 	w4 := C                 // compact alone (git dropped)
 
-	if !(w1 > w2 && w2 > w3 && w3 > w4) {
+	if w1 <= w2 || w2 <= w3 || w3 <= w4 {
 		t.Fatalf("precondition: rung widths must strictly decrease, got w1=%d w2=%d w3=%d w4=%d", w1, w2, w3, w4)
 	}
 
