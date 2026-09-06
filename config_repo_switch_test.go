@@ -287,11 +287,11 @@ func TestConfigSaved_RepoChange_ClearsSearchAndFilter(t *testing.T) {
 	if b.searchQuery != "" {
 		t.Errorf("searchQuery = %q after a repo switch, want empty", b.searchQuery)
 	}
-	if b.activeFilterType != filterTypeNone {
-		t.Errorf("activeFilterType = %d after a repo switch, want %d (none) -- the old repo's labels do not exist in the new one", b.activeFilterType, filterTypeNone)
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true after a repo switch, want false -- the old repo's labels do not exist in the new one")
 	}
-	if b.activeFilterValue != "" {
-		t.Errorf("activeFilterValue = %q after a repo switch, want empty", b.activeFilterValue)
+	if filterCount(&b) != 0 {
+		t.Errorf("filterCount = %d after a repo switch, want 0", filterCount(&b))
 	}
 	if b.ActiveTab != 0 {
 		t.Errorf("ActiveTab = %d after a repo switch, want 0", b.ActiveTab)

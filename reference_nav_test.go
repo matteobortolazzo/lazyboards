@@ -300,8 +300,8 @@ func TestReferenceNav_SelectLabelHiddenByFilterClearsFilterThenJumps(t *testing.
 	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, keyMsg("a"))
 
-	if b.activeFilterType != filterTypeNone {
-		t.Errorf("activeFilterType = %v after jump to a filter-hidden card, want filterTypeNone (filter cleared)", b.activeFilterType)
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true after jump to a filter-hidden card, want false (filter cleared)")
 	}
 	if b.statusBar.message != "Filter cleared" {
 		t.Errorf("status message = %q, want %q", b.statusBar.message, "Filter cleared")

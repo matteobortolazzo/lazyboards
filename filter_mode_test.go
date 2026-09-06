@@ -664,11 +664,9 @@ func TestFilterMode_EscapeDoesNotChangeFilter(t *testing.T) {
 
 	// Select a filter item to set an active filter.
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
-	if b.activeFilterValue == "" {
+	if !b.hasActiveFilters() {
 		t.Fatal("expected active filter after selecting an item")
 	}
-	savedValue := b.activeFilterValue
-	savedType := b.activeFilterType
 
 	// Now clear filter with 'f' to get back to no-filter state.
 	b = sendKey(t, b, keyMsg("f"))
@@ -683,11 +681,9 @@ func TestFilterMode_EscapeDoesNotChangeFilter(t *testing.T) {
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
 	// Filter should remain cleared (Escape does not change filter).
-	if b.activeFilterValue != "" {
-		t.Errorf("after Escape: activeFilterValue = %q, want empty (Escape should not change filter)", b.activeFilterValue)
+	if b.hasActiveFilters() {
+		t.Errorf("after Escape: hasActiveFilters() = true, want false (Escape should not change filter)")
 	}
-	_ = savedValue
-	_ = savedType
 }
 
 func TestFilterMode_EnterSelectsItemAndReturnsToNormalMode(t *testing.T) {
@@ -704,8 +700,8 @@ func TestFilterMode_EnterSelectsItemAndReturnsToNormalMode(t *testing.T) {
 	if b.mode != normalMode {
 		t.Errorf("after Enter in filterMode: mode = %d, want normalMode", b.mode)
 	}
-	if b.activeFilterValue == "" {
-		t.Error("after Enter in filterMode: activeFilterValue is empty, expected a selected value")
+	if !b.hasActiveFilters() {
+		t.Error("after Enter in filterMode: hasActiveFilters() is false, expected a selected value")
 	}
 }
 
@@ -1052,11 +1048,8 @@ func TestFilterMode_SelectLabel_SetsFilterByLabel(t *testing.T) {
 	expectedValue := selectedItem.value
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	if b.activeFilterType != filterByLabel {
-		t.Errorf("activeFilterType = %d, want filterByLabel", b.activeFilterType)
-	}
-	if b.activeFilterValue != expectedValue {
-		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, expectedValue)
+	if !hasFilter(&b, filterByLabel, expectedValue) {
+		t.Errorf("filters = %+v, want a (filterByLabel, %q) selection", b.filters, expectedValue)
 	}
 }
 
@@ -1077,11 +1070,8 @@ func TestFilterMode_SelectAssignee_SetsFilterByAssignee(t *testing.T) {
 	expectedValue := selectedItem.value
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	if b.activeFilterType != filterByAssignee {
-		t.Errorf("activeFilterType = %d, want filterByAssignee", b.activeFilterType)
-	}
-	if b.activeFilterValue != expectedValue {
-		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, expectedValue)
+	if !hasFilter(&b, filterByAssignee, expectedValue) {
+		t.Errorf("filters = %+v, want a (filterByAssignee, %q) selection", b.filters, expectedValue)
 	}
 }
 
@@ -1102,11 +1092,8 @@ func TestFilterMode_SelectMilestone_SetsFilterByMilestone(t *testing.T) {
 	expectedValue := selectedItem.value
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	if b.activeFilterType != filterByMilestone {
-		t.Errorf("activeFilterType = %d, want filterByMilestone", b.activeFilterType)
-	}
-	if b.activeFilterValue != expectedValue {
-		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, expectedValue)
+	if !hasFilter(&b, filterByMilestone, expectedValue) {
+		t.Errorf("filters = %+v, want a (filterByMilestone, %q) selection", b.filters, expectedValue)
 	}
 }
 
@@ -1145,11 +1132,11 @@ func TestFilterMode_SelectMilestone_ClearsPriorLabelFilter(t *testing.T) {
 		t.Errorf("cmd after selecting a milestone filter item = %v, want nil", cmd)
 	}
 
-	if board.activeFilterType != filterByMilestone {
-		t.Errorf("activeFilterType = %d, want filterByMilestone (selecting a milestone should overwrite the prior label filter)", board.activeFilterType)
+	if !hasFilter(&board, filterByMilestone, expectedValue) {
+		t.Errorf("filters = %+v, want a (filterByMilestone, %q) selection (selecting a milestone should overwrite the prior label filter)", board.filters, expectedValue)
 	}
-	if board.activeFilterValue != expectedValue {
-		t.Errorf("activeFilterValue = %q, want %q", board.activeFilterValue, expectedValue)
+	if filterCount(&board) != 1 {
+		t.Errorf("filterCount = %d, want 1 (the prior label filter must be overwritten, not accumulated)", filterCount(&board))
 	}
 }
 
@@ -1170,11 +1157,8 @@ func TestFilterMode_FToggleClearsActiveMilestoneFilter(t *testing.T) {
 	if cmd == nil {
 		t.Error("after 'f' with active milestone filter: expected non-nil cmd for timed message")
 	}
-	if board.activeFilterValue != "" {
-		t.Errorf("after 'f' with active milestone filter: activeFilterValue = %q, want empty", board.activeFilterValue)
-	}
-	if board.activeFilterType != filterTypeNone {
-		t.Errorf("after 'f' with active milestone filter: activeFilterType = %d, want filterTypeNone", board.activeFilterType)
+	if board.hasActiveFilters() {
+		t.Errorf("after 'f' with active milestone filter: hasActiveFilters() = true, want false")
 	}
 	if board.statusBar.message == "" {
 		t.Error("after 'f' with active milestone filter: expected a status bar message about filter cleared")
@@ -1192,8 +1176,8 @@ func TestFilterMode_FToggleClearsActiveFilter(t *testing.T) {
 
 	b = sendKey(t, b, keyMsg("f"))
 
-	if b.activeFilterValue != "" {
-		t.Errorf("after 'f' with active filter: activeFilterValue = %q, want empty", b.activeFilterValue)
+	if b.hasActiveFilters() {
+		t.Errorf("after 'f' with active filter: hasActiveFilters() = true, want false")
 	}
 }
 
@@ -1220,7 +1204,7 @@ func TestFilterMode_FToggleOpensPickerWhenNoFilter(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	// Ensure no filter is active.
-	if b.activeFilterType != filterTypeNone {
+	if b.hasActiveFilters() {
 		t.Fatal("precondition: expected no active filter")
 	}
 

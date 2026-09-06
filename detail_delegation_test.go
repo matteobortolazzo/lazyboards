@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -149,8 +150,6 @@ type detailDelegationSnapshot struct {
 	assignItemCount   int
 	filterItemCount   int
 	filterCursor      int
-	activeFilterType  filterType
-	activeFilterValue string
 	prListCursor      int
 	prListGeneration  uint64
 	prListEntryCount  int
@@ -187,8 +186,6 @@ func snapshotDetailDelegationState(b Board) detailDelegationSnapshot {
 		assignItemCount:   len(b.assign.items),
 		filterItemCount:   len(b.filterItems),
 		filterCursor:      b.filterCursor,
-		activeFilterType:  b.activeFilterType,
-		activeFilterValue: b.activeFilterValue,
 		prListCursor:      b.prList.cursor,
 		prListGeneration:  b.prList.generation,
 		prListEntryCount:  len(b.prList.entries),
@@ -301,6 +298,13 @@ func TestDetailDelegation_ParityWithNormalCommand(t *testing.T) {
 			gotSnap := snapshotDetailDelegationState(detailModel)
 			if gotSnap != wantSnap {
 				t.Errorf("runDetailCommand(%s) state = %+v, want parity with runNormalCommand state %+v", id, gotSnap, wantSnap)
+			}
+			// filters is a filterSet (slice), so it's compared separately via
+			// slices.Equal rather than folded into the plain-struct snapshot
+			// comparison above (a slice field would make detailDelegationSnapshot
+			// non-comparable via !=).
+			if !slices.Equal(normalModel.filters, detailModel.filters) {
+				t.Errorf("runDetailCommand(%s) filters = %+v, want parity with runNormalCommand filters %+v", id, detailModel.filters, normalModel.filters)
 			}
 		})
 	}

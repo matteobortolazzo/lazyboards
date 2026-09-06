@@ -144,18 +144,57 @@ func newLoadedTestBoard(t *testing.T) Board {
 	return updated
 }
 
-// setActiveFilter directly writes b.activeFilterType/b.activeFilterValue,
-// standing in for the two adjacent field-assignment lines that used to be
-// duplicated across test files. It is the single test-side write seam a
-// future ticket (#652) will re-point at a new state API.
+// setActiveFilter directly writes b.filters, standing in for the two
+// adjacent field-assignment lines that used to be duplicated across test
+// files. It is the single test-side write seam #652 re-points at the new
+// Board.filters filterSet state: a filterTypeNone selection clears the set
+// entirely (mirroring today's "filterTypeNone means unfiltered" semantics),
+// otherwise the set is replaced wholesale with the single selection --
+// never appended-to, since Board is copied by value through Update().
 //
 // Deliberately does NOT clamp cursor/scroll — matching what today's inline
 // assignments do — per docs/list-cursor-invariants.md's applyFilter clamp
 // contract, which is production's job, not a test fixture's. A future reader
 // must not "fix" that by adding clamping here.
 func setActiveFilter(b *Board, itemType filterType, value string) {
-	b.activeFilterType = itemType
-	b.activeFilterValue = value
+	if itemType == filterTypeNone {
+		b.filters = nil
+		return
+	}
+	b.filters = filterSet{{itemType: itemType, value: value}}
+}
+
+// setActiveFilters is the multi-selection sibling of setActiveFilter (#652):
+// it replaces b.filters wholesale with the given selections, for tests
+// driving the OR-within-category/AND-across-category matching algebra and
+// multi-category integration scenarios that a single setActiveFilter call
+// cannot express. An empty/no-args call clears the set, same as
+// setActiveFilter(b, filterTypeNone, "").
+func setActiveFilters(b *Board, sels ...filterSelection) {
+	if len(sels) == 0 {
+		b.filters = nil
+		return
+	}
+	b.filters = filterSet(sels)
+}
+
+// hasFilter reports whether b.filters contains a selection exactly matching
+// (itemType, value) -- the read-side counterpart to
+// setActiveFilter/setActiveFilters, used by tests asserting against the new
+// set state instead of the deleted activeFilterType/activeFilterValue
+// scalars.
+func hasFilter(b *Board, itemType filterType, value string) bool {
+	for _, sel := range b.filters {
+		if sel.itemType == itemType && sel.value == value {
+			return true
+		}
+	}
+	return false
+}
+
+// filterCount returns the number of selections currently in b.filters.
+func filterCount(b *Board) int {
+	return len(b.filters)
 }
 
 // keyMsg builds a tea.KeyMsg for a single rune key (e.g., "h", "l", "j", "k", "q").

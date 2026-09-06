@@ -2503,7 +2503,7 @@ func TestBorderTitleCounts_SearchWinsOverFilter(t *testing.T) {
 
 	wantActive := len(b.filteredCards())
 	if fc[b.ActiveTab] != wantActive {
-		t.Errorf("borderTitleCounts()[activeTab] with search %q + filter %q = %d, want %d (b.filteredCards() count)", b.searchQuery, b.activeFilterValue, fc[b.ActiveTab], wantActive)
+		t.Errorf("borderTitleCounts()[activeTab] with search %q + filter %+v = %d, want %d (b.filteredCards() count)", b.searchQuery, b.filters, fc[b.ActiveTab], wantActive)
 	}
 	for i := range b.Columns {
 		if i == b.ActiveTab {
@@ -2533,7 +2533,7 @@ func TestBorderTitleCounts_GlobalFilterAppliesToAllColumns(t *testing.T) {
 	for i := range b.Columns {
 		want := b.filteredCardsForColumn(i)
 		if fc[i] != want {
-			t.Errorf("borderTitleCounts()[%d] with filter %q = %d, want %d (b.filteredCardsForColumn(%d))", i, b.activeFilterValue, fc[i], want, i)
+			t.Errorf("borderTitleCounts()[%d] with filter %+v = %d, want %d (b.filteredCardsForColumn(%d))", i, b.filters, fc[i], want, i)
 		}
 	}
 }
