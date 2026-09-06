@@ -34,7 +34,7 @@
     "testKey": "T"
   },
   "planning": {
-    "autonomy": "lean"
+    "autonomy": "interactive"
   },
   "automerge": {
     "protectedPaths": [
