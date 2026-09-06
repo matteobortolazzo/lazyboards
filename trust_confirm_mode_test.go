@@ -553,7 +553,7 @@ func TestTrustConfirmMode_Accept_MalformedTrustStore_NeverRewritten(t *testing.T
 // --- View rendering ---
 
 func TestTrustConfirmMode_View_SanitizesHostileNote(t *testing.T) {
-	hostileNote := "legacy\n\x1b[31mHACKED\x1b[0m ‮RTL\x07"
+	hostileNote := "legacy\n\x1b[31mHACKED\x1b[0m \u202eRTL\x07"
 	b := newTestBoard(t)
 	b.Width, b.Height = 120, 40
 	b.mode = trustConfirmMode
