@@ -288,8 +288,7 @@ func TestReferenceNav_SelectLabelHiddenByFilterClearsFilterThenJumps(t *testing.
 		}},
 	}
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// Precondition: the filter hides #3 (target) but not #1 (source, which
 	// must stay selectable since "g r" acts on it).

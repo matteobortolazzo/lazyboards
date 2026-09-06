@@ -577,8 +577,7 @@ func TestMouseClickTab_GlobalFilterActive_LastCellSelectsColumn(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 	b.mouseEnabled = true
 	b.ActiveTab = 0
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.searchQuery = ""
 
 	if len(b.Columns) < 2 {
@@ -605,8 +604,7 @@ func TestMouseClickTab_SearchAndFilterBothActive_LastCellSelectsColumn(t *testin
 	b := newBoardWithFilterableCards(t)
 	b.mouseEnabled = true
 	b.ActiveTab = 0
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.searchQuery = "Specific"
 
 	if len(b.Columns) < 2 {

@@ -1115,8 +1115,7 @@ func TestFilterMode_SelectMilestone_ClearsPriorLabelFilter(t *testing.T) {
 
 	// Simulate a pre-existing label filter, as if the user had previously
 	// selected a label before opening the picker again.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	b.filterItems = b.collectFilterItems()
 	b.mode = filterMode
@@ -1160,8 +1159,7 @@ func TestFilterMode_FToggleClearsActiveMilestoneFilter(t *testing.T) {
 	b := newBoardWithMilestones(t)
 
 	// Set an active milestone filter.
-	b.activeFilterType = filterByMilestone
-	b.activeFilterValue = "v1.0"
+	setActiveFilter(&b, filterByMilestone, "v1.0")
 
 	m, cmd := b.Update(keyMsg("f"))
 	board, ok := m.(Board)
@@ -1190,8 +1188,7 @@ func TestFilterMode_FToggleClearsActiveFilter(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	// Set an active filter.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	b = sendKey(t, b, keyMsg("f"))
 
@@ -1204,8 +1201,7 @@ func TestFilterMode_FToggleShowsTimedMessage(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	// Set an active filter.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	m, cmd := b.Update(keyMsg("f"))
 	b = m.(Board)

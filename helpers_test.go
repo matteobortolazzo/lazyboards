@@ -144,6 +144,20 @@ func newLoadedTestBoard(t *testing.T) Board {
 	return updated
 }
 
+// setActiveFilter directly writes b.activeFilterType/b.activeFilterValue,
+// standing in for the two adjacent field-assignment lines that used to be
+// duplicated across test files. It is the single test-side write seam a
+// future ticket (#652) will re-point at a new state API.
+//
+// Deliberately does NOT clamp cursor/scroll — matching what today's inline
+// assignments do — per docs/list-cursor-invariants.md's applyFilter clamp
+// contract, which is production's job, not a test fixture's. A future reader
+// must not "fix" that by adding clamping here.
+func setActiveFilter(b *Board, itemType filterType, value string) {
+	b.activeFilterType = itemType
+	b.activeFilterValue = value
+}
+
 // keyMsg builds a tea.KeyMsg for a single rune key (e.g., "h", "l", "j", "k", "q").
 func keyMsg(key string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)}

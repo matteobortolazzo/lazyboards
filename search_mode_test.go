@@ -1393,8 +1393,7 @@ func TestSearchMode_GlobalFilter_GatesDisplayButNotSeeding(t *testing.T) {
 		{Number: 101, Title: "Subtask A", ParentNumber: 100, Labels: []provider.Label{{Name: "keep"}}},
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "keep"
+	setActiveFilter(&b, filterByLabel, "keep")
 	b.searchQuery = "sprint planning"
 
 	filtered := b.filteredCards()

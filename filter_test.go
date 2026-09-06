@@ -93,8 +93,7 @@ func newBoardWithMilestoneFilterableCards(t *testing.T) Board {
 func TestFilter_MilestoneFilter_ShowsOnlyMatchingCards(t *testing.T) {
 	b := newBoardWithMilestoneFilterableCards(t)
 
-	b.activeFilterType = filterByMilestone
-	b.activeFilterValue = "v1.0"
+	setActiveFilter(&b, filterByMilestone, "v1.0")
 
 	filtered := b.filteredCards()
 
@@ -114,8 +113,7 @@ func TestFilter_MilestoneFilter_ShowsOnlyMatchingCards(t *testing.T) {
 func TestFilter_MilestoneFilter_CaseInsensitive(t *testing.T) {
 	b := newBoardWithMilestoneFilterableCards(t)
 
-	b.activeFilterType = filterByMilestone
-	b.activeFilterValue = "V1.0" // uppercase against lowercase-stored data
+	setActiveFilter(&b, filterByMilestone, "V1.0") // uppercase against lowercase-stored data
 
 	filtered := b.filteredCards()
 
@@ -128,8 +126,7 @@ func TestFilter_MilestoneFilter_CaseInsensitive(t *testing.T) {
 func TestFilter_MilestoneFilter_EmptyMilestoneCardsExcluded(t *testing.T) {
 	b := newBoardWithMilestoneFilterableCards(t)
 
-	b.activeFilterType = filterByMilestone
-	b.activeFilterValue = "v1.0"
+	setActiveFilter(&b, filterByMilestone, "v1.0")
 
 	filtered := b.filteredCards()
 
@@ -146,8 +143,7 @@ func TestFilter_MilestoneFilter_EmptyActiveValueMatchesNothing(t *testing.T) {
 	// Edge case: an empty active filter value must never match cards whose
 	// milestone is also empty. matchesGlobalFilter must special-case empty
 	// milestones so they never leak into a match.
-	b.activeFilterType = filterByMilestone
-	b.activeFilterValue = ""
+	setActiveFilter(&b, filterByMilestone, "")
 
 	colIdx, cardIdx, ok := b.findCard(4) // card #4 has milestone == ""
 	if !ok {
@@ -162,8 +158,7 @@ func TestFilter_MilestoneFilter_EmptyActiveValueMatchesNothing(t *testing.T) {
 func TestFilter_MilestoneFilter_TabBar_ShowsFilteredCounts(t *testing.T) {
 	b := newBoardWithMilestoneFilterableCards(t)
 
-	b.activeFilterType = filterByMilestone
-	b.activeFilterValue = "v1.0"
+	setActiveFilter(&b, filterByMilestone, "v1.0")
 
 	view := b.View()
 
@@ -183,8 +178,7 @@ func TestFilter_MilestoneFilter_TabBar_ShowsFilteredCounts(t *testing.T) {
 func TestFilter_MilestoneFilter_TotalFilteredCards(t *testing.T) {
 	b := newBoardWithMilestoneFilterableCards(t)
 
-	b.activeFilterType = filterByMilestone
-	b.activeFilterValue = "v1.0"
+	setActiveFilter(&b, filterByMilestone, "v1.0")
 
 	// 3 cards in Backlog + 1 card in In Progress match milestone "v1.0".
 	expectedTotal := 4
@@ -199,8 +193,7 @@ func TestFilter_LabelFilter_ShowsOnlyMatchingCards(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Apply a label filter for "bug".
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	filtered := b.filteredCards()
 
@@ -229,8 +222,7 @@ func TestFilter_AssigneeFilter_ShowsOnlyMatchingCards(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Apply an assignee filter for "alice".
-	b.activeFilterType = filterByAssignee
-	b.activeFilterValue = "alice"
+	setActiveFilter(&b, filterByAssignee, "alice")
 
 	filtered := b.filteredCards()
 
@@ -259,8 +251,7 @@ func TestFilter_CaseInsensitive(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Test label filter with uppercase value against lowercase data.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "BUG" // uppercase
+	setActiveFilter(&b, filterByLabel, "BUG") // uppercase
 	labelFiltered := b.filteredCards()
 
 	expectedLabelCount := 3 // cards #1, #3, #5 have "bug" label
@@ -269,8 +260,7 @@ func TestFilter_CaseInsensitive(t *testing.T) {
 	}
 
 	// Test assignee filter with mixed case value against lowercase data.
-	b.activeFilterType = filterByAssignee
-	b.activeFilterValue = "Alice" // mixed case
+	setActiveFilter(&b, filterByAssignee, "Alice") // mixed case
 	assigneeFiltered := b.filteredCards()
 
 	expectedAssigneeCount := 2 // cards #1, #3 assigned to "alice"
@@ -283,8 +273,7 @@ func TestFilter_NoFilter_ReturnsAllCards(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Ensure no filter is active.
-	b.activeFilterType = filterTypeNone
-	b.activeFilterValue = ""
+	setActiveFilter(&b, filterTypeNone, "")
 
 	filtered := b.filteredCards()
 
@@ -303,8 +292,7 @@ func TestFilter_PlusSearch_Coexist(t *testing.T) {
 	// Only cards matching BOTH "bug" label AND "feature" in title would survive.
 	// None of the "bug" cards have "feature" in their title, so the result
 	// should be 0 cards if both filters are applied together.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.searchQuery = "feature" // matches "Feature work" (#2) by title
 
 	filtered := b.filteredCards()
@@ -370,8 +358,7 @@ func TestFilter_PersistsAcrossRefresh(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Set a label filter for "bug".
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// Simulate a refresh with data that still contains "bug" cards.
 	b = simulateRefreshWithCards(t, b, refreshColumnsWithBugCards())
@@ -389,8 +376,7 @@ func TestFilter_CursorResetsToZeroOnRefresh(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Set a label filter for "bug" (3 matching cards in Backlog: #1, #3, #5).
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// Move cursor down within filtered list.
 	b = sendKey(t, b, keyMsg("j"))
@@ -417,8 +403,7 @@ func TestFilter_CursorClampedAfterRefreshShrinks(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Set a label filter for "bug" (3 matching cards in Backlog: #1, #3, #5).
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// Move cursor to last filtered card (index 2).
 	b = sendKey(t, b, keyMsg("j"))
@@ -477,8 +462,7 @@ func TestFilter_NoMatchesHintAfterRefresh(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Set a label filter for "bug".
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// Refresh with data that has zero "bug" labels anywhere.
 	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
@@ -498,8 +482,7 @@ func TestFilter_FilterItemsRebuiltOnRefresh(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Set a label filter.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// Verify "urgent" label is NOT in the current filter items.
 	b.filterItems = b.collectFilterItems()
@@ -583,8 +566,7 @@ func TestFilter_TabBar_ShowsIndicator_WhenFilterActive(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Activate a filter.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	view := b.View()
 
@@ -604,8 +586,7 @@ func TestFilter_TabBar_NoIndicator_WhenNoFilter(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Ensure no filter is active.
-	b.activeFilterType = filterTypeNone
-	b.activeFilterValue = ""
+	setActiveFilter(&b, filterTypeNone, "")
 
 	view := b.View()
 
@@ -622,8 +603,7 @@ func TestFilter_TabBar_ShowsFilteredCounts(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Activate a filter.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	view := b.View()
 
@@ -666,8 +646,7 @@ func TestFilter_EmptyState_WhenNoCardsMatch(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Apply a filter that matches no cards in the active column.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "nonexistent-label"
+	setActiveFilter(&b, filterByLabel, "nonexistent-label")
 
 	view := b.View()
 
@@ -682,8 +661,7 @@ func TestFilter_JK_NavigatesFilteredCards(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Apply a label filter for "bug" (3 matching cards in Backlog: #1, #3, #5).
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// The Backlog column has 5 total cards but only 3 match "bug".
 	// Navigate down with j past the filtered card count.
@@ -708,8 +686,7 @@ func TestFilter_ClearFilter_RestoresAllCards(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Set a filter.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// Press 'f' to clear the filter (toggle behavior: clears when active).
 	m, cmd := b.Update(keyMsg("f"))
@@ -741,8 +718,7 @@ func TestFilter_FilterPersistsAcrossTabSwitch(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Set a filter.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// Switch tabs with Tab key.
 	b = sendKey(t, b, arrowMsg(tea.KeyTab))
@@ -826,8 +802,7 @@ func TestFilter_SelectedCard_ReturnsFilteredCard(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	// Apply a label filter for "bug" (cards #1, #3, #5 match in Backlog).
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// Cursor at 0 should return the first bug card (#1).
 	b.Columns[b.ActiveTab].Cursor = 0
@@ -851,8 +826,7 @@ func TestFilter_SelectedCard_ReturnsFilteredCard(t *testing.T) {
 	}
 
 	// Without filter, cursor 1 should return raw card at index 1 (#2 Feature work).
-	b.activeFilterType = filterTypeNone
-	b.activeFilterValue = ""
+	setActiveFilter(&b, filterTypeNone, "")
 	b.Columns[b.ActiveTab].Cursor = 1
 	card = b.selectedCard()
 	if card.Number != 2 {
@@ -882,8 +856,7 @@ func TestFilter_NoMatchesWarning_RemappedFilterKey_ReflectsNewKey(t *testing.T) 
 		},
 	}, nil)
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
 
 	view := b.View()
@@ -926,8 +899,7 @@ func TestFilter_NoMatchesWarning_ColumnOverriddenFilterKey_UsesActiveColumnTable
 		},
 	})
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
 
 	view := b.View()
@@ -954,8 +926,7 @@ func TestFilter_NoMatchesWarning_MultiKeyRemap_IsStillAdvertised(t *testing.T) {
 		},
 	}, nil)
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
 
 	view := b.View()
@@ -972,8 +943,7 @@ func TestFilter_NoMatchesWarning_FilterUnbound_OmitsInstruction(t *testing.T) {
 		},
 	}, nil)
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
 
 	line := findLineContaining(t, b.View(), "Filter has no matches")
@@ -1005,8 +975,7 @@ func TestFilter_NoMatchesWarning_InitialLoadPath_RendersRegistryDerivedKey(t *te
 		t.Fatalf("precondition: expected both warning fields empty, got cleanupBreakerWarning=%q startupWarning=%q", b.cleanupBreakerWarning, b.startupWarning)
 	}
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	m, cmd := b.Update(boardFetchedMsg{board: provider.Board{Columns: columnsWithNoMatchingLabels()}})
 	updated, ok := m.(Board)
@@ -1049,8 +1018,7 @@ func TestFilter_NoMatchesWarning_InitialLoadPath_RemappedFilterKey_ReflectsNewKe
 		t.Fatalf("precondition: expected both warning fields empty, got cleanupBreakerWarning=%q startupWarning=%q", b.cleanupBreakerWarning, b.startupWarning)
 	}
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	m, cmd := b.Update(boardFetchedMsg{board: provider.Board{Columns: columnsWithNoMatchingLabels()}})
 	updated, ok := m.(Board)

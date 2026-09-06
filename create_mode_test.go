@@ -1184,8 +1184,7 @@ func TestCardCreated_ClearsActiveSearchQuery(t *testing.T) {
 // creation, guaranteeing the new card is visible and selectable.
 func TestCardCreated_ClearsActiveLabelFilter(t *testing.T) {
 	b := newLoadedTestBoard(t)
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "infra" // an existing label the new (unlabeled) card won't have
+	setActiveFilter(&b, filterByLabel, "infra") // an existing label the new (unlabeled) card won't have
 	createdNumber := 99
 
 	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: createdNumber, Title: "Unlabeled task"}})
