@@ -469,7 +469,7 @@ func TestFilter_NoMatchesHintAfterRefresh(t *testing.T) {
 	// active keymap (#583 Stack 2/2's filterNoMatchesMessage) -- byte-identical
 	// to the pre-#583 hardcoded wording under the default keymap.
 	view := b.View()
-	want := "Filter has no matches — press f to clear"
+	want := "Filter has no matches — press f to open the filter picker"
 	if !strings.Contains(view, want) {
 		t.Errorf("View() after refresh with zero filter matches should contain %q, got:\n%s", want, view)
 	}
@@ -858,10 +858,10 @@ func TestFilter_NoMatchesWarning_RemappedFilterKey_ReflectsNewKey(t *testing.T) 
 	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
 
 	view := b.View()
-	if !strings.Contains(view, "Filter has no matches — press F to clear") {
+	if !strings.Contains(view, "Filter has no matches — press F to open the filter picker") {
 		t.Errorf("View() should reflect board.filter remapped to %q, got:\n%s", "F", view)
 	}
-	if strings.Contains(view, "press f to clear") {
+	if strings.Contains(view, "press f to open the filter picker") {
 		t.Errorf("View() still advertises the old (now unbound) f key, got:\n%s", view)
 	}
 }
@@ -901,10 +901,10 @@ func TestFilter_NoMatchesWarning_ColumnOverriddenFilterKey_UsesActiveColumnTable
 	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
 
 	view := b.View()
-	if !strings.Contains(view, "Filter has no matches — press F to clear") {
+	if !strings.Contains(view, "Filter has no matches — press F to open the filter picker") {
 		t.Errorf("View() should reflect the active column %q's overridden board.filter key %q, got:\n%s", "In Progress", "F", view)
 	}
-	if strings.Contains(view, "press f to clear") {
+	if strings.Contains(view, "press f to open the filter picker") {
 		t.Errorf("View() should not advertise the plain global %q key once the active column's overlay resolves to %q, got:\n%s", "f", "F", view)
 	}
 }
@@ -928,7 +928,7 @@ func TestFilter_NoMatchesWarning_MultiKeyRemap_IsStillAdvertised(t *testing.T) {
 	b = simulateRefreshWithCards(t, b, columnsWithNoMatchingLabels())
 
 	view := b.View()
-	if !strings.Contains(view, "Filter has no matches — press g f to clear") {
+	if !strings.Contains(view, "Filter has no matches — press g f to open the filter picker") {
 		t.Errorf("View() should advertise the multi-key remap %q, got:\n%s", "g f", view)
 	}
 }
@@ -983,7 +983,7 @@ func TestFilter_NoMatchesWarning_InitialLoadPath_RendersRegistryDerivedKey(t *te
 	execCmds(cmd)
 
 	view := updated.View()
-	want := "Filter has no matches — press f to clear"
+	want := "Filter has no matches — press f to open the filter picker"
 	if !strings.Contains(view, want) {
 		t.Errorf("View() after the initial-load-path branch's zero-match refresh should contain %q, got:\n%s", want, view)
 	}
@@ -1026,10 +1026,276 @@ func TestFilter_NoMatchesWarning_InitialLoadPath_RemappedFilterKey_ReflectsNewKe
 	execCmds(cmd)
 
 	view := updated.View()
-	if !strings.Contains(view, "Filter has no matches — press F to clear") {
+	if !strings.Contains(view, "Filter has no matches — press F to open the filter picker") {
 		t.Errorf("View() after the initial-load-path branch's zero-match refresh should reflect board.filter remapped to %q, got:\n%s", "F", view)
 	}
-	if strings.Contains(view, "press f to clear") {
+	if strings.Contains(view, "press f to open the filter picker") {
 		t.Errorf("View() still advertises the old (now unbound) f key, got:\n%s", view)
+	}
+}
+
+// --- #654: right-aligned active-filter status-bar segment, wired through real dispatch ---
+//
+// These tests drive the segment exclusively through real key dispatch
+// (never setActiveFilter/setActiveFilters, which write b.filters directly
+// and deliberately bypass toggleFilter/clearFilter -- the choke points a new
+// (b *Board) refreshFilterStatus() is wired into). Where the resulting mode
+// is a modal that doesn't render the board's status-bar tail (filterMode,
+// milestoneListMode, loadingMode), assertions read b.statusBar.filterStatus/
+// filterStatusCompact directly instead of b.View().
+
+// TestFilterSegment_SelectingLabelSetsStatusBarSegment covers 'f' -> enter on
+// a label row: the segment must be populated immediately (while the picker
+// is still open) and must still be visible in the full board render once the
+// picker is closed.
+func TestFilterSegment_SelectingLabelSetsStatusBarSegment(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	b = sendKey(t, b, keyMsg("f"))
+	labelItem := b.filterItems[b.filterCursor]
+	if labelItem.itemType != filterByLabel {
+		t.Fatalf("precondition: initial filter cursor should land on a label row, got %+v", labelItem)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	if b.statusBar.filterStatus == "" {
+		t.Fatalf("statusBar.filterStatus is empty immediately after selecting %q, want it populated", labelItem.value)
+	}
+	if !strings.Contains(b.statusBar.filterStatus, labelItem.value) {
+		t.Errorf("statusBar.filterStatus = %q, want it to name the selected item %q", b.statusBar.filterStatus, labelItem.value)
+	}
+	if b.statusBar.filterStatusCompact == "" {
+		t.Errorf("statusBar.filterStatusCompact is empty, want a non-empty compact form alongside the full form")
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+	view := b.View()
+	if !strings.Contains(view, "⚑") {
+		t.Errorf("View() = %q, want the filter glyph (⚑) present once the picker is closed", view)
+	}
+	if !strings.Contains(view, labelItem.value) {
+		t.Errorf("View() = %q, want it to name the selected item %q", view, labelItem.value)
+	}
+}
+
+// TestFilterSegment_SecondSelectionShowsPlusOneSuffix covers a second Enter
+// on a different category's row: the segment must reflect both selections
+// via a "+1" suffix (AC1's "+N omitted only when exactly one selection is
+// active").
+func TestFilterSegment_SecondSelectionShowsPlusOneSuffix(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	b = sendKey(t, b, keyMsg("f"))
+	labelItem := b.filterItems[b.filterCursor]
+	if labelItem.itemType != filterByLabel {
+		t.Fatalf("precondition: initial filter cursor should land on a label row, got %+v", labelItem)
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	for b.filterItems[b.filterCursor].itemType != filterByAssignee {
+		b = sendKey(t, b, keyMsg("j"))
+		if b.filterCursor >= len(b.filterItems)-1 {
+			t.Fatal("could not reach an assignee item")
+		}
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	if filterCount(&b) != 2 {
+		t.Fatalf("precondition: expected 2 active selections, got %d (filters=%+v)", filterCount(&b), b.filters)
+	}
+	if !strings.Contains(b.statusBar.filterStatus, "+1") {
+		t.Errorf("statusBar.filterStatus = %q, want it to contain the %q suffix for a 2-selection set", b.statusBar.filterStatus, "+1")
+	}
+}
+
+// TestFilterSegment_ClearAllClearsStatusBarSegment covers 'c'
+// (filter.clear_all): both segment fields must return to empty.
+func TestFilterSegment_ClearAllClearsStatusBarSegment(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	b = sendKey(t, b, keyMsg("f"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.statusBar.filterStatus == "" {
+		t.Fatalf("precondition: expected the filter segment set before clearing")
+	}
+
+	m, cmd := b.Update(keyMsg("c"))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.statusBar.filterStatus != "" || b.statusBar.filterStatusCompact != "" {
+		t.Errorf("statusBar filter segment fields = (%q, %q), want both empty after filter.clear_all", b.statusBar.filterStatus, b.statusBar.filterStatusCompact)
+	}
+}
+
+// TestFilterSegment_MilestoneToggleSetsStatusBarSegment covers toggling a
+// milestone from the Milestones modal (Enter): the same refreshFilterStatus
+// choke point (toggleFilter) must populate the segment even though the
+// selection never went through the filter picker.
+func TestFilterSegment_MilestoneToggleSetsStatusBarSegment(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.ActiveTab = 1
+
+	fixture := []provider.Milestone{{Title: "v1.0", URL: "https://github.com/owner/repo/milestone/2"}}
+	b = openMilestoneListWithResult(t, b, fixture)
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if !strings.Contains(b.statusBar.filterStatus, "v1.0") {
+		t.Errorf("statusBar.filterStatus = %q, want it to name the toggled milestone %q", b.statusBar.filterStatus, "v1.0")
+	}
+}
+
+// TestFilterSegment_ReferenceNavHiddenJumpClearsStatusBarSegment covers the
+// reference-nav clearFilter path (references.go's jumpToReferencedCard):
+// jumping to a card the active filter hides must clear the segment along
+// with the filter itself.
+func TestFilterSegment_ReferenceNavHiddenJumpClearsStatusBarSegment(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Column A", Cards: []provider.Card{
+			{Number: 1, Title: "Source", Body: "See #3", URL: "https://github.com/owner/repo/issues/1", Labels: []provider.Label{{Name: "bug"}}},
+			{Number: 2, Title: "Filler", Labels: []provider.Label{{Name: "bug"}}},
+			{Number: 3, Title: "Target", Labels: []provider.Label{{Name: "feature"}}},
+		}},
+	}
+	b, _ := newActionTestBoardWithColumns(t, nil, columns)
+
+	b = sendKey(t, b, keyMsg("f"))
+	labelItem := b.filterItems[b.filterCursor]
+	if labelItem.value != "bug" {
+		t.Fatalf("precondition: expected the first selectable label to be %q, got %q", "bug", labelItem.value)
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+	if b.statusBar.filterStatus == "" {
+		t.Fatalf("precondition: expected the filter segment set before the reference jump")
+	}
+
+	b = sendKeys(t, b, "g", "r")
+	b = sendKey(t, b, keyMsg("a"))
+
+	if b.hasActiveFilters() {
+		t.Fatalf("precondition check: hasActiveFilters() = true after the jump, want false")
+	}
+	if b.statusBar.filterStatus != "" || b.statusBar.filterStatusCompact != "" {
+		t.Errorf("statusBar filter segment fields = (%q, %q), want both empty after the reference-nav hidden-card jump clears the filter", b.statusBar.filterStatus, b.statusBar.filterStatusCompact)
+	}
+}
+
+// TestFilterSegment_CardCreatedClearsStatusBarSegment covers the card-create
+// clearFilter path (update.go's handleCardCreated, which focuses the new
+// card by dropping any active filter that could hide it).
+func TestFilterSegment_CardCreatedClearsStatusBarSegment(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	b = sendKey(t, b, keyMsg("f"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+	if b.statusBar.filterStatus == "" {
+		t.Fatalf("precondition: expected the filter segment set before card creation")
+	}
+
+	m, cmd := b.Update(cardCreatedMsg{card: provider.Card{Number: 99, Title: "New card"}})
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true after card creation, want false (clearFilter runs)")
+	}
+	if b.statusBar.filterStatus != "" || b.statusBar.filterStatusCompact != "" {
+		t.Errorf("statusBar filter segment fields = (%q, %q), want both empty after card creation clears the filter", b.statusBar.filterStatus, b.statusBar.filterStatusCompact)
+	}
+}
+
+// TestFilterSegment_RepoSwitchClearsStatusBarSegment covers
+// resetRepoScopedState (update.go's handleConfigSaved retarget path): a
+// repo switch drops filters naming labels/assignees/milestones that only
+// existed in the old repository, and the segment must follow.
+func TestFilterSegment_RepoSwitchClearsStatusBarSegment(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b.providerFactory = func(providerName, owner, repo string) (provider.BoardProvider, error) {
+		return provider.NewFakeProvider(), nil
+	}
+
+	b = sendKey(t, b, keyMsg("f"))
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+	if b.statusBar.filterStatus == "" {
+		t.Fatalf("precondition: expected the filter segment set before the repo switch")
+	}
+
+	m, cmd := b.Update(configSavedMsg{provider: "github", repo: "new-owner/new-repo"})
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true after repo switch, want false")
+	}
+	if b.statusBar.filterStatus != "" || b.statusBar.filterStatusCompact != "" {
+		t.Errorf("statusBar filter segment fields = (%q, %q), want both empty after a repo switch resets filter state", b.statusBar.filterStatus, b.statusBar.filterStatusCompact)
+	}
+}
+
+// --- #654 AC6: end-to-end two-category selection ---
+
+// TestFilter_TwoCategorySelection_EndToEnd_ANDOfORsCountsAndSegment drives a
+// label + assignee selection through real dispatch and asserts the full AC6
+// triad together: only AND-of-ORs-matching cards are visible, per-tab counts
+// (borderTitleCounts) agree with the visible cards, and the status bar shows
+// the ⚑ segment.
+func TestFilter_TwoCategorySelection_EndToEnd_ANDOfORsCountsAndSegment(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	b = sendKey(t, b, keyMsg("f"))
+	labelItem := b.filterItems[b.filterCursor]
+	if labelItem.value != "bug" {
+		t.Fatalf("precondition: expected the first selectable label to be %q, got %q", "bug", labelItem.value)
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	for {
+		item := b.filterItems[b.filterCursor]
+		if item.itemType == filterByAssignee && strings.EqualFold(item.value, "alice") {
+			break
+		}
+		b = sendKey(t, b, keyMsg("j"))
+		if b.filterCursor >= len(b.filterItems)-1 {
+			t.Fatal("could not reach the alice assignee item")
+		}
+	}
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+
+	// AND-of-ORs: label "bug" AND assignee "alice". Backlog: #1 (bug, alice)
+	// and #3 (bug, alice) match; #5 (bug, bob) fails the assignee selection.
+	visible := b.filteredCards()
+	if len(visible) != 2 {
+		t.Fatalf("filteredCards() = %d, want 2 (cards #1 and #3)", len(visible))
+	}
+	for _, c := range visible {
+		if c.Number != 1 && c.Number != 3 {
+			t.Errorf("filteredCards() returned unexpected card #%d", c.Number)
+		}
+	}
+
+	counts := b.borderTitleCounts()
+	if len(counts) != len(b.Columns) {
+		t.Fatalf("borderTitleCounts() length = %d, want %d (one per column)", len(counts), len(b.Columns))
+	}
+	if counts[0] != 2 {
+		t.Errorf("borderTitleCounts()[0] (Backlog) = %d, want 2", counts[0])
+	}
+	// In Progress: #6 (feature, alice) fails the label selection; #7 (bug,
+	// bob) fails the assignee selection -- 0 matches.
+	if counts[1] != 0 {
+		t.Errorf("borderTitleCounts()[1] (In Progress) = %d, want 0", counts[1])
+	}
+
+	view := b.View()
+	if !strings.Contains(view, "⚑") {
+		t.Errorf("View() = %q, want the filter segment present with a two-category selection active", view)
 	}
 }

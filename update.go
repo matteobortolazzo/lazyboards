@@ -453,7 +453,7 @@ func (b Board) filterNoMatchesMessage() string {
 	if key == "" {
 		return "Filter has no matches"
 	}
-	return fmt.Sprintf("Filter has no matches — press %s to clear", key)
+	return fmt.Sprintf("Filter has no matches — press %s to open the filter picker", key)
 }
 
 // handleConfigSaved reloads the board after the config modal writes a new
@@ -569,6 +569,7 @@ func (b *Board) resetRepoScopedState() {
 	b.filters = nil
 	b.filterItems = nil
 	b.filterCursor = 0
+	b.refreshFilterStatus()
 
 	b.prList = prListState{}
 	b.milestoneList = milestoneListState{}

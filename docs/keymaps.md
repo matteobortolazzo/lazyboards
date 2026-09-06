@@ -273,6 +273,13 @@ token.
 accepted and fully validated at load time with no observable runtime effect
 until #644 wires up the mode's dispatch seam.
 
+`filter` gained the `filter.clear_all` command id (#653): the picker is now
+stateful multi-select (`filter.select`/`filter.clear_all` toggle entries
+into/out of a persistent selection set rather than scalar-replacing it), with
+no change to the mode's capability row above. This file stays mechanism-only
+-- see [README.md#filter](../README.md#filter) for the actual key bindings
+and picker behavior.
+
 `columns.<name>` overlays `normal`/`detail` (`keymap.go`'s `Resolve`), so it
 inherits both of their capabilities in full:
 

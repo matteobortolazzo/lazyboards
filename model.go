@@ -92,7 +92,18 @@ var (
 	// statusErrorStyle instead, consistent with other error states in the
 	// status bar.
 	dispatchSegmentStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("75"))
+	// filterSegmentStyle colors the active-filter status-bar segment (#654),
+	// deliberately distinct from PR purple (183) and dispatch blue (75).
+	filterSegmentStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("140"))
 )
+
+// filterGlyph marks the active-filter status-bar segment (#654).
+const filterGlyph = "⚑"
+
+// filterSegmentNameMaxLen bounds the named selection shown in the active-filter
+// status-bar segment's full form, mirroring milestoneStatusTitleMaxLen's
+// precedent (mode_handlers.go).
+const filterSegmentNameMaxLen = 20
 
 // newStatusRenderer creates a lipgloss renderer with ANSI256 forced,
 // so status bar messages always display colors regardless of TTY detection.
@@ -1609,6 +1620,7 @@ func (b *Board) clampAfterFilterChange() {
 func (b *Board) toggleFilter(itemType filterType, value string) {
 	b.filters = b.filters.toggled(filterSelection{itemType: itemType, value: value})
 	b.clampAfterFilterChange()
+	b.refreshFilterStatus()
 }
 
 // clearFilter resets the global filter state and clamps cursor/scroll for the active column.
@@ -1624,6 +1636,31 @@ func (b *Board) clearFilter() {
 		}
 		col.ScrollOffset = 0
 	}
+	b.refreshFilterStatus()
+}
+
+// ordered returns a sorted COPY of fs, ordered by (itemType, strings.ToLower
+// (value)) ascending. It never mutates fs's backing array, matching
+// filterSet's "always replaced wholesale" convention.
+func (fs filterSet) ordered() filterSet {
+	sorted := make(filterSet, len(fs))
+	copy(sorted, fs)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].itemType != sorted[j].itemType {
+			return sorted[i].itemType < sorted[j].itemType
+		}
+		return strings.ToLower(sorted[i].value) < strings.ToLower(sorted[j].value)
+	})
+	return sorted
+}
+
+// refreshFilterStatus recomputes the status-bar active-filter segment from
+// b.filters (#654) and stores it via StatusBar.SetFilterStatus. Called at the
+// three production choke points that mutate b.filters: toggleFilter and
+// clearFilter (both here), and resetRepoScopedState (update.go).
+func (b *Board) refreshFilterStatus() {
+	full, compact := formatFilterSegment(b.filters)
+	b.statusBar.SetFilterStatus(full, compact)
 }
 
 // searchQuery holds the normalized forms of a raw search query: text is the
