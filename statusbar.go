@@ -44,6 +44,11 @@ type StatusBar struct {
 	level          StatusLevel
 	gitStatus      string
 	dispatchStatus string
+	// filterStatus/filterStatusCompact hold the pre-formatted active-filter
+	// status segment (#654), full and compact forms respectively. Both empty
+	// hides the segment.
+	filterStatus        string
+	filterStatusCompact string
 	// stickyMessage is a separate, non-timed notice (used by the
 	// update-available check, #444). It survives ClearMessage() -- only
 	// ClearStickyMessage() removes it -- and only appears in View() when no
@@ -139,6 +144,119 @@ func (s *StatusBar) SetGitStatus(segment string) {
 // to hide the segment (e.g. the loop is disabled or the watcher is down).
 func (s *StatusBar) SetDispatchStatus(segment string) {
 	s.dispatchStatus = segment
+}
+
+// SetFilterStatus sets the pre-formatted active-filter status segment (#654),
+// shown left of the dispatch/git tail. full is used when there's room for the
+// named-selection form; compact is the "⚑ N" fallback shown under width
+// contention. Pass ("", "") to hide the segment entirely (no filter active).
+// Like SetGitStatus/SetDispatchStatus, this deliberately does NOT sanitize:
+// both strings are pre-formatted by formatFilterSegment, which already
+// sanitizes its only untrusted input (the named selection's value) at the
+// point of concatenation, before the segment's legitimate ANSI/SGR styling is
+// applied -- sanitizing again here would strip that styling.
+func (s *StatusBar) SetFilterStatus(full, compact string) {
+	s.filterStatus = full
+	s.filterStatusCompact = compact
+}
+
+// formatFilterSegment formats a filterSet into the active-filter status-bar
+// segment's full and compact forms (#654). The full form names the entry
+// sorted first by fs.ordered() (itemType, then case-insensitive value),
+// appending " +N" when more than one selection is active (N = total-1); the
+// compact form is always "⚑ <total>". An empty set returns ("", ""), hiding
+// the segment. The named entry's value is sanitized with sanitizeSingleLine
+// and clamped with truncateCell at filterSegmentNameMaxLen BEFORE styling --
+// mirroring formatGitSegment's sanitize-at-the-point-of-concatenation
+// pattern. If the sanitized/trimmed name is empty (a whitespace-only hostile
+// value), the full form falls back to being identical to the compact form
+// rather than rendering a blank-named "⚑  +N".
+func formatFilterSegment(fs filterSet) (full, compact string) {
+	if len(fs) == 0 {
+		return "", ""
+	}
+	ordered := fs.ordered()
+	name := truncateCell(sanitizeSingleLine(ordered[0].value), filterSegmentNameMaxLen)
+	total := len(fs)
+
+	compactText := filterGlyph + " " + strconv.Itoa(total)
+	fullText := compactText
+	if name != "" {
+		fullText = filterGlyph + " " + name
+		if total > 1 {
+			fullText += " +" + strconv.Itoa(total-1)
+		}
+	}
+
+	return filterSegmentStyle.Render(fullText), filterSegmentStyle.Render(compactText)
+}
+
+// joinNonEmpty joins the non-empty parts with a single space, skipping empty
+// ones entirely (so a missing part never introduces a stray leading/
+// doubled/trailing space).
+func joinNonEmpty(parts ...string) string {
+	var nonEmpty []string
+	for _, p := range parts {
+		if p != "" {
+			nonEmpty = append(nonEmpty, p)
+		}
+	}
+	return strings.Join(nonEmpty, " ")
+}
+
+// tailGroups builds the ordered priority-tier table of candidate tail
+// segments for View()'s width-contention loop (#654), highest-priority tier
+// first: [filter(full)+dispatch+git], [filter(full)+git,
+// filter(compact)+git], [filter(compact) alone]. Each inner group holds the
+// full-vs-compact filter-form sub-choices available at that segment-presence
+// tier. A tier that would introduce a segment (dispatch or git) that isn't
+// actually set is omitted entirely -- rather than reducing to a duplicate of
+// the next tier's forms -- so the following tier's forms become the new
+// highest priority instead (this is also what makes the no-filter-active
+// case collapse structurally to the pre-#654 dispatch+git/git/dispatch tier
+// list, the AC2 parity guard).
+//
+// View() tries FULL hints across every form in a group, in order, before
+// ever trying truncated/ellipsis hints on ANY form in that same group --
+// preserving the filter degradation ladder's preference for full hints over
+// a merely-tighter filter rendering of the SAME segment set. Only once an
+// entire group fails even with truncated hints does View() move on to the
+// next (lower-priority) tier. That per-group-then-advance shape is what the
+// #654 review fix targets: a higher-priority tier that fits only with
+// truncated hints must still be chosen over a lower-priority tier that
+// merely tolerates full hints -- grouping keeps that invariant from
+// colliding with the full-vs-compact filter form choice, which needs the
+// opposite preference (full hints beat a tighter form within the same
+// tier).
+func (s StatusBar) tailGroups() [][]string {
+	hasDispatch := s.dispatchStatus != ""
+	hasGit := s.gitStatus != ""
+
+	var groups [][]string
+	addGroup := func(forms ...string) {
+		var g []string
+		for _, f := range forms {
+			if f == "" {
+				continue
+			}
+			if len(g) > 0 && g[len(g)-1] == f {
+				continue
+			}
+			g = append(g, f)
+		}
+		if len(g) > 0 {
+			groups = append(groups, g)
+		}
+	}
+
+	if hasDispatch {
+		addGroup(joinNonEmpty(s.filterStatus, s.dispatchStatus, s.gitStatus))
+	}
+	addGroup(joinNonEmpty(s.filterStatus, s.gitStatus), joinNonEmpty(s.filterStatusCompact, s.gitStatus))
+	if hasGit {
+		addGroup(joinNonEmpty(s.filterStatusCompact))
+	}
+	return groups
 }
 
 // formatGitSegment formats a git Status into a compact, plain-ASCII segment,
@@ -359,35 +477,48 @@ func (s StatusBar) View(width int, counts ...int) string {
 	// The prefix consumes width that is no longer available for hints.
 	width -= lipgloss.Width(prefix)
 
-	// Build the candidate tail segments (dispatch + git) in priority order:
-	// try both together first, then fall back to git alone (dispatch is
-	// dropped first on width contention), then dispatch alone if there is no
-	// git segment to compete with. Whichever candidate first fits (together
-	// with at least the truncated hints) wins.
-	var candidates []string
-	switch {
-	case s.dispatchStatus != "" && s.gitStatus != "":
-		candidates = []string{s.dispatchStatus + " " + s.gitStatus, s.gitStatus}
-	case s.gitStatus != "":
-		candidates = []string{s.gitStatus}
-	case s.dispatchStatus != "":
-		candidates = []string{s.dispatchStatus}
-	}
+	// Build the candidate tail segment tiers (filter + dispatch + git) in
+	// priority order via tailGroups(). Within a group, fitTail is tried
+	// against FULL (untruncated) hints for every member first, then against
+	// truncated/ellipsis hints for every member, before moving on to the
+	// next (lower-priority) group -- see tailGroups()'s doc comment for why
+	// full-vs-truncated preference is scoped to within a group rather than
+	// across the whole tier list (the #654 review fix).
+	groups := s.tailGroups()
+	fullHints := renderHints(s.hints, 1<<30)
 
-	for _, tail := range candidates {
+	// fitTail tries tail against hintsFor(hintsWidth): the room left for
+	// hints once tail and its 1-space separator are reserved. It returns the
+	// composed line and true on the first fit, or ("", false) when hintsFor's
+	// result doesn't fit the remaining width.
+	fitTail := func(tail string, hintsFor func(hintsWidth int) string) (string, bool) {
 		tailWidth := lipgloss.Width(tail)
 		reserved := tailWidth + 1 // 1-space separator before the tail segment
 		if reserved > width {
-			continue
+			return "", false
 		}
 		hintsWidth := width - reserved
-		hintsView := renderHints(s.hints, hintsWidth)
-		if lipgloss.Width(hintsView) <= hintsWidth {
-			padding := width - lipgloss.Width(hintsView) - tailWidth
-			return prefix + hintsView + strings.Repeat(" ", padding) + tail
+		hintsView := hintsFor(hintsWidth)
+		if lipgloss.Width(hintsView) > hintsWidth {
+			return "", false
 		}
-		// Not enough room for hints alongside this candidate; try the next
-		// (lower-priority) candidate.
+		padding := width - lipgloss.Width(hintsView) - tailWidth
+		return prefix + hintsView + strings.Repeat(" ", padding) + tail, true
+	}
+
+	for _, group := range groups {
+		for _, tail := range group {
+			if line, ok := fitTail(tail, func(int) string { return fullHints }); ok {
+				return line
+			}
+		}
+		for _, tail := range group {
+			if line, ok := fitTail(tail, func(hintsWidth int) string { return renderHints(s.hints, hintsWidth) }); ok {
+				return line
+			}
+		}
+		// Not enough room for hints (even truncated) alongside any form in
+		// this group; try the next (lower-priority) group.
 	}
 
 	return prefix + renderHints(s.hints, width)

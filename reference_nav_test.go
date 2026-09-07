@@ -288,8 +288,7 @@ func TestReferenceNav_SelectLabelHiddenByFilterClearsFilterThenJumps(t *testing.
 		}},
 	}
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	// Precondition: the filter hides #3 (target) but not #1 (source, which
 	// must stay selectable since "g r" acts on it).
@@ -301,8 +300,8 @@ func TestReferenceNav_SelectLabelHiddenByFilterClearsFilterThenJumps(t *testing.
 	b = sendKeys(t, b, "g", "r")
 	b = sendKey(t, b, keyMsg("a"))
 
-	if b.activeFilterType != filterTypeNone {
-		t.Errorf("activeFilterType = %v after jump to a filter-hidden card, want filterTypeNone (filter cleared)", b.activeFilterType)
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true after jump to a filter-hidden card, want false (filter cleared)")
 	}
 	if b.statusBar.message != "Filter cleared" {
 		t.Errorf("status message = %q, want %q", b.statusBar.message, "Filter cleared")

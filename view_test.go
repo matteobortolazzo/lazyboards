@@ -1281,7 +1281,7 @@ func TestHelpModal_ShowsTicketOpenBinding(t *testing.T) {
 	}
 }
 
-func TestHelpModal_ShowsFilterToggle(t *testing.T) {
+func TestHelpModal_ShowsFilter(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
 	b.Height = 40
@@ -1290,9 +1290,14 @@ func TestHelpModal_ShowsFilterToggle(t *testing.T) {
 	b = sendKey(t, b, keyMsg("?"))
 
 	view := b.View()
-	// The help modal should show "f" mapped to "Filter (toggle)" in the Normal Mode section.
-	if !strings.Contains(view, "Filter (toggle)") {
-		t.Errorf("help modal should contain %q key binding, got:\n%s", "Filter (toggle)", view)
+	// The help modal should show "f" mapped to "Filter" (no longer "Filter
+	// (toggle)", since #653 makes f always-open and enter the toggle) in the
+	// Normal Mode section.
+	if !strings.Contains(view, "Filter") {
+		t.Errorf("help modal should contain %q key binding, got:\n%s", "Filter", view)
+	}
+	if strings.Contains(view, "Filter (toggle)") {
+		t.Errorf("help modal should no longer contain the stale %q label, got:\n%s", "Filter (toggle)", view)
 	}
 }
 
@@ -2492,8 +2497,7 @@ func TestBorderTitleCounts_SearchWinsOverFilter(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 	b.ActiveTab = 0 // "Backlog": bug-labeled cards are #1, #3, #5
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.searchQuery = "Specific" // narrows further to #5 "Specific bug"
 
 	fc := b.borderTitleCounts()
@@ -2504,7 +2508,7 @@ func TestBorderTitleCounts_SearchWinsOverFilter(t *testing.T) {
 
 	wantActive := len(b.filteredCards())
 	if fc[b.ActiveTab] != wantActive {
-		t.Errorf("borderTitleCounts()[activeTab] with search %q + filter %q = %d, want %d (b.filteredCards() count)", b.searchQuery, b.activeFilterValue, fc[b.ActiveTab], wantActive)
+		t.Errorf("borderTitleCounts()[activeTab] with search %q + filter %+v = %d, want %d (b.filteredCards() count)", b.searchQuery, b.filters, fc[b.ActiveTab], wantActive)
 	}
 	for i := range b.Columns {
 		if i == b.ActiveTab {
@@ -2523,8 +2527,7 @@ func TestBorderTitleCounts_SearchWinsOverFilter(t *testing.T) {
 func TestBorderTitleCounts_GlobalFilterAppliesToAllColumns(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.searchQuery = ""
 
 	fc := b.borderTitleCounts()
@@ -2535,7 +2538,7 @@ func TestBorderTitleCounts_GlobalFilterAppliesToAllColumns(t *testing.T) {
 	for i := range b.Columns {
 		want := b.filteredCardsForColumn(i)
 		if fc[i] != want {
-			t.Errorf("borderTitleCounts()[%d] with filter %q = %d, want %d (b.filteredCardsForColumn(%d))", i, b.activeFilterValue, fc[i], want, i)
+			t.Errorf("borderTitleCounts()[%d] with filter %+v = %d, want %d (b.filteredCardsForColumn(%d))", i, b.filters, fc[i], want, i)
 		}
 	}
 }
@@ -2547,7 +2550,7 @@ func TestBorderTitleCounts_GlobalFilterAppliesToAllColumns(t *testing.T) {
 func TestBorderTitleCounts_NeitherActiveReturnsNil(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
-	b.activeFilterType = filterTypeNone
+	setActiveFilter(&b, filterTypeNone, "")
 	b.searchQuery = ""
 
 	fc := b.borderTitleCounts()

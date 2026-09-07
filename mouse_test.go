@@ -549,8 +549,8 @@ func TestMouseClickTab_SearchActive_LastCellSelectsColumn(t *testing.T) {
 	if b.mode != normalMode {
 		t.Fatalf("precondition: mode = %d, want normalMode (%d)", b.mode, normalMode)
 	}
-	if b.activeFilterType != filterTypeNone {
-		t.Fatalf("precondition: activeFilterType = %d, want filterTypeNone", b.activeFilterType)
+	if b.hasActiveFilters() {
+		t.Fatalf("precondition: hasActiveFilters() = true, want false")
 	}
 	if len(b.Columns) < 2 {
 		t.Fatalf("precondition: len(b.Columns) = %d, want >= 2", len(b.Columns))
@@ -577,8 +577,7 @@ func TestMouseClickTab_GlobalFilterActive_LastCellSelectsColumn(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 	b.mouseEnabled = true
 	b.ActiveTab = 0
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.searchQuery = ""
 
 	if len(b.Columns) < 2 {
@@ -605,8 +604,7 @@ func TestMouseClickTab_SearchAndFilterBothActive_LastCellSelectsColumn(t *testin
 	b := newBoardWithFilterableCards(t)
 	b.mouseEnabled = true
 	b.ActiveTab = 0
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.searchQuery = "Specific"
 
 	if len(b.Columns) < 2 {

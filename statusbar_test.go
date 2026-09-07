@@ -1553,3 +1553,450 @@ func TestStatusBar_GitSegmentSanitizesUntrustedBranchName(t *testing.T) {
 		t.Errorf("View() = %q, want the segment's legitimate gitAddedStyle/gitDeletedStyle ANSI styling preserved", view)
 	}
 }
+
+// --- StatusBar: Active-Filter Segment (#654) ---
+//
+// formatFilterSegment(fs filterSet) (full, compact string) builds both
+// pre-formatted forms once; StatusBar.SetFilterStatus(full, compact) stores
+// them (("", "") hides the segment). View() joins a leftmost filter segment
+// with the existing dispatch/git tail via an ordered four-rung ladder:
+// [(full,D,G), (full,-,G), (compact,-,G), (compact,-,-)] -- with no filter
+// active this must collapse structurally to today's literal chains, which
+// the two pre-existing TestStatusBar_View{Dispatch,Git}Segment_
+// DropsWhenWidthInsufficient regression guards already pin unmodified.
+
+func TestFormatFilterSegment_EmptySet_ReturnsEmptyBothForms(t *testing.T) {
+	full, compact := formatFilterSegment(nil)
+	if full != "" || compact != "" {
+		t.Errorf("formatFilterSegment(nil) = (%q, %q), want (\"\", \"\")", full, compact)
+	}
+}
+
+func TestFormatFilterSegment_SingleSelection_FullNamesItNoSuffixCompactShowsOne(t *testing.T) {
+	fs := filterSet{{itemType: filterByLabel, value: "bug"}}
+	full, compact := formatFilterSegment(fs)
+
+	if !strings.Contains(full, "bug") {
+		t.Errorf("full = %q, want it to contain the selection name %q", full, "bug")
+	}
+	if strings.Contains(full, "+") {
+		t.Errorf("full = %q, should NOT contain a +N suffix for a single-selection set", full)
+	}
+	if !strings.Contains(compact, "1") {
+		t.Errorf("compact = %q, want it to contain the total selection count %d", compact, 1)
+	}
+}
+
+func TestFormatFilterSegment_ThreeSelections_FullNamesFirstPlusTwoCompactShowsThree(t *testing.T) {
+	fs := filterSet{
+		{itemType: filterByLabel, value: "bug"},
+		{itemType: filterByAssignee, value: "alice"},
+		{itemType: filterByMilestone, value: "v1.0"},
+	}
+	full, compact := formatFilterSegment(fs)
+
+	if !strings.Contains(full, "bug") {
+		t.Errorf("full = %q, want it to name the first selection %q (lowest itemType: label)", full, "bug")
+	}
+	if !strings.Contains(full, "+2") {
+		t.Errorf("full = %q, want a %q suffix for the 2 remaining selections", full, "+2")
+	}
+	if !strings.Contains(compact, "3") {
+		t.Errorf("compact = %q, want it to contain the total selection count %d", compact, 3)
+	}
+}
+
+// TestFormatFilterSegment_OrderingNamesLowestItemTypeFirst pins the "sort a
+// COPY of b.filters by (itemType, strings.ToLower(value))" rule: a milestone
+// selection inserted first must NOT be the named entry once a label
+// selection is also present, since filterByLabel < filterByAssignee <
+// filterByMilestone.
+func TestFormatFilterSegment_OrderingNamesLowestItemTypeFirst(t *testing.T) {
+	fs := filterSet{
+		{itemType: filterByMilestone, value: "v1.0"},
+		{itemType: filterByLabel, value: "zzz-label"},
+		{itemType: filterByAssignee, value: "alice"},
+	}
+	full, _ := formatFilterSegment(fs)
+
+	if !strings.Contains(full, "zzz-label") {
+		t.Errorf("full = %q, want it to name the label selection %q (lowest itemType) regardless of insertion order", full, "zzz-label")
+	}
+	if strings.Contains(full, "v1.0") {
+		t.Errorf("full = %q, should NOT name the milestone selection %q while a lower-itemType selection is present", full, "v1.0")
+	}
+}
+
+// TestFormatFilterSegment_TwoLabels_NamesCaseInsensitivelyFirst pins the
+// secondary sort key: strings.ToLower(value), case-insensitive.
+func TestFormatFilterSegment_TwoLabels_NamesCaseInsensitivelyFirst(t *testing.T) {
+	fs := filterSet{
+		{itemType: filterByLabel, value: "Zebra"},
+		{itemType: filterByLabel, value: "apple"},
+	}
+	full, _ := formatFilterSegment(fs)
+
+	if !strings.Contains(full, "apple") {
+		t.Errorf("full = %q, want it to name %q (case-insensitively first alphabetically)", full, "apple")
+	}
+	if strings.Contains(full, "Zebra") {
+		t.Errorf("full = %q, should NOT name %q when %q sorts first case-insensitively", full, "Zebra", "apple")
+	}
+}
+
+// TestFormatFilterSegment_SanitizesHostileName mirrors
+// TestCommentMode_ViewSanitizesHostileActionName's hostile-string fixture: a
+// newline, an ANSI SGR escape, and a bidi-override rune must all be stripped
+// by sanitizeSingleLine, collapsing to one flattened line.
+func TestFormatFilterSegment_SanitizesHostileName(t *testing.T) {
+	hostileName := "Annotate\n\x1b[31mHACKED\x1b[0m \u202eRTL"
+	fs := filterSet{{itemType: filterByLabel, value: hostileName}}
+
+	full, _ := formatFilterSegment(fs)
+
+	if strings.Contains(full, "\x1b[31m") {
+		t.Errorf("formatFilterSegment(...) full = %q, contains a raw ANSI escape sequence from the untrusted name", full)
+	}
+	if strings.Contains(full, "\u202e") {
+		t.Errorf("formatFilterSegment(...) full = %q, contains a raw bidi-override rune from the untrusted name", full)
+	}
+	want := "Annotate HACKED RTL"
+	if !strings.Contains(full, want) {
+		t.Errorf("formatFilterSegment(...) full = %q, want the flattened, sanitized name %q", full, want)
+	}
+}
+
+// TestFormatFilterSegment_TruncatesLongNameAtMaxLen pins the fixed
+// truncation constant filterSegmentNameMaxLen (20, mirroring
+// milestoneStatusTitleMaxLen's precedent in mode_handlers.go).
+func TestFormatFilterSegment_TruncatesLongNameAtMaxLen(t *testing.T) {
+	longName := strings.Repeat("a", filterSegmentNameMaxLen+10)
+	fs := filterSet{{itemType: filterByLabel, value: longName}}
+
+	full, _ := formatFilterSegment(fs)
+
+	if strings.Contains(full, longName) {
+		t.Errorf("formatFilterSegment(...) full = %q, want the name truncated at filterSegmentNameMaxLen (%d), not rendered in full", full, filterSegmentNameMaxLen)
+	}
+	if !strings.Contains(full, "…") {
+		t.Errorf("formatFilterSegment(...) full = %q, want a truncation ellipsis once the name exceeds filterSegmentNameMaxLen (%d)", full, filterSegmentNameMaxLen)
+	}
+}
+
+// TestFormatFilterSegment_WhitespaceOnlyName_FullFallsBackToCompact covers
+// the degenerate hostile case: a selection value that sanitizes to "" must
+// not render a blank-named full segment ("⚑  +N") -- full must equal compact
+// instead.
+func TestFormatFilterSegment_WhitespaceOnlyName_FullFallsBackToCompact(t *testing.T) {
+	fs := filterSet{
+		{itemType: filterByLabel, value: "   "},
+		{itemType: filterByAssignee, value: "alice"},
+	}
+	full, compact := formatFilterSegment(fs)
+
+	if full != compact {
+		t.Errorf("full = %q, compact = %q, want them equal when the named selection's value sanitizes to empty", full, compact)
+	}
+	if full == "" {
+		t.Errorf("full = %q, want a non-empty compact-form fallback, not a blank segment", full)
+	}
+}
+
+// TestFormatFilterSegment_BothFormsAreStyled asserts both forms carry
+// filterSegmentStyle (color 140, built via statusRenderer per
+// dispatchSegmentStyle's precedent) rather than plain unstyled text.
+func TestFormatFilterSegment_BothFormsAreStyled(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	fs := filterSet{{itemType: filterByLabel, value: "bug"}}
+	full, compact := formatFilterSegment(fs)
+
+	if !strings.ContainsRune(full, '\x1b') {
+		t.Errorf("full = %q, want it styled via filterSegmentStyle (containing an SGR escape)", full)
+	}
+	if !strings.ContainsRune(compact, '\x1b') {
+		t.Errorf("compact = %q, want it styled via filterSegmentStyle (containing an SGR escape)", compact)
+	}
+}
+
+// --- StatusBar: Filter Segment Wiring/Ladder (#654) ---
+
+// TestStatusBar_SetFilterStatusEmpty_MatchesNeverCalled proves ("", "") truly
+// hides the segment: a board with SetFilterStatus("", "") called must render
+// byte-identical to one where SetFilterStatus was never called, for every
+// combination of dispatch/git segment presence -- the AC2 no-filter-active
+// parity guard.
+func TestStatusBar_SetFilterStatusEmpty_MatchesNeverCalled(t *testing.T) {
+	hints := []Hint{{Key: "q", Desc: "Quit"}}
+	combos := []struct {
+		name          string
+		dispatch, git string
+	}{
+		{"both", "⟳ dispatch", "main +0~0"},
+		{"gitOnly", "", "main +0~0"},
+		{"dispatchOnly", "⟳ dispatch", ""},
+		{"neither", "", ""},
+	}
+	for _, c := range combos {
+		t.Run(c.name, func(t *testing.T) {
+			never := NewStatusBar(hints)
+			if c.dispatch != "" {
+				never.SetDispatchStatus(c.dispatch)
+			}
+			if c.git != "" {
+				never.SetGitStatus(c.git)
+			}
+			wantView := never.View(200)
+
+			empty := NewStatusBar(hints)
+			if c.dispatch != "" {
+				empty.SetDispatchStatus(c.dispatch)
+			}
+			if c.git != "" {
+				empty.SetGitStatus(c.git)
+			}
+			empty.SetFilterStatus("", "")
+			gotView := empty.View(200)
+
+			if gotView != wantView {
+				t.Errorf("View() with SetFilterStatus(\"\", \"\") = %q, want byte-identical to never calling SetFilterStatus: %q", gotView, wantView)
+			}
+		})
+	}
+}
+
+// TestStatusBar_NoFilterActive_NoFilterGlyphForAnyCombo is the AC2 guard at
+// the glyph level: with no filter segment set, '⚑' must never leak into the
+// tail regardless of dispatch/git presence.
+func TestStatusBar_NoFilterActive_NoFilterGlyphForAnyCombo(t *testing.T) {
+	combos := []struct {
+		name          string
+		dispatch, git string
+	}{
+		{"both", "⟳ dispatch", "main +0~0"},
+		{"gitOnly", "", "main +0~0"},
+		{"dispatchOnly", "⟳ dispatch", ""},
+		{"neither", "", ""},
+	}
+	for _, c := range combos {
+		t.Run(c.name, func(t *testing.T) {
+			sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+			if c.dispatch != "" {
+				sb.SetDispatchStatus(c.dispatch)
+			}
+			if c.git != "" {
+				sb.SetGitStatus(c.git)
+			}
+			view := sb.View(200)
+			if strings.ContainsRune(view, '⚑') {
+				t.Errorf("View() = %q, should NOT contain the filter glyph when no filter is active", view)
+			}
+		})
+	}
+}
+
+// TestStatusBar_FilterSegmentRendersLeftOfDispatchAndGit pins the tail
+// ordering: filter segment, then dispatch, then git.
+func TestStatusBar_FilterSegmentRendersLeftOfDispatchAndGit(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	full, _ := formatFilterSegment(filterSet{{itemType: filterByLabel, value: "bug"}})
+	dispatchSegment := "⟳ dispatch"
+	gitSegment := "main +0~0"
+	sb.SetFilterStatus(full, full)
+	sb.SetDispatchStatus(dispatchSegment)
+	sb.SetGitStatus(gitSegment)
+
+	view := sb.View(200)
+	filterIdx := strings.Index(view, full)
+	dispatchIdx := strings.Index(view, dispatchSegment)
+	gitIdx := strings.Index(view, gitSegment)
+	if filterIdx < 0 || dispatchIdx < 0 || gitIdx < 0 {
+		t.Fatalf("View() = %q, want filter, dispatch, and git segments all present", view)
+	}
+	if filterIdx > dispatchIdx || dispatchIdx > gitIdx {
+		t.Errorf("View() = %q, want order filter < dispatch < git, got indices filter=%d dispatch=%d git=%d", view, filterIdx, dispatchIdx, gitIdx)
+	}
+}
+
+// TestStatusBar_TimedMessageOverridesFilterSegment and
+// TestStatusBar_StickyMessageOverridesFilterSegment extend the existing
+// dispatch/git precedence guards (TestStatusBar_ViewGitSegment_
+// TimedMessageOverridesGitSegment, TestStatusBar_StickyMessage_
+// SuppressesGitAndDispatchSegments) to the new filter segment: a
+// timed/sticky message overrides the ENTIRE tail.
+
+func TestStatusBar_TimedMessageOverridesFilterSegment(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	full, compact := formatFilterSegment(filterSet{{itemType: filterByLabel, value: "bug"}})
+	sb.SetFilterStatus(full, compact)
+	sb.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
+
+	view := sb.View(200)
+	if !strings.Contains(view, "Board refreshed") {
+		t.Errorf("View() = %q, want it to contain the timed message", view)
+	}
+	if strings.ContainsRune(view, '⚑') {
+		t.Errorf("View() = %q, should NOT contain the filter segment while a timed message is active", view)
+	}
+}
+
+func TestStatusBar_StickyMessageOverridesFilterSegment(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	full, compact := formatFilterSegment(filterSet{{itemType: filterByLabel, value: "bug"}})
+	sb.SetFilterStatus(full, compact)
+	sb.SetStickyMessage("Update available", StatusInfo)
+
+	view := sb.View(200)
+	if !strings.Contains(view, "Update available") {
+		t.Errorf("View() = %q, want it to contain the sticky message", view)
+	}
+	if strings.ContainsRune(view, '⚑') {
+		t.Errorf("View() = %q, should NOT contain the filter segment while a sticky message is active", view)
+	}
+}
+
+// TestStatusBar_FilterSegmentDegradationLadder drives all four rungs of the
+// width-contention ladder in descending order: full+D+G fits, then only
+// full+G fits (dispatch dropped first), then only compact+G fits (filter
+// degrades to compact), then only compact fits alone (git dropped last) --
+// the filter segment is never dropped entirely while a filter is active.
+// Every width is derived from lipgloss.Width() on the actual composed
+// pieces, never a hardcoded byte/rune count (⚑ is East-Asian-Ambiguous
+// width and terminal-dependent).
+func TestStatusBar_FilterSegmentDegradationLadder(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	hints := []Hint{{Key: "q", Desc: "Quit"}}
+	hintFull := hintKeyStyle.Render(hints[0].Key) + hintDescStyle.Render(": "+hints[0].Desc)
+	H := lipgloss.Width(hintFull)
+
+	full, compact := formatFilterSegment(filterSet{{itemType: filterByLabel, value: "bug"}})
+	F := lipgloss.Width(full)
+	C := lipgloss.Width(compact)
+
+	dispatchSegment := "⟳ dispatch"
+	gitSegment := "main +0~0"
+	D := lipgloss.Width(dispatchSegment)
+	G := lipgloss.Width(gitSegment)
+
+	sb := NewStatusBar(hints)
+	sb.SetFilterStatus(full, compact)
+	sb.SetDispatchStatus(dispatchSegment)
+	sb.SetGitStatus(gitSegment)
+
+	w1 := F + 1 + D + 1 + G // full dispatch git
+	w2 := F + 1 + G         // full git (dispatch dropped)
+	w3 := C + 1 + G         // compact git (filter degraded)
+	w4 := C                 // compact alone (git dropped)
+
+	if w1 <= w2 || w2 <= w3 || w3 <= w4 {
+		t.Fatalf("precondition: rung widths must strictly decrease, got w1=%d w2=%d w3=%d w4=%d", w1, w2, w3, w4)
+	}
+
+	width1 := w1 + 1 + H
+	view1 := sb.View(width1)
+	if !strings.Contains(view1, full) || !strings.Contains(view1, dispatchSegment) || !strings.Contains(view1, gitSegment) {
+		t.Errorf("View(%d) = %q, want the full filter segment + dispatch + git tail to all fit", width1, view1)
+	}
+
+	width2 := w2 + 1 + H
+	if width2 >= width1 {
+		t.Fatalf("precondition: width2 (%d) must be narrower than width1 (%d)", width2, width1)
+	}
+	view2 := sb.View(width2)
+	if strings.Contains(view2, dispatchSegment) {
+		t.Errorf("View(%d) = %q, want dispatch dropped first under width contention", width2, view2)
+	}
+	if !strings.Contains(view2, full) || !strings.Contains(view2, gitSegment) {
+		t.Errorf("View(%d) = %q, want the full filter segment + git to still fit", width2, view2)
+	}
+
+	width3 := w3 + 1 + H
+	if width3 >= width2 {
+		t.Fatalf("precondition: width3 (%d) must be narrower than width2 (%d)", width3, width2)
+	}
+	view3 := sb.View(width3)
+	if strings.Contains(view3, full) {
+		t.Errorf("View(%d) = %q, want the filter segment degraded to its compact form", width3, view3)
+	}
+	if !strings.Contains(view3, compact) || !strings.Contains(view3, gitSegment) {
+		t.Errorf("View(%d) = %q, want the compact filter segment + git to fit", width3, view3)
+	}
+
+	width4 := w4 + 1 + H
+	if width4 >= width3 {
+		t.Fatalf("precondition: width4 (%d) must be narrower than width3 (%d)", width4, width3)
+	}
+	view4 := sb.View(width4)
+	if strings.Contains(view4, gitSegment) {
+		t.Errorf("View(%d) = %q, want git dropped, with the compact filter segment retained", width4, view4)
+	}
+	if !strings.Contains(view4, compact) {
+		t.Errorf("View(%d) = %q, want the compact filter segment to survive even at the narrowest rung -- a filter segment is never dropped entirely while a filter is active", width4, view4)
+	}
+}
+
+// TestStatusBar_TailPriority_HigherPriorityCandidateWinsOverFullerHints pins
+// the code-review fix for #654: the two-candidate no-filter-active tail
+// ladder (dispatch+git, then git alone) must be tried in STRICT priority
+// order -- for each candidate, full hints first, then truncated/ellipsis
+// hints -- before ever moving to the next (lower-priority) candidate. The
+// buggy pre-fix code instead ran "does any candidate fit with FULL hints"
+// as its own outer pass over every candidate before ever trying truncated
+// hints on the higher-priority one, so a lower-priority candidate that
+// merely tolerates full hints could jump the queue ahead of a
+// higher-priority candidate that still fits (with truncated hints). This is
+// exactly the AC2 "no filter active, tail rendering unchanged from
+// pre-#654" contract, at the two-candidate width where the two candidates'
+// hint-fit outcomes diverge.
+func TestStatusBar_TailPriority_HigherPriorityCandidateWinsOverFullerHints(t *testing.T) {
+	hints := []Hint{{Key: "q", Desc: "Quit"}}
+	sb := NewStatusBar(hints)
+
+	hintFull := hintKeyStyle.Render(hints[0].Key) + hintDescStyle.Render(": "+hints[0].Desc)
+	H := lipgloss.Width(hintFull)
+	ellipsisWidth := lipgloss.Width(hintDescStyle.Render(" ..."))
+
+	dispatchSegment := "dispatch"
+	gitSegment := "feature-branch"
+	sb.SetDispatchStatus(dispatchSegment)
+	sb.SetGitStatus(gitSegment)
+
+	D := lipgloss.Width(dispatchSegment)
+	G := lipgloss.Width(gitSegment)
+
+	// tail1 = "dispatch feature-branch" (higher priority: dispatch+git
+	// together), tail2 = "feature-branch" (lower priority: git alone, with
+	// no filter active there is no candidate list beyond these two).
+	w1 := D + 1 + G
+
+	// Precondition: the full hint rendering must be strictly wider than the
+	// ellipsis-only truncated rendering, so a width exists where tail1 fits
+	// only with truncated hints (not full).
+	if H <= ellipsisWidth {
+		t.Fatalf("precondition: full hints width (%d) must exceed the ellipsis width (%d)", H, ellipsisWidth)
+	}
+
+	// width leaves exactly enough room for tail1 plus its separator plus a
+	// bare ellipsis -- tail1 fits only with truncated hints, never full.
+	width := w1 + 1 + ellipsisWidth
+
+	view := sb.View(width)
+
+	if !strings.Contains(view, dispatchSegment) {
+		t.Errorf("View(%d) = %q, want the higher-priority dispatch+git candidate selected (with truncated hints) rather than dropping dispatch for the lower-priority git-alone candidate with full hints", width, view)
+	}
+	if !strings.Contains(view, gitSegment) {
+		t.Errorf("View(%d) = %q, want the git segment present alongside dispatch", width, view)
+	}
+	if strings.Contains(view, hints[0].Desc) {
+		t.Errorf("View(%d) = %q, want the hints truncated (no room for the full %q text) at this width", width, view, hints[0].Desc)
+	}
+	if !strings.Contains(view, "...") {
+		t.Errorf("View(%d) = %q, want the ellipsis truncation indicator present", width, view)
+	}
+}

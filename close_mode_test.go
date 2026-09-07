@@ -96,8 +96,7 @@ func TestCloseMode_XKey_FilterActive_TargetsFilteredCard(t *testing.T) {
 	b.Height = 40
 
 	// Cards #1, #3, #5 in "Backlog" carry the "bug" label.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b.Columns[b.ActiveTab].Cursor = 1 // second bug card in the filtered list -> #3
 
 	m, _ := b.Update(keyMsg("x"))

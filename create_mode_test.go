@@ -1184,8 +1184,7 @@ func TestCardCreated_ClearsActiveSearchQuery(t *testing.T) {
 // creation, guaranteeing the new card is visible and selectable.
 func TestCardCreated_ClearsActiveLabelFilter(t *testing.T) {
 	b := newLoadedTestBoard(t)
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "infra" // an existing label the new (unlabeled) card won't have
+	setActiveFilter(&b, filterByLabel, "infra") // an existing label the new (unlabeled) card won't have
 	createdNumber := 99
 
 	m, _ := b.Update(cardCreatedMsg{card: provider.Card{Number: createdNumber, Title: "Unlabeled task"}})
@@ -1194,11 +1193,11 @@ func TestCardCreated_ClearsActiveLabelFilter(t *testing.T) {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 
-	if updated.activeFilterType != filterTypeNone {
-		t.Errorf("activeFilterType = %v after card created, want filterTypeNone (filter must be cleared)", updated.activeFilterType)
+	if updated.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true after card created, want false (filter must be cleared)")
 	}
-	if updated.activeFilterValue != "" {
-		t.Errorf("activeFilterValue = %q after card created, want empty string", updated.activeFilterValue)
+	if filterCount(&updated) != 0 {
+		t.Errorf("filterCount = %d after card created, want 0", filterCount(&updated))
 	}
 	if updated.selectedCard().Number != createdNumber {
 		t.Errorf("selectedCard().Number = %d, want %d (new card visible/selected once filter is cleared)", updated.selectedCard().Number, createdNumber)

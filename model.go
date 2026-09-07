@@ -92,7 +92,18 @@ var (
 	// statusErrorStyle instead, consistent with other error states in the
 	// status bar.
 	dispatchSegmentStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("75"))
+	// filterSegmentStyle colors the active-filter status-bar segment (#654),
+	// deliberately distinct from PR purple (183) and dispatch blue (75).
+	filterSegmentStyle = statusRenderer.NewStyle().Foreground(lipgloss.Color("140"))
 )
+
+// filterGlyph marks the active-filter status-bar segment (#654).
+const filterGlyph = "⚑"
+
+// filterSegmentNameMaxLen bounds the named selection shown in the active-filter
+// status-bar segment's full form, mirroring milestoneStatusTitleMaxLen's
+// precedent (mode_handlers.go).
+const filterSegmentNameMaxLen = 20
 
 // newStatusRenderer creates a lipgloss renderer with ANSI256 forced,
 // so status bar messages always display colors regardless of TTY detection.
@@ -244,6 +255,20 @@ type filterItem struct {
 	value    string
 	isHeader bool
 }
+
+// filterSelection is a single (category, value) entry in a Board's active
+// filter set (#652). filterSet stores these as an ordered slice -- deterministic
+// iteration, copy-safe under BubbleTea's value-copied Board, and comparable
+// elements for slices.Equal in tests.
+type filterSelection struct {
+	itemType filterType
+	value    string
+}
+
+// filterSet is the set of active filter selections. It is always replaced
+// wholesale (a fresh slice or nil), never appended-to or element-mutated in
+// place, since Board is copied by value through every Update() handler.
+type filterSet []filterSelection
 
 // LinkedPR represents a pull request linked to a card.
 //
@@ -865,8 +890,7 @@ type Board struct {
 	delete                      deleteState
 	filterItems                 []filterItem
 	filterCursor                int
-	activeFilterType            filterType
-	activeFilterValue           string
+	filters                     filterSet
 	collaborators               []Assignee
 	authenticatedUser           string
 	repoLabels                  []string
@@ -1383,26 +1407,46 @@ func (b *Board) visibleCards() []Card {
 	if len(b.Columns) == 0 || b.ActiveTab < 0 || b.ActiveTab >= len(b.Columns) {
 		return nil
 	}
-	if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
+	if b.searchQuery != "" || b.hasActiveFilters() {
 		return b.filteredCards()
 	}
 	return b.Columns[b.ActiveTab].Cards
 }
 
-// matchesGlobalFilter returns true if a card matches the active global filter.
-// Uses case-insensitive comparison (strings.EqualFold) per lessons-learned.
-func (b *Board) matchesGlobalFilter(card Card) bool {
-	switch b.activeFilterType {
+// hasActiveFilters reports whether b.filters has any selections. It replaces
+// the old activeFilterType != filterTypeNone guard: an empty set is
+// "unfiltered", while any non-empty set (even one holding an empty-value
+// selection that matches nothing) is "active".
+func (b *Board) hasActiveFilters() bool {
+	return len(b.filters) > 0
+}
+
+// cardMatchesSelection returns true if card matches a single filter
+// selection. Uses case-insensitive comparison (strings.EqualFold) per
+// lessons-learned at every comparison. An empty selection value never
+// matches anything, even a card whose own field is also empty (Q5) -- the
+// milestone case already got this for free via the pre-existing
+// card.Milestone == "" early return, but label/assignee need it stated
+// explicitly since a card can carry a literal empty-name label/assignee
+// entry. The default branch (an unknown or filterTypeNone category placed
+// directly in the set) returns false -- an unknown category matches
+// nothing, distinct from the *empty set* matching everything at the
+// filterSet.matches level.
+func cardMatchesSelection(card Card, sel filterSelection) bool {
+	if sel.value == "" {
+		return false
+	}
+	switch sel.itemType {
 	case filterByLabel:
 		for _, label := range card.Labels {
-			if strings.EqualFold(label.Name, b.activeFilterValue) {
+			if strings.EqualFold(label.Name, sel.value) {
 				return true
 			}
 		}
 		return false
 	case filterByAssignee:
 		for _, a := range card.Assignees {
-			if strings.EqualFold(a.Login, b.activeFilterValue) {
+			if strings.EqualFold(a.Login, sel.value) {
 				return true
 			}
 		}
@@ -1411,10 +1455,41 @@ func (b *Board) matchesGlobalFilter(card Card) bool {
 		if card.Milestone == "" {
 			return false
 		}
-		return strings.EqualFold(card.Milestone, b.activeFilterValue)
+		return strings.EqualFold(card.Milestone, sel.value)
 	default:
-		return true
+		return false
 	}
+}
+
+// matches returns true if card matches the filter set: OR within a category,
+// AND across categories with at least one selection. An empty set matches
+// everything. Groups selections by itemType (whatever category is actually
+// present in fs, including an unrecognized/filterTypeNone one placed
+// directly in the set -- cardMatchesSelection's default branch returns false
+// for it, so a card never matches such a selection, distinct from the
+// *empty set* matching everything) and requires at least one match per
+// group.
+func (fs filterSet) matches(card Card) bool {
+	matchedByCategory := make(map[filterType]bool, len(fs))
+	for _, sel := range fs {
+		if _, seen := matchedByCategory[sel.itemType]; !seen {
+			matchedByCategory[sel.itemType] = false
+		}
+		if cardMatchesSelection(card, sel) {
+			matchedByCategory[sel.itemType] = true
+		}
+	}
+	for _, matched := range matchedByCategory {
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+// matchesGlobalFilter returns true if a card matches the active global filter.
+func (b *Board) matchesGlobalFilter(card Card) bool {
+	return b.filters.matches(card)
 }
 
 // filteredCards returns the cards in the active column that match the current
@@ -1424,7 +1499,7 @@ func (b *Board) filteredCards() []Card {
 	cards := col.Cards
 
 	// Apply global filter first.
-	if b.activeFilterType != filterTypeNone {
+	if b.hasActiveFilters() {
 		var filtered []Card
 		for _, card := range cards {
 			if b.matchesGlobalFilter(card) {
@@ -1466,7 +1541,7 @@ func (b *Board) totalFilteredCards() int {
 // filteredCardsForColumn returns the number of cards in the given column
 // that match the active global filter. Returns -1 if no filter is active.
 func (b *Board) filteredCardsForColumn(colIdx int) int {
-	if b.activeFilterType == filterTypeNone {
+	if !b.hasActiveFilters() {
 		return -1
 	}
 	if colIdx < 0 || colIdx >= len(b.Columns) {
@@ -1481,14 +1556,48 @@ func (b *Board) filteredCardsForColumn(colIdx int) int {
 	return count
 }
 
-// applyFilter is the single choke point for applying a global filter
-// (per docs/list-cursor-invariants.md): it sets the active filter fields and
-// clamps the active column's cursor/scroll to the newly filtered card count.
-// The active-tab guard exists for future repo-derived callers that may
-// invoke this on a board with no columns yet (e.g. before the first fetch).
-func (b *Board) applyFilter(itemType filterType, value string) {
-	b.activeFilterType = itemType
-	b.activeFilterValue = value
+// contains reports whether fs holds a selection matching (itemType, value),
+// using strings.EqualFold per Q7 -- the same case-insensitive comparison
+// convention as cardMatchesSelection and collectFilterItems' dedup, so a
+// milestone toggled from the Milestones modal and the same milestone's
+// picker row always resolve to one selection.
+func (fs filterSet) contains(itemType filterType, value string) bool {
+	for _, sel := range fs {
+		if sel.itemType == itemType && strings.EqualFold(sel.value, value) {
+			return true
+		}
+	}
+	return false
+}
+
+// toggled returns a fresh filterSet with sel added if absent, or removed
+// (case-insensitively, matching contains) if already present. It never
+// mutates fs's backing array -- Board is copied by value through every
+// Update() handler, so a pre-toggle snapshot of b.filters must never
+// observe a later mutation (docs/list-cursor-invariants.md's "always
+// replaced wholesale" invariant, restated on filterSet's own doc comment).
+func (fs filterSet) toggled(sel filterSelection) filterSet {
+	if fs.contains(sel.itemType, sel.value) {
+		next := make(filterSet, 0, len(fs))
+		for _, existing := range fs {
+			if existing.itemType == sel.itemType && strings.EqualFold(existing.value, sel.value) {
+				continue
+			}
+			next = append(next, existing)
+		}
+		return next
+	}
+	next := make(filterSet, len(fs), len(fs)+1)
+	copy(next, fs)
+	return append(next, sel)
+}
+
+// clampAfterFilterChange is the single cursor/scroll clamp seam
+// (docs/list-cursor-invariants.md) for any mutation of b.filters, extracted
+// verbatim from the deleted applyFilter's clamping tail. The active-tab
+// guard exists for future repo-derived callers that may invoke this on a
+// board with no columns yet (e.g. before the first fetch).
+func (b *Board) clampAfterFilterChange() {
 	if len(b.Columns) == 0 || b.ActiveTab < 0 || b.ActiveTab >= len(b.Columns) {
 		return
 	}
@@ -1503,10 +1612,20 @@ func (b *Board) applyFilter(itemType filterType, value string) {
 	b.clampScrollOffset()
 }
 
+// toggleFilter toggles a single (itemType, value) selection into or out of
+// b.filters (#653) and clamps the active column's cursor/scroll via
+// clampAfterFilterChange -- the surviving choke point after applyFilter's
+// deletion (its replace-the-whole-set semantics have zero production callers
+// once every entry point toggles).
+func (b *Board) toggleFilter(itemType filterType, value string) {
+	b.filters = b.filters.toggled(filterSelection{itemType: itemType, value: value})
+	b.clampAfterFilterChange()
+	b.refreshFilterStatus()
+}
+
 // clearFilter resets the global filter state and clamps cursor/scroll for the active column.
 func (b *Board) clearFilter() {
-	b.activeFilterType = filterTypeNone
-	b.activeFilterValue = ""
+	b.filters = nil
 	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
 		col := &b.Columns[b.ActiveTab]
 		if col.Cursor >= len(col.Cards) {
@@ -1517,6 +1636,31 @@ func (b *Board) clearFilter() {
 		}
 		col.ScrollOffset = 0
 	}
+	b.refreshFilterStatus()
+}
+
+// ordered returns a sorted COPY of fs, ordered by (itemType, strings.ToLower
+// (value)) ascending. It never mutates fs's backing array, matching
+// filterSet's "always replaced wholesale" convention.
+func (fs filterSet) ordered() filterSet {
+	sorted := make(filterSet, len(fs))
+	copy(sorted, fs)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].itemType != sorted[j].itemType {
+			return sorted[i].itemType < sorted[j].itemType
+		}
+		return strings.ToLower(sorted[i].value) < strings.ToLower(sorted[j].value)
+	})
+	return sorted
+}
+
+// refreshFilterStatus recomputes the status-bar active-filter segment from
+// b.filters (#654) and stores it via StatusBar.SetFilterStatus. Called at the
+// three production choke points that mutate b.filters: toggleFilter and
+// clearFilter (both here), and resetRepoScopedState (update.go).
+func (b *Board) refreshFilterStatus() {
+	full, compact := formatFilterSegment(b.filters)
+	b.statusBar.SetFilterStatus(full, compact)
 }
 
 // searchQuery holds the normalized forms of a raw search query: text is the

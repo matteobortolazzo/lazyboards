@@ -653,44 +653,36 @@ func TestFilterMode_EscapeReturnsToNormalMode(t *testing.T) {
 	}
 }
 
+// TestFilterMode_EscapeDoesNotChangeFilter (#653: dropped the old 'f'-to-clear
+// step now that 'f' never clears): pre-sets an active filter directly, opens
+// the picker (reachable while filters are active), and presses Escape
+// without toggling anything -- the selection set must survive unchanged,
+// per AC3 ("esc closes the picker, leaving the current selection set
+// applied").
 func TestFilterMode_EscapeDoesNotChangeFilter(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
+	setActiveFilter(&b, filterByLabel, "bug")
 
-	// Enter filter mode first (no active filter).
 	b = sendKey(t, b, keyMsg("f"))
 	if b.mode != filterMode {
 		t.Fatalf("expected filterMode after 'f', got %d", b.mode)
 	}
 
-	// Select a filter item to set an active filter.
-	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
-	if b.activeFilterValue == "" {
-		t.Fatal("expected active filter after selecting an item")
-	}
-	savedValue := b.activeFilterValue
-	savedType := b.activeFilterType
-
-	// Now clear filter with 'f' to get back to no-filter state.
-	b = sendKey(t, b, keyMsg("f"))
-
-	// Enter filter mode again (no active filter).
-	b = sendKey(t, b, keyMsg("f"))
-	if b.mode != filterMode {
-		t.Fatalf("expected filterMode after second 'f', got %d", b.mode)
-	}
-
-	// Press Escape to leave filter mode without selecting.
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 
-	// Filter should remain cleared (Escape does not change filter).
-	if b.activeFilterValue != "" {
-		t.Errorf("after Escape: activeFilterValue = %q, want empty (Escape should not change filter)", b.activeFilterValue)
+	if b.mode != normalMode {
+		t.Fatalf("expected normalMode after Escape, got %d", b.mode)
 	}
-	_ = savedValue
-	_ = savedType
+	if !hasFilter(&b, filterByLabel, "bug") {
+		t.Errorf("after Escape: filters = %+v, want (filterByLabel, %q) still applied (Escape should not change filter)", b.filters, "bug")
+	}
 }
 
-func TestFilterMode_EnterSelectsItemAndReturnsToNormalMode(t *testing.T) {
+// TestFilterMode_EnterTogglesItemAndStaysInFilterMode (#653; formerly
+// TestFilterMode_EnterSelectsItemAndReturnsToNormalMode): Enter toggles the
+// cursor's item into the filter set, re-applies immediately, and leaves the
+// modal open with the cursor unchanged (AC2).
+func TestFilterMode_EnterTogglesItemAndStaysInFilterMode(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	b = sendKey(t, b, keyMsg("f"))
@@ -698,14 +690,19 @@ func TestFilterMode_EnterSelectsItemAndReturnsToNormalMode(t *testing.T) {
 		t.Fatalf("expected filterMode after 'f', got %d", b.mode)
 	}
 
-	// Cursor should be on the first selectable label item.
+	cursorBefore := b.filterCursor
+	selected := b.filterItems[b.filterCursor]
+
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	if b.mode != normalMode {
-		t.Errorf("after Enter in filterMode: mode = %d, want normalMode", b.mode)
+	if b.mode != filterMode {
+		t.Errorf("after Enter in filterMode: mode = %d, want filterMode (modal stays open)", b.mode)
 	}
-	if b.activeFilterValue == "" {
-		t.Error("after Enter in filterMode: activeFilterValue is empty, expected a selected value")
+	if b.filterCursor != cursorBefore {
+		t.Errorf("after Enter in filterMode: filterCursor = %d, want unchanged %d", b.filterCursor, cursorBefore)
+	}
+	if !hasFilter(&b, selected.itemType, selected.value) {
+		t.Errorf("after Enter in filterMode: filters = %+v, want a selection for %+v", b.filters, selected)
 	}
 }
 
@@ -1052,11 +1049,8 @@ func TestFilterMode_SelectLabel_SetsFilterByLabel(t *testing.T) {
 	expectedValue := selectedItem.value
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	if b.activeFilterType != filterByLabel {
-		t.Errorf("activeFilterType = %d, want filterByLabel", b.activeFilterType)
-	}
-	if b.activeFilterValue != expectedValue {
-		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, expectedValue)
+	if !hasFilter(&b, filterByLabel, expectedValue) {
+		t.Errorf("filters = %+v, want a (filterByLabel, %q) selection", b.filters, expectedValue)
 	}
 }
 
@@ -1077,11 +1071,8 @@ func TestFilterMode_SelectAssignee_SetsFilterByAssignee(t *testing.T) {
 	expectedValue := selectedItem.value
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	if b.activeFilterType != filterByAssignee {
-		t.Errorf("activeFilterType = %d, want filterByAssignee", b.activeFilterType)
-	}
-	if b.activeFilterValue != expectedValue {
-		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, expectedValue)
+	if !hasFilter(&b, filterByAssignee, expectedValue) {
+		t.Errorf("filters = %+v, want a (filterByAssignee, %q) selection", b.filters, expectedValue)
 	}
 }
 
@@ -1102,21 +1093,22 @@ func TestFilterMode_SelectMilestone_SetsFilterByMilestone(t *testing.T) {
 	expectedValue := selectedItem.value
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	if b.activeFilterType != filterByMilestone {
-		t.Errorf("activeFilterType = %d, want filterByMilestone", b.activeFilterType)
-	}
-	if b.activeFilterValue != expectedValue {
-		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, expectedValue)
+	if !hasFilter(&b, filterByMilestone, expectedValue) {
+		t.Errorf("filters = %+v, want a (filterByMilestone, %q) selection", b.filters, expectedValue)
 	}
 }
 
-func TestFilterMode_SelectMilestone_ClearsPriorLabelFilter(t *testing.T) {
+// TestFilterMode_SelectMilestone_AccumulatesWithPriorLabelFilter (#653;
+// formerly TestFilterMode_SelectMilestone_ClearsPriorLabelFilter): toggling a
+// milestone item now accumulates onto a pre-existing selection from a
+// different category rather than overwriting it -- the OR-within-category /
+// AND-across-categories set semantics (#652) apply to every toggle.
+func TestFilterMode_SelectMilestone_AccumulatesWithPriorLabelFilter(t *testing.T) {
 	b := newBoardWithMilestones(t)
 
 	// Simulate a pre-existing label filter, as if the user had previously
-	// selected a label before opening the picker again.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	// toggled a label before opening the picker again.
+	setActiveFilter(&b, filterByLabel, "bug")
 
 	b.filterItems = b.collectFilterItems()
 	b.mode = filterMode
@@ -1140,91 +1132,85 @@ func TestFilterMode_SelectMilestone_ClearsPriorLabelFilter(t *testing.T) {
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
-	// Selecting a filter item in filterMode is a synchronous state change with
+	// Toggling a filter item in filterMode is a synchronous state change with
 	// no side effect to report, so Enter returns a nil cmd.
 	if cmd != nil {
-		t.Errorf("cmd after selecting a milestone filter item = %v, want nil", cmd)
+		t.Errorf("cmd after toggling a milestone filter item = %v, want nil", cmd)
 	}
 
-	if board.activeFilterType != filterByMilestone {
-		t.Errorf("activeFilterType = %d, want filterByMilestone (selecting a milestone should overwrite the prior label filter)", board.activeFilterType)
+	if !hasFilter(&board, filterByMilestone, expectedValue) {
+		t.Errorf("filters = %+v, want a (filterByMilestone, %q) selection", board.filters, expectedValue)
 	}
-	if board.activeFilterValue != expectedValue {
-		t.Errorf("activeFilterValue = %q, want %q", board.activeFilterValue, expectedValue)
+	if !hasFilter(&board, filterByLabel, "bug") {
+		t.Errorf("filters = %+v, want the prior (filterByLabel, %q) selection to remain (toggling accumulates, not replaces)", board.filters, "bug")
+	}
+	if filterCount(&board) != 2 {
+		t.Errorf("filterCount = %d, want 2 (toggling a new category accumulates onto the existing selection)", filterCount(&board))
 	}
 }
 
 // --- Clear filter tests ---
 
-func TestFilterMode_FToggleClearsActiveMilestoneFilter(t *testing.T) {
+// TestFilterMode_FReopensPickerWhileFilterActive (#653; replaces
+// TestFilterMode_FToggleClearsActiveMilestoneFilter/
+// TestFilterMode_FToggleClearsActiveFilter/TestFilterMode_FToggleShowsTimedMessage):
+// 'f' never clears (AC1) -- with a filter already active, it opens the
+// picker and leaves the selection untouched.
+func TestFilterMode_FReopensPickerWhileFilterActive(t *testing.T) {
 	b := newBoardWithMilestones(t)
+	setActiveFilter(&b, filterByMilestone, "v1.0")
 
-	// Set an active milestone filter.
-	b.activeFilterType = filterByMilestone
-	b.activeFilterValue = "v1.0"
+	b = sendKey(t, b, keyMsg("f"))
 
-	m, cmd := b.Update(keyMsg("f"))
+	if b.mode != filterMode {
+		t.Errorf("'f' with an active filter should open the picker, mode = %d, want filterMode", b.mode)
+	}
+	if !hasFilter(&b, filterByMilestone, "v1.0") {
+		t.Errorf("'f' must never clear the filter; filters = %+v, want (filterByMilestone, %q) still applied", b.filters, "v1.0")
+	}
+}
+
+// TestFilterMode_ClearAllClearsFiltersAndStaysOpen covers the new
+// filter.clear_all command (default 'c'): clears every selection,
+// re-applies (unfiltered), keeps the modal open, and reports a timed
+// success message (AC5).
+func TestFilterMode_ClearAllClearsFiltersAndStaysOpen(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	setActiveFilter(&b, filterByLabel, "bug")
+
+	b = sendKey(t, b, keyMsg("f"))
+	if b.mode != filterMode {
+		t.Fatalf("expected filterMode after 'f', got %d", b.mode)
+	}
+
+	m, cmd := b.Update(keyMsg("c"))
 	board, ok := m.(Board)
 	if !ok {
 		t.Fatalf("Update returned %T, want Board", m)
 	}
 
+	if board.mode != filterMode {
+		t.Errorf("after 'c' (filter.clear_all): mode = %d, want filterMode (modal stays open)", board.mode)
+	}
+	if board.hasActiveFilters() {
+		t.Errorf("after 'c': hasActiveFilters() = true, want false")
+	}
 	if cmd == nil {
-		t.Error("after 'f' with active milestone filter: expected non-nil cmd for timed message")
+		t.Error("after 'c': expected a non-nil cmd for the timed 'Filters cleared' message")
 	}
-	if board.activeFilterValue != "" {
-		t.Errorf("after 'f' with active milestone filter: activeFilterValue = %q, want empty", board.activeFilterValue)
-	}
-	if board.activeFilterType != filterTypeNone {
-		t.Errorf("after 'f' with active milestone filter: activeFilterType = %d, want filterTypeNone", board.activeFilterType)
-	}
-	if board.statusBar.message == "" {
-		t.Error("after 'f' with active milestone filter: expected a status bar message about filter cleared")
-	}
-	if !strings.Contains(board.statusBar.message, "Filter cleared") {
-		t.Errorf("statusBar.message = %q, want to contain %q", board.statusBar.message, "Filter cleared")
+	if !strings.Contains(board.statusBar.message, "Filters cleared") {
+		t.Errorf("statusBar.message = %q, want to contain %q", board.statusBar.message, "Filters cleared")
 	}
 }
 
-func TestFilterMode_FToggleClearsActiveFilter(t *testing.T) {
-	b := newBoardWithLabelsAndAssignees(t)
-
-	// Set an active filter.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
-
-	b = sendKey(t, b, keyMsg("f"))
-
-	if b.activeFilterValue != "" {
-		t.Errorf("after 'f' with active filter: activeFilterValue = %q, want empty", b.activeFilterValue)
-	}
-}
-
-func TestFilterMode_FToggleShowsTimedMessage(t *testing.T) {
-	b := newBoardWithLabelsAndAssignees(t)
-
-	// Set an active filter.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
-
-	m, cmd := b.Update(keyMsg("f"))
-	b = m.(Board)
-
-	// The command should be non-nil (timed message for "Filter cleared").
-	if cmd == nil {
-		t.Error("after 'f' with active filter: expected non-nil cmd for timed message")
-	}
-
-	if b.statusBar.message == "" {
-		t.Error("after 'f' with active filter: expected a status bar message about filter cleared")
-	}
-}
-
-func TestFilterMode_FToggleOpensPickerWhenNoFilter(t *testing.T) {
+// TestFilterMode_FOpensPickerWhenNoFilter (#653; formerly
+// TestFilterMode_FToggleOpensPickerWhenNoFilter, renamed since 'f' no longer
+// toggles).
+func TestFilterMode_FOpensPickerWhenNoFilter(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	// Ensure no filter is active.
-	if b.activeFilterType != filterTypeNone {
+	if b.hasActiveFilters() {
 		t.Fatal("precondition: expected no active filter")
 	}
 
@@ -1232,6 +1218,25 @@ func TestFilterMode_FToggleOpensPickerWhenNoFilter(t *testing.T) {
 
 	if b.mode != filterMode {
 		t.Errorf("after 'f' with no active filter: mode = %d, want filterMode", b.mode)
+	}
+}
+
+// TestFilterMode_FOpensWithEmptyItemsWhenFiltersActive covers Q8's relaxed
+// empty-items guard: a board whose own collectFilterItems() yields zero rows
+// must still open the picker via 'f' when a filter selected from another
+// entry point (e.g. the Milestones modal) is already active -- otherwise
+// filter.clear_all would be unreachable.
+func TestFilterMode_FOpensWithEmptyItemsWhenFiltersActive(t *testing.T) {
+	b := newBoardWithNoLabelsOrAssignees(t)
+	if got := b.collectFilterItems(); len(got) != 0 {
+		t.Fatalf("precondition: collectFilterItems() = %v, want empty", got)
+	}
+	setActiveFilter(&b, filterByLabel, "some-other-repo-label")
+
+	b = sendKey(t, b, keyMsg("f"))
+
+	if b.mode != filterMode {
+		t.Errorf("'f' with an active filter but zero collectFilterItems() rows should still open the picker, mode = %d, want filterMode", b.mode)
 	}
 }
 
@@ -1340,6 +1345,9 @@ func TestFilterMode_ShowsFilterModeHints(t *testing.T) {
 	}
 	if !strings.Contains(view, "Select") {
 		t.Error("View() in filterMode should contain hint 'Select'")
+	}
+	if !strings.Contains(view, "Clear all") {
+		t.Error("View() in filterMode should contain hint 'Clear all'")
 	}
 }
 
@@ -1599,6 +1607,102 @@ func TestFilterMode_CollectFilterItems_AllLabelsAreColumnNames_OmitsLabelSection
 	}
 	if !hasAssigneesHeader {
 		t.Error("expected 'Assignees' header even when all labels are excluded")
+	}
+}
+
+// --- Multi-select '*' marker (#653) ---
+
+// TestFilterMode_View_ToggledItemShowsAsteriskMarker asserts a toggled-on
+// picker row carries the "* " prefix, mirroring viewAssignModal's existing
+// convention (AC4).
+func TestFilterMode_View_ToggledItemShowsAsteriskMarker(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	b = sendKey(t, b, keyMsg("f"))
+
+	selectedItem := b.filterItems[b.filterCursor]
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // toggle on; picker stays open
+
+	view := b.viewFilterModal()
+	var markedLine string
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, selectedItem.value) {
+			markedLine = line
+			break
+		}
+	}
+	if markedLine == "" {
+		t.Fatalf("view missing selected item row; got:\n%s", view)
+	}
+	if !strings.Contains(markedLine, "*") {
+		t.Errorf("row for a toggled-on filter item = %q, want it to carry a '*' marker", markedLine)
+	}
+}
+
+// TestFilterMode_View_UntoggledItemShowsNoAsteriskMarker asserts an
+// untoggled row keeps the plain two-space prefix, with no '*' marker.
+func TestFilterMode_View_UntoggledItemShowsNoAsteriskMarker(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	b = sendKey(t, b, keyMsg("f"))
+
+	otherIdx := -1
+	for i, item := range b.filterItems {
+		if !item.isHeader {
+			otherIdx = i
+			break
+		}
+	}
+	if otherIdx == -1 {
+		t.Fatal("fixture needs at least one selectable filter item")
+	}
+	otherItem := b.filterItems[otherIdx]
+
+	view := b.viewFilterModal()
+	var line string
+	for _, l := range strings.Split(view, "\n") {
+		if strings.Contains(l, otherItem.value) {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("view missing filter item row; got:\n%s", view)
+	}
+	if strings.Contains(line, "*") {
+		t.Errorf("row for an untoggled filter item = %q, want no '*' marker", line)
+	}
+}
+
+// TestFilterMode_View_AsteriskMarkerSurvivesCursorHighlight asserts the '*'
+// marker still renders on a row that is both toggled-on AND under the
+// cursor -- the marker must survive selectedRowStyle, mirroring
+// viewAssignModal's precedent (AC4).
+func TestFilterMode_View_AsteriskMarkerSurvivesCursorHighlight(t *testing.T) {
+	original := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	t.Cleanup(func() { lipgloss.SetColorProfile(original) })
+
+	b := newBoardWithLabelsAndAssignees(t)
+	b = sendKey(t, b, keyMsg("f"))
+
+	selectedItem := b.filterItems[b.filterCursor]
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.filterItems[b.filterCursor].value != selectedItem.value {
+		t.Fatalf("precondition: cursor should remain on the toggled item")
+	}
+
+	view := b.viewFilterModal()
+	var line string
+	for _, l := range strings.Split(view, "\n") {
+		if strings.Contains(l, selectedItem.value) {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("view missing cursor-selected row; got:\n%s", view)
+	}
+	if !strings.Contains(line, "*") {
+		t.Errorf("cursor-highlighted + toggled-on row = %q, want it to still carry the '*' marker", line)
 	}
 }
 

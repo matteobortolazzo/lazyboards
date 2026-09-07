@@ -23,7 +23,7 @@ var boardCommands = []Command{
 	{CommandCardAssign, "Assign"},
 	{CommandBoardRefresh, "Refresh"},
 	{CommandBoardSearch, "Search"},
-	{CommandBoardFilter, "Filter (toggle)"},
+	{CommandBoardFilter, "Filter"},
 	{CommandBoardSortOrder, "Sort order"},
 	{CommandViewPRList, "Open PRs"},
 	{CommandViewMilestoneList, "Milestones (repo-wide)"},

@@ -398,7 +398,7 @@ func (b Board) jumpToReferencedCard(colIdx, cardIdx int) (tea.Model, tea.Cmd) {
 	target := b.Columns[colIdx].Cards[cardIdx]
 
 	hidden := false
-	if b.searchQuery != "" || b.activeFilterType != filterTypeNone {
+	if b.searchQuery != "" || b.hasActiveFilters() {
 		hidden = true
 		for _, c := range b.visibleCards() {
 			if c.Number == target.Number {

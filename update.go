@@ -453,7 +453,7 @@ func (b Board) filterNoMatchesMessage() string {
 	if key == "" {
 		return "Filter has no matches"
 	}
-	return fmt.Sprintf("Filter has no matches — press %s to clear", key)
+	return fmt.Sprintf("Filter has no matches — press %s to open the filter picker", key)
 }
 
 // handleConfigSaved reloads the board after the config modal writes a new
@@ -566,10 +566,10 @@ func (b *Board) resetRepoScopedState() {
 
 	b.searchQuery = ""
 	b.searchInput.SetValue("")
-	b.activeFilterType = filterTypeNone
-	b.activeFilterValue = ""
+	b.filters = nil
 	b.filterItems = nil
 	b.filterCursor = 0
+	b.refreshFilterStatus()
 
 	b.prList = prListState{}
 	b.milestoneList = milestoneListState{}
@@ -627,7 +627,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		// Preserve ActiveTab and cursor position by card Number (only used when no filter active).
 		savedTab := b.ActiveTab
 		savedNumber := -1
-		if b.activeFilterType == filterTypeNone && savedTab < len(b.Columns) {
+		if !b.hasActiveFilters() && savedTab < len(b.Columns) {
 			oldCol := b.Columns[savedTab]
 			if len(oldCol.Cards) > 0 && oldCol.Cursor < len(oldCol.Cards) {
 				savedNumber = oldCol.Cards[oldCol.Cursor].Number
@@ -654,7 +654,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		// -- otherwise every periodic/manual refresh yanks a reader back to
 		// the top of the card they're in the middle of reading.
 		sameCardSelected := false
-		if b.activeFilterType != filterTypeNone {
+		if b.hasActiveFilters() {
 			// When filter is active, reset cursor and scroll to top for all columns.
 			for i := range b.Columns {
 				b.Columns[i].Cursor = 0
@@ -696,7 +696,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 
 		// Show no-matches hint if filter is active and zero cards match across all columns.
 		var cmd tea.Cmd
-		if b.activeFilterType != filterTypeNone && b.totalFilteredCards() == 0 {
+		if b.hasActiveFilters() && b.totalFilteredCards() == 0 {
 			cmd = b.statusBar.SetTimedMessage(b.filterNoMatchesMessage(), StatusWarning, statusMessageDuration)
 		} else {
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
@@ -735,7 +735,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.filterItems = b.collectFilterItems()
 
 	// Reset cursor/scroll for all columns when filter is active.
-	if b.activeFilterType != filterTypeNone {
+	if b.hasActiveFilters() {
 		for i := range b.Columns {
 			b.Columns[i].Cursor = 0
 			b.Columns[i].ScrollOffset = 0
@@ -746,7 +746,7 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.rebuildNormalHints()
 	b.statusBar.SetActionHints(b.normalHints)
 	if b.loaded {
-		if b.activeFilterType != filterTypeNone && b.totalFilteredCards() == 0 {
+		if b.hasActiveFilters() && b.totalFilteredCards() == 0 {
 			cmd = b.statusBar.SetTimedMessage(b.filterNoMatchesMessage(), StatusWarning, statusMessageDuration)
 		} else {
 			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)

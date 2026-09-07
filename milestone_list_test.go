@@ -392,7 +392,11 @@ func TestMilestoneList_JK_WrapsCursor(t *testing.T) {
 	}
 }
 
-func TestMilestoneList_Enter_AppliesFilterAndClosesToNormal(t *testing.T) {
+// TestMilestoneList_Enter_TogglesFilterAndStaysOpen (#653; formerly
+// TestMilestoneList_Enter_AppliesFilterAndClosesToNormal): Enter now toggles
+// the selected milestone into the active filter set without closing the
+// modal, mirroring the filter picker's own toggle semantics.
+func TestMilestoneList_Enter_TogglesFilterAndStaysOpen(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	// "Refined" is column index 1: cards #4 and #5 both carry Milestone
 	// "v1.0" in the fake provider's fixture (fake.go).
@@ -407,20 +411,80 @@ func TestMilestoneList_Enter_AppliesFilterAndClosesToNormal(t *testing.T) {
 	b = m.(Board)
 	execCmds(cmd)
 
-	if b.mode != normalMode {
-		t.Errorf("mode after enter = %d, want normalMode (%d)", b.mode, normalMode)
+	if b.mode != milestoneListMode {
+		t.Errorf("mode after enter = %d, want milestoneListMode (%d) (modal stays open)", b.mode, milestoneListMode)
 	}
-	if b.activeFilterType != filterByMilestone {
-		t.Errorf("activeFilterType = %d, want filterByMilestone (%d)", b.activeFilterType, filterByMilestone)
-	}
-	if b.activeFilterValue != "v1.0" {
-		t.Errorf("activeFilterValue = %q, want %q", b.activeFilterValue, "v1.0")
+	if !hasFilter(&b, filterByMilestone, "v1.0") {
+		t.Errorf("filters = %+v, want a (filterByMilestone, %q) selection", b.filters, "v1.0")
 	}
 	if got := b.filteredCardsForColumn(1); got != 2 {
 		t.Errorf("filteredCardsForColumn(1) = %d, want 2 (cards #4 and #5)", got)
 	}
 	if !strings.Contains(b.statusBar.message, "v1.0") {
 		t.Errorf("status message = %q, want it to name the milestone %q", b.statusBar.message, "v1.0")
+	}
+}
+
+// TestMilestoneList_Enter_ToggleOff_RemovesMilestoneSelection covers the
+// second Enter press on the same row: the milestone selection must be
+// removed from the set (not re-added), the modal stays open, and the status
+// message reports the removal per Q5 ("Milestone filter cleared: %s").
+func TestMilestoneList_Enter_ToggleOff_RemovesMilestoneSelection(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.ActiveTab = 1
+
+	fixture := []provider.Milestone{{Title: "v1.0", URL: "https://github.com/owner/repo/milestone/2"}}
+	b = openMilestoneListWithResult(t, b, fixture)
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter)) // toggle on
+	b = m.(Board)
+	execCmds(cmd)
+	if !hasFilter(&b, filterByMilestone, "v1.0") {
+		t.Fatalf("precondition: expected (filterByMilestone, %q) selection after first Enter", "v1.0")
+	}
+
+	m, cmd = b.Update(arrowMsg(tea.KeyEnter)) // toggle off
+	b = m.(Board)
+	execCmds(cmd)
+
+	if b.mode != milestoneListMode {
+		t.Errorf("mode after second enter = %d, want milestoneListMode (%d) (modal stays open)", b.mode, milestoneListMode)
+	}
+	if hasFilter(&b, filterByMilestone, "v1.0") {
+		t.Errorf("filters = %+v, want the (filterByMilestone, %q) selection removed after toggling off", b.filters, "v1.0")
+	}
+	if !strings.Contains(b.statusBar.message, "Milestone filter cleared") {
+		t.Errorf("status message = %q, want it to contain %q", b.statusBar.message, "Milestone filter cleared")
+	}
+	if !strings.Contains(b.statusBar.message, "v1.0") {
+		t.Errorf("status message = %q, want it to name the milestone %q", b.statusBar.message, "v1.0")
+	}
+}
+
+// TestMilestoneList_Enter_LeavesExistingLabelSelectionIntact asserts that
+// toggling a milestone into the set accumulates onto (rather than replaces) a
+// pre-existing selection from a different category, mirroring the filter
+// picker's own accumulation semantics (AC7).
+func TestMilestoneList_Enter_LeavesExistingLabelSelectionIntact(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.ActiveTab = 1
+	setActiveFilter(&b, filterByLabel, "bug")
+
+	fixture := []provider.Milestone{{Title: "v1.0", URL: "https://github.com/owner/repo/milestone/2"}}
+	b = openMilestoneListWithResult(t, b, fixture)
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	b = m.(Board)
+	execCmds(cmd)
+
+	if !hasFilter(&b, filterByLabel, "bug") {
+		t.Errorf("filters = %+v, want the pre-existing (filterByLabel, %q) selection to remain", b.filters, "bug")
+	}
+	if !hasFilter(&b, filterByMilestone, "v1.0") {
+		t.Errorf("filters = %+v, want a (filterByMilestone, %q) selection added", b.filters, "v1.0")
+	}
+	if filterCount(&b) != 2 {
+		t.Errorf("filterCount = %d, want 2 (toggling a milestone must not disturb the existing label selection)", filterCount(&b))
 	}
 }
 
@@ -501,12 +565,16 @@ func TestMilestoneList_Enter_SafeWithZeroColumns(t *testing.T) {
 	b = m.(Board)
 	execCmds(cmd)
 
-	if b.mode != normalMode {
-		t.Errorf("mode after enter = %d, want normalMode (%d)", b.mode, normalMode)
+	if b.mode != milestoneListMode {
+		t.Errorf("mode after enter = %d, want milestoneListMode (%d) (modal stays open)", b.mode, milestoneListMode)
 	}
 }
 
-func TestMilestoneList_Enter_EmptyList_ClosesWithNoFilterAndNoMessage(t *testing.T) {
+// TestMilestoneList_Enter_EmptyList_StaysOpenWithNoFilterAndNoMessage
+// (formerly ..._ClosesWithNoFilterAndNoMessage): #653 makes Enter toggle
+// in place rather than close, so an empty list's enter is a no-op that
+// leaves the modal open, not one that closes it.
+func TestMilestoneList_Enter_EmptyList_StaysOpenWithNoFilterAndNoMessage(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b = openMilestoneListWithResult(t, b, nil) // successful fetch, zero rows
 
@@ -514,11 +582,11 @@ func TestMilestoneList_Enter_EmptyList_ClosesWithNoFilterAndNoMessage(t *testing
 	b = m.(Board)
 	execCmds(cmd)
 
-	if b.mode != normalMode {
-		t.Errorf("mode after enter on empty list = %d, want normalMode (%d)", b.mode, normalMode)
+	if b.mode != milestoneListMode {
+		t.Errorf("mode after enter on empty list = %d, want milestoneListMode (%d) (modal stays open)", b.mode, milestoneListMode)
 	}
-	if b.activeFilterType != filterTypeNone {
-		t.Errorf("activeFilterType = %d, want filterTypeNone (%d) (no filter applied)", b.activeFilterType, filterTypeNone)
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true, want false (no filter applied)")
 	}
 	if b.statusBar.message != "" {
 		t.Errorf("statusBar.message = %q, want empty (no status message on empty-list enter)", b.statusBar.message)
@@ -554,14 +622,18 @@ func TestMilestoneList_Enter_CursorOutOfRange_NoOp(t *testing.T) {
 	b = m.(Board)
 	execCmds(cmd)
 
-	if b.mode != normalMode {
-		t.Errorf("mode after enter with out-of-range cursor = %d, want normalMode (%d)", b.mode, normalMode)
+	if b.mode != milestoneListMode {
+		t.Errorf("mode after enter with out-of-range cursor = %d, want milestoneListMode (%d) (modal stays open)", b.mode, milestoneListMode)
 	}
-	if b.activeFilterType != filterTypeNone {
-		t.Errorf("activeFilterType = %d, want filterTypeNone (%d) (no filter applied)", b.activeFilterType, filterTypeNone)
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true, want false (no filter applied)")
 	}
 }
 
+// TestMilestoneList_Enter_NoMatchingCard_LeavesZeroVisibleCards: since #653
+// keeps the modal open on Enter, the board's own "No matching cards" empty
+// state (rendered only once the modal is closed) is checked after an
+// explicit Escape rather than immediately after Enter.
 func TestMilestoneList_Enter_NoMatchingCard_LeavesZeroVisibleCards(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.Width = 120
@@ -577,6 +649,12 @@ func TestMilestoneList_Enter_NoMatchingCard_LeavesZeroVisibleCards(t *testing.T)
 	if got := b.filteredCardsForColumn(1); got != 0 {
 		t.Errorf("filteredCardsForColumn(1) = %d, want 0 (no card carries this milestone)", got)
 	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
+	if b.mode != normalMode {
+		t.Fatalf("precondition: expected normalMode after Escape, got %d", b.mode)
+	}
+
 	view := b.View()
 	if !strings.Contains(view, "No matching cards") {
 		t.Errorf("View() after filtering to a non-matching milestone should contain %q; got:\n%s", "No matching cards", view)

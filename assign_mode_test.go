@@ -598,8 +598,7 @@ func TestAssignMode_WithGlobalFilter_UsesSelectedCard(t *testing.T) {
 	// Apply a filter that still shows some cards.
 	// Card #1 "Setup CI" has label "infra", card #2 "Data model" has label "design".
 	// Filter by label "design" so only card #2 is shown.
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "design"
+	setActiveFilter(&b, filterByLabel, "design")
 
 	// Reset cursor to 0 (which now points to card #2 "Data model" in filtered view).
 	b.Columns[b.ActiveTab].Cursor = 0

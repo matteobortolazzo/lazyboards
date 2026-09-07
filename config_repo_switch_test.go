@@ -278,8 +278,7 @@ func TestConfigSaved_RepoChange_ClearsPreviousRepoState(t *testing.T) {
 func TestConfigSaved_RepoChange_ClearsSearchAndFilter(t *testing.T) {
 	b, _, _ := newRepoSwitchBoard(t, singleCardBoard("New", 900, "New repo card"))
 	b.searchQuery = "auth"
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "infra"
+	setActiveFilter(&b, filterByLabel, "infra")
 	b.ActiveTab = 2
 
 	m, _ := b.Update(configSavedMsg{provider: "github", repo: "new-owner/new-repo"})
@@ -288,11 +287,11 @@ func TestConfigSaved_RepoChange_ClearsSearchAndFilter(t *testing.T) {
 	if b.searchQuery != "" {
 		t.Errorf("searchQuery = %q after a repo switch, want empty", b.searchQuery)
 	}
-	if b.activeFilterType != filterTypeNone {
-		t.Errorf("activeFilterType = %d after a repo switch, want %d (none) -- the old repo's labels do not exist in the new one", b.activeFilterType, filterTypeNone)
+	if b.hasActiveFilters() {
+		t.Errorf("hasActiveFilters() = true after a repo switch, want false -- the old repo's labels do not exist in the new one")
 	}
-	if b.activeFilterValue != "" {
-		t.Errorf("activeFilterValue = %q after a repo switch, want empty", b.activeFilterValue)
+	if filterCount(&b) != 0 {
+		t.Errorf("filterCount = %d after a repo switch, want 0", filterCount(&b))
 	}
 	if b.ActiveTab != 0 {
 		t.Errorf("ActiveTab = %d after a repo switch, want 0", b.ActiveTab)

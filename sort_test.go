@@ -193,8 +193,7 @@ func TestNormalMode_S_PreservesCursorIdentity_Filtered(t *testing.T) {
 		{Number: 3, Title: "Bug new", Labels: []provider.Label{{Name: "bug"}}, CreatedAt: sortTestNewer},
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	// Filtered, oldest-first: [#1, #3]. Move cursor to filtered index 1 (card #3).
 	b = sendKey(t, b, keyMsg("j"))
 	visible := b.visibleCards()
@@ -261,8 +260,7 @@ func TestBackgroundRefresh_WithSort_FilteredResetsCursorToZero(t *testing.T) {
 		{Number: 3, Title: "Bug new", Labels: []provider.Label{{Name: "bug"}}, CreatedAt: sortTestNewer},
 	}
 	b := newBoardWithInlineCards(t, cards, 120, 40)
-	b.activeFilterType = filterByLabel
-	b.activeFilterValue = "bug"
+	setActiveFilter(&b, filterByLabel, "bug")
 	b = sendKey(t, b, keyMsg("j"))
 	if b.Columns[0].Cursor != 1 {
 		t.Fatalf("precondition: cursor = %d, want 1", b.Columns[0].Cursor)
