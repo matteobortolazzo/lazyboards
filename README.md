@@ -14,6 +14,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Card creation via modal form with label and assignee fields
 - Assign and unassign collaborators to cards
 - Search cards by title, label, or number (`#637` and `637` are equivalent) and filter by label, assignee, or milestone; a match also surfaces that card's parent and sub-issues (one hop, board-loaded relatives only)
+- Active filter selections are always visible in the status bar via a `⚑` segment (see [Filter Segment](#filter-segment))
 - PR linking with picker modal
 - Milestones modal: every open milestone in the repository with progress bar, counts, and due date, `Enter` to filter the board by milestone (`m`)
 - Custom actions: open URLs or run shell commands bound to any key (not just Shift+key — see [Keymaps](#keymaps)) or multi-key sequences (neovim-style prefix keys), with column cleanup on departure — run a command in the background, in the [foreground](#terminal-actions) so you can watch it, or in a [tmux window](#window-actions) of its own
@@ -509,6 +510,12 @@ When the cenci-watch daemon reports the background dispatch loop enabled, the st
 
 Set `LAZYBOARDS_DEBUG_LOG=<path>` to append watcher connection errors (including tolerated blips) to a file at `<path>`, one timestamped line per error — useful for diagnosing daemon connectivity issues. Unset (the default), this is a complete no-op: no file is created and there's no overhead.
 
+### Filter Segment
+
+When at least one [filter](#filter) selection is active, the status bar shows a `⚑` segment, left of the dispatch and git segments (leftmost in the tail — before dispatch, before git). Its full form names the first selection, e.g. `⚑ bug`, appending ` +N` for each additional selection (omitted at exactly one selection, e.g. two selections renders `⚑ bug +1`). When the full form doesn't fit, it degrades to a compact `⚑ <total>` form showing just the selection count. It renders nothing at all when no filter is active.
+
+Under width contention, the status bar's tail segments degrade in this order: drop the dispatch segment first, then degrade the filter segment from its full named form to the compact form, then drop the git segment.
+
 ### Crash Reports
 
 If lazyboards panics, the stack trace is normally printed to stderr as the terminal is restored — where the altscreen switch tends to wipe it before you can read it. To make crashes diagnosable, lazyboards also appends each panic (timestamp, call site, panic value, and full stack trace) to `~/.config/lazyboards/crash.log`, alongside your config. This is always on and needs no configuration; the file and its parent directory are created on demand at crash time, so nothing is written during normal operation. After a crash, attach the latest entry from that file when reporting the issue.
@@ -843,6 +850,9 @@ clears it. `enter` toggles the selection on/off for the row under the cursor,
 re-applying the filter to the board immediately and leaving the modal open;
 selected rows show a `*` prefix. `c` clears every selection at once (also
 leaving the modal open).
+
+The active selection set is always visible in the status bar — see [Filter
+Segment](#filter-segment).
 
 | Key | Command | Action |
 |-----|---------|--------|
