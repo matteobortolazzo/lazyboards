@@ -17,7 +17,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"syscall"
 )
 
 // snapshotMaxBytes bounds the size of a single StateSnapshot JSON line so a
@@ -144,7 +143,9 @@ func tmpTierDir() string {
 // exist as a real directory (never a symlink, which is not followed), be owned
 // by the current user, and not be group/other-writable. A directory failing any
 // of these could let a local attacker plant a socket that the board would then
-// trust as the daemon, so such a tier is skipped instead of dialed.
+// trust as the daemon, so such a tier is skipped instead of dialed. The
+// ownership test is platform-split (dirowner_unix.go / dirowner_windows.go),
+// since Windows has no uid to compare against.
 func secureSocketDir(dir string) bool {
 	info, err := os.Lstat(dir)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
@@ -153,8 +154,7 @@ func secureSocketDir(dir string) bool {
 	if info.Mode().Perm()&0022 != 0 {
 		return false
 	}
-	st, ok := info.Sys().(*syscall.Stat_t)
-	return ok && int(st.Uid) == os.Getuid()
+	return dirOwnedByCurrentUser(info)
 }
 
 // isSocket reports whether path exists and is a unix socket, so a stale
