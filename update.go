@@ -624,14 +624,17 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if b.refreshing {
-		// Preserve ActiveTab and cursor position by card Number (only used when no filter active).
-		savedTab := b.ActiveTab
+		// Preserve the selected card (by Number) and the active column's
+		// scroll offset. The cursor indexes visibleCards() -- the
+		// filter/search-aware list -- so the selection is resolved through
+		// it on both sides of the swap, never through the raw col.Cards.
 		savedNumber := -1
-		if !b.hasActiveFilters() && savedTab < len(b.Columns) {
-			oldCol := b.Columns[savedTab]
-			if len(oldCol.Cards) > 0 && oldCol.Cursor < len(oldCol.Cards) {
-				savedNumber = oldCol.Cards[oldCol.Cursor].Number
-			}
+		savedCursor := 0
+		savedScroll := 0
+		if len(b.visibleCards()) > 0 {
+			savedNumber = b.selectedCard().Number
+			savedCursor = b.Columns[b.ActiveTab].Cursor
+			savedScroll = b.Columns[b.ActiveTab].ScrollOffset
 		}
 
 		b.Columns = cols
@@ -654,37 +657,32 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		// -- otherwise every periodic/manual refresh yanks a reader back to
 		// the top of the card they're in the middle of reading.
 		sameCardSelected := false
-		if b.hasActiveFilters() {
-			// When filter is active, reset cursor and scroll to top for all columns.
-			for i := range b.Columns {
-				b.Columns[i].Cursor = 0
-				b.Columns[i].ScrollOffset = 0
-			}
-		} else {
-			// Restore cursor by card Number in the active column.
-			if b.ActiveTab < len(b.Columns) {
-				col := &b.Columns[b.ActiveTab]
-				found := false
-				if savedNumber >= 0 {
-					for i, card := range col.Cards {
-						if card.Number == savedNumber {
-							col.Cursor = i
-							found = true
-							break
-						}
-					}
-				}
-				sameCardSelected = found
-				if !found {
-					// Clamp cursor to valid range.
-					if col.Cursor >= len(col.Cards) {
-						col.Cursor = len(col.Cards) - 1
-						if col.Cursor < 0 {
-							col.Cursor = 0
-						}
+		if b.ActiveTab < len(b.Columns) {
+			col := &b.Columns[b.ActiveTab]
+			cards := b.visibleCards()
+			if savedNumber >= 0 {
+				for i, card := range cards {
+					if card.Number == savedNumber {
+						col.Cursor = i
+						sameCardSelected = true
+						break
 					}
 				}
 			}
+			if !sameCardSelected {
+				// The selected card left the view (closed, moved column, or
+				// no longer matches): stay at its old position, clamped.
+				col.Cursor = savedCursor
+				if col.Cursor >= len(cards) {
+					col.Cursor = len(cards) - 1
+					if col.Cursor < 0 {
+						col.Cursor = 0
+					}
+				}
+			}
+			// clampScrollOffset below re-validates the restored offset against
+			// the refreshed list, pulling it back if the cursor fell out of view.
+			col.ScrollOffset = savedScroll
 		}
 		if !sameCardSelected {
 			b.detailScrollOffset = 0
