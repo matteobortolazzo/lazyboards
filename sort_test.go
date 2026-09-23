@@ -253,7 +253,7 @@ func TestBackgroundRefresh_WithSort_PreservesCursorIdentity(t *testing.T) {
 	}
 }
 
-func TestBackgroundRefresh_WithSort_FilteredResetsCursorToZero(t *testing.T) {
+func TestBackgroundRefresh_WithSort_FilteredPreservesSelectedCard(t *testing.T) {
 	cards := []provider.Card{
 		{Number: 1, Title: "Bug old", Labels: []provider.Label{{Name: "bug"}}, CreatedAt: sortTestOlder},
 		{Number: 2, Title: "Feature", Labels: []provider.Label{{Name: "feature"}}, CreatedAt: sortTestNewest},
@@ -265,8 +265,12 @@ func TestBackgroundRefresh_WithSort_FilteredResetsCursorToZero(t *testing.T) {
 	if b.Columns[0].Cursor != 1 {
 		t.Fatalf("precondition: cursor = %d, want 1", b.Columns[0].Cursor)
 	}
+	want := b.selectedCard().Number
 
-	m, _ := b.Update(keyMsg("r"))
+	m, cmd := b.Update(keyMsg("r"))
+	if cmd == nil {
+		t.Fatal("refresh key returned a nil cmd, want a fetch")
+	}
 	b = m.(Board)
 
 	fetchMsg := boardFetchedMsg{board: provider.Board{
@@ -277,10 +281,9 @@ func TestBackgroundRefresh_WithSort_FilteredResetsCursorToZero(t *testing.T) {
 	m, _ = b.Update(fetchMsg)
 	b = m.(Board)
 
-	// Existing filtered-refresh reset behavior (docs/list-cursor-invariants.md
-	// / resolved Q&A #1) must still hold when sorting is layered on top.
-	if b.Columns[0].Cursor != 0 {
-		t.Errorf("Cursor = %d after refresh with filter active, want 0 (existing filtered-refresh reset behavior preserved)", b.Columns[0].Cursor)
+	// The re-sort on refresh must not lose the filtered selection.
+	if got := b.selectedCard().Number; got != want {
+		t.Errorf("selected card after sorted, filtered refresh = #%d, want #%d", got, want)
 	}
 }
 

@@ -369,30 +369,140 @@ func TestFilter_PersistsAcrossRefresh(t *testing.T) {
 	}
 }
 
-func TestFilter_CursorResetsToZeroOnRefresh(t *testing.T) {
+func TestFilter_SelectedCardPreservedOnRefresh(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
-	// Set a label filter for "bug" (3 matching cards in Backlog: #1, #3, #5).
+	// "bug" matches #1, #3, #5 in Backlog; two j presses select #5.
 	setActiveFilter(&b, filterByLabel, "bug")
-
-	// Move cursor down within filtered list.
 	b = sendKey(t, b, keyMsg("j"))
 	b = sendKey(t, b, keyMsg("j"))
-	if b.Columns[b.ActiveTab].Cursor < 1 {
-		t.Fatalf("precondition: cursor should be > 0 after j navigation, got %d", b.Columns[b.ActiveTab].Cursor)
+	want := b.selectedCard().Number
+	if want != 5 {
+		t.Fatalf("precondition: selected card = #%d, want #5", want)
 	}
 
-	// Simulate a refresh with same data.
 	b = simulateRefreshWithCards(t, b, refreshColumnsWithBugCards())
 
-	// After refresh, cursor and scroll offset should reset to 0 in each column.
-	for i, col := range b.Columns {
-		if col.Cursor != 0 {
-			t.Errorf("column %d (%q): Cursor = %d after refresh, want 0", i, col.Title, col.Cursor)
+	if got := b.selectedCard().Number; got != want {
+		t.Errorf("selected card after refresh = #%d, want #%d (filtered selection must survive a refresh)", got, want)
+	}
+}
+
+func TestFilter_SelectedCardFollowedWhenFilteredPositionShifts(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	setActiveFilter(&b, filterByLabel, "bug")
+	b = sendKey(t, b, keyMsg("j")) // #3
+	if got := b.selectedCard().Number; got != 3 {
+		t.Fatalf("precondition: selected card = #%d, want #3", got)
+	}
+
+	// #1 lost its "bug" label, so #3 moves from filtered index 1 to 0.
+	cols := refreshColumnsWithBugCards()
+	cols[0].Cards[0].Labels = []provider.Label{{Name: "docs"}}
+	b = simulateRefreshWithCards(t, b, cols)
+
+	if got := b.selectedCard().Number; got != 3 {
+		t.Errorf("selected card after refresh = #%d, want #3 (cursor must follow the card, not its old index)", got)
+	}
+}
+
+// filterScrollColumns returns one column of cardCount cards where every
+// even-numbered card carries the "bug" label, so a "bug" filter yields
+// cardCount/2 cards -- enough to overflow a short panel.
+func filterScrollColumns(cardCount int) []provider.Column {
+	cards := make([]provider.Card, cardCount)
+	for i := range cards {
+		label := "docs"
+		if (i+1)%2 == 0 {
+			label = "bug"
 		}
-		if col.ScrollOffset != 0 {
-			t.Errorf("column %d (%q): ScrollOffset = %d after refresh, want 0", i, col.Title, col.ScrollOffset)
-		}
+		cards[i] = provider.Card{Number: i + 1, Title: fmt.Sprintf("Card %d", i+1), Labels: []provider.Label{{Name: label}}}
+	}
+	return []provider.Column{{Title: "Backlog", Cards: cards}}
+}
+
+func TestFilter_ScrollOffsetPreservedOnRefresh(t *testing.T) {
+	cols := filterScrollColumns(60)
+	b := newTestBoard(t)
+	m, _ := b.Update(boardFetchedMsg{board: provider.Board{Columns: cols}})
+	b = m.(Board)
+	b.Width = 120
+	b.Height = 15
+
+	setActiveFilter(&b, filterByLabel, "bug")
+	filtered := len(b.filteredCards())
+	// Scroll to the bottom, then back up a few rows so the cursor sits at
+	// the top of the viewport -- a scroll offset that re-deriving from the
+	// cursor alone would not reproduce.
+	for i := 0; i < filtered-1; i++ {
+		b = sendKey(t, b, keyMsg("j"))
+	}
+	for i := 0; i < 5; i++ {
+		b = sendKey(t, b, keyMsg("k"))
+	}
+	before := b.Columns[b.ActiveTab]
+	if before.ScrollOffset == 0 {
+		t.Fatalf("precondition: ScrollOffset = 0, want > 0 after scrolling a %d-card filtered list", filtered)
+	}
+	wantCard := b.selectedCard().Number
+
+	b = simulateRefreshWithCards(t, b, cols)
+
+	after := b.Columns[b.ActiveTab]
+	if after.ScrollOffset != before.ScrollOffset {
+		t.Errorf("ScrollOffset after refresh = %d, want %d (unchanged)", after.ScrollOffset, before.ScrollOffset)
+	}
+	if got := b.selectedCard().Number; got != wantCard {
+		t.Errorf("selected card after refresh = #%d, want #%d", got, wantCard)
+	}
+}
+
+func TestSearch_SelectedCardPreservedOnRefresh(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	// "bug" by title matches #1 "Bug fix", #3 "Another bug", #5 "Specific bug".
+	b.searchQuery = "bug"
+	b = sendKey(t, b, keyMsg("j"))
+	if got := b.selectedCard().Number; got != 3 {
+		t.Fatalf("precondition: selected card = #%d, want #3", got)
+	}
+
+	// #1 stops matching, so #3 moves from search-result index 1 to 0; the
+	// cursor indexes the search results, not the column's raw card list.
+	cols := refreshColumnsWithBugCards()
+	cols[0].Cards[0].Title = "Fixed"
+	cols[0].Cards[0].Labels = nil
+	b = simulateRefreshWithCards(t, b, cols)
+
+	if got := b.selectedCard().Number; got != 3 {
+		t.Errorf("selected card after refresh with active search = #%d, want #3", got)
+	}
+}
+
+func TestFilter_CursorKeepsPositionWhenSelectedCardLeavesView(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+
+	// "bug" matches #1, #3, #5 in Backlog; one j press selects #3.
+	setActiveFilter(&b, filterByLabel, "bug")
+	b = sendKey(t, b, keyMsg("j"))
+	wantCursor := b.Columns[b.ActiveTab].Cursor
+	if got := b.selectedCard().Number; got != 3 {
+		t.Fatalf("precondition: selected card = #%d, want #3", got)
+	}
+
+	// #3 moved to another column, so the filtered Backlog is now #1, #5.
+	cols := refreshColumnsWithBugCards()
+	moved := cols[0].Cards[2]
+	cols[0].Cards = append(cols[0].Cards[:2], cols[0].Cards[3:]...)
+	cols[1].Cards = append(cols[1].Cards, moved)
+	b = simulateRefreshWithCards(t, b, cols)
+
+	if got := b.Columns[b.ActiveTab].Cursor; got != wantCursor {
+		t.Errorf("cursor after refresh = %d, want %d (stay at the departed card's position, not jump to the top)", got, wantCursor)
+	}
+	if got := b.selectedCard().Number; got != 5 {
+		t.Errorf("selected card after refresh = #%d, want #5 (the card that slid into the departed one's slot)", got)
 	}
 }
 
