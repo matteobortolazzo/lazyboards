@@ -344,7 +344,7 @@ func TestFilterPersist_CardCreatedClear_RepairsStaleDiskEntryEvenWhenMemoryIsEmp
 func TestFilterPersist_SavingRepoB_LeavesRepoAEntryUnchanged(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.yml")
 	a := newPersistBoardFor(t, path, persistOwner, persistRepo, persistBoardData())
-	a, aItem, _ := openPickerAndToggle(t, a)
+	_, aItem, _ := openPickerAndToggle(t, a)
 	wantA := loadPersistedState(t, path).FiltersFor(persistRepoKey())
 	if len(wantA) == 0 {
 		t.Fatalf("precondition: repo A's toggle of %+v did not persist", aItem)
