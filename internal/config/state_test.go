@@ -101,6 +101,7 @@ func TestUpdateState_LoadState_FiltersRoundTrip(t *testing.T) {
 		{Category: FilterCategoryLabel, Value: "bug"},
 		{Category: FilterCategoryAssignee, Value: "alice"},
 		{Category: FilterCategoryMilestone, Value: "v1.0"},
+		{Category: FilterCategoryHierarchy, Value: "Parents"},
 	}
 
 	if err := UpdateState(path, setFilters(key, want...)); err != nil {

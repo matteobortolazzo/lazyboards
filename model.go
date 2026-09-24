@@ -1664,6 +1664,7 @@ var filterCategories = map[filterType]string{
 	filterByLabel:     config.FilterCategoryLabel,
 	filterByAssignee:  config.FilterCategoryAssignee,
 	filterByMilestone: config.FilterCategoryMilestone,
+	filterByHierarchy: config.FilterCategoryHierarchy,
 }
 
 // filterSetToState converts fs to its on-disk form, in ordered() order so the

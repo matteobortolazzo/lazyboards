@@ -18,6 +18,7 @@ const (
 	FilterCategoryLabel     = "label"
 	FilterCategoryAssignee  = "assignee"
 	FilterCategoryMilestone = "milestone"
+	FilterCategoryHierarchy = "hierarchy"
 )
 
 // FilterSelection is one persisted filter selection: a category and the value
@@ -98,7 +99,7 @@ func parseState(data []byte) (State, error) {
 	for key, sels := range st.Filters {
 		for _, sel := range sels {
 			switch sel.Category {
-			case FilterCategoryLabel, FilterCategoryAssignee, FilterCategoryMilestone:
+			case FilterCategoryLabel, FilterCategoryAssignee, FilterCategoryMilestone, FilterCategoryHierarchy:
 			default:
 				return State{}, fmt.Errorf("filters %q: unknown category %q", key, sel.Category)
 			}

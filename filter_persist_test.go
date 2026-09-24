@@ -166,6 +166,8 @@ func categoryOf(t *testing.T, ft filterType) string {
 		return config.FilterCategoryAssignee
 	case filterByMilestone:
 		return config.FilterCategoryMilestone
+	case filterByHierarchy:
+		return config.FilterCategoryHierarchy
 	}
 	t.Fatalf("no on-disk category for filterType %d", ft)
 	return ""
@@ -585,6 +587,37 @@ func TestFilterPersist_StartupRestore_ActiveBeforeFetchAndAppliedAfter(t *testin
 	}
 	if view := b.View(); !strings.Contains(view, "⚑") {
 		t.Errorf("View() after the first fetch lacks the filter glyph, got:\n%s", view)
+	}
+}
+
+// A Hierarchy row (#663) persists like any other category and survives a
+// restart: the picker toggle writes it, and seedFromState restores it.
+func TestFilterPersist_HierarchyToggle_SavesAndRestores(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.yml")
+	data := persistBoardData()
+	data.Columns[0].Cards[0].SubIssueCount = 2
+	data.Columns[0].Cards[1].ParentNumber = 1
+	b := newPersistBoardFor(t, path, persistOwner, persistRepo, data)
+	b = sendKey(t, b, keyMsg("f"))
+	for b.filterItems[b.filterCursor].itemType != filterByHierarchy {
+		if b.filterCursor >= len(b.filterItems)-1 {
+			t.Fatal("could not reach a hierarchy row")
+		}
+		b = sendKey(t, b, keyMsg("j"))
+	}
+	item := b.filterItems[b.filterCursor]
+
+	_, _ = updateAndRun(t, b, arrowMsg(tea.KeyEnter))
+
+	got := loadPersistedState(t, path).FiltersFor(persistRepoKey())
+	want := []config.FilterSelection{{Category: config.FilterCategoryHierarchy, Value: item.value}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("persisted filters = %+v, want %+v", got, want)
+	}
+
+	restored := seedFromState(newUnloadedPersistBoard(persistOwner, persistRepo, path), config.Config{}, loadPersistedState(t, path))
+	if !hasFilter(&restored, filterByHierarchy, item.value) {
+		t.Errorf("filters = %+v after restart, want the hierarchy row %q active", restored.filters, item.value)
 	}
 }
 
