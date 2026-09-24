@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -134,7 +135,8 @@ func TestSortOrderSaveErrorCmd_ReportsUnwritablePath(t *testing.T) {
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	cmd := saveSortOrderCmd(filepath.Join(file, "state.yml"), true)
+	seq := newTestBoard(t).stateSaves
+	cmd := saveSortOrderCmd(filepath.Join(file, "state.yml"), seq, seq.ticket(sortOrderGateKey), true)
 	if cmd == nil {
 		t.Fatal("saveSortOrderCmd() returned nil, want a cmd")
 	}
@@ -148,7 +150,8 @@ func TestSortOrderSaveErrorCmd_ReportsUnwritablePath(t *testing.T) {
 func TestSaveSortOrderCmd_SuccessReportsSavedMsg(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.yml")
 
-	msg := saveSortOrderCmd(path, false)()
+	seq := newTestBoard(t).stateSaves
+	msg := saveSortOrderCmd(path, seq, seq.ticket(sortOrderGateKey), false)()
 
 	if _, ok := msg.(sortOrderSavedMsg); !ok {
 		t.Fatalf("saveSortOrderCmd() msg = %T, want sortOrderSavedMsg", msg)
@@ -159,6 +162,65 @@ func TestSaveSortOrderCmd_SuccessReportsSavedMsg(t *testing.T) {
 	}
 	if st.SortOrder != config.SortOrderOldest {
 		t.Errorf("persisted sort_order = %q, want %q", st.SortOrder, config.SortOrderOldest)
+	}
+}
+
+// Toggling the sort order must only touch sort_order: an existing filters
+// entry (any repo's) has to survive the save (#664).
+func TestSaveSortOrderCmd_KeepsExistingFiltersEntry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.yml")
+	key := config.FilterRepoKey("github", "acme", "widgets")
+	saved := []config.FilterSelection{{Category: config.FilterCategoryLabel, Value: "bug"}}
+	err := config.UpdateState(path, func(st *config.State) bool {
+		st.Filters = map[string][]config.FilterSelection{key: saved}
+		return true
+	})
+	if err != nil {
+		t.Fatalf("seeding filters: %v", err)
+	}
+
+	seq := newTestBoard(t).stateSaves
+	msg := saveSortOrderCmd(path, seq, seq.ticket(sortOrderGateKey), true)()
+
+	if _, ok := msg.(sortOrderSavedMsg); !ok {
+		t.Fatalf("saveSortOrderCmd() msg = %T, want sortOrderSavedMsg", msg)
+	}
+	st, err := config.LoadState(path)
+	if err != nil {
+		t.Fatalf("LoadState() returned error: %v", err)
+	}
+	if st.SortOrder != config.SortOrderNewest {
+		t.Errorf("persisted sort_order = %q, want %q", st.SortOrder, config.SortOrderNewest)
+	}
+	if got := st.FiltersFor(key); !slices.Equal(got, saved) {
+		t.Errorf("filters = %+v after a sort save, want %+v kept", got, saved)
+	}
+}
+
+// BubbleTea runs Cmds concurrently, so an older save's Cmd can execute after a
+// newer one's. The generation gate must keep the newer snapshot on disk. Only
+// a direct Cmd call can force this order: Update always issues gens in order.
+func TestSaveSortOrderCmd_OutOfOrderGenerationsKeepNewest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.yml")
+	seq := newTestBoard(t).stateSaves
+	older := seq.ticket(sortOrderGateKey)
+	newer := seq.ticket(sortOrderGateKey)
+
+	newerMsg := saveSortOrderCmd(path, seq, newer, true)()
+	olderMsg := saveSortOrderCmd(path, seq, older, false)()
+
+	if _, ok := newerMsg.(sortOrderSavedMsg); !ok {
+		t.Fatalf("newer save msg = %T, want sortOrderSavedMsg", newerMsg)
+	}
+	if _, ok := olderMsg.(sortOrderSaveErrorMsg); ok {
+		t.Errorf("superseded save reported %T, want it dropped silently (not an error)", olderMsg)
+	}
+	st, err := config.LoadState(path)
+	if err != nil {
+		t.Fatalf("LoadState() returned error: %v", err)
+	}
+	if st.SortOrder != config.SortOrderNewest {
+		t.Errorf("persisted sort_order = %q, want %q (the newer generation must win)", st.SortOrder, config.SortOrderNewest)
 	}
 }
 

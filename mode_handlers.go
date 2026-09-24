@@ -385,7 +385,7 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		if b.statePath == "" {
 			return b, nil
 		}
-		return b, saveSortOrderCmd(b.statePath, b.sortNewestFirst)
+		return b, saveSortOrderCmd(b.statePath, b.stateSaves, b.stateSaves.ticket(sortOrderGateKey), b.sortNewestFirst)
 	}
 	return b, nil
 }
@@ -447,14 +447,14 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// shrink under the cursor), so filterCursor needs no adjustment.
 			if b.filterCursor < len(b.filterItems) && !b.filterItems[b.filterCursor].isHeader {
 				item := b.filterItems[b.filterCursor]
-				b.toggleFilter(item.itemType, item.value)
+				return b, b.toggleFilter(item.itemType, item.value)
 			}
 			return b, nil
 		case keymap.CommandFilterClearAll:
-			b.clearFilter()
+			saveCmd := b.clearFilter()
 			b.clampScrollOffset()
 			cmd := b.statusBar.SetTimedMessage("Filters cleared", StatusSuccess, statusMessageDuration)
-			return b, cmd
+			return b, tea.Batch(cmd, saveCmd)
 		case keymap.CommandFilterNext:
 			b.filterMoveDown()
 		case keymap.CommandFilterPrev:
@@ -810,7 +810,7 @@ func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m := b.milestoneList.entries[b.milestoneList.cursor]
 			wasSelected := b.filters.contains(filterByMilestone, m.Title)
-			b.toggleFilter(filterByMilestone, m.Title)
+			saveCmd := b.toggleFilter(filterByMilestone, m.Title)
 			title := truncateCell(sanitizeSingleLine(m.Title), milestoneStatusTitleMaxLen)
 			var msg string
 			if wasSelected {
@@ -819,7 +819,7 @@ func (b Board) handleMilestoneListModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				msg = fmt.Sprintf("Filtered by milestone: %s", title)
 			}
 			cmd := b.statusBar.SetTimedMessage(msg, StatusSuccess, statusMessageDuration)
-			return b, cmd
+			return b, tea.Batch(cmd, saveCmd)
 		case keymap.CommandMilestoneListNext:
 			b.milestoneList.cursor = moveCursor(b.milestoneList.cursor, len(b.milestoneList.entries), true)
 		case keymap.CommandMilestoneListPrev:

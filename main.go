@@ -198,6 +198,19 @@ func trustConfirmEntry(cfg config.Config, trust config.Trust, identity string) (
 	return trustConfirmState{hash: cfg.LocalHash, identity: identity, note: entry.Note}, true
 }
 
+// seedFromState applies persisted runtime state to a freshly built board
+// (#503, #664): the sort direction (persisted choice, then cfg's sort_order,
+// then the built-in default) and the tracked repository's saved filters. The
+// repo key comes from the board's own provider/owner/repo -- the repository it
+// actually tracks -- and cfg only supplies the sort default. It is the single
+// decision function main() calls and tests call directly, like
+// trustConfirmEntry. Restoring never saves.
+func seedFromState(board Board, cfg config.Config, state config.State) Board {
+	board.sortNewestFirst = config.ResolveSortNewestFirst(cfg, state)
+	board.restoreSavedFilters(state.FiltersFor(board.repoStateKey()))
+	return board
+}
+
 func main() {
 	if versionRequested(os.Args) {
 		fmt.Printf("lazyboards %s\n", appVersion())
@@ -458,14 +471,14 @@ func main() {
 		board.mode = trustConfirmMode
 		board.trustConfirm = state
 	}
-	// Seed the board-wide card sort direction: a previously toggled direction
-	// (runtime state) wins over the configured default (#503). Cards are
-	// fetched asynchronously, so no sort can run before this assignment.
+	// Seed the board-wide card sort direction and this repository's saved
+	// filters from runtime state (#503, #664). Cards are fetched
+	// asynchronously, so neither can be applied before this seeding.
 	// A missing home dir or an unreadable/corrupt state file must not block
 	// startup — log it and fall back to the configured default.
 	statePath, err := config.DefaultStatePath()
 	if err != nil {
-		debuglog.Log(fmt.Sprintf("state: no state path available, sort order will not persist: %v", err))
+		debuglog.Log(fmt.Sprintf("state: no state path available, runtime state will not persist: %v", err))
 	} else {
 		board.statePath = statePath
 	}
@@ -477,7 +490,7 @@ func main() {
 			state = config.State{}
 		}
 	}
-	board.sortNewestFirst = config.ResolveSortNewestFirst(cfg, state)
+	board = seedFromState(board, cfg, state)
 
 	printNotices(os.Stderr, cfg.Notices)
 
