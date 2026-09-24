@@ -1783,3 +1783,157 @@ func TestFilterMode_CollectFilterItems_AssigneesUnaffectedByColumnExclusion(t *t
 		t.Errorf("assignee items = %d, want 2 (alice, bob); assignees should not be affected by column-name exclusion", assigneeCount)
 	}
 }
+
+// hierarchyBoard: Backlog #1 parent, #2 sub-issue (unloaded parent, label bug),
+// #3 parent and sub-issue, #4 standalone, #5 sub-issue labeled "Parents";
+// In Progress #6 parent, #7 standalone.
+func hierarchyBoard(t *testing.T) Board {
+	t.Helper()
+	b := NewBoard(provider.NewFakeProvider(), nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
+	m, cmd := b.Update(boardFetchedMsg{board: provider.Board{Columns: []provider.Column{
+		{Title: "Backlog", Cards: []provider.Card{
+			{Number: 1, Title: "Epic", SubIssueCount: 2},
+			{Number: 2, Title: "Orphan", ParentNumber: 99, Labels: []provider.Label{{Name: "bug"}}},
+			{Number: 3, Title: "Middle", SubIssueCount: 1, ParentNumber: 1},
+			{Number: 4, Title: "Standalone"},
+			{Number: 5, Title: "Task", ParentNumber: 1, Labels: []provider.Label{{Name: "Parents"}}},
+		}},
+		{Title: "In Progress", Cards: []provider.Card{
+			{Number: 6, Title: "Other epic", SubIssueCount: 3, SubIssueCompleted: 3},
+			{Number: 7, Title: "Plain"},
+		}},
+	}}})
+	execCmds(cmd)
+	board := m.(Board)
+	board.Width, board.Height = 120, 40
+	return board
+}
+
+// openFilterPickerOn opens the picker (if closed) and parks the cursor on the row.
+func openFilterPickerOn(t *testing.T, b Board, itemType filterType, value string) Board {
+	t.Helper()
+	if b.mode != filterMode {
+		b = sendKey(t, b, keyMsg("f"))
+	}
+	for i, item := range b.filterItems {
+		if !item.isHeader && item.itemType == itemType && item.value == value {
+			b.filterCursor = i
+			return b
+		}
+	}
+	t.Fatalf("picker has no row %v/%q; items = %+v", itemType, value, b.filterItems)
+	return b
+}
+
+func TestFilterMode_CollectFilterItems_HierarchySection(t *testing.T) {
+	parent := provider.Card{Number: 1, Title: "P", SubIssueCount: 1, Milestone: "v1", Labels: []provider.Label{{Name: "bug"}}}
+	child := provider.Card{Number: 2, Title: "C", ParentNumber: 1}
+	plain := provider.Card{Number: 3, Title: "S", Labels: []provider.Label{{Name: "bug"}}}
+	cases := []struct {
+		name  string
+		cards []provider.Card
+		want  string
+	}{
+		{"parents only", []provider.Card{parent}, "Labels|Milestones|Hierarchy|Parents"},
+		{"sub-issues only", []provider.Card{child, plain}, "Labels|Hierarchy|Sub-issues"},
+		{"both, fixed order, last", []provider.Card{child, parent}, "Labels|Milestones|Hierarchy|Parents|Sub-issues"},
+		{"neither omits the header", []provider.Card{plain}, "Labels"},
+	}
+	for _, tc := range cases {
+		b := newBoardWithInlineCards(t, tc.cards, 120, 40)
+		var got []string
+		for _, item := range b.collectFilterItems() {
+			if item.isHeader || item.itemType == filterByHierarchy {
+				got = append(got, item.value)
+			}
+		}
+		if strings.Join(got, "|") != tc.want {
+			t.Errorf("%s: sections/rows = %v, want %s", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestFilterMode_CollectFilterItems_HierarchyRowsListedAcrossColumns(t *testing.T) {
+	b := hierarchyBoard(t)
+	b.ActiveTab = 1
+	var got []string
+	for _, item := range b.collectFilterItems() {
+		if item.itemType == filterByHierarchy && !item.isHeader {
+			got = append(got, item.value)
+		}
+	}
+	if want := hierarchyParentsValue + "|" + hierarchySubIssuesValue; strings.Join(got, "|") != want {
+		t.Errorf("hierarchy rows = %v, want %s (sub-issues live only in another column)", got, want)
+	}
+}
+
+func TestFilterMode_HierarchyRow_TogglesInPlaceWithGlyphMarkerAndClearAll(t *testing.T) {
+	parentsRow := subIssueParentGlyph + " " + hierarchyParentsValue
+	subsRow := subIssueChildGlyph + " " + hierarchySubIssuesValue
+	b := openFilterPickerOn(t, hierarchyBoard(t), filterByHierarchy, hierarchyParentsValue)
+	cursor := b.filterCursor
+
+	view := b.viewFilterModal()
+	if !strings.Contains(view, parentsRow) || strings.Index(view, parentsRow) > strings.Index(view, subsRow) {
+		t.Fatalf("want glyph-prefixed Parents row before Sub-issues row; got:\n%s", view)
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	execCmds(cmd)
+	b = m.(Board)
+	if b.mode != filterMode || b.filterCursor != cursor {
+		t.Errorf("after enter: mode=%d cursor=%d, want filterMode and cursor %d", b.mode, b.filterCursor, cursor)
+	}
+	if !b.filters.contains(filterByHierarchy, hierarchyParentsValue) || filterCount(&b) != 1 || b.totalFilteredCards() != 3 {
+		t.Errorf("filters = %+v, total = %d, want only Parents and 3 parent cards", b.filters, b.totalFilteredCards())
+	}
+	view = b.viewFilterModal()
+	if !strings.Contains(findLineContaining(t, view, parentsRow), "* "+parentsRow) {
+		t.Errorf("selected Parents row want '* ' before the glyph; got:\n%s", view)
+	}
+	if seg := b.statusBar.filterStatus; !strings.Contains(seg, hierarchyParentsValue) || strings.Contains(seg, subIssueParentGlyph) {
+		t.Errorf("status-bar segment = %q, want the plain label %q without the card glyph", seg, hierarchyParentsValue)
+	}
+
+	setActiveFilters(&b,
+		filterSelection{itemType: filterByHierarchy, value: hierarchySubIssuesValue},
+		filterSelection{itemType: filterByLabel, value: "bug"})
+	m, cmd = b.Update(keyMsg("c"))
+	b = m.(Board)
+	if b.hasActiveFilters() || b.mode != filterMode || cmd == nil {
+		t.Errorf("after 'c': filters = %+v, mode = %d, cmd nil = %v; want cleared, modal open, message cmd", b.filters, b.mode, cmd == nil)
+	}
+}
+
+func TestFilterMode_FKeyOpensPickerWhenOnlyHierarchyRowsExist(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "P", SubIssueCount: 1},
+		{Number: 2, Title: "C", ParentNumber: 1},
+	}, 120, 40)
+
+	m, cmd := b.Update(keyMsg("f"))
+	execCmds(cmd)
+	board := m.(Board)
+	if board.mode != filterMode || len(board.filterItems) != 3 {
+		t.Errorf("mode = %d, items = %d; want filterMode with header + 2 Hierarchy rows", board.mode, len(board.filterItems))
+	}
+}
+
+func TestFilterMode_LabelNamedParents_IsIndependentOfHierarchyParentsRow(t *testing.T) {
+	b := openFilterPickerOn(t, hierarchyBoard(t), filterByLabel, "Parents")
+	hierarchyLine := subIssueParentGlyph + " " + hierarchyParentsValue
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if !b.filters.contains(filterByLabel, "Parents") || b.filters.contains(filterByHierarchy, hierarchyParentsValue) {
+		t.Fatalf("toggling the label row: filters = %+v, want only the label selection", b.filters)
+	}
+	if strings.Contains(findLineContaining(t, b.viewFilterModal(), hierarchyLine), "*") {
+		t.Errorf("Hierarchy Parents row must not be marked by a label named Parents")
+	}
+
+	b = openFilterPickerOn(t, b, filterByHierarchy, hierarchyParentsValue)
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if !b.filters.contains(filterByLabel, "Parents") || !b.filters.contains(filterByHierarchy, hierarchyParentsValue) || filterCount(&b) != 2 {
+		t.Errorf("filters = %+v, want label and Hierarchy selections as separate entries", b.filters)
+	}
+}

@@ -433,3 +433,42 @@ func TestFilterSet_PreUpdateSnapshotUnaffectedByLaterMutation(t *testing.T) {
 		t.Errorf("pre-Update snapshot of b.filters was mutated in place: got %+v, want %+v", before, want)
 	}
 }
+
+func TestFilterSet_Hierarchy_TruthTable(t *testing.T) {
+	cards := []Card{
+		{Number: 1, SubIssueCount: 2},
+		{Number: 2, ParentNumber: 99},
+		{Number: 3, SubIssueCount: 1, ParentNumber: 1},
+		{Number: 4, Labels: []Label{{Name: "bug"}}},
+		{Number: 5, ParentNumber: 1, Labels: []Label{{Name: "Parents"}}},
+	}
+	hier := func(v string) filterSelection { return filterSelection{itemType: filterByHierarchy, value: v} }
+	bug := filterSelection{itemType: filterByLabel, value: "bug"}
+	labelParents := filterSelection{itemType: filterByLabel, value: "Parents"}
+	cases := []struct {
+		name string
+		fs   filterSet
+		want []int
+	}{
+		{"parents only", filterSet{hier(hierarchyParentsValue)}, []int{1, 3}},
+		{"sub-issues only", filterSet{hier(hierarchySubIssuesValue)}, []int{2, 3, 5}},
+		{"both rows are OR", filterSet{hier(hierarchyParentsValue), hier(hierarchySubIssuesValue)}, []int{1, 2, 3, 5}},
+		{"hierarchy AND label", filterSet{hier(hierarchySubIssuesValue), labelParents}, []int{5}},
+		{"parents AND label with no overlap", filterSet{hier(hierarchyParentsValue), bug}, nil},
+		{"label named Parents never matches the Parents row", filterSet{labelParents}, []int{5}},
+		{"case-insensitive value", filterSet{hier("sub-ISSUES")}, []int{2, 3, 5}},
+		{"empty value matches nothing", filterSet{hier("")}, nil},
+		{"unknown value matches nothing", filterSet{hier("Orphans")}, nil},
+	}
+	for _, tc := range cases {
+		var got []int
+		for _, c := range cards {
+			if tc.fs.matches(c) {
+				got = append(got, c.Number)
+			}
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s: matched cards %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

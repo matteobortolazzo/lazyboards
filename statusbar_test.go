@@ -2000,3 +2000,32 @@ func TestStatusBar_TailPriority_HigherPriorityCandidateWinsOverFullerHints(t *te
 		t.Errorf("View(%d) = %q, want the ellipsis truncation indicator present", width, view)
 	}
 }
+
+func TestFormatFilterSegment_Hierarchy_PlainLabelsOrderedAfterOtherCategories(t *testing.T) {
+	parents := filterSelection{itemType: filterByHierarchy, value: hierarchyParentsValue}
+	subs := filterSelection{itemType: filterByHierarchy, value: hierarchySubIssuesValue}
+	cases := []struct {
+		name string
+		fs   filterSet
+		want string // the first-named selection
+	}{
+		{"both rows name Parents first", filterSet{subs, parents}, hierarchyParentsValue},
+		{"label sorts before hierarchy", filterSet{parents, {itemType: filterByLabel, value: "bug"}}, "bug"},
+		{"milestone sorts before hierarchy", filterSet{parents, {itemType: filterByMilestone, value: "v1.0"}}, "v1.0"},
+	}
+	single, singleCompact := formatFilterSegment(filterSet{parents})
+	if !strings.Contains(single, filterGlyph+" "+hierarchyParentsValue) || !strings.Contains(singleCompact, filterGlyph+" 1") {
+		t.Errorf("single selection: full = %q, compact = %q, want %q and the compact count form", single, singleCompact, filterGlyph+" "+hierarchyParentsValue)
+	}
+	for _, tc := range cases {
+		full, compact := formatFilterSegment(tc.fs)
+		if !strings.Contains(full, tc.want) || !strings.Contains(full, "+1") {
+			t.Errorf("%s: full = %q, want it to name %q with a +1 suffix", tc.name, full, tc.want)
+		}
+		for _, glyph := range []string{subIssueParentGlyph, subIssueChildGlyph} {
+			if strings.Contains(full, glyph) || strings.Contains(compact, glyph) {
+				t.Errorf("%s: segment (%q, %q) contains a card glyph, want plain labels", tc.name, full, compact)
+			}
+		}
+	}
+}
