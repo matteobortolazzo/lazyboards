@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1407,5 +1408,54 @@ func TestFilter_TwoCategorySelection_EndToEnd_ANDOfORsCountsAndSegment(t *testin
 	view := b.View()
 	if !strings.Contains(view, "⚑") {
 		t.Errorf("View() = %q, want the filter segment present with a two-category selection active", view)
+	}
+}
+
+func TestFilter_HierarchySelections_ShowExpectedCardsAndCounts(t *testing.T) {
+	parents := filterSelection{itemType: filterByHierarchy, value: hierarchyParentsValue}
+	subs := filterSelection{itemType: filterByHierarchy, value: hierarchySubIssuesValue}
+	cases := []struct {
+		name string
+		sel  []filterSelection
+		want [][]int // card numbers per column
+	}{
+		{"parents only", []filterSelection{parents}, [][]int{{1, 3}, {6}}},
+		{"sub-issues only", []filterSelection{subs}, [][]int{{2, 3, 5}, nil}},
+		{"both, dual-role card once", []filterSelection{parents, subs}, [][]int{{1, 2, 3, 5}, {6}}},
+		{"sub-issues AND label bug", []filterSelection{subs, {itemType: filterByLabel, value: "bug"}}, [][]int{{2}, nil}},
+	}
+	for _, tc := range cases {
+		b := hierarchyBoard(t)
+		setActiveFilters(&b, tc.sel...)
+		counts := b.borderTitleCounts()
+		total := 0
+		for i, want := range tc.want {
+			b.ActiveTab = i
+			var got []int
+			for _, c := range b.visibleCards() {
+				got = append(got, c.Number)
+			}
+			if !slices.Equal(got, want) || counts[i] != len(want) {
+				t.Errorf("%s: column %d visible = %v (count %d), want %v", tc.name, i, got, counts[i], want)
+			}
+			total += len(want)
+		}
+		if b.totalFilteredCards() != total {
+			t.Errorf("%s: totalFilteredCards() = %d, want %d", tc.name, b.totalFilteredCards(), total)
+		}
+	}
+}
+
+func TestFilter_HierarchyActive_SearchNeverReturnsFilteredOutCards(t *testing.T) {
+	b := hierarchyBoard(t)
+	setActiveFilters(&b, filterSelection{itemType: filterByHierarchy, value: hierarchyParentsValue})
+	b.searchQuery = "Task" // matches #5 directly and expands to its parent #1; #5 is not a parent
+
+	var got []int
+	for _, c := range b.filteredCards() {
+		got = append(got, c.Number)
+	}
+	if want := []int{1}; !slices.Equal(got, want) {
+		t.Errorf("filteredCards() = %v, want %v (only the parent pulled in by the search)", got, want)
 	}
 }

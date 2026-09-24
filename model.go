@@ -247,6 +247,14 @@ const (
 	filterByLabel
 	filterByAssignee
 	filterByMilestone
+	filterByHierarchy
+)
+
+// Fixed row values of the Hierarchy filter category. They are app-defined
+// (not card data); the picker adds the card glyph at render time only.
+const (
+	hierarchyParentsValue   = "Parents"
+	hierarchySubIssuesValue = "Sub-issues"
 )
 
 // filterItem represents a single entry in the filter picker list.
@@ -1456,6 +1464,15 @@ func cardMatchesSelection(card Card, sel filterSelection) bool {
 			return false
 		}
 		return strings.EqualFold(card.Milestone, sel.value)
+	case filterByHierarchy:
+		switch {
+		case strings.EqualFold(sel.value, hierarchyParentsValue):
+			return card.SubIssueCount > 0
+		case strings.EqualFold(sel.value, hierarchySubIssuesValue):
+			return card.ParentNumber > 0
+		default:
+			return false
+		}
 	default:
 		return false
 	}
@@ -1770,7 +1787,9 @@ func (b *Board) clearSearch() {
 }
 
 // collectFilterItems scans all columns for unique labels, assignees, and
-// milestones, returning a list of filterItems with section headers.
+// milestones, plus a trailing Hierarchy section (Parents / Sub-issues rows in
+// fixed order, each listed only when a card qualifies), returning a list of
+// filterItems with section headers.
 func (b *Board) collectFilterItems() []filterItem {
 	// Build a set of column titles for exclusion (case-insensitive).
 	columnNames := make(map[string]bool, len(b.Columns))
@@ -1827,7 +1846,20 @@ func (b *Board) collectFilterItems() []filterItem {
 		}
 	}
 
-	if len(labels) == 0 && len(assignees) == 0 && len(milestones) == 0 {
+	// Hierarchy rows are present when any card on the board qualifies.
+	var hasParents, hasSubIssues bool
+	for _, col := range b.Columns {
+		for _, card := range col.Cards {
+			if card.SubIssueCount > 0 {
+				hasParents = true
+			}
+			if card.ParentNumber > 0 {
+				hasSubIssues = true
+			}
+		}
+	}
+
+	if len(labels) == 0 && len(assignees) == 0 && len(milestones) == 0 && !hasParents && !hasSubIssues {
 		return nil
 	}
 
@@ -1855,6 +1887,16 @@ func (b *Board) collectFilterItems() []filterItem {
 		items = append(items, filterItem{isHeader: true, value: "Milestones"})
 		for _, name := range milestones {
 			items = append(items, filterItem{itemType: filterByMilestone, value: name})
+		}
+	}
+
+	if hasParents || hasSubIssues {
+		items = append(items, filterItem{isHeader: true, value: "Hierarchy"})
+		if hasParents {
+			items = append(items, filterItem{itemType: filterByHierarchy, value: hierarchyParentsValue})
+		}
+		if hasSubIssues {
+			items = append(items, filterItem{itemType: filterByHierarchy, value: hierarchySubIssuesValue})
 		}
 	}
 

@@ -659,6 +659,23 @@ const subIssueParentGlyph = "\U000F0645"
 // direction reads as "this points to its parent" at a glance.
 const subIssueChildGlyph = "\U000F17AB"
 
+// hierarchyRowGlyph returns the card glyph shown before a Hierarchy filter
+// row in the picker, or "" for any other row (#663). Render-time only: the
+// stored row value and the status-bar segment stay glyph-free.
+func hierarchyRowGlyph(item filterItem) string {
+	if item.itemType != filterByHierarchy {
+		return ""
+	}
+	switch {
+	case strings.EqualFold(item.value, hierarchyParentsValue):
+		return subIssueParentGlyph
+	case strings.EqualFold(item.value, hierarchySubIssuesValue):
+		return subIssueChildGlyph
+	default:
+		return ""
+	}
+}
+
 // blockedByGlyph marks a card that is blocked by at least one open issue,
 // followed by up to 3 named "#N"/"owner/repo#N" blockers and a "+N"
 // remainder -- e.g. "󰂭 #1 #2 #3 +2" (#631, PR 1/2).
@@ -1529,6 +1546,9 @@ func (b Board) viewFilterModal() string {
 			prefix = "* "
 		}
 		display := prefix + sanitizeSingleLine(item.value)
+		if glyph := hierarchyRowGlyph(item); glyph != "" {
+			display = prefix + glyph + " " + sanitizeSingleLine(item.value)
+		}
 		display = selectedRowStyle(display, i == b.filterCursor)
 		lines = append(lines, display)
 	}
