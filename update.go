@@ -197,6 +197,17 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			fmt.Sprintf("Could not save sort order: %s", provider.SanitizeError(msg.err)),
 			StatusError, statusMessageDuration)
 
+	case filtersSavedMsg:
+		// Like sortOrderSavedMsg: bookkeeping, silent on success.
+		return b, nil
+
+	case filtersSaveErrorMsg:
+		// The in-memory filters are untouched; only the "remember this" half
+		// failed.
+		return b, b.statusBar.SetTimedMessage(
+			"Could not save filters: "+sanitizeSingleLine(provider.SanitizeError(msg.err)),
+			StatusError, statusMessageDuration)
+
 	case actionResultMsg:
 		level := StatusSuccess
 		if !msg.success {
@@ -498,6 +509,10 @@ func (b Board) handleConfigSaved(msg configSavedMsg) (tea.Model, tea.Cmd) {
 	b.repoOwner = owner
 	b.repoName = name
 	b.resetRepoScopedState()
+	// Restore the new repository's saved filters (#664). resetRepoScopedState
+	// stays an in-memory reset that never saves, so the previous repository's
+	// entry is untouched; the restore never saves either.
+	b.restoreSavedFilters(msg.savedFilters)
 	b.mode = loadingMode
 	return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 }
@@ -743,12 +758,13 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	b.rebuildNormalHints()
 	b.statusBar.SetActionHints(b.normalHints)
-	if b.loaded {
-		if b.hasActiveFilters() && b.totalFilteredCards() == 0 {
-			cmd = b.statusBar.SetTimedMessage(b.filterNoMatchesMessage(), StatusWarning, statusMessageDuration)
-		} else {
-			cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
-		}
+	// A restored filter (#664) can match nothing on the very first fetch, so
+	// the no-matches warning is shown then too; "Board refreshed" stays
+	// reserved for refreshes of an already-loaded board.
+	if b.hasActiveFilters() && b.totalFilteredCards() == 0 {
+		cmd = b.statusBar.SetTimedMessage(b.filterNoMatchesMessage(), StatusWarning, statusMessageDuration)
+	} else if b.loaded {
+		cmd = b.statusBar.SetTimedMessage("Board refreshed", StatusSuccess, statusMessageDuration)
 	}
 	if b.cleanupBreakerWarning != "" {
 		// Applied after the refreshed/filter message above so it isn't
@@ -1104,7 +1120,7 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 	// docs/list-cursor-invariants.md).
 	b.ActiveTab = targetCol
 	b.clearSearch()
-	b.clearFilter()
+	clearSaveCmd := b.clearFilter()
 	col := &b.Columns[targetCol]
 	col.Cursor = 0
 	for i, c := range col.Cards {
@@ -1123,7 +1139,7 @@ func (b Board) handleCardCreated(msg cardCreatedMsg) (tea.Model, tea.Cmd) {
 		)
 		b.create.pendingAssignee = ""
 	}
-	return b, cmd
+	return b, tea.Batch(cmd, clearSaveCmd)
 }
 
 func (b Board) handleEditorFinished(msg editorFinishedMsg) (tea.Model, tea.Cmd) {

@@ -408,6 +408,10 @@ type gitStatusTickMsg struct{}
 type configSavedMsg struct {
 	provider string
 	repo     string
+	// savedFilters is the target repository's persisted filter set, read from
+	// the runtime-state file by saveConfigCmd so handleConfigSaved can restore
+	// it on a repo switch without doing disk I/O in Update (#664).
+	savedFilters []config.FilterSelection
 }
 
 // configSaveErrorMsg is sent when saving a config file fails.
@@ -419,6 +423,13 @@ type sortOrderSavedMsg struct{}
 
 // sortOrderSaveErrorMsg is sent when persisting the sort direction fails.
 type sortOrderSaveErrorMsg struct{ err error }
+
+// filtersSavedMsg is sent when the active filter set has been persisted to the
+// runtime-state file successfully (or a newer save superseded it). It is silent.
+type filtersSavedMsg struct{}
+
+// filtersSaveErrorMsg is sent when persisting the active filter set fails.
+type filtersSaveErrorMsg struct{ err error }
 
 // prevCardInfo stores a card's column position and metadata for departure detection.
 type prevCardInfo struct {
@@ -932,6 +943,10 @@ type Board struct {
 	// direction to (config.DefaultStatePath, #503). Empty means "nowhere to
 	// save": toggling still works, it just won't survive a restart.
 	statePath string
+	// stateSaves orders this process's runtime-state saves (sort direction and
+	// per-repo filters, #664). A pointer allocated in NewBoard so every Board
+	// copy shares one sequence, like keys.
+	stateSaves *stateSaveSeq
 	// trustPath is the resolved trust-store file path (config.DefaultTrustPath,
 	// #568), threaded into saveConfigCmd so an in-app config Save() carries
 	// trust forward across the local config file rewrite (config.Save's
@@ -1012,6 +1027,7 @@ func NewBoard(p provider.BoardProvider, defaultActions map[string]config.Action,
 
 	b := Board{
 		mode:               loadingMode,
+		stateSaves:         newStateSaveSeq(),
 		provider:           p,
 		spinner:            s,
 		defaultActions:     defaultActions,
@@ -1633,15 +1649,84 @@ func (b *Board) clampAfterFilterChange() {
 // b.filters (#653) and clamps the active column's cursor/scroll via
 // clampAfterFilterChange -- the surviving choke point after applyFilter's
 // deletion (its replace-the-whole-set semantics have zero production callers
-// once every entry point toggles).
-func (b *Board) toggleFilter(itemType filterType, value string) {
+// once every entry point toggles). It returns the Cmd that persists the new
+// set (#664), nil when there is nothing to persist to.
+func (b *Board) toggleFilter(itemType filterType, value string) tea.Cmd {
 	b.filters = b.filters.toggled(filterSelection{itemType: itemType, value: value})
+	b.clampAfterFilterChange()
+	b.refreshFilterStatus()
+	return b.filterSaveCmd()
+}
+
+// filterCategories maps each persistable filterType to its on-disk category
+// string. Written out explicitly so the filterType integers never reach disk.
+var filterCategories = map[filterType]string{
+	filterByLabel:     config.FilterCategoryLabel,
+	filterByAssignee:  config.FilterCategoryAssignee,
+	filterByMilestone: config.FilterCategoryMilestone,
+}
+
+// filterSetToState converts fs to its on-disk form, in ordered() order so the
+// file content is deterministic. A selection with no on-disk category is
+// dropped.
+func filterSetToState(fs filterSet) []config.FilterSelection {
+	var out []config.FilterSelection
+	for _, sel := range fs.ordered() {
+		category, ok := filterCategories[sel.itemType]
+		if !ok {
+			continue
+		}
+		out = append(out, config.FilterSelection{Category: category, Value: sel.value})
+	}
+	return out
+}
+
+// filterSetFromState converts persisted selections back to a filterSet,
+// keeping every value exactly as saved. Unknown categories cannot occur
+// (config.LoadState rejects them) but are skipped defensively.
+func filterSetFromState(sels []config.FilterSelection) filterSet {
+	var fs filterSet
+	for _, sel := range sels {
+		for ft, category := range filterCategories {
+			if category == sel.Category {
+				fs = append(fs, filterSelection{itemType: ft, value: sel.Value})
+			}
+		}
+	}
+	return fs
+}
+
+// repoStateKey is the state-file key for the repository this board tracks, ""
+// when it has no repo identity.
+func (b *Board) repoStateKey() string {
+	return config.FilterRepoKey(b.providerName, b.repoOwner, b.repoName)
+}
+
+// filterSaveCmd returns the Cmd that persists the current filter set for the
+// tracked repository (#664), or nil when there is no state path or no repo
+// identity (filters then last for the session only). The set and key are
+// captured now, so a save in flight when the repo changes still writes the
+// repo it was issued for.
+func (b *Board) filterSaveCmd() tea.Cmd {
+	key := b.repoStateKey()
+	if b.statePath == "" || key == "" {
+		return nil
+	}
+	return saveFiltersCmd(b.statePath, b.stateSaves, b.stateSaves.ticket(filtersGateKey(key)), key, filterSetToState(b.filters))
+}
+
+// restoreSavedFilters replaces b.filters with a persisted set (startup and
+// repo-switch restore). It never saves: restoring is not a user change, and a
+// saved selection no card carries is kept exactly as saved.
+func (b *Board) restoreSavedFilters(sels []config.FilterSelection) {
+	b.filters = filterSetFromState(sels)
 	b.clampAfterFilterChange()
 	b.refreshFilterStatus()
 }
 
-// clearFilter resets the global filter state and clamps cursor/scroll for the active column.
-func (b *Board) clearFilter() {
+// clearFilter resets the global filter state and clamps cursor/scroll for the
+// active column. It returns the Cmd that persists the empty set (#664).
+func (b *Board) clearFilter() tea.Cmd {
 	b.filters = nil
 	if len(b.Columns) > 0 && b.ActiveTab < len(b.Columns) {
 		col := &b.Columns[b.ActiveTab]
@@ -1654,6 +1739,7 @@ func (b *Board) clearFilter() {
 		col.ScrollOffset = 0
 	}
 	b.refreshFilterStatus()
+	return b.filterSaveCmd()
 }
 
 // ordered returns a sorted COPY of fs, ordered by (itemType, strings.ToLower
@@ -1673,8 +1759,10 @@ func (fs filterSet) ordered() filterSet {
 
 // refreshFilterStatus recomputes the status-bar active-filter segment from
 // b.filters (#654) and stores it via StatusBar.SetFilterStatus. Called at the
-// three production choke points that mutate b.filters: toggleFilter and
-// clearFilter (both here), and resetRepoScopedState (update.go).
+// production choke points that mutate b.filters: toggleFilter and clearFilter
+// (both here), resetRepoScopedState (update.go), and restoreSavedFilters (here,
+// used by main.go's startup seeding and handleConfigSaved's repo-switch
+// restore, #664).
 func (b *Board) refreshFilterStatus() {
 	full, compact := formatFilterSegment(b.filters)
 	b.statusBar.SetFilterStatus(full, compact)

@@ -198,7 +198,7 @@ Inline action fields (`keymaps.<mode>.<key>` mappings): `name`, `type` (`url`/`s
 
 **Note on new cards:** a card you create with `n` is placed at its sorted position in the first column right away — at the top under newest-first, at the bottom under oldest-first — rather than being appended to the bottom regardless of direction. The cursor follows it there.
 
-**Note on remembered state:** pressing `s` to flip the sort order writes your choice to `~/.config/lazyboards/state.yml`, so it survives a restart. That file is written by lazyboards alone — your config files are never rewritten — and a remembered direction takes precedence over `sort_order`. Delete it to go back to the configured default.
+**Note on remembered state:** pressing `s` to flip the sort order writes your choice to `~/.config/lazyboards/state.yml`, so it survives a restart. Your active [filters](#filter) are saved there too, separately for each repository (provider plus `owner/repo`), so each repository comes back with its own filters after a restart or when you switch to it in the config modal. That file is written by lazyboards alone — your config files are never rewritten — and a remembered direction takes precedence over `sort_order`. Delete it to go back to the configured default sort order and to clear every remembered filter.
 
 ### Keymaps
 
@@ -652,7 +652,7 @@ config and want the old keys back.
 | `G` | `view.git_panel` | Git menu |
 | `D` | `view.dispatch` | (cenci) Dispatch |
 | `s` | `board.sort_order` | Toggle sort order (oldest/newest created first; board-wide, applies to all columns; remembered across restarts) |
-| `f` | `board.filter` | Filter |
+| `f` | `board.filter` | Filter (selections remembered per repository across restarts) |
 | `l` / `right` (→) | `nav.detail_focus` | Detail panel |
 | `j` / `down` (↓) | `nav.cursor_down` | Next card |
 | `k` / `up` (↑) | `nav.cursor_up` | Previous card |
@@ -759,7 +759,7 @@ leaves the modal open, matching the filter picker's multi-select semantics.
 | Key | Command | Action |
 |-----|---------|--------|
 | `esc` | `milestone_list.close` | Cancel |
-| `enter` | `milestone_list.filter` | Toggle filter |
+| `enter` | `milestone_list.filter` | Toggle filter (remembered per repository across restarts) |
 | `j` / `down` (↓) | `milestone_list.next` | Navigate |
 | `k` / `up` (↑) | `milestone_list.prev` | Navigate |
 | `o` | `milestone_list.open` | Open in browser |
@@ -862,6 +862,16 @@ leaving the modal open).
 
 The active selection set is always visible in the status bar — see [Filter
 Segment](#filter-segment).
+
+Every change to the selection set is saved for the current repository in
+`~/.config/lazyboards/state.yml` (see the [remembered state
+note](#config-reference)), including the automatic clears when a reference jump
+hides its target or a newly created card takes focus. On the next launch the
+same set is active before the first fetch. A saved selection that no card
+carries any more (a deleted label, say) is kept as saved: it still shows in the
+`⚑` segment and `c` removes it. A failed save shows a "Could not save filters"
+message and leaves the filter active for the session. Deleting `state.yml`
+resets every repository's filters.
 
 | Key | Command | Action |
 |-----|---------|--------|

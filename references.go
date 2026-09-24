@@ -410,9 +410,9 @@ func (b Board) jumpToReferencedCard(colIdx, cardIdx int) (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	if hidden {
-		b.clearFilter()
+		saveCmd := b.clearFilter()
 		b.clearSearch()
-		cmd = b.statusBar.SetTimedMessage("Filter cleared", StatusSuccess, statusMessageDuration)
+		cmd = tea.Batch(b.statusBar.SetTimedMessage("Filter cleared", StatusSuccess, statusMessageDuration), saveCmd)
 	}
 
 	cursor := cardIdx

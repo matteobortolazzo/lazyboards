@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -314,14 +315,36 @@ func terminalActionResult(err error) tea.Msg {
 
 // saveConfigCmd returns a tea.Cmd that saves the config file. trustPath, if
 // non-empty, is passed through to config.Save so a pre-write-trusted config
-// carries that trust forward onto the post-write hash (#568).
-func saveConfigCmd(path, provider, repo, trustPath string) tea.Cmd {
+// carries that trust forward onto the post-write hash (#568). statePath, if
+// non-empty, is read after a successful save so the target repository's
+// persisted filters travel on configSavedMsg for handleConfigSaved to restore
+// (#664); a state-file read problem is logged and never fails the save.
+func saveConfigCmd(path, provider, repo, trustPath, statePath string) tea.Cmd {
 	return func() tea.Msg {
 		if err := config.Save(path, provider, repo, trustPath); err != nil {
 			return configSaveErrorMsg{err: err}
 		}
-		return configSavedMsg{provider: provider, repo: repo}
+		return configSavedMsg{provider: provider, repo: repo, savedFilters: savedFiltersFor(statePath, provider, repo)}
 	}
+}
+
+// savedFiltersFor loads the persisted filters for provider + "owner/repo" from
+// statePath, nil when there is no state path, no repo identity, or the state
+// file cannot be loaded.
+func savedFiltersFor(statePath, providerName, repo string) []config.FilterSelection {
+	if statePath == "" {
+		return nil
+	}
+	owner, name, ok := splitRepo(repo)
+	if !ok {
+		return nil
+	}
+	st, err := config.LoadState(statePath)
+	if err != nil {
+		debuglog.Errorf("runtime state not loaded for filter restore: %v", err)
+		return nil
+	}
+	return st.FiltersFor(config.FilterRepoKey(providerName, owner, name))
 }
 
 // trustAcceptedMsg is sent when acceptTrustCmd successfully writes the new
@@ -377,13 +400,93 @@ func acceptTrustCmd(trustPath, localPath, identity, hash, note string) tea.Cmd {
 // to the runtime-state file at path, so the 'u' toggle survives a restart
 // (#503). Only lazyboards writes this file — the user's config is never
 // rewritten.
-func saveSortOrderCmd(path string, newestFirst bool) tea.Cmd {
+//
+// The save goes through config.UpdateState so it touches only sort_order and
+// keeps every other key (#664), and gen -- issued by seq.ticket in Update --
+// lets an older, slower save be dropped instead of overwriting a newer one.
+func saveSortOrderCmd(path string, seq *stateSaveSeq, gen uint64, newestFirst bool) tea.Cmd {
 	return func() tea.Msg {
-		st := config.State{SortOrder: config.SortOrderFor(newestFirst)}
-		if err := config.SaveState(path, st); err != nil {
+		err := config.UpdateState(path, func(st *config.State) bool {
+			if !seq.admit(sortOrderGateKey, gen) {
+				return false
+			}
+			st.SortOrder = config.SortOrderFor(newestFirst)
+			return true
+		})
+		if err != nil {
 			return sortOrderSaveErrorMsg{err: err}
 		}
 		return sortOrderSavedMsg{}
+	}
+}
+
+// sortOrderGateKey is the stateSaveSeq key sort-direction saves are ordered by.
+const sortOrderGateKey = "sort_order"
+
+// filtersGateKey is the stateSaveSeq key one repository's filter saves are
+// ordered by.
+func filtersGateKey(repoKey string) string { return "filters/" + repoKey }
+
+// stateSaveSeq orders runtime-state saves. BubbleTea runs Cmds in concurrent
+// goroutines, so a mutex alone serializes the writes but not their order:
+// ticket runs synchronously in Update (single-threaded) and hands out a
+// monotonic generation per key, and admit -- called inside config.UpdateState's
+// mutate closure, under the config lock -- refuses any generation older than
+// the last one applied for that key.
+type stateSaveSeq struct {
+	mu      sync.Mutex
+	issued  map[string]uint64
+	applied map[string]uint64
+}
+
+func newStateSaveSeq() *stateSaveSeq {
+	return &stateSaveSeq{issued: map[string]uint64{}, applied: map[string]uint64{}}
+}
+
+// ticket returns the next generation for key.
+func (s *stateSaveSeq) ticket(key string) uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.issued[key]++
+	return s.issued[key]
+}
+
+// admit reports whether a save of generation gen for key may be applied, and
+// records it as the newest applied when it may.
+func (s *stateSaveSeq) admit(key string, gen uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if gen < s.applied[key] {
+		return false
+	}
+	s.applied[key] = gen
+	return true
+}
+
+// saveFiltersCmd returns a tea.Cmd that persists sels as the filter entry for
+// repoKey in the runtime-state file (#664). An empty set deletes the entry.
+// It changes only that entry, and a superseded (older-generation) save is
+// dropped silently -- the newer snapshot is already on disk or on its way.
+func saveFiltersCmd(path string, seq *stateSaveSeq, gen uint64, repoKey string, sels []config.FilterSelection) tea.Cmd {
+	return func() tea.Msg {
+		err := config.UpdateState(path, func(st *config.State) bool {
+			if !seq.admit(filtersGateKey(repoKey), gen) {
+				return false
+			}
+			if len(sels) == 0 {
+				delete(st.Filters, repoKey)
+				return true
+			}
+			if st.Filters == nil {
+				st.Filters = map[string][]config.FilterSelection{}
+			}
+			st.Filters[repoKey] = sels
+			return true
+		})
+		if err != nil {
+			return filtersSaveErrorMsg{err: err}
+		}
+		return filtersSavedMsg{}
 	}
 }
 

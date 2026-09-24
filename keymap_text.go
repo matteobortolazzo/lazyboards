@@ -479,7 +479,7 @@ func (b Board) runConfigCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		b.validationErr = ""
-		return b, saveConfigCmd(b.config.localPath, provider, repo, b.trustPath)
+		return b, saveConfigCmd(b.config.localPath, provider, repo, b.trustPath, b.statePath)
 	case keymap.CommandConfigNextField:
 		if b.config.focus == 0 {
 			b.config.focus = 1
