@@ -385,7 +385,11 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		if b.statePath == "" {
 			return b, nil
 		}
-		return b, saveSortOrderCmd(b.statePath, b.stateSaves, b.stateSaves.ticket(sortOrderGateKey), b.sortNewestFirst)
+		// repoKey scopes the save to this repository's own sort_orders entry;
+		// a board with no repo identity falls back to the legacy global
+		// sort_order field, exactly as before per-repository saves.
+		repoKey := b.repoStateKey()
+		return b, saveSortOrderCmd(b.statePath, b.stateSaves, b.stateSaves.ticket(sortOrderGateKey(repoKey)), repoKey, b.sortNewestFirst)
 	}
 	return b, nil
 }

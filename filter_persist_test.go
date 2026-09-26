@@ -374,14 +374,16 @@ func TestFilterPersist_SavingRepoB_LeavesRepoAEntryUnchanged(t *testing.T) {
 }
 
 // A filter save keeps the sort order, and a sort toggle keeps the filters.
+// This board tracks a real repo, so the sort toggle writes the per-repo
+// sort_orders entry, not the legacy global sort_order.
 func TestFilterPersist_SortAndFilterSaves_DoNotEraseEachOther(t *testing.T) {
 	b, path := newPersistBoard(t)
 
 	b, _ = updateAndRun(t, b, keyMsg("s")) // sort newest first
 	b, item, _ := openPickerAndToggle(t, b)
 	st := loadPersistedState(t, path)
-	if st.SortOrder != config.SortOrderNewest {
-		t.Errorf("sort_order = %q after a filter save, want %q kept", st.SortOrder, config.SortOrderNewest)
+	if got := st.SortOrderForRepo(persistRepoKey()); got != config.SortOrderNewest {
+		t.Errorf("per-repo sort order = %q after a filter save, want %q kept", got, config.SortOrderNewest)
 	}
 	if len(st.FiltersFor(persistRepoKey())) != 1 {
 		t.Fatalf("filters = %+v, want the toggled selection", st.FiltersFor(persistRepoKey()))
@@ -391,8 +393,8 @@ func TestFilterPersist_SortAndFilterSaves_DoNotEraseEachOther(t *testing.T) {
 	_, _ = updateAndRun(t, b, keyMsg("s")) // sort oldest first again
 
 	st = loadPersistedState(t, path)
-	if st.SortOrder != config.SortOrderOldest {
-		t.Errorf("sort_order = %q, want %q", st.SortOrder, config.SortOrderOldest)
+	if got := st.SortOrderForRepo(persistRepoKey()); got != config.SortOrderOldest {
+		t.Errorf("per-repo sort order = %q, want %q", got, config.SortOrderOldest)
 	}
 	want := []config.FilterSelection{{Category: categoryOf(t, item.itemType), Value: item.value}}
 	if got := st.FiltersFor(persistRepoKey()); !slices.Equal(got, want) {
@@ -768,12 +770,21 @@ func newRepoSwitchPersistFixture(t *testing.T) (b Board, statePath string, entry
 	return b, statePath, entryB
 }
 
-// savedMsgFor runs saveConfigCmd for repo against statePath and returns the
-// configSavedMsg it produced.
+// savedMsgFor runs saveConfigCmd for repo against statePath (with a false
+// config-file sort default, irrelevant to the filter-focused tests that call
+// this) and returns the configSavedMsg it produced.
 func savedMsgFor(t *testing.T, statePath, repo string) configSavedMsg {
 	t.Helper()
+	return savedMsgForWithSortDefault(t, statePath, repo, false)
+}
+
+// savedMsgForWithSortDefault is savedMsgFor's sibling for tests that also
+// care about the resolved sort direction, threading the board's own
+// config-file sort default through to saveConfigCmd.
+func savedMsgForWithSortDefault(t *testing.T, statePath, repo string, cfgSortNewestFirst bool) configSavedMsg {
+	t.Helper()
 	cfgPath := filepath.Join(t.TempDir(), "config.yml")
-	for _, msg := range runCmd(saveConfigCmd(cfgPath, persistProvider, repo, "", statePath)) {
+	for _, msg := range runCmd(saveConfigCmd(cfgPath, persistProvider, repo, "", statePath, cfgSortNewestFirst)) {
 		if saved, ok := msg.(configSavedMsg); ok {
 			return saved
 		}

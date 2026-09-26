@@ -317,14 +317,23 @@ func terminalActionResult(err error) tea.Msg {
 // non-empty, is passed through to config.Save so a pre-write-trusted config
 // carries that trust forward onto the post-write hash (#568). statePath, if
 // non-empty, is read after a successful save so the target repository's
-// persisted filters travel on configSavedMsg for handleConfigSaved to restore
-// (#664); a state-file read problem is logged and never fails the save.
-func saveConfigCmd(path, provider, repo, trustPath, statePath string) tea.Cmd {
+// persisted filters (#664) and resolved sort direction travel on
+// configSavedMsg for handleConfigSaved to restore; a state-file read problem
+// is logged and never fails the save. cfgSortNewestFirst is the board's own
+// config-file sort default (b.configSortNewestFirst), the final fallback
+// layer when the target repository has no per-repo or legacy global sort
+// override saved.
+func saveConfigCmd(path, provider, repo, trustPath, statePath string, cfgSortNewestFirst bool) tea.Cmd {
 	return func() tea.Msg {
 		if err := config.Save(path, provider, repo, trustPath); err != nil {
 			return configSaveErrorMsg{err: err}
 		}
-		return configSavedMsg{provider: provider, repo: repo, savedFilters: savedFiltersFor(statePath, provider, repo)}
+		return configSavedMsg{
+			provider:             provider,
+			repo:                 repo,
+			savedFilters:         savedFiltersFor(statePath, provider, repo),
+			savedSortNewestFirst: savedSortNewestFirstFor(statePath, provider, repo, cfgSortNewestFirst),
+		}
 	}
 }
 
@@ -345,6 +354,28 @@ func savedFiltersFor(statePath, providerName, repo string) []config.FilterSelect
 		return nil
 	}
 	return st.FiltersFor(config.FilterRepoKey(providerName, owner, name))
+}
+
+// savedSortNewestFirstFor resolves the persisted sort direction for
+// provider + "owner/repo" from statePath, mirroring savedFiltersFor's
+// non-fatal state-file handling: a missing statePath, an unparseable repo
+// identifier, or a state-file read/parse problem all fall back to
+// cfgDefault (logged, not fatal) rather than blocking the save.
+func savedSortNewestFirstFor(statePath, providerName, repo string, cfgDefault bool) bool {
+	if statePath == "" {
+		return cfgDefault
+	}
+	owner, name, ok := splitRepo(repo)
+	if !ok {
+		return cfgDefault
+	}
+	st, err := config.LoadState(statePath)
+	if err != nil {
+		debuglog.Errorf("runtime state not loaded for sort-order restore: %v", err)
+		return cfgDefault
+	}
+	key := config.FilterRepoKey(providerName, owner, name)
+	return config.ResolveSortNewestFirst(st, key, cfgDefault)
 }
 
 // trustAcceptedMsg is sent when acceptTrustCmd successfully writes the new
@@ -397,20 +428,31 @@ func acceptTrustCmd(trustPath, localPath, identity, hash, note string) tea.Cmd {
 }
 
 // saveSortOrderCmd returns a tea.Cmd that persists the board's sort direction
-// to the runtime-state file at path, so the 'u' toggle survives a restart
-// (#503). Only lazyboards writes this file — the user's config is never
-// rewritten.
+// to the runtime-state file at path, so the sort toggle survives a restart
+// (#503), remembered per repository. repoKey, when non-empty, scopes the
+// save to that repository's own sort_orders[repoKey] entry, mirroring
+// saveFiltersCmd; a board with no repo identity (repoKey == "") falls back
+// to writing the legacy global sort_order field, as it always has. Only
+// lazyboards writes this file — the user's config is never rewritten.
 //
-// The save goes through config.UpdateState so it touches only sort_order and
-// keeps every other key (#664), and gen -- issued by seq.ticket in Update --
-// lets an older, slower save be dropped instead of overwriting a newer one.
-func saveSortOrderCmd(path string, seq *stateSaveSeq, gen uint64, newestFirst bool) tea.Cmd {
+// The save goes through config.UpdateState so it touches only the one key it
+// targets and keeps every other key (#664), and gen -- issued by
+// seq.ticket(sortOrderGateKey(repoKey)) in Update -- lets an older, slower
+// save be dropped instead of overwriting a newer one.
+func saveSortOrderCmd(path string, seq *stateSaveSeq, gen uint64, repoKey string, newestFirst bool) tea.Cmd {
 	return func() tea.Msg {
 		err := config.UpdateState(path, func(st *config.State) bool {
-			if !seq.admit(sortOrderGateKey, gen) {
+			if !seq.admit(sortOrderGateKey(repoKey), gen) {
 				return false
 			}
-			st.SortOrder = config.SortOrderFor(newestFirst)
+			if repoKey == "" {
+				st.SortOrder = config.SortOrderFor(newestFirst)
+				return true
+			}
+			if st.SortOrders == nil {
+				st.SortOrders = map[string]string{}
+			}
+			st.SortOrders[repoKey] = config.SortOrderFor(newestFirst)
 			return true
 		})
 		if err != nil {
@@ -420,8 +462,10 @@ func saveSortOrderCmd(path string, seq *stateSaveSeq, gen uint64, newestFirst bo
 	}
 }
 
-// sortOrderGateKey is the stateSaveSeq key sort-direction saves are ordered by.
-const sortOrderGateKey = "sort_order"
+// sortOrderGateKey is the stateSaveSeq key one repository's sort-direction
+// saves are ordered by; repoKey == "" gates the legacy global sort_order
+// fallback used when the board has no repo identity.
+func sortOrderGateKey(repoKey string) string { return "sort_order:" + repoKey }
 
 // filtersGateKey is the stateSaveSeq key one repository's filter saves are
 // ordered by.

@@ -412,6 +412,11 @@ type configSavedMsg struct {
 	// the runtime-state file by saveConfigCmd so handleConfigSaved can restore
 	// it on a repo switch without doing disk I/O in Update (#664).
 	savedFilters []config.FilterSelection
+	// savedSortNewestFirst is the target repository's resolved sort direction
+	// (per-repo state, then legacy global state, then the board's own
+	// configSortNewestFirst), read the same way as savedFilters so
+	// handleConfigSaved can apply it without doing disk I/O in Update.
+	savedSortNewestFirst bool
 }
 
 // configSaveErrorMsg is sent when saving a config file fails.
@@ -937,8 +942,18 @@ type Board struct {
 	// sortNewestFirst controls the board-wide card sort order applied by
 	// sortColumns: true sorts every column newest-created-first, false
 	// oldest-first (the default, #503). Toggled at runtime by the 'u' key
-	// (#412) and seeded at startup by config.ResolveSortNewestFirst.
+	// (#412) and seeded at startup by config.ResolveSortNewestFirst, keyed
+	// per repository. handleConfigSaved's repo-switch retarget branch
+	// reassigns it too, from the target repository's own resolved
+	// direction.
 	sortNewestFirst bool
+	// configSortNewestFirst is the config file's sort_order-field default
+	// only (cfg.SortNewestFirstValue(), with no repo or state-file layer
+	// applied) -- seeded once from cfg at startup by seedFromState and
+	// reused by handleConfigSaved's repo-switch retarget branch, since
+	// neither has a config.Config in hand later to recompute
+	// SortNewestFirstValue() from.
+	configSortNewestFirst bool
 	// statePath is the runtime-state file the 'u' toggle persists the sort
 	// direction to (config.DefaultStatePath, #503). Empty means "nowhere to
 	// save": toggling still works, it just won't survive a restart.

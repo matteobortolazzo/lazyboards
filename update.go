@@ -509,10 +509,15 @@ func (b Board) handleConfigSaved(msg configSavedMsg) (tea.Model, tea.Cmd) {
 	b.repoOwner = owner
 	b.repoName = name
 	b.resetRepoScopedState()
-	// Restore the new repository's saved filters (#664). resetRepoScopedState
-	// stays an in-memory reset that never saves, so the previous repository's
-	// entry is untouched; the restore never saves either.
+	// Restore the new repository's saved filters (#664) and resolved sort
+	// direction. resetRepoScopedState stays an in-memory reset that
+	// never saves, so the previous repository's entries are untouched;
+	// neither restore saves either. b.Columns is still empty here (just
+	// cleared above), so the sort direction only takes visible effect once
+	// the fetch below completes and handleBoardFetched's sortColumns() call
+	// reads the now-updated field.
 	b.restoreSavedFilters(msg.savedFilters)
+	b.sortNewestFirst = msg.savedSortNewestFirst
 	b.mode = loadingMode
 	return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, true))
 }
