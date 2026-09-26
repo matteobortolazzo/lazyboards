@@ -536,10 +536,10 @@ func TestMouseClickTab_Rung4_NoLabels_NoOp(t *testing.T) {
 
 // TestMouseClickTab_SearchActive_LastCellSelectsColumn is a regression case
 // for the search-active count-suffix shape: when a search query is active,
-// borderTitleCounts overrides only the active column's count to
-// "(f/N) ●", which is longer than the plain "(N)" every other column
-// (and today's handleTabClick) still assumes -- shifting every zone after
-// the active column to the right of where the old handler thinks it is.
+// borderTitleCounts overrides every column's count to "(f/N) ●", which is
+// longer than the plain "(N)" a column shows with no search active (and
+// today's handleTabClick) still assumes -- shifting every zone after the
+// first to the right of where the old handler thinks it is.
 func TestMouseClickTab_SearchActive_LastCellSelectsColumn(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 	b.mouseEnabled = true

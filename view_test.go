@@ -2487,36 +2487,130 @@ func TestBorderTitleZones_ActiveTabDoesNotAffectGeometry(t *testing.T) {
 	}
 }
 
-// TestBorderTitleCounts_SearchWinsOverFilter verifies the first branch of
-// View()'s existing filteredCounts precedence (view.go, ~lines 162-178):
-// when a search query is active (even alongside a global filter), only the
-// active column gets a non-negative count -- and that count is
-// b.filteredCards() (filter-then-search combined), not the filter-only
-// count -- while every other column gets the -1 "no override" sentinel.
-func TestBorderTitleCounts_SearchWinsOverFilter(t *testing.T) {
+// TestBorderTitleCounts_SearchAppliesFilterAndSearchToEveryColumn verifies
+// the first branch of View()'s existing filteredCounts precedence (view.go,
+// ~lines 162-178): when a search query is active (even alongside a global
+// filter), every column gets its own filter+search combined count, not just
+// the active one -- since the query persists across tab switches and every
+// column's count stays meaningful. Expected counts are derived directly
+// from newBoardWithFilterableCards' fixture data (filter_test.go), not by
+// calling the implementation under test:
+//
+//	Backlog (col 0): #1 "Bug fix"[bug], #2 "Feature work"[feature],
+//	  #3 "Another bug"[bug], #4 "Docs update"[docs], #5 "Specific bug"[bug]
+//	In Progress (col 1): #6 "Active feature"[feature], #7 "Active bug"[bug]
+//
+// Filtering to label "bug" leaves {1,3,5} in Backlog and {7} in In
+// Progress; searching "Specific" (case-insensitive substring on title/label)
+// then narrows Backlog to just #5 "Specific bug" and empties In Progress
+// entirely (neither "Active bug"'s title nor its "bug" label contains
+// "specific").
+func TestBorderTitleCounts_SearchAppliesFilterAndSearchToEveryColumn(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
-	b.ActiveTab = 0 // "Backlog": bug-labeled cards are #1, #3, #5
+	b.ActiveTab = 0 // "Backlog"
 
 	setActiveFilter(&b, filterByLabel, "bug")
-	b.searchQuery = "Specific" // narrows further to #5 "Specific bug"
+	b.searchQuery = "Specific"
 
 	fc := b.borderTitleCounts()
 
-	if len(fc) != len(b.Columns) {
-		t.Fatalf("borderTitleCounts() with search+filter: len = %d, want %d (one entry per column)", len(fc), len(b.Columns))
+	want := []int{1, 0}
+	if len(fc) != len(want) {
+		t.Fatalf("borderTitleCounts() with search+filter: len = %d, want %d (one entry per column)", len(fc), len(want))
+	}
+	for i, w := range want {
+		if fc[i] != w {
+			t.Errorf("borderTitleCounts()[%d] with search %q + filter %+v = %d, want %d", i, b.searchQuery, b.filters, fc[i], w)
+		}
+	}
+}
+
+// TestBorderTitleCounts_SearchOnly_NonActiveColumnShowsOwnCount covers
+// search active with no global filter: every column, not just the active
+// one, gets its own search-matched count. Expected counts are derived
+// directly from the fixture data, matching the substring "bug" (case
+// insensitive) against each card's title or label:
+//
+//	Backlog (col 0): #1 "Bug fix" (title match), #2 "Feature work" (no),
+//	  #3 "Another bug" (title match), #4 "Docs update" (no),
+//	  #5 "Specific bug" (title match) -> 3 matches
+//	In Progress (col 1): #6 "Active feature" (no),
+//	  #7 "Active bug" (title match) -> 1 match
+func TestBorderTitleCounts_SearchOnly_NonActiveColumnShowsOwnCount(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b.ActiveTab = 0 // "Backlog"
+	b.searchQuery = "bug"
+
+	if b.hasActiveFilters() {
+		t.Fatalf("precondition: hasActiveFilters() = true, want false")
 	}
 
-	wantActive := len(b.filteredCards())
-	if fc[b.ActiveTab] != wantActive {
-		t.Errorf("borderTitleCounts()[activeTab] with search %q + filter %+v = %d, want %d (b.filteredCards() count)", b.searchQuery, b.filters, fc[b.ActiveTab], wantActive)
+	fc := b.borderTitleCounts()
+
+	want := []int{3, 1}
+	if len(fc) != len(want) {
+		t.Fatalf("borderTitleCounts() with search only: len = %d, want %d (one entry per column)", len(fc), len(want))
 	}
-	for i := range b.Columns {
-		if i == b.ActiveTab {
-			continue
+	for i, w := range want {
+		if fc[i] != w {
+			t.Errorf("borderTitleCounts()[%d] with search %q = %d, want %d", i, b.searchQuery, fc[i], w)
 		}
-		if fc[i] != -1 {
-			t.Errorf("borderTitleCounts()[%d] with search active = %d, want -1 (sentinel; search only overrides the active column)", i, fc[i])
+	}
+}
+
+// TestBorderTitleCounts_SearchOnly_SubIssueExpansionAppliesToNonActiveColumn
+// pins the sub-issue-relative expansion case: search seeds are computed
+// board-wide (collectSearchSeeds scans every column), so a child in a
+// non-active column pulled in by its matching parent in the active column
+// must be counted too -- not just direct title/label matches.
+func TestBorderTitleCounts_SearchOnly_SubIssueExpansionAppliesToNonActiveColumn(t *testing.T) {
+	columns := []provider.Column{
+		{Title: "Active Column", Cards: []provider.Card{
+			{Number: 10, Title: "Epic Feature"},
+			{Number: 11, Title: "Unrelated epic"},
+		}},
+		{Title: "Other Column", Cards: []provider.Card{
+			{Number: 20, Title: "Child task", ParentNumber: 10},
+			{Number: 21, Title: "Unrelated task"},
+		}},
+	}
+	b := newMultiColumnSearchTestBoard(t, columns)
+	b.ActiveTab = 0
+	b.searchQuery = "epic"
+
+	fc := b.borderTitleCounts()
+
+	// Active column: both cards' titles contain "epic" -> 2 direct matches.
+	// Other column: #20's ParentNumber (10) is a seed -> 1 pulled-in match;
+	// #21 is unrelated.
+	want := []int{2, 1}
+	if len(fc) != len(want) {
+		t.Fatalf("borderTitleCounts() with search %q: len = %d, want %d (one entry per column)", b.searchQuery, len(fc), len(want))
+	}
+	for i, w := range want {
+		if fc[i] != w {
+			t.Errorf("borderTitleCounts()[%d] with search %q = %d, want %d", i, b.searchQuery, fc[i], w)
 		}
+	}
+}
+
+// TestView_SearchActive_NonActiveTabShowsMatchCount is the rendered-output
+// counterpart of TestBorderTitleCounts_SearchOnly_NonActiveColumnShowsOwnCount:
+// it drives the real b.View() (not buildBorderTitle directly) and asserts
+// the non-active "In Progress" tab renders its own "(1/2)" match-count
+// suffix, not the plain "(2)" total it would show with no search active.
+func TestView_SearchActive_NonActiveTabShowsMatchCount(t *testing.T) {
+	b := newBoardWithFilterableCards(t)
+	b.ActiveTab = 0 // "Backlog"
+	b.searchQuery = "bug"
+
+	view := ansi.Strip(b.View())
+
+	if !strings.Contains(view, "(1/2)") {
+		t.Errorf("View() with search %q does not contain \"(1/2)\" for the non-active \"In Progress\" tab (1 match out of 2 cards); got:\n%s", b.searchQuery, view)
+	}
+	if strings.Contains(view, "In Progress (2)") {
+		t.Errorf("View() with search %q rendered the non-active tab's plain total \"(2)\" instead of a match-count suffix; got:\n%s", b.searchQuery, view)
 	}
 }
 
@@ -2560,17 +2654,15 @@ func TestBorderTitleCounts_NeitherActiveReturnsNil(t *testing.T) {
 	}
 }
 
-// TestBorderTitleCounts_ActiveTabOutOfRangeReturnsSentinels is a
+// TestBorderTitleCounts_ActiveTabOutOfRangeDoesNotAffectSearchCounts is a
 // validation/bounds-guard test: normal navigation always clamps ActiveTab
 // into [0, len(Columns)), so no integration test can reach an out-of-range
-// ActiveTab -- this sets the invalid state directly. With a search query
-// active, borderTitleCounts's search branch indexes fc[b.ActiveTab] to
-// stamp the active column's live filteredCards() count; an out-of-range
-// ActiveTab must not panic (via that index assignment or via
-// b.filteredCards()'s own b.Columns[b.ActiveTab] read) and must instead
-// fall back to the same all -1 "no override" sentinel slice buildBorderTitle
-// sees when no column can be identified as active.
-func TestBorderTitleCounts_ActiveTabOutOfRangeReturnsSentinels(t *testing.T) {
+// ActiveTab -- this sets the invalid state directly. Since every column now
+// gets its own filter+search count when a search query is active (not just
+// b.ActiveTab), borderTitleCounts's search branch no longer indexes by
+// ActiveTab at all -- an out-of-range ActiveTab must not panic and must not
+// change the per-column counts from what a valid ActiveTab would produce.
+func TestBorderTitleCounts_ActiveTabOutOfRangeDoesNotAffectSearchCounts(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 	b.searchQuery = "bug"
 	b.ActiveTab = len(b.Columns) // one past the end -- out of range
@@ -2583,12 +2675,17 @@ func TestBorderTitleCounts_ActiveTabOutOfRangeReturnsSentinels(t *testing.T) {
 
 	fc := b.borderTitleCounts()
 
-	if len(fc) != len(b.Columns) {
-		t.Fatalf("borderTitleCounts() with out-of-range ActiveTab: len = %d, want %d (one entry per column)", len(fc), len(b.Columns))
+	// Same expected per-column counts as
+	// TestBorderTitleCounts_SearchOnly_NonActiveColumnShowsOwnCount: the
+	// search branch no longer reads b.ActiveTab, so an out-of-range value
+	// must not change them.
+	want := []int{3, 1}
+	if len(fc) != len(want) {
+		t.Fatalf("borderTitleCounts() with out-of-range ActiveTab: len = %d, want %d (one entry per column)", len(fc), len(want))
 	}
-	for i, v := range fc {
-		if v != -1 {
-			t.Errorf("borderTitleCounts()[%d] with out-of-range ActiveTab = %d, want -1 (sentinel; no column can be the active one)", i, v)
+	for i, w := range want {
+		if fc[i] != w {
+			t.Errorf("borderTitleCounts()[%d] with out-of-range ActiveTab = %d, want %d (unaffected by ActiveTab)", i, fc[i], w)
 		}
 	}
 }

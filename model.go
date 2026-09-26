@@ -1543,8 +1543,31 @@ func (b *Board) matchesGlobalFilter(card Card) bool {
 // filteredCards returns the cards in the active column that match the current
 // global filter and search query. If neither is active, all cards are returned.
 func (b *Board) filteredCards() []Card {
-	col := b.Columns[b.ActiveTab]
-	cards := col.Cards
+	if b.ActiveTab < 0 || b.ActiveTab >= len(b.Columns) {
+		return nil
+	}
+	searchActive := b.searchQuery != ""
+	var seeds searchSeeds
+	if searchActive {
+		q := normalizeSearchQuery(b.searchQuery)
+		seeds = collectSearchSeeds(b.Columns, q)
+	}
+	return b.filteredCardsIn(b.ActiveTab, seeds, searchActive)
+}
+
+// filteredCardsIn returns the cards in the given column that match the
+// current global filter and, when searchActive is true, the search query
+// via the given (board-wide) seeds. This is the shared matching
+// implementation filteredCards delegates to for the active column, and
+// borderTitleCounts delegates to for every column -- so filter+search
+// matching behaves identically regardless of which column is being
+// displayed. seeds is ignored when searchActive is false. Returns nil if
+// colIdx is out of range.
+func (b *Board) filteredCardsIn(colIdx int, seeds searchSeeds, searchActive bool) []Card {
+	if colIdx < 0 || colIdx >= len(b.Columns) {
+		return nil
+	}
+	cards := b.Columns[colIdx].Cards
 
 	// Apply global filter first.
 	if b.hasActiveFilters() {
@@ -1558,11 +1581,9 @@ func (b *Board) filteredCards() []Card {
 	}
 
 	// Then apply search filter.
-	if b.searchQuery == "" {
+	if !searchActive {
 		return cards
 	}
-	q := normalizeSearchQuery(b.searchQuery)
-	seeds := collectSearchSeeds(b.Columns, q)
 	var result []Card
 	for _, card := range cards {
 		if matchesSearch(card, seeds) {
