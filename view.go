@@ -365,22 +365,22 @@ func buildBorderTitle(columns []Column, activeTab, totalWidth int, filteredCount
 }
 
 // borderTitleCounts derives the filteredCounts override passed to
-// buildBorderTitle for the tab bar's "(N)"/"(f/N)" count suffix. Search wins
-// over a global filter: when a search query is active, only the active
-// column gets a non-negative count (b.filteredCards(), which combines any
-// active filter with the search), and every other column gets the -1
-// sentinel (no override). Otherwise, when a global filter is active (and no
-// search), every column gets its own filtered count via
-// b.filteredCardsForColumn. When neither is active, returns nil so
-// buildBorderTitle falls back to its plain "(total)" rung.
+// buildBorderTitle for the tab bar's "(N)"/"(f/N)" count suffix. When a
+// search query is active, every column gets its own filter+search count
+// (via b.filteredCardsIn, the same matching implementation b.filteredCards
+// uses for the active tab, with the board-wide search seeds computed once
+// and reused across columns) since the query persists across tab switches
+// and every column's count stays meaningful. Otherwise, when a global
+// filter is active (and no search), every column gets its own filtered
+// count via b.filteredCardsForColumn. When neither is active, returns nil
+// so buildBorderTitle falls back to its plain "(total)" rung.
 func (b *Board) borderTitleCounts() []int {
 	if b.searchQuery != "" {
+		q := normalizeSearchQuery(b.searchQuery)
+		seeds := collectSearchSeeds(b.Columns, q)
 		fc := make([]int, len(b.Columns))
-		for i := range fc {
-			fc[i] = -1
-		}
-		if b.ActiveTab >= 0 && b.ActiveTab < len(fc) {
-			fc[b.ActiveTab] = len(b.filteredCards())
+		for i := range b.Columns {
+			fc[i] = len(b.filteredCardsIn(i, seeds, true))
 		}
 		return fc
 	}
