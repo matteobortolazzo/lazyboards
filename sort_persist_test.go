@@ -244,7 +244,7 @@ func TestSortOrderSavedMsg_ShowsNoStatusMessage(t *testing.T) {
 	}
 }
 
-// --- Per-repository sort order (#672) ---
+// --- Per-repository sort order ---
 //
 // These tests reuse filter_persist_test.go's repo-identity fixtures
 // (persistProvider/persistOwner/persistRepo, newPersistBoard(For),

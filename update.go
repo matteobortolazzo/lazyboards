@@ -510,7 +510,7 @@ func (b Board) handleConfigSaved(msg configSavedMsg) (tea.Model, tea.Cmd) {
 	b.repoName = name
 	b.resetRepoScopedState()
 	// Restore the new repository's saved filters (#664) and resolved sort
-	// direction (#672). resetRepoScopedState stays an in-memory reset that
+	// direction. resetRepoScopedState stays an in-memory reset that
 	// never saves, so the previous repository's entries are untouched;
 	// neither restore saves either. b.Columns is still empty here (just
 	// cleared above), so the sort direction only takes visible effect once

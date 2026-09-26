@@ -375,7 +375,7 @@ func TestFilterPersist_SavingRepoB_LeavesRepoAEntryUnchanged(t *testing.T) {
 
 // A filter save keeps the sort order, and a sort toggle keeps the filters.
 // This board tracks a real repo, so the sort toggle writes the per-repo
-// sort_orders entry (#672), not the legacy global sort_order.
+// sort_orders entry, not the legacy global sort_order.
 func TestFilterPersist_SortAndFilterSaves_DoNotEraseEachOther(t *testing.T) {
 	b, path := newPersistBoard(t)
 
@@ -779,7 +779,7 @@ func savedMsgFor(t *testing.T, statePath, repo string) configSavedMsg {
 }
 
 // savedMsgForWithSortDefault is savedMsgFor's sibling for tests that also
-// care about the resolved sort direction (#672), threading the board's own
+// care about the resolved sort direction, threading the board's own
 // config-file sort default through to saveConfigCmd.
 func savedMsgForWithSortDefault(t *testing.T, statePath, repo string, cfgSortNewestFirst bool) configSavedMsg {
 	t.Helper()

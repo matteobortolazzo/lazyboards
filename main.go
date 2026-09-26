@@ -199,7 +199,7 @@ func trustConfirmEntry(cfg config.Config, trust config.Trust, identity string) (
 }
 
 // seedFromState applies persisted runtime state to a freshly built board
-// (#503, #664, #672): the sort direction (the tracked repository's own saved
+// (#503, #664): the sort direction (the tracked repository's own saved
 // choice, then the legacy global saved choice, then cfg's sort_order, then
 // the built-in default) and the tracked repository's saved filters. The repo
 // key comes from the board's own provider/owner/repo -- the repository it
@@ -208,7 +208,7 @@ func trustConfirmEntry(cfg config.Config, trust config.Trust, identity string) (
 // trustConfirmEntry. Restoring never saves.
 func seedFromState(board Board, cfg config.Config, state config.State) Board {
 	board.configSortNewestFirst = cfg.SortNewestFirstValue()
-	board.sortNewestFirst = config.ResolveSortNewestFirstFor(cfg, state, board.repoStateKey())
+	board.sortNewestFirst = config.ResolveSortNewestFirst(state, board.repoStateKey(), board.configSortNewestFirst)
 	board.restoreSavedFilters(state.FiltersFor(board.repoStateKey()))
 	return board
 }

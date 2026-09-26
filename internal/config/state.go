@@ -35,11 +35,11 @@ type FilterSelection struct {
 // content (#503). Only lazyboards writes this file.
 type State struct {
 	// SortOrder is the legacy single global sort direction (#503), kept as a
-	// fallback layer beneath SortOrders for anyone who saved it before #672
-	// introduced the per-repository entry.
+	// fallback layer beneath SortOrders for anyone who saved it before the
+	// per-repository entry was introduced.
 	SortOrder string `yaml:"sort_order,omitempty"`
 	// SortOrders holds each repository's remembered sort direction, keyed by
-	// FilterRepoKey like Filters below (#672).
+	// FilterRepoKey like Filters below.
 	SortOrders map[string]string `yaml:"sort_orders,omitempty"`
 	// Filters holds each repository's active filter set, keyed by
 	// FilterRepoKey (#664).
@@ -197,16 +197,17 @@ func SortOrderFor(newestFirst bool) string {
 	return SortOrderOldest
 }
 
-// ResolveSortNewestFirstKeyed decides the effective sort direction across
-// four layers, each falling back to the next: a per-repository override
-// (st.SortOrders[key], keyed like Filters, #672), then the pre-#672 single
-// global override (st.SortOrder), then cfgDefault (the caller's already
-// -resolved config.Config.SortNewestFirstValue(), taken as a bool rather than
-// a Config here so a caller with only a persisted default in hand -- see
-// package main's savedSortNewestFirstFor -- never needs to fabricate one),
-// then (inside cfgDefault itself) the built-in default. key == "" skips the
+// ResolveSortNewestFirst decides the effective sort direction across three
+// layers, each falling back to the next: a per-repository override
+// (st.SortOrders[key], keyed like Filters), then the legacy single global
+// override (st.SortOrder, predating the per-repository entry), then
+// cfgDefault (the caller's already-resolved
+// config.Config.SortNewestFirstValue(), taken as a bool rather than a Config
+// here so a caller with only a persisted default in hand -- see package
+// main's savedSortNewestFirstFor -- never needs to fabricate one), then
+// (inside cfgDefault itself) the built-in default. key == "" skips the
 // per-repo layer entirely: there is no repo identity to key SortOrders by.
-func ResolveSortNewestFirstKeyed(st State, key string, cfgDefault bool) bool {
+func ResolveSortNewestFirst(st State, key string, cfgDefault bool) bool {
 	if key != "" {
 		if order := st.SortOrders[key]; order != "" {
 			return order == SortOrderNewest
@@ -216,21 +217,4 @@ func ResolveSortNewestFirstKeyed(st State, key string, cfgDefault bool) bool {
 		return st.SortOrder == SortOrderNewest
 	}
 	return cfgDefault
-}
-
-// ResolveSortNewestFirst decides the startup sort direction with no repo
-// identity to key by: a direction the user toggled at runtime (the legacy
-// global persisted state) wins, then the sort_order config field, then the
-// built-in default. Kept for the one call site (and test suite) that
-// predates #672's per-repo layer; ResolveSortNewestFirstFor is its keyed
-// sibling.
-func ResolveSortNewestFirst(cfg Config, st State) bool {
-	return ResolveSortNewestFirstKeyed(st, "", cfg.SortNewestFirstValue())
-}
-
-// ResolveSortNewestFirstFor is ResolveSortNewestFirstKeyed's convenience
-// wrapper for a caller that has the full Config in hand (main.go's startup
-// seeding, #672).
-func ResolveSortNewestFirstFor(cfg Config, st State, key string) bool {
-	return ResolveSortNewestFirstKeyed(st, key, cfg.SortNewestFirstValue())
 }

@@ -317,7 +317,7 @@ func terminalActionResult(err error) tea.Msg {
 // non-empty, is passed through to config.Save so a pre-write-trusted config
 // carries that trust forward onto the post-write hash (#568). statePath, if
 // non-empty, is read after a successful save so the target repository's
-// persisted filters (#664) and resolved sort direction (#672) travel on
+// persisted filters (#664) and resolved sort direction travel on
 // configSavedMsg for handleConfigSaved to restore; a state-file read problem
 // is logged and never fails the save. cfgSortNewestFirst is the board's own
 // config-file sort default (b.configSortNewestFirst), the final fallback
@@ -357,7 +357,7 @@ func savedFiltersFor(statePath, providerName, repo string) []config.FilterSelect
 }
 
 // savedSortNewestFirstFor resolves the persisted sort direction for
-// provider + "owner/repo" from statePath (#672), mirroring savedFiltersFor's
+// provider + "owner/repo" from statePath, mirroring savedFiltersFor's
 // non-fatal state-file handling: a missing statePath, an unparseable repo
 // identifier, or a state-file read/parse problem all fall back to
 // cfgDefault (logged, not fatal) rather than blocking the save.
@@ -375,7 +375,7 @@ func savedSortNewestFirstFor(statePath, providerName, repo string, cfgDefault bo
 		return cfgDefault
 	}
 	key := config.FilterRepoKey(providerName, owner, name)
-	return config.ResolveSortNewestFirstKeyed(st, key, cfgDefault)
+	return config.ResolveSortNewestFirst(st, key, cfgDefault)
 }
 
 // trustAcceptedMsg is sent when acceptTrustCmd successfully writes the new
@@ -429,11 +429,11 @@ func acceptTrustCmd(trustPath, localPath, identity, hash, note string) tea.Cmd {
 
 // saveSortOrderCmd returns a tea.Cmd that persists the board's sort direction
 // to the runtime-state file at path, so the sort toggle survives a restart
-// (#503, #672). repoKey, when non-empty, scopes the save to that
-// repository's own sort_orders[repoKey] entry, mirroring saveFiltersCmd; a
-// board with no repo identity (repoKey == "") falls back to writing the
-// legacy global sort_order field, as it always has. Only lazyboards writes
-// this file — the user's config is never rewritten.
+// (#503), remembered per repository. repoKey, when non-empty, scopes the
+// save to that repository's own sort_orders[repoKey] entry, mirroring
+// saveFiltersCmd; a board with no repo identity (repoKey == "") falls back
+// to writing the legacy global sort_order field, as it always has. Only
+// lazyboards writes this file — the user's config is never rewritten.
 //
 // The save goes through config.UpdateState so it touches only the one key it
 // targets and keeps every other key (#664), and gen -- issued by

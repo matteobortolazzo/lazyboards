@@ -318,52 +318,52 @@ func TestUpdateState_SortOrdersMergeKeepsOtherRepos(t *testing.T) {
 
 // --- Precedence: per-repo state > legacy global state > config > built-in default ---
 
-func TestResolveSortNewestFirstKeyed_PerRepoWinsOverLegacyGlobalAndConfig(t *testing.T) {
+func TestResolveSortNewestFirst_PerRepoWinsOverLegacyGlobalAndConfig(t *testing.T) {
 	key := FilterRepoKey("github", "acme", "widgets")
 	st := State{SortOrder: SortOrderOldest, SortOrders: map[string]string{key: SortOrderNewest}}
 
-	if !ResolveSortNewestFirstKeyed(st, key, false) {
-		t.Error("ResolveSortNewestFirstKeyed() = false, want true (a per-repo override must beat both the legacy global value and the config default)")
+	if !ResolveSortNewestFirst(st, key, false) {
+		t.Error("ResolveSortNewestFirst() = false, want true (a per-repo override must beat both the legacy global value and the config default)")
 	}
 }
 
-func TestResolveSortNewestFirstKeyed_MissingPerRepoFallsBackToLegacyGlobal(t *testing.T) {
+func TestResolveSortNewestFirst_MissingPerRepoFallsBackToLegacyGlobal(t *testing.T) {
 	key := FilterRepoKey("github", "acme", "widgets")
 	st := State{SortOrder: SortOrderNewest}
 
-	if !ResolveSortNewestFirstKeyed(st, key, false) {
-		t.Error("ResolveSortNewestFirstKeyed() = false, want true (with no per-repo entry, the legacy global value decides)")
+	if !ResolveSortNewestFirst(st, key, false) {
+		t.Error("ResolveSortNewestFirst() = false, want true (with no per-repo entry, the legacy global value decides)")
 	}
 }
 
-func TestResolveSortNewestFirstKeyed_MissingBothFallsBackToConfigDefault(t *testing.T) {
+func TestResolveSortNewestFirst_MissingBothFallsBackToConfigDefault(t *testing.T) {
 	key := FilterRepoKey("github", "acme", "widgets")
 
-	if !ResolveSortNewestFirstKeyed(State{}, key, true) {
-		t.Error("ResolveSortNewestFirstKeyed() = false, want true (with no persisted state at all, the config default decides)")
+	if !ResolveSortNewestFirst(State{}, key, true) {
+		t.Error("ResolveSortNewestFirst() = false, want true (with no persisted state at all, the config default decides)")
 	}
-	if ResolveSortNewestFirstKeyed(State{}, key, false) {
-		t.Error("ResolveSortNewestFirstKeyed() = true, want false (config default false must be honored too)")
+	if ResolveSortNewestFirst(State{}, key, false) {
+		t.Error("ResolveSortNewestFirst() = true, want false (config default false must be honored too)")
 	}
 }
 
 // An empty key means no repo identity to key by: the per-repo layer is
 // skipped entirely, even if SortOrders happens to hold an entry for "".
-func TestResolveSortNewestFirstKeyed_EmptyKeySkipsPerRepoLayer(t *testing.T) {
+func TestResolveSortNewestFirst_EmptyKeySkipsPerRepoLayer(t *testing.T) {
 	st := State{SortOrder: SortOrderOldest, SortOrders: map[string]string{"": SortOrderNewest}}
 
-	if ResolveSortNewestFirstKeyed(st, "", false) {
-		t.Error("ResolveSortNewestFirstKeyed() = true, want false (an empty key must not consult SortOrders at all, falling to the legacy global value)")
+	if ResolveSortNewestFirst(st, "", false) {
+		t.Error("ResolveSortNewestFirst() = true, want false (an empty key must not consult SortOrders at all, falling to the legacy global value)")
 	}
 }
 
-func TestResolveSortNewestFirstFor_UsesConfigSortNewestFirstValueAsFinalFallback(t *testing.T) {
+func TestResolveSortNewestFirst_UsesConfigSortNewestFirstValueAsFinalFallback(t *testing.T) {
 	newest := SortOrderNewest
 	cfg := Config{SortOrder: &newest}
 	key := FilterRepoKey("github", "acme", "widgets")
 
-	if !ResolveSortNewestFirstFor(cfg, State{}, key) {
-		t.Error("ResolveSortNewestFirstFor() = false, want true (with no persisted state, the config's sort_order field decides)")
+	if !ResolveSortNewestFirst(State{}, key, cfg.SortNewestFirstValue()) {
+		t.Error("ResolveSortNewestFirst() = false, want true (with no persisted state, the config's sort_order field decides)")
 	}
 }
 
@@ -733,13 +733,13 @@ func TestLoadState_MalformedYAML_ReturnsError(t *testing.T) {
 	}
 }
 
-// --- Precedence: state file > config > built-in default ---
+// --- Precedence: legacy global state > config > built-in default (no repo identity, key "") ---
 
 func TestResolveSortNewestFirst_StateOverridesConfig(t *testing.T) {
 	oldest := SortOrderOldest
 	cfg := Config{SortOrder: &oldest}
 
-	if !ResolveSortNewestFirst(cfg, State{SortOrder: SortOrderNewest}) {
+	if !ResolveSortNewestFirst(State{SortOrder: SortOrderNewest}, "", cfg.SortNewestFirstValue()) {
 		t.Error("ResolveSortNewestFirst() = false, want true (a persisted toggle must beat the configured default)")
 	}
 }
@@ -748,7 +748,7 @@ func TestResolveSortNewestFirst_StateOldestOverridesConfigNewest(t *testing.T) {
 	newest := SortOrderNewest
 	cfg := Config{SortOrder: &newest}
 
-	if ResolveSortNewestFirst(cfg, State{SortOrder: SortOrderOldest}) {
+	if ResolveSortNewestFirst(State{SortOrder: SortOrderOldest}, "", cfg.SortNewestFirstValue()) {
 		t.Error("ResolveSortNewestFirst() = true, want false (a persisted toggle must beat the configured default in both directions)")
 	}
 }
@@ -757,13 +757,13 @@ func TestResolveSortNewestFirst_EmptyStateFallsBackToConfig(t *testing.T) {
 	newest := SortOrderNewest
 	cfg := Config{SortOrder: &newest}
 
-	if !ResolveSortNewestFirst(cfg, State{}) {
+	if !ResolveSortNewestFirst(State{}, "", cfg.SortNewestFirstValue()) {
 		t.Error("ResolveSortNewestFirst() = false, want true (with no persisted state, config decides)")
 	}
 }
 
 func TestResolveSortNewestFirst_EmptyStateAndConfigUsesDefault(t *testing.T) {
-	if ResolveSortNewestFirst(Config{}, State{}) {
+	if ResolveSortNewestFirst(State{}, "", Config{}.SortNewestFirstValue()) {
 		t.Error("ResolveSortNewestFirst() = true, want false (oldest-first is the built-in default, #503)")
 	}
 }
