@@ -34,7 +34,13 @@ type FilterSelection struct {
 // and rewriting it through yaml.Marshal on every toggle would destroy that
 // content (#503). Only lazyboards writes this file.
 type State struct {
+	// SortOrder is the legacy single global sort direction (#503), kept as a
+	// fallback layer beneath SortOrders for anyone who saved it before #672
+	// introduced the per-repository entry.
 	SortOrder string `yaml:"sort_order,omitempty"`
+	// SortOrders holds each repository's remembered sort direction, keyed by
+	// FilterRepoKey like Filters below (#672).
+	SortOrders map[string]string `yaml:"sort_orders,omitempty"`
 	// Filters holds each repository's active filter set, keyed by
 	// FilterRepoKey (#664).
 	Filters map[string][]FilterSelection `yaml:"filters,omitempty"`
@@ -53,6 +59,12 @@ func FilterRepoKey(provider, owner, repo string) string {
 // FiltersFor returns the saved filter selections for key, or nil.
 func (s State) FiltersFor(key string) []FilterSelection {
 	return s.Filters[key]
+}
+
+// SortOrderForRepo returns the saved per-repository sort direction for key,
+// or "" when none is saved (a nil map returns "" too).
+func (s State) SortOrderForRepo(key string) string {
+	return s.SortOrders[key]
 }
 
 // DefaultStatePath returns the default runtime-state file path, alongside the
@@ -95,6 +107,11 @@ func parseState(data []byte) (State, error) {
 	}
 	if st.SortOrder != "" && st.SortOrder != SortOrderOldest && st.SortOrder != SortOrderNewest {
 		return State{}, fmt.Errorf("sort_order must be %q or %q, got %q", SortOrderOldest, SortOrderNewest, st.SortOrder)
+	}
+	for key, order := range st.SortOrders {
+		if order != SortOrderOldest && order != SortOrderNewest {
+			return State{}, fmt.Errorf("sort_orders %q: must be %q or %q, got %q", key, SortOrderOldest, SortOrderNewest, order)
+		}
 	}
 	for key, sels := range st.Filters {
 		for _, sel := range sels {
@@ -180,12 +197,40 @@ func SortOrderFor(newestFirst bool) string {
 	return SortOrderOldest
 }
 
-// ResolveSortNewestFirst decides the startup sort direction: a direction the
-// user toggled at runtime (persisted state) wins, then the sort_order config
-// field, then the built-in default.
-func ResolveSortNewestFirst(cfg Config, st State) bool {
+// ResolveSortNewestFirstKeyed decides the effective sort direction across
+// four layers, each falling back to the next: a per-repository override
+// (st.SortOrders[key], keyed like Filters, #672), then the pre-#672 single
+// global override (st.SortOrder), then cfgDefault (the caller's already
+// -resolved config.Config.SortNewestFirstValue(), taken as a bool rather than
+// a Config here so a caller with only a persisted default in hand -- see
+// package main's savedSortNewestFirstFor -- never needs to fabricate one),
+// then (inside cfgDefault itself) the built-in default. key == "" skips the
+// per-repo layer entirely: there is no repo identity to key SortOrders by.
+func ResolveSortNewestFirstKeyed(st State, key string, cfgDefault bool) bool {
+	if key != "" {
+		if order := st.SortOrders[key]; order != "" {
+			return order == SortOrderNewest
+		}
+	}
 	if st.SortOrder != "" {
 		return st.SortOrder == SortOrderNewest
 	}
-	return cfg.SortNewestFirstValue()
+	return cfgDefault
+}
+
+// ResolveSortNewestFirst decides the startup sort direction with no repo
+// identity to key by: a direction the user toggled at runtime (the legacy
+// global persisted state) wins, then the sort_order config field, then the
+// built-in default. Kept for the one call site (and test suite) that
+// predates #672's per-repo layer; ResolveSortNewestFirstFor is its keyed
+// sibling.
+func ResolveSortNewestFirst(cfg Config, st State) bool {
+	return ResolveSortNewestFirstKeyed(st, "", cfg.SortNewestFirstValue())
+}
+
+// ResolveSortNewestFirstFor is ResolveSortNewestFirstKeyed's convenience
+// wrapper for a caller that has the full Config in hand (main.go's startup
+// seeding, #672).
+func ResolveSortNewestFirstFor(cfg Config, st State, key string) bool {
+	return ResolveSortNewestFirstKeyed(st, key, cfg.SortNewestFirstValue())
 }

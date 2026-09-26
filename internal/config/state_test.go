@@ -220,6 +220,153 @@ func TestFilterRepoKey_EmptyPartYieldsEmptyKey(t *testing.T) {
 	}
 }
 
+// setSortOrderForRepo is an UpdateState mutation that sets only one repo's
+// per-repo sort-order entry.
+func setSortOrderForRepo(key, order string) func(*State) bool {
+	return func(st *State) bool {
+		if st.SortOrders == nil {
+			st.SortOrders = map[string]string{}
+		}
+		st.SortOrders[key] = order
+		return true
+	}
+}
+
+func TestUpdateState_LoadState_SortOrdersRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.yml")
+	key := FilterRepoKey("github", "acme", "widgets")
+
+	if err := UpdateState(path, setSortOrderForRepo(key, SortOrderNewest)); err != nil {
+		t.Fatalf("UpdateState() returned error: %v", err)
+	}
+	st, err := LoadState(path)
+	if err != nil {
+		t.Fatalf("LoadState() returned error: %v", err)
+	}
+
+	if got := st.SortOrderForRepo(key); got != SortOrderNewest {
+		t.Errorf("SortOrderForRepo(%q) = %q, want %q", key, got, SortOrderNewest)
+	}
+}
+
+func TestState_SortOrderForRepo(t *testing.T) {
+	keyA := FilterRepoKey("github", "acme", "a")
+	keyB := FilterRepoKey("github", "acme", "b")
+	st := State{SortOrders: map[string]string{keyA: SortOrderNewest}}
+
+	if got := st.SortOrderForRepo(keyA); got != SortOrderNewest {
+		t.Errorf("SortOrderForRepo(known key) = %q, want %q", got, SortOrderNewest)
+	}
+	if got := st.SortOrderForRepo(keyB); got != "" {
+		t.Errorf("SortOrderForRepo(unknown key) = %q, want empty", got)
+	}
+	if got := (State{}).SortOrderForRepo(keyA); got != "" {
+		t.Errorf("SortOrderForRepo on a State with a nil map = %q, want empty", got)
+	}
+}
+
+// An unrecognized per-repo sort-order value invalidates the whole state file,
+// exactly like an unrecognized legacy global sort_order.
+func TestLoadState_InvalidPerRepoSortOrder_ReturnsError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.yml")
+	content := "sort_orders:\n  \"github:acme/widgets\": sideways\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatalf("failed to write state file: %v", err)
+	}
+
+	_, err := LoadState(path)
+
+	if err == nil {
+		t.Fatal("LoadState() returned no error for an unrecognized per-repo sort_orders value, want an error")
+	}
+	if !strings.Contains(err.Error(), "sort_orders") {
+		t.Errorf("error = %q, want it to name the sort_orders field", err.Error())
+	}
+}
+
+// A sort save for one repo must not erase another repo's sort entry or the
+// legacy global sort_order.
+func TestUpdateState_SortOrdersMergeKeepsOtherRepos(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.yml")
+	keyA := FilterRepoKey("github", "acme", "a")
+	keyB := FilterRepoKey("github", "acme", "b")
+
+	if err := UpdateState(path, setSortOrder(SortOrderNewest)); err != nil {
+		t.Fatalf("seed legacy global sort order: %v", err)
+	}
+	if err := UpdateState(path, setSortOrderForRepo(keyA, SortOrderNewest)); err != nil {
+		t.Fatalf("seed repo A: %v", err)
+	}
+	if err := UpdateState(path, setSortOrderForRepo(keyB, SortOrderOldest)); err != nil {
+		t.Fatalf("save repo B: %v", err)
+	}
+	st, err := LoadState(path)
+	if err != nil {
+		t.Fatalf("LoadState() returned error: %v", err)
+	}
+
+	if st.SortOrder != SortOrderNewest {
+		t.Errorf("legacy SortOrder = %q after per-repo saves, want %q kept", st.SortOrder, SortOrderNewest)
+	}
+	if got := st.SortOrderForRepo(keyA); got != SortOrderNewest {
+		t.Errorf("repo A sort order = %q after saving repo B, want %q unchanged", got, SortOrderNewest)
+	}
+	if got := st.SortOrderForRepo(keyB); got != SortOrderOldest {
+		t.Errorf("repo B sort order = %q, want %q", got, SortOrderOldest)
+	}
+}
+
+// --- Precedence: per-repo state > legacy global state > config > built-in default ---
+
+func TestResolveSortNewestFirstKeyed_PerRepoWinsOverLegacyGlobalAndConfig(t *testing.T) {
+	key := FilterRepoKey("github", "acme", "widgets")
+	st := State{SortOrder: SortOrderOldest, SortOrders: map[string]string{key: SortOrderNewest}}
+
+	if !ResolveSortNewestFirstKeyed(st, key, false) {
+		t.Error("ResolveSortNewestFirstKeyed() = false, want true (a per-repo override must beat both the legacy global value and the config default)")
+	}
+}
+
+func TestResolveSortNewestFirstKeyed_MissingPerRepoFallsBackToLegacyGlobal(t *testing.T) {
+	key := FilterRepoKey("github", "acme", "widgets")
+	st := State{SortOrder: SortOrderNewest}
+
+	if !ResolveSortNewestFirstKeyed(st, key, false) {
+		t.Error("ResolveSortNewestFirstKeyed() = false, want true (with no per-repo entry, the legacy global value decides)")
+	}
+}
+
+func TestResolveSortNewestFirstKeyed_MissingBothFallsBackToConfigDefault(t *testing.T) {
+	key := FilterRepoKey("github", "acme", "widgets")
+
+	if !ResolveSortNewestFirstKeyed(State{}, key, true) {
+		t.Error("ResolveSortNewestFirstKeyed() = false, want true (with no persisted state at all, the config default decides)")
+	}
+	if ResolveSortNewestFirstKeyed(State{}, key, false) {
+		t.Error("ResolveSortNewestFirstKeyed() = true, want false (config default false must be honored too)")
+	}
+}
+
+// An empty key means no repo identity to key by: the per-repo layer is
+// skipped entirely, even if SortOrders happens to hold an entry for "".
+func TestResolveSortNewestFirstKeyed_EmptyKeySkipsPerRepoLayer(t *testing.T) {
+	st := State{SortOrder: SortOrderOldest, SortOrders: map[string]string{"": SortOrderNewest}}
+
+	if ResolveSortNewestFirstKeyed(st, "", false) {
+		t.Error("ResolveSortNewestFirstKeyed() = true, want false (an empty key must not consult SortOrders at all, falling to the legacy global value)")
+	}
+}
+
+func TestResolveSortNewestFirstFor_UsesConfigSortNewestFirstValueAsFinalFallback(t *testing.T) {
+	newest := SortOrderNewest
+	cfg := Config{SortOrder: &newest}
+	key := FilterRepoKey("github", "acme", "widgets")
+
+	if !ResolveSortNewestFirstFor(cfg, State{}, key) {
+		t.Error("ResolveSortNewestFirstFor() = false, want true (with no persisted state, the config's sort_order field decides)")
+	}
+}
+
 func TestState_FiltersFor(t *testing.T) {
 	keyA := FilterRepoKey("github", "acme", "a")
 	keyB := FilterRepoKey("github", "acme", "b")
