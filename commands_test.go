@@ -451,6 +451,103 @@ func TestRunCleanupCmds_StillReturnsCleanupResultMsgWithCorrectCount(t *testing.
 	}
 }
 
+// --- runCleanupCmds failure reporting (#669) ---
+
+// scriptedShellExecutor answers RunShell per command so one runCleanupCmds call
+// can mix successes and failures, which action.FakeExecutor (one canned result
+// for every call) cannot express. Commands without an entry succeed silently.
+type scriptedShellExecutor struct {
+	*action.FakeExecutor
+	failures map[string]string // command -> stderr of its failure
+}
+
+func (s *scriptedShellExecutor) RunShell(command string) (string, error) {
+	s.FakeExecutor.RunShellCalls = append(s.FakeExecutor.RunShellCalls, command)
+	if stderr, failed := s.failures[command]; failed {
+		return stderr, errors.New("exit status 1")
+	}
+	return "", nil
+}
+
+// runCleanupResult runs commands through runCleanupCmds and returns the
+// resulting cleanupResultMsg.
+func runCleanupResult(t *testing.T, executor action.Executor, commands ...string) cleanupResultMsg {
+	t.Helper()
+	result, ok := runCleanupCmds(executor, commands)().(cleanupResultMsg)
+	if !ok {
+		t.Fatal("runCleanupCmds() did not return a cleanupResultMsg")
+	}
+	return result
+}
+
+func TestRunCleanupCmds_FirstErr_SanitizedBoundedWithErrorTextFallback(t *testing.T) {
+	long := strings.Repeat("x", maxErrorOutputLen*3)
+	cases := []struct {
+		name    string
+		stderr  string
+		err     string
+		want    []string // substrings firstErr must keep
+		notWant []string // substrings firstErr must drop
+	}{
+		{"newline and ANSI keep readable text", "permission denied\n\x1b[31mred detail\x1b[0m", "exit status 1", []string{"permission denied", "red detail"}, nil},
+		{"OSC title sequence", "tmux failed\x1b]0;pwned\x07 afterwards", "exit status 1", []string{"tmux failed"}, []string{"pwned", "\x07"}},
+		{"carriage returns", "first\r\nsecond\rthird", "exit status 1", []string{"first", "third"}, nil},
+		{"over the length limit", long, "exit status 1", []string{"xxx"}, nil},
+		{"empty stderr falls back to error text", "", "exit status 7", []string{"exit status 7"}, nil},
+		{"whitespace-only stderr falls back", "  \n\t \r\n", "exit status 7", []string{"exit status 7"}, nil},
+		{"stderr that sanitizes to nothing falls back", "\x1b[31m\x1b[0m", "exit status 7", []string{"exit status 7"}, nil},
+		{"hostile error text is sanitized and bounded", "", "exit status 1\n\x1b[31m" + long, []string{"exit status 1"}, nil},
+		{"stderr and error text both sanitizing to nothing use a generic message", "\x1b[31m\x1b[0m", " \n\t\x1b[0m", []string{"command failed"}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fe := &action.FakeExecutor{RunShellErr: errors.New(tc.err), RunShellStderr: tc.stderr}
+
+			result := runCleanupResult(t, fe, "cenci close 1")
+
+			if strings.ContainsAny(result.firstErr, "\n\r\x1b") {
+				t.Errorf("firstErr = %q, want a single line with no ESC byte", result.firstErr)
+			}
+			if w := lipgloss.Width(result.firstErr); w > maxErrorOutputLen {
+				t.Errorf("firstErr cell width = %d, want <= %d (maxErrorOutputLen)", w, maxErrorOutputLen)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(result.firstErr, want) {
+					t.Errorf("firstErr = %q, want it to contain %q", result.firstErr, want)
+				}
+			}
+			for _, notWant := range tc.notWant {
+				if strings.Contains(result.firstErr, notWant) {
+					t.Errorf("firstErr = %q, want it not to contain %q", result.firstErr, notWant)
+				}
+			}
+		})
+	}
+}
+
+func TestRunCleanupCmds_MixedOutcomes_CountsAttemptedAndFailedSeparately(t *testing.T) {
+	executor := &scriptedShellExecutor{
+		FakeExecutor: &action.FakeExecutor{},
+		failures: map[string]string{
+			"cenci close 2": "window 2 not found",
+			"cenci close 4": "window 4 not found",
+		},
+	}
+	commands := []string{"cenci close 1", "cenci close 2", "cenci close 3", "cenci close 4"}
+
+	result := runCleanupResult(t, executor, commands...)
+
+	if result.count != len(commands) {
+		t.Errorf("count = %d, want %d (commands attempted, failures included)", result.count, len(commands))
+	}
+	if want := len(executor.failures); result.failed != want {
+		t.Errorf("failed = %d, want %d", result.failed, want)
+	}
+	if !strings.Contains(result.firstErr, "window 2 not found") || strings.Contains(result.firstErr, "window 4") {
+		t.Errorf("firstErr = %q, want only the first failing command's stderr (not the first command's)", result.firstErr)
+	}
+}
+
 // --- closeCardCmd ---
 
 func TestCloseCardCmd_Success(t *testing.T) {

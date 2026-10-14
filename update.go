@@ -228,6 +228,14 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.count == 0 {
 			return b, nil
 		}
+		if msg.failed > 0 {
+			text := "Cleanup failed: " + msg.firstErr
+			if more := msg.failed - 1; more > 0 {
+				text += fmt.Sprintf(" (+%d more)", more)
+			}
+			cmd := b.statusBar.SetTimedMessage(text, StatusError, statusMessageDuration)
+			return b, cmd
+		}
 		cmd := b.statusBar.SetTimedMessage(fmt.Sprintf("Cleaned up %d sessions", msg.count), StatusSuccess, statusMessageDuration)
 		return b, cmd
 
@@ -920,6 +928,7 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) (tea.Cmd, bool) 
 			prev.missingSeen = prev.missingSeen || !exists
 			prev.movedSeen = prev.movedSeen || (exists && newInfo.colIdx != prev.colIdx)
 			newCards[cardNum] = prev
+			debuglog.Log(fmt.Sprintf("cleanup: #%d deferred: agent busy", cardNum))
 			continue
 		}
 
@@ -929,6 +938,7 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) (tea.Cmd, bool) 
 		if exists && b.hasWorkingLabel(newInfo.labels) {
 			prev.movedSeen = true
 			newCards[cardNum] = prev
+			debuglog.Log(fmt.Sprintf("cleanup: #%d deferred: working label", cardNum))
 			continue
 		}
 
@@ -939,6 +949,7 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) (tea.Cmd, bool) 
 			prev.missingSeen = true
 			newCards[cardNum] = prev
 			pending = true
+			debuglog.Log(fmt.Sprintf("cleanup: #%d deferred: missing debounce", cardNum))
 			continue
 		}
 
@@ -953,6 +964,7 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) (tea.Cmd, bool) 
 			prev.movedSeen = true
 			newCards[cardNum] = prev
 			pending = true
+			debuglog.Log(fmt.Sprintf("cleanup: #%d deferred: moved debounce", cardNum))
 			continue
 		}
 

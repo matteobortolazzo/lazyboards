@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
@@ -860,5 +862,242 @@ func TestCleanupFollowUp_RepoSwitchCancelsPendingFollowUp(t *testing.T) {
 	}
 	if cmd != nil {
 		t.Error("a cancelled follow-up tick must return a nil cmd")
+	}
+}
+
+// --- Cleanup failure reporting (#669) ---
+
+// requireTimedCleanupError feeds result through Update and fails unless the
+// handler produced a timed error status ("Cleanup failed", never "Cleaned up").
+// It returns the updated board.
+func requireTimedCleanupError(t *testing.T, b Board, result cleanupResultMsg) Board {
+	t.Helper()
+	m, cmd := b.Update(result)
+	b = m.(Board)
+	if cmd == nil {
+		t.Error("a failed cleanup must return the timed-message cmd that later clears the status bar")
+	}
+	if b.statusBar.level != StatusError {
+		t.Errorf("status level = %v, want StatusError (%v)", b.statusBar.level, StatusError)
+	}
+	if view := b.View(); !strings.Contains(view, "Cleanup failed") || strings.Contains(view, "Cleaned up") {
+		t.Errorf("View() should show 'Cleanup failed' and not 'Cleaned up', got:\n%s", view)
+	}
+	return b
+}
+
+func TestCleanupResult_Failures_ShowTimedErrorWithFirstFailure(t *testing.T) {
+	const prefix = "Cleanup failed: "
+	cases := []struct {
+		name     string
+		failures int
+		stderr   string
+		errText  string
+		want     []string
+		notWant  []string
+	}{
+		{"stderr shown", 1, "no such window", "exit status 1", []string{"no such window"}, []string{"more)"}},
+		{"empty stderr falls back to error text", 1, "", "exit status 7", []string{"exit status 7"}, []string{"more)"}},
+		{"two failures count one more", 2, "boom", "exit status 1", []string{"boom", "(+1 more)"}, nil},
+		{"three failures count two more", 3, "boom", "exit status 1", []string{"boom", "(+2 more)"}, nil},
+		{"hostile stderr", 1, "denied\n\x1b[31m" + strings.Repeat("x", maxErrorOutputLen*3), "exit status 1", []string{"denied"}, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newLoadedTestBoard(t)
+			b.Width = 120
+			b.Height = 40
+			fe := &action.FakeExecutor{RunShellErr: errors.New(tc.errText), RunShellStderr: tc.stderr}
+			commands := make([]string, tc.failures)
+			for i := range commands {
+				commands[i] = fmt.Sprintf("cenci close %d", i+1)
+			}
+
+			b = requireTimedCleanupError(t, b, runCleanupResult(t, fe, commands...))
+
+			view := b.View()
+			for _, want := range tc.want {
+				if !strings.Contains(view, want) {
+					t.Errorf("View() should contain %q, got:\n%s", want, view)
+				}
+			}
+			for _, notWant := range tc.notWant {
+				if strings.Contains(view, notWant) {
+					t.Errorf("View() should not contain %q, got:\n%s", notWant, view)
+				}
+			}
+			msg := b.statusBar.message
+			if strings.ContainsAny(msg, "\n\r\x1b") {
+				t.Errorf("status message = %q, want a single line with no ESC byte", msg)
+			}
+			limit := lipgloss.Width(prefix) + maxErrorOutputLen
+			if tc.failures > 1 {
+				limit += lipgloss.Width(fmt.Sprintf(" (+%d more)", tc.failures-1))
+			}
+			if lipgloss.Width(msg) > limit {
+				t.Errorf("status message cell width = %d, want <= %d", lipgloss.Width(msg), limit)
+			}
+		})
+	}
+}
+
+// The "(+N more)" suffix counts failures beyond the first, not commands
+// attempted, so successes mixed into the run must not inflate it.
+func TestCleanupResult_MixedOutcomes_MoreCountsFailuresNotAttempts(t *testing.T) {
+	const firstErr = "window 2 not found"
+	result := cleanupResultMsg{count: 4, failed: 2, firstErr: firstErr}
+	b := newLoadedTestBoard(t)
+	b.Width = 120
+	b.Height = 40
+
+	b = requireTimedCleanupError(t, b, result)
+
+	wantMore := fmt.Sprintf("(+%d more)", result.failed-1)
+	view := b.View()
+	for _, want := range []string{firstErr, wantMore} {
+		if !strings.Contains(view, want) {
+			t.Errorf("View() should contain %q, got:\n%s", want, view)
+		}
+	}
+	if unwanted := fmt.Sprintf("(+%d more)", result.count-1); strings.Contains(view, unwanted) {
+		t.Errorf("View() should not contain %q (attempts, not failures), got:\n%s", unwanted, view)
+	}
+}
+
+// The immediate cleanup paths (card closed / card deleted) share runCleanupCmds
+// and the cleanupResultMsg handler with the background-refresh path.
+func TestCleanupResult_CloseAndDeleteCleanupFailure_ShowsTimedError(t *testing.T) {
+	const stderr = "tmux: can't find window"
+	cases := []struct {
+		name string
+		msg  func(card Card) tea.Msg
+	}{
+		{"card closed", func(card Card) tea.Msg { return cardClosedMsg{card: card} }},
+		{"card deleted", func(card Card) tea.Msg { return cardDeletedMsg{card: card} }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+			b.Width = 120
+			b.Height = 40
+			fe.RunShellErr = errors.New("exit status 1")
+			fe.RunShellStderr = stderr
+
+			m, cmd := b.Update(tc.msg(Card{Number: 1, Title: "Setup CI", Labels: []Label{{Name: "infra"}}}))
+			b = m.(Board)
+
+			var result *cleanupResultMsg
+			for _, msg := range collectMsgs(cmd) {
+				if r, ok := msg.(cleanupResultMsg); ok {
+					result = &r
+				}
+			}
+			if result == nil {
+				t.Fatal("expected the immediate cleanup path to produce a cleanupResultMsg")
+			}
+
+			b = requireTimedCleanupError(t, b, *result)
+
+			if view := b.View(); !strings.Contains(view, stderr) {
+				t.Errorf("View() should show the failed command's stderr %q, got:\n%s", stderr, view)
+			}
+		})
+	}
+}
+
+// --- Guard decisions in the debug log (#669) ---
+
+// initTestDebugLog points the package-level debug log at a temp file for the
+// test's lifetime and returns a reader for its current contents.
+func initTestDebugLog(t *testing.T) func() string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "debug.log")
+	if err := debuglog.Init(path); err != nil {
+		t.Fatalf("debuglog.Init(%q) error = %v, want nil", path, err)
+	}
+	t.Cleanup(func() { _ = debuglog.Init("") })
+	return func() string {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("failed to read debug log %q: %v", path, err)
+		}
+		return string(data)
+	}
+}
+
+// logLinesMentioning returns the log lines carrying "#<cardNumber>" as a whole
+// token (so "#1" never matches "#10").
+func logLinesMentioning(log string, cardNumber int) []string {
+	ref := fmt.Sprintf("#%d", cardNumber)
+	var lines []string
+	for _, line := range strings.Split(log, "\n") {
+		for _, field := range strings.Fields(line) {
+			if strings.TrimRight(field, ":,.") == ref {
+				lines = append(lines, line)
+				break
+			}
+		}
+	}
+	return lines
+}
+
+// allGuardNames lists the guard names the debug log carries: Guard A, B, C, D.
+var allGuardNames = []string{"agent busy", "working label", "missing debounce", "moved debounce"}
+
+func TestCleanupGuardLog_DeferralsNameCardAndGuardButNotTitle(t *testing.T) {
+	const cardNumber = 1
+	const title = "Setup CI"
+	cases := []struct {
+		name     string
+		snapshot *cenciwatch.StateSnapshot
+		board    provider.Board
+		guard    string
+	}{
+		{"agent busy", cleanupSnapshot("running"), fakeRefreshBoard(cardNumber), "agent busy"},
+		{"working label", nil, withCardLabel(fakeRefreshBoard(cardNumber), cardNumber, "working"), "working label"},
+		{"missing debounce", nil, fakeRefreshBoard(-cardNumber), "missing debounce"},
+		{"moved debounce", nil, fakeRefreshBoard(cardNumber), "moved debounce"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			readLog := initTestDebugLog(t)
+			b, _, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+			b.agentSnapshot = tc.snapshot
+
+			refreshCleanupBoard(t, b, tc.board)
+
+			log := readLog()
+			joined := strings.Join(logLinesMentioning(log, cardNumber), "\n")
+			if !strings.Contains(joined, tc.guard) {
+				t.Errorf("log lines for card #%d = %q, want one naming the guard %q", cardNumber, joined, tc.guard)
+			}
+			for _, other := range allGuardNames {
+				if other != tc.guard && strings.Contains(joined, other) {
+					t.Errorf("log lines for card #%d = %q, must not name the unrelated guard %q", cardNumber, joined, other)
+				}
+			}
+			if strings.Contains(strings.ToLower(log), strings.ToLower(title)) {
+				t.Errorf("debug log must carry card numbers only, never titles; found %q in:\n%s", title, log)
+			}
+		})
+	}
+}
+
+func TestCleanupGuardLog_ConfirmedDeparture_LogsNoFurtherDeferral(t *testing.T) {
+	readLog := initTestDebugLog(t)
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+
+	b = refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
+	deferred := readLog()
+	refreshCleanupBoard(t, b, fakeRefreshBoard(-1))
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("precondition: the second consecutive fetch must run the cleanup")
+	}
+	after := strings.TrimPrefix(readLog(), deferred)
+	for _, guard := range allGuardNames {
+		if strings.Contains(after, guard) {
+			t.Errorf("a confirmed departure passes every guard, but the second fetch logged %q:\n%s", guard, after)
+		}
 	}
 }
