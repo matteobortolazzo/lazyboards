@@ -462,7 +462,7 @@ type scriptedShellExecutor struct {
 }
 
 func (s *scriptedShellExecutor) RunShell(command string) (string, error) {
-	s.FakeExecutor.RunShellCalls = append(s.FakeExecutor.RunShellCalls, command)
+	s.RunShellCalls = append(s.RunShellCalls, command)
 	if stderr, failed := s.failures[command]; failed {
 		return stderr, errors.New("exit status 1")
 	}
