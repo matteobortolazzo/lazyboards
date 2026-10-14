@@ -536,27 +536,47 @@ func saveFiltersCmd(path string, seq *stateSaveSeq, gen uint64, repoKey string, 
 
 // cleanupResultMsg is sent when cleanup commands finish executing.
 type cleanupResultMsg struct {
-	count int
+	count    int
+	failed   int
+	firstErr string
 }
 
 // runCleanupCmds returns a tea.Cmd that executes cleanup shell commands. Each
 // command's outcome is logged via debuglog so cleanup executions are
-// forensically traceable after an incident (#361); the returned count and
-// message contract is unchanged.
+// forensically traceable after an incident (#361). The result's count is the
+// number of commands attempted (failures included); failed and firstErr report
+// how many failed and the first failure's display text.
 func runCleanupCmds(executor action.Executor, commands []string) tea.Cmd {
 	return func() tea.Msg {
-		count := 0
+		result := cleanupResultMsg{}
 		for _, cmd := range commands {
 			stderr, err := executor.RunShell(cmd)
 			if err != nil {
 				debuglog.Log(fmt.Sprintf("cleanup: command failed: %s: %v (stderr: %s)", cmd, err, stderr))
+				if result.failed == 0 {
+					result.firstErr = cleanupErrorText(stderr, err)
+				}
+				result.failed++
 			} else {
 				debuglog.Log(fmt.Sprintf("cleanup: executed: %s", cmd))
 			}
-			count++
+			result.count++
 		}
-		return cleanupResultMsg{count: count}
+		return result
 	}
+}
+
+// cleanupErrorText renders a failed cleanup command for the status bar:
+// sanitized, truncated stderr, or the error text when stderr has nothing to
+// show, or a generic message when neither leaves anything printable.
+func cleanupErrorText(stderr string, err error) string {
+	if text := sanitizeSingleLine(stderr); text != "" {
+		return truncateCell(text, maxErrorOutputLen)
+	}
+	if text := truncateCell(sanitizeSingleLine(err.Error()), maxErrorOutputLen); text != "" {
+		return text
+	}
+	return "command failed"
 }
 
 // cenciTooOldMsg and cenciNoOutputMsg are the user-facing messages
