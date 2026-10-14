@@ -183,7 +183,7 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 |-------|------|---------|-------------|
 | `provider` | string | *(auto-detected)* | `github` (local config only) |
 | `repo` | string | *(auto-detected)* | `owner/repo` (local config only) |
-| `refresh_interval` | int | `5` | Minutes between auto-refresh (`0` to disable) |
+| `refresh_interval` | int | `5` | Minutes between auto-refresh (`0` to disable; the [column cleanup](#column-cleanup) follow-up fetch still runs when it is `0`) |
 | `session_max_length` | int | `40` | Max characters for the `{session}` template variable |
 | `working_label` | string | `"Working"` | Label that shows a working indicator on cards |
 | `mouse` | bool | `true` | Enable mouse support |
@@ -263,7 +263,7 @@ model deliberately doesn't cover).
 
 ### Column Cleanup
 
-Run a command automatically when a card leaves a column (detected on board refresh):
+Run a command automatically when a card leaves a column (it must be seen gone or moved on two fetches in a row, see below):
 
 ```yaml
 columns:
@@ -274,6 +274,8 @@ columns:
 
 The `cleanup` command uses the same [template variables](#template-variables) as custom actions. It runs when a card moves to another column or disappears.
 
+To guard against a single bad fetch (for example pagination shifting or a dropped label), a departure only counts once it holds across two fetches in a row. When a fetch leaves a departure waiting for that second confirmation, lazyboards runs one follow-up fetch about 10 seconds later, so a single manual refresh normally leads to cleanup shortly afterwards instead of waiting for the next auto-refresh. The follow-up runs even when `refresh_interval` is `0`. A card whose agent is still working (a busy cenci window or the working label) is held back and waits for the regular refresh instead.
+
 If you're running cenci, prefer `cenci close {number}` over a raw `tmux kill-window`:
 
 ```yaml
@@ -281,6 +283,8 @@ cleanup: 'cenci close {number}'
 ```
 
 `cenci close` asks the daemon for the window's exact `session:index` target instead of guessing a name, so it reaps the right window regardless of which tmux session it's running in. It also refuses to kill a window whose agent is still `running` or waiting for input (unless passed `--force`), exits non-zero without touching tmux if the daemon is unreachable, and exits `0` when no window matches (safe to run even if the agent already finished). No `|| true` needed.
+
+cenci's daemon also closes the windows of finished tickets on its own (see [matteobortolazzo/cenci#1249](https://github.com/matteobortolazzo/cenci/issues/1249)), which covers departures lazyboards missed, for example because it was closed or restarted before the second confirming fetch. `cleanup:` is the fast path, not the only one.
 
 `tmux kill-window -t {window}` still works, but has a sharp edge: a bare window name is resolved by tmux **only within lazyboards' own tmux session**. If the agent's window lives in a different session, the kill silently no-ops; if you run one lazyboards instance per session, each instance only ever reaps windows in its own session. Prefer `{window}` over `{session}` for this target — cenci names dispatched windows `{number}-{skill}` (e.g. `230-refine`), not the reconstructed `{session}` name — but be aware of the cross-session limitation either way.
 

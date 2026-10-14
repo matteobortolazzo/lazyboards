@@ -37,7 +37,10 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, nil
 
 	case refreshTickMsg:
-		return b.handleRefreshTick()
+		return b.handleRefreshTick(msg)
+
+	case cleanupFollowUpTickMsg:
+		return b.handleCleanupFollowUpTick(msg)
 
 	case agentSnapshotMsg:
 		b.agentSnapshot = msg.snapshot
@@ -426,24 +429,79 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return b, nil
 }
 
-func (b Board) handleRefreshTick() (tea.Model, tea.Cmd) {
+func (b Board) handleRefreshTick(msg refreshTickMsg) (tea.Model, tea.Cmd) {
+	if msg.gen != b.refreshTickGen {
+		return b, nil
+	}
 	if b.refreshInterval <= 0 {
 		return b, nil
 	}
 	if b.mode != normalMode || b.refreshing {
-		return b, b.scheduleRefreshTick()
+		// scheduleRefreshTick mutates b (generation bump), so it must run in
+		// its own statement: in `return b, b.scheduleRefreshTick()` Go does not
+		// specify whether b is copied before or after the call.
+		cmd := b.scheduleRefreshTick()
+		return b, cmd
 	}
 	b.refreshing = true
 	return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, b.metadataDue()))
 }
 
-func (b Board) scheduleRefreshTick() tea.Cmd {
+// scheduleRefreshTick starts the next periodic refresh timer and bumps
+// refreshTickGen, which invalidates any previously scheduled tick so only one
+// timer chain ever exists. The bump happens even when auto-refresh is off.
+// Callers must invoke it as its own statement before returning b.
+func (b *Board) scheduleRefreshTick() tea.Cmd {
+	b.refreshTickGen++
 	if b.refreshInterval <= 0 {
 		return nil
 	}
+	gen := b.refreshTickGen
 	return tea.Tick(b.refreshInterval, func(time.Time) tea.Msg {
-		return refreshTickMsg{}
+		return refreshTickMsg{gen: gen}
 	})
+}
+
+// cleanupFollowUpDelay is how long after a fetch that left a departure on the
+// Guard C/D debounce the confirming follow-up fetch runs. Hardcoded (no config
+// surface), like the circuit-breaker thresholds.
+const cleanupFollowUpDelay = 10 * time.Second
+
+// scheduleCleanupFollowUp cancels any outstanding follow-up tick by bumping
+// followUpGen and, when a departure is pending confirmation, schedules a new
+// one. It runs regardless of refreshInterval. Callers must invoke it as its
+// own statement before returning b.
+func (b *Board) scheduleCleanupFollowUp(pending bool) tea.Cmd {
+	b.followUpGen++
+	if !pending {
+		return nil
+	}
+	debuglog.Log("cleanup: follow-up fetch scheduled")
+	gen := b.followUpGen
+	return tea.Tick(b.followUpDelay, func(time.Time) tea.Msg {
+		return cleanupFollowUpTickMsg{gen: gen}
+	})
+}
+
+// handleCleanupFollowUpTick runs the confirming fetch for a pending cleanup
+// departure. Check order matters: a stale tick does nothing; a tick that finds
+// a fetch in flight is dropped (that fetch's result re-runs detectDepartures
+// and schedules a new follow-up if one is still needed); outside normal mode
+// it reschedules without fetching, mirroring handleRefreshTick's mode gating.
+func (b Board) handleCleanupFollowUpTick(msg cleanupFollowUpTickMsg) (tea.Model, tea.Cmd) {
+	if msg.gen != b.followUpGen {
+		return b, nil
+	}
+	if b.refreshing {
+		debuglog.Log("cleanup: follow-up fetch dropped: fetch in flight")
+		return b, nil
+	}
+	if b.mode != normalMode {
+		cmd := b.scheduleCleanupFollowUp(true)
+		return b, cmd
+	}
+	b.refreshing = true
+	return b, tea.Batch(b.spinner.Tick, fetchBoardCmd(b.provider, b.metadataDue()))
 }
 
 // scheduleCenciWatchRetry returns a tea.Cmd that fires an cenciWatchRetryMsg
@@ -568,6 +626,7 @@ func (b *Board) resetRepoScopedState() {
 	b.Columns = nil
 	b.ActiveTab = 0
 	b.prevCards = nil
+	b.followUpGen++ // cancels any outstanding cleanup follow-up; prevCards is gone
 	b.cleanupBreakerWarning = ""
 
 	b.collaborators = nil
@@ -613,7 +672,10 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 
 	// Build new card position map and detect departures for cleanup.
 	newCards := buildCardMap(cols)
-	cleanupCmd := b.detectDepartures(newCards)
+	cleanupCmd, cleanupPending := b.detectDepartures(newCards)
+	// Always called (bumps followUpGen to cancel an outstanding follow-up);
+	// only returns a Cmd when a Guard C/D deferral is waiting on confirmation.
+	followUpCmd := b.scheduleCleanupFollowUp(cleanupPending)
 	b.prevCards = newCards
 
 	// Store collaborators if provided (non-fatal error handling).
@@ -734,6 +796,9 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		if cleanupCmd != nil {
 			cmd = tea.Batch(cmd, cleanupCmd)
 		}
+		if followUpCmd != nil {
+			cmd = tea.Batch(cmd, followUpCmd)
+		}
 		if tickCmd := b.scheduleRefreshTick(); tickCmd != nil {
 			cmd = tea.Batch(cmd, tickCmd)
 		}
@@ -787,6 +852,9 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	if cleanupCmd != nil {
 		cmd = tea.Batch(cmd, cleanupCmd)
 	}
+	if followUpCmd != nil {
+		cmd = tea.Batch(cmd, followUpCmd)
+	}
 	if tickCmd := b.scheduleRefreshTick(); tickCmd != nil {
 		cmd = tea.Batch(cmd, tickCmd)
 	}
@@ -817,12 +885,16 @@ func buildCardMap(cols []Column) map[int]prevCardInfo {
 
 // detectDepartures compares previous card positions with new positions and
 // returns a tea.Cmd to run cleanup commands for cards that left their columns.
-func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
+// The bool reports whether a Guard C or D deferral left at least one departure
+// waiting on the two-fetch debounce, so the caller can schedule a follow-up
+// fetch; Guard A/B deferrals deliberately do not set it.
+func (b *Board) detectDepartures(newCards map[int]prevCardInfo) (tea.Cmd, bool) {
 	if b.prevCards == nil || b.executor == nil {
-		return nil
+		return nil, false
 	}
 
 	var commands []string
+	pending := false
 	for cardNum, prev := range b.prevCards {
 		cleanup := b.columnCleanup(prev.colIdx)
 		if cleanup == "" {
@@ -866,6 +938,7 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		if !exists && !prev.missingSeen {
 			prev.missingSeen = true
 			newCards[cardNum] = prev
+			pending = true
 			continue
 		}
 
@@ -879,6 +952,7 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		if exists && !prev.movedSeen {
 			prev.movedSeen = true
 			newCards[cardNum] = prev
+			pending = true
 			continue
 		}
 
@@ -890,7 +964,7 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 	}
 
 	if len(commands) == 0 {
-		return nil
+		return nil, pending
 	}
 
 	trackedCount := len(b.prevCards)
@@ -906,10 +980,10 @@ func (b *Board) detectDepartures(newCards map[int]prevCardInfo) tea.Cmd {
 		// caller, not here -- see cleanupBreakerWarning's doc comment.
 		debuglog.Errorf("cleanup circuit breaker tripped: %d cleanups for %d tracked cards", len(commands), trackedCount)
 		b.cleanupBreakerWarning = fmt.Sprintf("Cleanup skipped: %d cleanups looked implausible for one fetch", len(commands))
-		return nil
+		return nil, pending
 	}
 
-	return runCleanupCmds(b.executor, commands)
+	return runCleanupCmds(b.executor, commands), pending
 }
 
 // cleanupCircuitBreakerMinCount and cleanupCircuitBreakerFraction are

@@ -369,8 +369,19 @@ type Card struct {
 	Blockers            []Blocker
 }
 
-// refreshTickMsg is sent when the periodic refresh timer fires.
-type refreshTickMsg struct{}
+// refreshTickMsg is sent when the periodic refresh timer fires. gen is the
+// Board.refreshTickGen the tick was scheduled under; handleRefreshTick ignores
+// any tick that is not the most recently scheduled one.
+type refreshTickMsg struct {
+	gen uint64
+}
+
+// cleanupFollowUpTickMsg is sent when a cleanup follow-up fetch timer fires.
+// gen is the Board.followUpGen the tick was scheduled under; a stale one does
+// nothing. It is independent of refreshInterval.
+type cleanupFollowUpTickMsg struct {
+	gen uint64
+}
 
 // actionResultMsg is sent when an async shell action completes.
 type actionResultMsg struct {
@@ -882,9 +893,20 @@ type Board struct {
 	// dedicated state, not a reuse of pendingSeq, so reference labels
 	// ('a'-'z') can never collide with or be swallowed by an unrelated
 	// in-flight keymap sequence.
-	pendingRefs       []cardRef
-	refreshing        bool
-	refreshInterval   time.Duration
+	pendingRefs     []cardRef
+	refreshing      bool
+	refreshInterval time.Duration
+	// refreshTickGen numbers the periodic refresh timer chain: every
+	// scheduleRefreshTick call bumps it, so only the most recently scheduled
+	// tick acts and a manual refresh never leaves a second chain running.
+	refreshTickGen uint64
+	// followUpGen numbers the cleanup follow-up fetch tick the same way.
+	// handleBoardFetched bumps it on every fetch (cancelling any outstanding
+	// follow-up) and resetRepoScopedState bumps it on a repo switch.
+	followUpGen uint64
+	// followUpDelay is how long after a Guard C/D deferral the confirming
+	// fetch runs. NewBoard sets cleanupFollowUpDelay; tests shorten it.
+	followUpDelay     time.Duration
 	lastMetadataFetch time.Time
 	metadataTTL       time.Duration
 	prevCards         map[int]prevCardInfo
@@ -1053,6 +1075,7 @@ func NewBoard(p provider.BoardProvider, defaultActions map[string]config.Action,
 		providerName:       providerName,
 		sessionMaxLen:      sessionMaxLen,
 		refreshInterval:    refreshInterval,
+		followUpDelay:      cleanupFollowUpDelay,
 		metadataTTL:        metadataTTL,
 		workingLabel:       workingLabel,
 		mouseEnabled:       mouseEnabled,
