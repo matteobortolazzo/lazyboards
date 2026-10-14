@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/matteobortolazzo/lazyboards/internal/action"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	"github.com/matteobortolazzo/lazyboards/internal/config"
@@ -30,6 +32,7 @@ func newCleanupTestBoardWith(t *testing.T, cleanup string, watcher cenciwatch.Wa
 		{Name: "Implemented"},
 	}
 	b := NewBoard(p, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, "Working", false, false, watcher, nil, true)
+	b.followUpDelay = time.Millisecond
 	board, err := p.FetchBoard(context.TODO())
 	if err != nil {
 		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
@@ -544,6 +547,7 @@ func newCircuitBreakerTestBoard(t *testing.T, cleanup string, cardCount int) (Bo
 		{Name: "Refined"},
 	}
 	b := NewBoard(p, nil, columnConfigs, fe, "matteobortolazzo", "lazyboards", "github", 32, 0, "Working", false, false, nil, nil, true)
+	b.followUpDelay = time.Millisecond
 	m, cmd := b.Update(boardFetchedMsg{board: circuitBreakerBoard(cardCount, nil)})
 	b = m.(Board)
 	execCmds(cmd)
@@ -648,5 +652,213 @@ func TestCleanupCircuitBreaker_DoesNotCountGuardDeferredCards(t *testing.T) {
 
 	if len(fe.RunShellCalls) < 2 {
 		t.Errorf("expected the 2 non-busy departures to fire despite 8 busy cards also moving, got %d RunShell calls: %v", len(fe.RunShellCalls), fe.RunShellCalls)
+	}
+}
+
+// --- Follow-up fetch (#669): a Guard C/D deferral schedules one quick confirming fetch ---
+
+// manualRefreshDelivering presses 'r' and delivers board as the fetch result,
+// returning the updated board and every message the resulting cmd tree
+// produced (cleanup results, scheduled ticks, ...).
+func manualRefreshDelivering(t *testing.T, b Board, board provider.Board) (Board, []tea.Msg) {
+	t.Helper()
+	m, cmd := b.Update(keyMsg("r"))
+	b = m.(Board)
+	if !b.refreshing {
+		t.Fatal("precondition: refreshing should be true after 'r'")
+	}
+	requireFetchCmd(t, cmd, "'r'")
+	return deliverBoard(b, board)
+}
+
+// requireFetchCmd fails the test unless cmd is non-nil and produces a
+// boardFetchedMsg, i.e. the Update that returned it really started a fetch.
+func requireFetchCmd(t *testing.T, cmd tea.Cmd, trigger string) {
+	t.Helper()
+	if cmd == nil {
+		t.Fatalf("%s must return the fetch cmd, got nil", trigger)
+	}
+	for _, msg := range collectMsgs(cmd) {
+		if _, ok := msg.(boardFetchedMsg); ok {
+			return
+		}
+	}
+	t.Fatalf("%s's cmd should produce a boardFetchedMsg", trigger)
+}
+
+// deliverBoard sends board as a fetch result and collects the cmd tree's messages.
+func deliverBoard(b Board, board provider.Board) (Board, []tea.Msg) {
+	m, cmd := b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+	return b, collectMsgs(cmd)
+}
+
+// fireFollowUp delivers the follow-up tick scheduled by msgs and fails the
+// test when none was scheduled.
+func fireFollowUp(t *testing.T, b Board, msgs []tea.Msg) Board {
+	t.Helper()
+	ticks := followUpTicksIn(msgs)
+	if len(ticks) == 0 {
+		t.Fatal("expected a cleanupFollowUpTickMsg to be scheduled, got none")
+	}
+	m, cmd := b.Update(ticks[0])
+	b = m.(Board)
+	if !b.refreshing {
+		t.Fatal("a current follow-up tick should start a fetch (refreshing = true)")
+	}
+	requireFetchCmd(t, cmd, "a current follow-up tick")
+	return b
+}
+
+func TestCleanupFollowUp_CardDisappears_CleansUpWithoutPeriodicTick(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+
+	b, msgs := manualRefreshDelivering(t, b, fakeRefreshBoard(-1))
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("a single fetch without the card must not clean up yet, got: %v", fe.RunShellCalls)
+	}
+
+	b = fireFollowUp(t, b, msgs)
+
+	b, msgs = deliverBoard(b, fakeRefreshBoard(-1))
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected the cleanup command to run after the follow-up fetch confirmed the departure")
+	}
+	if len(followUpTicksIn(msgs)) != 0 {
+		t.Error("a settled departure must not schedule another follow-up")
+	}
+	if b.refreshing {
+		t.Error("refreshing should be false once the follow-up fetch completed")
+	}
+}
+
+func TestCleanupFollowUp_CardMoves_CleansUpWithoutPeriodicTick(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+
+	b, msgs := manualRefreshDelivering(t, b, fakeRefreshBoard(1))
+	if len(fe.RunShellCalls) != 0 {
+		t.Fatalf("a single fetch observing the move must not clean up yet, got: %v", fe.RunShellCalls)
+	}
+
+	b = fireFollowUp(t, b, msgs)
+
+	deliverBoard(b, fakeRefreshBoard(1))
+
+	if len(fe.RunShellCalls) == 0 {
+		t.Fatal("expected the cleanup command to run after the follow-up fetch confirmed the move")
+	}
+}
+
+func TestCleanupFollowUp_CardMissingThenBackOnFollowUp_NoCleanup(t *testing.T) {
+	b, fe, p := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+
+	b, msgs := manualRefreshDelivering(t, b, fakeRefreshBoard(-1))
+	b = fireFollowUp(t, b, msgs)
+
+	original, err := p.FetchBoard(context.TODO())
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	b, msgs = deliverBoard(b, original)
+
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("a card missing from one fetch and back on the follow-up must not be cleaned up, got: %v", fe.RunShellCalls)
+	}
+	if len(followUpTicksIn(msgs)) != 0 {
+		t.Error("a reappeared card has no pending departure, so no further follow-up should be scheduled")
+	}
+
+	// The debounce was reset: one more miss alone still does not clean up.
+	_, _ = deliverBoard(b, fakeRefreshBoard(-1))
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("a fresh single miss after the reappearance must not clean up, got: %v", fe.RunShellCalls)
+	}
+}
+
+func TestCleanupFollowUp_NotScheduledForGuardAOrBDeferrals(t *testing.T) {
+	cases := []struct {
+		name     string
+		snapshot *cenciwatch.StateSnapshot
+		board    provider.Board
+	}{
+		{"agent busy, card moved", cleanupSnapshot("running"), fakeRefreshBoard(1)},
+		{"agent busy, card missing", cleanupSnapshot("running"), fakeRefreshBoard(-1)},
+		{"agent needs input, card moved", cleanupSnapshot("need-input"), fakeRefreshBoard(1)},
+		{"working label, card moved", nil, withCardLabel(fakeRefreshBoard(1), 1, "working")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+			b.agentSnapshot = tc.snapshot
+
+			_, msgs := manualRefreshDelivering(t, b, tc.board)
+
+			if len(followUpTicksIn(msgs)) != 0 {
+				t.Error("a departure held back only by Guard A or B must wait for the periodic refresh, not schedule a follow-up")
+			}
+			if len(fe.RunShellCalls) != 0 {
+				t.Errorf("a deferred departure must not clean up, got: %v", fe.RunShellCalls)
+			}
+		})
+	}
+}
+
+func TestCleanupFollowUp_ScheduledOnNonRefreshingSameRepoReload(t *testing.T) {
+	b, fe, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+
+	// A same-repo config save reloads the board through loadingMode while
+	// prevCards is still populated; the fetch result takes the non-refreshing
+	// branch of handleBoardFetched.
+	m, cmd := b.Update(configSavedMsg{provider: b.providerName, repo: b.repoOwner + "/" + b.repoName})
+	b = m.(Board)
+	requireFetchCmd(t, cmd, "a same-repo config reload")
+	if b.mode != loadingMode {
+		t.Fatalf("precondition: mode = %d, want %d (loadingMode)", b.mode, loadingMode)
+	}
+	if b.refreshing {
+		t.Fatal("precondition: a config reload is not a background refresh")
+	}
+
+	b, msgs := deliverBoard(b, fakeRefreshBoard(-1))
+
+	if len(followUpTicksIn(msgs)) == 0 {
+		t.Error("the non-refreshing branch must also schedule a follow-up for a pending departure")
+	}
+	if len(fe.RunShellCalls) != 0 {
+		t.Errorf("a first sighting must not clean up, got: %v", fe.RunShellCalls)
+	}
+	if b.mode != normalMode {
+		t.Errorf("mode = %d, want %d (normalMode) after the reload completed", b.mode, normalMode)
+	}
+}
+
+func TestCleanupFollowUp_RepoSwitchCancelsPendingFollowUp(t *testing.T) {
+	b, _, _ := newCleanupTestBoard(t, "tmux kill-window -t {session}")
+	b.providerFactory = func(providerName, owner, repo string) (provider.BoardProvider, error) {
+		return provider.NewFakeProvider(), nil
+	}
+
+	b, msgs := manualRefreshDelivering(t, b, fakeRefreshBoard(-1))
+	ticks := followUpTicksIn(msgs)
+	if len(ticks) == 0 {
+		t.Fatal("precondition: a follow-up should be pending before the switch")
+	}
+
+	m, switchCmd := b.Update(configSavedMsg{provider: "github", repo: "other-owner/other-repo"})
+	b = m.(Board)
+	if switchCmd == nil {
+		t.Fatal("precondition: a repo switch must return the cmd that fetches the new repository's board")
+	}
+	b.mode = normalMode
+
+	m, cmd := b.Update(ticks[0])
+	b = m.(Board)
+
+	if b.refreshing {
+		t.Error("a follow-up scheduled for the previous repository must not fetch after a repo switch")
+	}
+	if cmd != nil {
+		t.Error("a cancelled follow-up tick must return a nil cmd")
 	}
 }

@@ -358,8 +358,8 @@ func TestRefreshTick_TriggersRefresh(t *testing.T) {
 	b := newLoadedTestBoard(t)
 	b.refreshInterval = 5 * time.Minute
 
-	// Send refreshTickMsg to a loaded board in normalMode.
-	m, cmd := b.Update(refreshTickMsg{})
+	// Send the current-generation refreshTickMsg to a loaded board in normalMode.
+	m, cmd := b.Update(refreshTickMsg{gen: b.refreshTickGen})
 	updated := m.(Board)
 
 	// Should start a background refresh.
@@ -379,7 +379,7 @@ func TestRefreshTick_SkippedWhenAlreadyRefreshing(t *testing.T) {
 	b.refreshing = true
 
 	// Send refreshTickMsg while already refreshing.
-	m, cmd := b.Update(refreshTickMsg{})
+	m, cmd := b.Update(refreshTickMsg{gen: b.refreshTickGen})
 	updated := m.(Board)
 
 	// Should still be refreshing (no double-refresh).
@@ -404,7 +404,7 @@ func TestRefreshTick_SkippedInNonNormalMode(t *testing.T) {
 	b.mode = loadingMode
 
 	// Send refreshTickMsg while in loadingMode.
-	m, cmd := b.Update(refreshTickMsg{})
+	m, cmd := b.Update(refreshTickMsg{gen: b.refreshTickGen})
 	updated := m.(Board)
 
 	// Should not start a refresh.
@@ -428,8 +428,12 @@ func TestRefreshTick_DisabledWhenIntervalZero(t *testing.T) {
 	b.refreshInterval = 0
 
 	// Send refreshTickMsg with interval disabled.
-	m, _ := b.Update(refreshTickMsg{})
+	m, cmd := b.Update(refreshTickMsg{gen: b.refreshTickGen})
 	updated := m.(Board)
+
+	if cmd != nil {
+		t.Error("refreshTickMsg with refreshInterval=0 should return a nil cmd")
+	}
 
 	// Should not start a refresh.
 	if updated.refreshing {
@@ -543,6 +547,216 @@ func TestManualRefresh_ResetsTimer(t *testing.T) {
 	}
 	if !found {
 		t.Error("manual refresh completion should schedule a refreshTickMsg for the next periodic refresh")
+	}
+}
+
+// --- Refresh tick generations ---
+
+// refreshTicksIn returns every refreshTickMsg found in msgs, in order.
+func refreshTicksIn(msgs []tea.Msg) []refreshTickMsg {
+	var ticks []refreshTickMsg
+	for _, msg := range msgs {
+		if tick, ok := msg.(refreshTickMsg); ok {
+			ticks = append(ticks, tick)
+		}
+	}
+	return ticks
+}
+
+// followUpTicksIn returns every cleanupFollowUpTickMsg found in msgs, in order.
+func followUpTicksIn(msgs []tea.Msg) []cleanupFollowUpTickMsg {
+	var ticks []cleanupFollowUpTickMsg
+	for _, msg := range msgs {
+		if tick, ok := msg.(cleanupFollowUpTickMsg); ok {
+			ticks = append(ticks, tick)
+		}
+	}
+	return ticks
+}
+
+// completeManualRefresh presses 'r' and delivers a fetched board, returning
+// the resulting board and the refreshTickMsg the completion scheduled.
+func completeManualRefresh(t *testing.T, b Board) (Board, refreshTickMsg) {
+	t.Helper()
+	m, _ := b.Update(keyMsg("r"))
+	b = m.(Board)
+	if !b.refreshing {
+		t.Fatal("precondition: refreshing should be true after 'r'")
+	}
+	board, err := provider.NewFakeProvider().FetchBoard(context.TODO())
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, cmd := b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+	ticks := refreshTicksIn(collectMsgs(cmd))
+	if len(ticks) == 0 {
+		t.Fatal("refresh completion should schedule a refreshTickMsg when refreshInterval > 0")
+	}
+	return b, ticks[len(ticks)-1]
+}
+
+func TestRefreshTick_NonCurrentGenerationIgnored(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshInterval = 5 * time.Minute
+	if b.refreshTickGen == 0 {
+		t.Fatal("precondition: a loaded board has scheduled at least one tick, so its generation is non-zero")
+	}
+
+	for name, gen := range map[string]uint64{
+		"older generation": b.refreshTickGen - 1,
+		"newer generation": b.refreshTickGen + 1,
+	} {
+		t.Run(name, func(t *testing.T) {
+			m, cmd := b.Update(refreshTickMsg{gen: gen})
+			updated := m.(Board)
+
+			if updated.refreshing {
+				t.Error("a refresh tick that is not the current generation must not start a refresh")
+			}
+			if cmd != nil {
+				t.Error("a refresh tick that is not the current generation must return a nil cmd (no reschedule, no extra timer chain)")
+			}
+		})
+	}
+}
+
+func TestRefreshTick_NoDuplicateTimerChainsAfterManualRefresh(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshInterval = 1 * time.Millisecond
+	b.Width = 120
+	b.Height = 40
+
+	b, tickA := completeManualRefresh(t, b)
+	b, tickB := completeManualRefresh(t, b)
+
+	if tickA.gen == tickB.gen {
+		t.Fatalf("successive refresh completions must schedule distinct generations, both were %d", tickA.gen)
+	}
+
+	// The older chain's tick fires late: it must be ignored.
+	m, cmd := b.Update(tickA)
+	staleResult := m.(Board)
+	if staleResult.refreshing {
+		t.Error("the superseded tick must not start a refresh")
+	}
+	if cmd != nil {
+		t.Error("the superseded tick must not reschedule itself")
+	}
+
+	// The most recently scheduled tick is the only one that acts.
+	m, cmd = b.Update(tickB)
+	current := m.(Board)
+	if !current.refreshing {
+		t.Error("the most recently scheduled tick must start a refresh")
+	}
+	if cmd == nil {
+		t.Error("the most recently scheduled tick must return the fetch cmd")
+	}
+}
+
+// --- Cleanup follow-up tick ---
+
+func TestCleanupFollowUpTick_StaleGenerationIgnored(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.followUpGen = 3
+
+	m, cmd := b.Update(cleanupFollowUpTickMsg{gen: b.followUpGen - 1})
+	updated := m.(Board)
+
+	if updated.refreshing {
+		t.Error("a stale follow-up tick must not start a fetch")
+	}
+	if cmd != nil {
+		t.Error("a stale follow-up tick must return a nil cmd (no fetch, no reschedule)")
+	}
+}
+
+func TestCleanupFollowUpTick_DroppedWhileFetchInFlight(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshing = true
+
+	m, cmd := b.Update(cleanupFollowUpTickMsg{gen: b.followUpGen})
+	b = m.(Board)
+
+	if cmd != nil {
+		t.Error("a follow-up tick that finds a fetch in flight must be dropped: nil cmd, no second fetch, no reschedule")
+	}
+	if !b.refreshing {
+		t.Error("refreshing must keep its meaning (the in-flight fetch) after a dropped follow-up tick")
+	}
+
+	// The in-flight fetch completes and clears refreshing as usual.
+	board, err := provider.NewFakeProvider().FetchBoard(context.TODO())
+	if err != nil {
+		t.Fatalf("FakeProvider.FetchBoard failed: %v", err)
+	}
+	m, cmd = b.Update(boardFetchedMsg{board: board})
+	b = m.(Board)
+	execCmds(cmd)
+	if b.refreshing {
+		t.Error("refreshing should be cleared by the in-flight fetch's boardFetchedMsg")
+	}
+}
+
+func TestCleanupFollowUpTick_RescheduledOutsideNormalMode(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.followUpDelay = 1 * time.Millisecond
+	b.mode = helpMode
+	before := b.followUpGen
+
+	m, cmd := b.Update(cleanupFollowUpTickMsg{gen: b.followUpGen})
+	updated := m.(Board)
+
+	if updated.refreshing {
+		t.Error("a follow-up tick outside normal mode must not start a fetch")
+	}
+	if updated.mode != helpMode {
+		t.Errorf("mode = %d, want %d (helpMode untouched)", updated.mode, helpMode)
+	}
+	if cmd == nil {
+		t.Fatal("a follow-up tick outside normal mode must reschedule itself")
+	}
+
+	msgs := collectMsgs(cmd)
+	for _, msg := range msgs {
+		if _, ok := msg.(boardFetchedMsg); ok {
+			t.Error("a follow-up tick outside normal mode must not fetch the board")
+		}
+	}
+	ticks := followUpTicksIn(msgs)
+	if len(ticks) == 0 {
+		t.Fatal("the reschedule cmd should produce a cleanupFollowUpTickMsg")
+	}
+	if ticks[0].gen != updated.followUpGen {
+		t.Errorf("rescheduled tick gen = %d, want the board's current generation %d", ticks[0].gen, updated.followUpGen)
+	}
+	if updated.followUpGen == before {
+		t.Error("rescheduling must supersede the tick that just fired (generation must change)")
+	}
+}
+
+func TestCleanupFollowUpTick_RunsWhenAutoRefreshDisabled(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	b.refreshInterval = 0
+
+	m, cmd := b.Update(cleanupFollowUpTickMsg{gen: b.followUpGen})
+	updated := m.(Board)
+
+	if !updated.refreshing {
+		t.Error("a current follow-up tick must start a fetch even when refresh_interval is 0")
+	}
+	if cmd == nil {
+		t.Fatal("a current follow-up tick must return the fetch cmd")
+	}
+	fetched := false
+	for _, msg := range collectMsgs(cmd) {
+		if _, ok := msg.(boardFetchedMsg); ok {
+			fetched = true
+		}
+	}
+	if !fetched {
+		t.Error("the follow-up tick's cmd should produce a boardFetchedMsg")
 	}
 }
 

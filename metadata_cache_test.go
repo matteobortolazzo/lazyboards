@@ -84,7 +84,7 @@ func TestMetadataCache_RefreshTick_SkipsMetadataCallsWhenNotDue(t *testing.T) {
 
 	// Trigger a refresh tick immediately -- the metadata TTL has not elapsed,
 	// so this cycle must NOT re-fetch collaborators/labels/user.
-	m, cmd := b.Update(refreshTickMsg{})
+	m, cmd := b.Update(refreshTickMsg{gen: b.refreshTickGen})
 	b = m.(Board)
 	if !b.refreshing {
 		t.Fatal("precondition: refreshing should be true after refreshTickMsg")
