@@ -1572,11 +1572,14 @@ func (b Board) filterTabLines(width int) []string {
 	return lines
 }
 
+// filterModalWidth is the filter picker's modal width, widened from the
+// pre-#653 50 to fit the "Clear all" hint (filter.clear_all); the hint bar
+// spans two lines (filterNavHints, filterActionHints) so each fits without
+// truncation. NewBoard sizes the query input from it too.
+const filterModalWidth = 62
+
 func (b Board) viewFilterModal() string {
-	// modalWidth widened from the pre-#653 50 to fit the new "Clear all" hint
-	// (filter.clear_all); the hint bar now spans two lines (filterNavHints,
-	// filterActionHints) so each fits without truncation.
-	modalWidth := 62
+	modalWidth := filterModalWidth
 	contentWidth := modalContentWidth(modalWidth)
 
 	var lines []string

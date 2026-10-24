@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
 )
@@ -130,8 +132,145 @@ func TestFilterSearch_EscClearsQueryAndReturnsToPicker(t *testing.T) {
 	if b.mode != filterMode || b.filterQuery.Value() != "" || len(b.visibleFilterItems()) != all {
 		t.Errorf("after esc: mode = %d, query = %q, rows = %d; want filterMode, empty query, all %d rows", b.mode, b.filterQuery.Value(), len(b.visibleFilterItems()), all)
 	}
-	if view := b.viewFilterModal(); strings.Contains(view, "/ ") && !strings.Contains(view, "/: Search") {
-		t.Errorf("the query line should disappear once the query is cleared:\n%s", view)
+	view := b.viewFilterModal()
+	for _, line := range strings.Split(view, "\n") {
+		content := strings.TrimSpace(strings.Trim(strings.TrimSpace(line), "│"))
+		if strings.HasPrefix(content, b.filterQuery.Prompt) {
+			t.Errorf("the query line should disappear once the query is cleared; found %q in:\n%s", line, view)
+		}
+	}
+	if got, want := lipgloss.Height(view), lipgloss.Height(openFilterSearchBoard(t).viewFilterModal()); got != want {
+		t.Errorf("modal height after esc = %d, want %d (the picker's height before any query)", got, want)
+	}
+}
+
+func TestFilterSearch_CursorKeysThatKeepTheTextKeepTheCursor(t *testing.T) {
+	b := typeFilterQuery(t, openFilterSearchBoard(t), "bu")
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	if b.filterCursor != 1 {
+		t.Fatalf("precondition: cursor = %d after down, want 1", b.filterCursor)
+	}
+
+	for _, kt := range []tea.KeyType{tea.KeyLeft, tea.KeyRight, tea.KeyHome, tea.KeyEnd} {
+		b = sendKey(t, b, arrowMsg(kt))
+		if b.filterCursor != 1 || b.filterQuery.Value() != "bu" {
+			t.Errorf("after %v: cursor = %d, query = %q; want cursor 1 and the query unchanged", kt, b.filterCursor, b.filterQuery.Value())
+		}
+	}
+
+	b = sendKey(t, b, keyMsg("g"))
+	if b.filterCursor != 0 {
+		t.Errorf("cursor = %d after typing a rune, want 0", b.filterCursor)
+	}
+}
+
+// longLabelsBoard builds a board whose labels share a prefix wider than the
+// filter modal, so a query typed as that prefix still matches every row.
+func longLabelsBoard(t *testing.T, prefix string, count, height int) Board {
+	t.Helper()
+	cards := make([]provider.Card, count)
+	for i := range cards {
+		cards[i] = provider.Card{Number: i + 1, Title: "Card", Labels: []provider.Label{{Name: fmt.Sprintf("%s-%02d", prefix, i)}}}
+	}
+	return newBoardWithInlineCards(t, cards, 120, height)
+}
+
+func TestFilterSearch_LongQueryKeepsTheModalWithinTerminalHeight(t *testing.T) {
+	const height = 20
+	// Wider than the modal's content area, yet within the input's CharLimit.
+	prefix := strings.Repeat("x", modalContentWidth(filterModalWidth)+20)
+	b := longLabelsBoard(t, prefix, 40, height)
+	b = sendKey(t, b, keyMsg("f"))
+	b = typeFilterQuery(t, b, prefix)
+	if b.filterQuery.Value() != prefix || len(b.visibleFilterItems()) == 0 {
+		t.Fatal("precondition: the whole long query should be typed and still match rows")
+	}
+
+	assertHeight := func(when string) {
+		t.Helper()
+		if h := lipgloss.Height(b.viewFilterModal()); h > height {
+			t.Errorf("modal height %s = %d, want <= %d:\n%s", when, h, height, b.viewFilterModal())
+		}
+	}
+	assertHeight("while typing, cursor on the first row")
+	// Mid-list both scroll indicators render, using every row line.
+	for i := 0; i < len(b.visibleFilterItems())/2; i++ {
+		b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	}
+	assertHeight("while typing, cursor mid-list")
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.mode != filterMode || b.filterQuery.Value() != prefix {
+		t.Fatalf("after enter: mode = %d, query kept = %v; want filterMode keeping the query", b.mode, b.filterQuery.Value() == prefix)
+	}
+	assertHeight("after enter, cursor mid-list")
+}
+
+func TestFilterSearch_RefreshClampsTheCursorWithinNarrowedRows(t *testing.T) {
+	b := typeFilterQuery(t, openFilterSearchBoard(t), "bu")
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	b = sendKey(t, b, arrowMsg(tea.KeyDown))
+	if b.filterCursor != 2 {
+		t.Fatalf("precondition: cursor = %d, want 2", b.filterCursor)
+	}
+
+	b = simulateRefreshWithCards(t, b, []provider.Column{{Title: "Column A", Cards: []provider.Card{
+		{Number: 1, Title: "A", Labels: []provider.Label{{Name: "bug"}, {Name: "docs"}}},
+	}}})
+
+	rows := len(b.visibleFilterItems())
+	if rows == 0 || b.filterCursor >= rows {
+		t.Errorf("after refresh: cursor = %d over %d narrowed rows, want it clamped within them", b.filterCursor, rows)
+	}
+	if b.mode != filterSearchMode || b.filterQuery.Value() != "bu" {
+		t.Errorf("after refresh: mode = %d, query = %q; want filterSearchMode keeping the query", b.mode, b.filterQuery.Value())
+	}
+}
+
+func TestFilterSearch_RepoSwitchClearsTheQuery(t *testing.T) {
+	b, _, _ := newRepoSwitchBoard(t, singleCardBoard("New", 900, "New repo card"))
+	// A config save can't happen with the picker open, so the query is set
+	// directly to pin resetRepoScopedState's own reset.
+	b.filterQuery.SetValue("bu")
+
+	m, cmd := b.Update(configSavedMsg{provider: "github", repo: "new-owner/new-repo"})
+	b = m.(Board)
+
+	if cmd == nil {
+		t.Fatal("a repo change should return a fetch cmd")
+	}
+	if b.filterQuery.Value() != "" {
+		t.Errorf("filterQuery = %q after a repo switch, want empty", b.filterQuery.Value())
+	}
+}
+
+func TestFilterSearch_MouseWheelMovesWithinNarrowedRows(t *testing.T) {
+	b := openFilterSearchBoard(t)
+	b.mouseEnabled = true
+	b = typeFilterQuery(t, b, "bu")
+	rows := len(b.visibleFilterItems())
+
+	for i := 0; i < rows+1; i++ {
+		m, cmd := b.Update(wheelDownMsg())
+		b = m.(Board)
+		if cmd != nil {
+			t.Errorf("wheel down cmd = %v, want nil", cmd)
+		}
+	}
+	if b.filterCursor != rows-1 {
+		t.Errorf("cursor after wheeling past the end = %d, want %d (clamped to the narrowed rows)", b.filterCursor, rows-1)
+	}
+
+	m, cmd := b.Update(wheelUpMsg())
+	b = m.(Board)
+	if cmd != nil {
+		t.Errorf("wheel up cmd = %v, want nil", cmd)
+	}
+	if b.filterCursor != rows-2 {
+		t.Errorf("cursor after wheel up = %d, want %d", b.filterCursor, rows-2)
+	}
+	if b.mode != filterSearchMode || b.filterQuery.Value() != "bu" {
+		t.Errorf("after wheeling: mode = %d, query = %q; want filterSearchMode keeping the query", b.mode, b.filterQuery.Value())
 	}
 }
 

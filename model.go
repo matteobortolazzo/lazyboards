@@ -1082,6 +1082,10 @@ func NewBoard(p provider.BoardProvider, defaultActions map[string]config.Action,
 	fq := textinput.New()
 	fq.CharLimit = 100
 	fq.Prompt = "/ "
+	// Bound the visible text so a long query scrolls horizontally on one
+	// line: viewFilterModal reserves exactly one line for it. The trailing
+	// cell is the cursor's.
+	fq.Width = modalContentWidth(filterModalWidth) - lipgloss.Width(fq.Prompt) - 1
 
 	metadataTTL := refreshInterval * metadataTTLMultiplier
 	if metadataTTL < minMetadataTTL {

@@ -611,7 +611,8 @@ func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleFilterSearchModeKey routes the filter picker's query input through
 // textBinding: a bound command runs via runFilterSearchCommand, anything else
 // (printable runes included) edits the query, which is kept sanitized to one
-// line and resets the cursor to the first narrowed row.
+// line; a key that changes the query resets the cursor to the first narrowed
+// row, while one that only moves the text cursor leaves it.
 func (b Board) handleFilterSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if binding, ok := b.textBinding(keymap.ModeFilterSearch, msg); ok && binding.Kind == keymap.BindingCommand {
 		if cmd, ok := b.universalDispatch(binding); ok {
@@ -624,12 +625,15 @@ func (b Board) handleFilterSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	before := b.filterQuery.Value()
 	var cmd tea.Cmd
 	b.filterQuery, cmd = b.filterQuery.Update(msg)
 	if value := b.filterQuery.Value(); sanitizeSingleLine(value) != value {
 		b.filterQuery.SetValue(sanitizeSingleLine(value))
 	}
-	b.filterCursor = 0
+	if b.filterQuery.Value() != before {
+		b.filterCursor = 0
+	}
 	return b, cmd
 }
 
