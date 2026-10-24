@@ -1,5 +1,4 @@
 {
-  "configVersion": "0.58.1",
   "branchPattern": "feature/<id>-<description>",
   "stack": {
     "backend": "go-bubbletea",
@@ -8,7 +7,7 @@
       "go-test"
     ]
   },
-  "guidanceLocation": "AGENTS.md",
+  "claudeMdLocation": ".claude/CLAUDE.md",
   "mcpServers": {
     "context7": true
   },
@@ -23,8 +22,7 @@
     "platform": "github-actions"
   },
   "sandbox": {
-    "enabled": true,
-    "baseVersion": null
+    "enabled": true
   },
   "lazyboards": {
     "enabled": true,
@@ -33,6 +31,8 @@
     "testCommand": "go test ./...",
     "testKey": "T"
   },
+  "configVersion": "1.27.5",
+  "guidanceLocation": "AGENTS.md",
   "planning": {
     "autonomy": "interactive"
   },
@@ -80,5 +80,23 @@
     "maxChangedFiles": 10,
     "maxDiffLines": 400,
     "mergeMethod": "squash"
-  }
+  },
+  "isMonorepo": false,
+  "refinement": {
+    "autonomy": "lean",
+    "confirmBeforeApply": false,
+    "automerge": "off"
+  },
+  "configureOffered": [
+    "automerge.enabled",
+    "dispatch.planRefined",
+    "dispatchEnroll",
+    "isMonorepo",
+    "planning.attended",
+    "refinement",
+    "refinement.automerge",
+    "refinement.confirmBeforeApply",
+    "sandbox.azure",
+    "sandbox.dind"
+  ]
 }
