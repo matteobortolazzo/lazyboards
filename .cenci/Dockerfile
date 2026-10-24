@@ -1,10 +1,10 @@
 # cenci:managed-begin
 ARG BASE_VERSION=latest
-# No cenci-sandbox plugin version detected — using the :latest base image alias. See sandbox/README.md to pin BASE_VERSION manually, or install the cenci-sandbox plugin and re-run /cenci:configure.
 FROM cenci-sandbox-base:${BASE_VERSION}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# cenci:fragment-begin node
 ARG NODE_MAJOR=24
 
 USER root
@@ -16,8 +16,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
 ENV NPM_CONFIG_PREFIX=/home/dev/.local
 
 USER dev
+# cenci:fragment-end node
 
-ARG GO_VERSION=1.24.1
+# cenci:fragment-begin go
+ARG GO_VERSION=1.27.3
 
 USER root
 
@@ -27,4 +29,5 @@ RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-$(dpkg --print-architect
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 USER dev
+# cenci:fragment-end go
 # cenci:managed-end
