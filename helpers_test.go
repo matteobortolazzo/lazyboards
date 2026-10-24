@@ -908,3 +908,53 @@ func findLineContaining(t *testing.T, view, marker string) string {
 	t.Fatalf("view has no line containing %q; got:\n%s", marker, view)
 	return ""
 }
+
+// currentFilterRow returns the filter-picker row under the cursor in the
+// active tab, failing the test when the cursor indexes no row.
+func currentFilterRow(t *testing.T, b Board) filterItem {
+	t.Helper()
+	items := b.visibleFilterItems()
+	if b.filterCursor < 0 || b.filterCursor >= len(items) {
+		t.Fatalf("filterCursor = %d outside the active tab's %d rows", b.filterCursor, len(items))
+	}
+	return items[b.filterCursor]
+}
+
+// allFilterRows flattens filter-picker groups into one list, in tab order.
+func allFilterRows(groups []filterGroup) []filterItem {
+	var rows []filterItem
+	for _, g := range groups {
+		rows = append(rows, g.items...)
+	}
+	return rows
+}
+
+// focusFilterTab presses the default filter.next_category key ("l") until
+// the picker's active tab holds itemType.
+func focusFilterTab(t *testing.T, b Board, itemType filterType) Board {
+	t.Helper()
+	for range b.filterGroups {
+		if b.filterGroups[b.filterTab].itemType == itemType {
+			return b
+		}
+		b = sendKey(t, b, keyMsg("l"))
+	}
+	t.Fatalf("picker has no tab for filterType %d; groups = %+v", itemType, b.filterGroups)
+	return b
+}
+
+// focusFilterRow focuses itemType's tab, then presses the default
+// filter.next key ("j") until the row matching value (case-insensitive) is
+// under the cursor.
+func focusFilterRow(t *testing.T, b Board, itemType filterType, value string) Board {
+	t.Helper()
+	b = focusFilterTab(t, b, itemType)
+	for range b.visibleFilterItems() {
+		if strings.EqualFold(currentFilterRow(t, b).value, value) {
+			return b
+		}
+		b = sendKey(t, b, keyMsg("j"))
+	}
+	t.Fatalf("picker tab %d has no row %q; rows = %+v", itemType, value, b.visibleFilterItems())
+	return b
+}

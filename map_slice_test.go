@@ -40,7 +40,7 @@ func TestMapSlice_EmptyInput_ReturnsNil(t *testing.T) {
 //
 // These are unit tests (not integration) because the stable-tie property for
 // case-only duplicates is not reliably observable through the deduped filter
-// picker surface (collectFilterItems removes case-only duplicates before
+// picker surface (collectFilterGroups removes case-only duplicates before
 // sorting), so it must be verified directly against the helper.
 
 // sortFoldItem is a small struct-keyed fixture standing in for the assign

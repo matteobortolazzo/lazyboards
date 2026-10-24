@@ -23,11 +23,13 @@ const (
 	CommandAgentListNext       CommandID = "agent_list.next"
 	CommandAgentListPrev       CommandID = "agent_list.prev"
 
-	CommandFilterClose    CommandID = "filter.close"
-	CommandFilterSelect   CommandID = "filter.select"
-	CommandFilterNext     CommandID = "filter.next"
-	CommandFilterPrev     CommandID = "filter.prev"
-	CommandFilterClearAll CommandID = "filter.clear_all"
+	CommandFilterClose        CommandID = "filter.close"
+	CommandFilterSelect       CommandID = "filter.select"
+	CommandFilterNext         CommandID = "filter.next"
+	CommandFilterPrev         CommandID = "filter.prev"
+	CommandFilterClearAll     CommandID = "filter.clear_all"
+	CommandFilterNextCategory CommandID = "filter.next_category"
+	CommandFilterPrevCategory CommandID = "filter.prev_category"
 
 	CommandAssignClose  CommandID = "assign.close"
 	CommandAssignToggle CommandID = "assign.toggle"
@@ -65,6 +67,8 @@ var modalCommands = []Command{
 	{CommandFilterNext, "Navigate"},
 	{CommandFilterPrev, "Navigate"},
 	{CommandFilterClearAll, "Clear all"},
+	{CommandFilterNextCategory, "Category"},
+	{CommandFilterPrevCategory, "Category"},
 
 	{CommandAssignClose, "Cancel"},
 	{CommandAssignToggle, "Toggle"},

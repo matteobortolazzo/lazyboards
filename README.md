@@ -845,12 +845,22 @@ trusted a previous version of this same repo before.
 
 ### Filter
 
-The picker lists Labels, Assignees, Milestones, Hierarchy, and Dependencies
-sections (only sections with at least one value are shown), built from the cards
-currently on the board. Entries within each section are sorted alphabetically
-(case-insensitive), except Hierarchy and Dependencies.
+The picker shows one category per tab — Labels, Assignees, Milestones,
+Hierarchy, and Dependencies, in that order (only categories with at least one
+value get a tab), built from the cards currently on the board. A tab with active
+selections carries a badge with their count, e.g. `Labels (2)`; the tab row
+wraps onto more lines when it doesn't fit the modal. `h`/`l` (also `←`/`→` and
+`shift+tab`/`tab`) switch tabs, wrapping at both ends and moving the cursor to
+the new tab's first row. The picker opens on the first tab that holds a
+selection, else on the first tab. Entries within each tab are sorted
+alphabetically (case-insensitive), except Hierarchy and Dependencies.
 
-The Hierarchy section follows Milestones and has up to two rows, in this fixed
+A tab with more rows than fit the terminal scrolls with the cursor, showing `▲`
+/ `▼` when rows are hidden above / below, so the modal never grows past the
+screen. A refresh while the picker is open keeps the current tab (falling back
+to the first tab if its category disappeared) and keeps the cursor in range.
+
+The Hierarchy tab follows Milestones and has up to two rows, in this fixed
 order: `󰙅 Parents` (cards with sub-issues, the ones showing the `󰙅 N/M` line) and
 `󱞫 Sub-issues` (cards that have a parent, the ones showing the `󱞫 #N` line). A row
 is listed only when at least one card on the board qualifies. Selecting both
@@ -858,7 +868,7 @@ rows means "has any sub-issue relationship", so standalone cards drop out; a car
 that is both a parent and a sub-issue matches either row. Like any other
 category, Hierarchy combines with the rest using AND.
 
-The Dependencies section is always last and is shown only when at least one card
+The Dependencies tab is always last and is shown only when at least one card
 on the board is blocked. It has up to two rows, in this fixed order: `󰂭 Blocked`
 (cards with at least one open blocker, the ones showing the `󰂭` blocked-by line)
 and `Unblocked` (every other card, including one whose blockers are all closed).
@@ -891,6 +901,8 @@ resets every repository's filters.
 | `c` | `filter.clear_all` | Clear all |
 | `j` / `down` (↓) | `filter.next` | Navigate |
 | `k` / `up` (↑) | `filter.prev` | Navigate |
+| `l` / `right` (→) / `tab` | `filter.next_category` | Next category tab |
+| `h` / `left` (←) / `shift+tab` | `filter.prev_category` | Previous category tab |
 
 ### Search
 

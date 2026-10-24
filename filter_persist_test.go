@@ -150,7 +150,7 @@ func openPickerAndToggle(t *testing.T, b Board) (Board, filterItem, []tea.Msg) {
 	if b.mode != filterMode {
 		t.Fatalf("mode = %d after 'f', want filterMode (%d)", b.mode, filterMode)
 	}
-	item := b.filterItems[b.filterCursor]
+	item := currentFilterRow(t, b)
 	b, msgs := updateAndRun(t, b, arrowMsg(tea.KeyEnter))
 	return b, item, msgs
 }
@@ -219,13 +219,8 @@ func TestFilterPersist_PickerToggleOff_RemovesTheEntry(t *testing.T) {
 func TestFilterPersist_SecondCategoryToggle_SavesFullSet(t *testing.T) {
 	b, path := newPersistBoard(t)
 	b, first, _ := openPickerAndToggle(t, b)
-	for b.filterItems[b.filterCursor].itemType != filterByAssignee {
-		b = sendKey(t, b, keyMsg("j"))
-		if b.filterCursor >= len(b.filterItems)-1 {
-			t.Fatal("could not reach an assignee row")
-		}
-	}
-	second := b.filterItems[b.filterCursor]
+	b = focusFilterTab(t, b, filterByAssignee)
+	second := currentFilterRow(t, b)
 
 	b, _ = updateAndRun(t, b, arrowMsg(tea.KeyEnter))
 
@@ -356,13 +351,8 @@ func TestFilterPersist_SavingRepoB_LeavesRepoAEntryUnchanged(t *testing.T) {
 
 	b := newPersistBoardFor(t, path, persistOtherOwner, persistOtherRepo, persistBoardData())
 	b = sendKey(t, b, keyMsg("f"))
-	for b.filterItems[b.filterCursor].itemType != filterByAssignee {
-		b = sendKey(t, b, keyMsg("j"))
-		if b.filterCursor >= len(b.filterItems)-1 {
-			t.Fatal("could not reach an assignee row")
-		}
-	}
-	bItem := b.filterItems[b.filterCursor]
+	b = focusFilterTab(t, b, filterByAssignee)
+	bItem := currentFilterRow(t, b)
 	_, _ = updateAndRun(t, b, arrowMsg(tea.KeyEnter))
 
 	st := loadPersistedState(t, path)
@@ -603,13 +593,8 @@ func TestFilterPersist_HierarchyToggle_SavesAndRestores(t *testing.T) {
 	data.Columns[0].Cards[1].ParentNumber = 1
 	b := newPersistBoardFor(t, path, persistOwner, persistRepo, data)
 	b = sendKey(t, b, keyMsg("f"))
-	for b.filterItems[b.filterCursor].itemType != filterByHierarchy {
-		if b.filterCursor >= len(b.filterItems)-1 {
-			t.Fatal("could not reach a hierarchy row")
-		}
-		b = sendKey(t, b, keyMsg("j"))
-	}
-	item := b.filterItems[b.filterCursor]
+	b = focusFilterTab(t, b, filterByHierarchy)
+	item := currentFilterRow(t, b)
 
 	_, _ = updateAndRun(t, b, arrowMsg(tea.KeyEnter))
 
@@ -633,13 +618,8 @@ func TestFilterPersist_DependencyToggle_SavesAndRestores(t *testing.T) {
 	data.Columns[0].Cards[0].BlockedByCount = 1
 	b := newPersistBoardFor(t, path, persistOwner, persistRepo, data)
 	b = sendKey(t, b, keyMsg("f"))
-	for b.filterItems[b.filterCursor].itemType != filterByDependency {
-		if b.filterCursor >= len(b.filterItems)-1 {
-			t.Fatal("could not reach a dependency row")
-		}
-		b = sendKey(t, b, keyMsg("j"))
-	}
-	item := b.filterItems[b.filterCursor]
+	b = focusFilterTab(t, b, filterByDependency)
+	item := currentFilterRow(t, b)
 
 	_, _ = updateAndRun(t, b, arrowMsg(tea.KeyEnter))
 

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -185,7 +187,7 @@ func newBoardWithMilestones(t *testing.T) Board {
 }
 
 // newBoardWithMilestonesOnly creates a board where cards have a milestone but
-// no labels or assignees, to verify collectFilterItems' early-return guard
+// no labels or assignees, to verify collectFilterGroups
 // accounts for milestones (not just labels/assignees).
 func newBoardWithMilestonesOnly(t *testing.T) Board {
 	t.Helper()
@@ -212,8 +214,8 @@ func newBoardWithMilestonesOnly(t *testing.T) Board {
 
 // newBoardWithMixedCaseFilterItems creates a board whose labels, assignees,
 // and milestones are deliberately encountered out of alphabetical order and
-// in mixed case, to verify collectFilterItems sorts each section
-// case-insensitively (#477) while section header order (Labels -> Assignees
+// in mixed case, to verify collectFilterGroups sorts each category
+// case-insensitively (#477) while tab order (Labels -> Assignees
 // -> Milestones) and existing dedup/column-exclusion/empty-milestone-skip
 // behavior remain unchanged.
 //
@@ -268,13 +270,22 @@ func sortFoldExpected(in []string) []string {
 	return want
 }
 
-func TestFilterMode_CollectFilterItems_LabelsSortedAlphabeticallyCaseInsensitive(t *testing.T) {
+// filterGroupTitles returns the picker's tab titles, in tab order.
+func filterGroupTitles(groups []filterGroup) []string {
+	titles := make([]string, len(groups))
+	for i, g := range groups {
+		titles[i] = g.title
+	}
+	return titles
+}
+
+func TestFilterMode_CollectFilterGroups_LabelsSortedAlphabeticallyCaseInsensitive(t *testing.T) {
 	b := newBoardWithMixedCaseFilterItems(t)
-	items := b.collectFilterItems()
+	items := allFilterRows(b.collectFilterGroups())
 
 	var labels []string
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByLabel {
+		if item.itemType == filterByLabel {
 			labels = append(labels, item.value)
 		}
 	}
@@ -291,13 +302,13 @@ func TestFilterMode_CollectFilterItems_LabelsSortedAlphabeticallyCaseInsensitive
 	}
 }
 
-func TestFilterMode_CollectFilterItems_AssigneesSortedAlphabeticallyCaseInsensitive(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_AssigneesSortedAlphabeticallyCaseInsensitive(t *testing.T) {
 	b := newBoardWithMixedCaseFilterItems(t)
-	items := b.collectFilterItems()
+	items := allFilterRows(b.collectFilterGroups())
 
 	var assignees []string
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByAssignee {
+		if item.itemType == filterByAssignee {
 			assignees = append(assignees, item.value)
 		}
 	}
@@ -314,13 +325,13 @@ func TestFilterMode_CollectFilterItems_AssigneesSortedAlphabeticallyCaseInsensit
 	}
 }
 
-func TestFilterMode_CollectFilterItems_MilestonesSortedAlphabeticallyCaseInsensitive(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_MilestonesSortedAlphabeticallyCaseInsensitive(t *testing.T) {
 	b := newBoardWithMixedCaseFilterItems(t)
-	items := b.collectFilterItems()
+	items := allFilterRows(b.collectFilterGroups())
 
 	var milestones []string
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByMilestone {
+		if item.itemType == filterByMilestone {
 			milestones = append(milestones, item.value)
 		}
 	}
@@ -337,101 +348,64 @@ func TestFilterMode_CollectFilterItems_MilestonesSortedAlphabeticallyCaseInsensi
 	}
 }
 
-// TestFilterMode_CollectFilterItems_MixedCaseFixture_SectionOrderUnchanged
-// asserts that sorting within sections does not disturb the section header
-// order (Labels -> Assignees -> Milestones), using the same mixed-case
-// fixture exercised by the per-section sort assertions above.
-func TestFilterMode_CollectFilterItems_MixedCaseFixture_SectionOrderUnchanged(t *testing.T) {
+// TestFilterMode_CollectFilterGroups_MixedCaseFixture_TabOrderUnchanged
+// asserts that sorting within categories does not disturb the tab order
+// (Labels -> Assignees -> Milestones), using the same mixed-case fixture
+// exercised by the per-category sort assertions above.
+func TestFilterMode_CollectFilterGroups_MixedCaseFixture_TabOrderUnchanged(t *testing.T) {
 	b := newBoardWithMixedCaseFilterItems(t)
-	items := b.collectFilterItems()
-
-	labelsIdx, assigneesIdx, milestonesIdx := -1, -1, -1
-	for i, item := range items {
-		if !item.isHeader {
-			continue
-		}
-		switch item.value {
-		case "Labels":
-			labelsIdx = i
-		case "Assignees":
-			assigneesIdx = i
-		case "Milestones":
-			milestonesIdx = i
-		}
-	}
-	if labelsIdx == -1 || assigneesIdx == -1 || milestonesIdx == -1 {
-		t.Fatalf("expected Labels, Assignees, and Milestones headers, got items=%v", items)
-	}
-	if labelsIdx >= assigneesIdx || assigneesIdx >= milestonesIdx {
-		t.Errorf("section header order = Labels@%d, Assignees@%d, Milestones@%d; want Labels < Assignees < Milestones", labelsIdx, assigneesIdx, milestonesIdx)
+	got := filterGroupTitles(b.collectFilterGroups())
+	if want := []string{"Labels", "Assignees", "Milestones"}; !slices.Equal(got, want) {
+		t.Errorf("tab titles = %v, want %v", got, want)
 	}
 }
 
-// --- collectFilterItems tests ---
+// Every row of a group carries that group's own category.
+func TestFilterMode_CollectFilterGroups_RowsMatchTheirTabCategory(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	groups := b.collectFilterGroups()
+	if len(groups) == 0 {
+		t.Fatal("precondition: fake board yields no filter groups")
+	}
+	for _, g := range groups {
+		if len(g.items) == 0 {
+			t.Errorf("tab %q has no rows, want empty categories omitted", g.title)
+		}
+		for _, item := range g.items {
+			if item.itemType != g.itemType {
+				t.Errorf("tab %q holds row %+v of another category", g.title, item)
+			}
+		}
+	}
+}
 
-func TestFilterMode_CollectFilterItems_LabelsAndAssignees(t *testing.T) {
+// --- collectFilterGroups tests ---
+
+func TestFilterMode_CollectFilterGroups_LabelsAndAssignees(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
-	items := b.collectFilterItems()
+	groups := b.collectFilterGroups()
 
-	// Should have: Labels header + deduplicated labels + Assignees header + deduplicated assignees.
 	// Labels: "bug", "feature", "docs" (3 unique, case-insensitive)
 	// Assignees: "alice", "bob", "charlie" (3 unique, case-insensitive)
-	// Total: 1 header + 3 labels + 1 header + 3 assignees = 8
-	if len(items) == 0 {
-		t.Fatal("collectFilterItems returned empty list, expected items")
+	if got, want := filterGroupTitles(groups), []string{"Labels", "Assignees"}; !slices.Equal(got, want) {
+		t.Fatalf("tab titles = %v, want %v", got, want)
 	}
-
-	// First item should be the "Labels" header.
-	if !items[0].isHeader {
-		t.Errorf("items[0].isHeader = false, want true (Labels header)")
+	if n := len(groups[0].items); n != 3 {
+		t.Errorf("label rows = %d, want 3 (bug, feature, docs deduplicated case-insensitively)", n)
 	}
-	if items[0].value != "Labels" {
-		t.Errorf("items[0].value = %q, want %q", items[0].value, "Labels")
-	}
-
-	// Count non-header label items.
-	labelCount := 0
-	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByLabel {
-			labelCount++
-		}
-	}
-	if labelCount != 3 {
-		t.Errorf("label items = %d, want 3 (bug, feature, docs deduplicated case-insensitively)", labelCount)
-	}
-
-	// Check that an assignees header exists.
-	hasAssigneesHeader := false
-	for _, item := range items {
-		if item.isHeader && item.value == "Assignees" {
-			hasAssigneesHeader = true
-			break
-		}
-	}
-	if !hasAssigneesHeader {
-		t.Error("expected Assignees header in items, but not found")
-	}
-
-	// Count non-header assignee items.
-	assigneeCount := 0
-	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByAssignee {
-			assigneeCount++
-		}
-	}
-	if assigneeCount != 3 {
-		t.Errorf("assignee items = %d, want 3 (alice, bob, charlie deduplicated case-insensitively)", assigneeCount)
+	if n := len(groups[1].items); n != 3 {
+		t.Errorf("assignee rows = %d, want 3 (alice, bob, charlie deduplicated case-insensitively)", n)
 	}
 }
 
-func TestFilterMode_CollectFilterItems_LabelsDeduplicatedCaseInsensitively(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_LabelsDeduplicatedCaseInsensitively(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
-	items := b.collectFilterItems()
+	items := allFilterRows(b.collectFilterGroups())
 
 	// "bug" and "Bug" should appear only once.
 	bugCount := 0
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByLabel && strings.EqualFold(item.value, "bug") {
+		if item.itemType == filterByLabel && strings.EqualFold(item.value, "bug") {
 			bugCount++
 		}
 	}
@@ -440,14 +414,14 @@ func TestFilterMode_CollectFilterItems_LabelsDeduplicatedCaseInsensitively(t *te
 	}
 }
 
-func TestFilterMode_CollectFilterItems_AssigneesDeduplicatedCaseInsensitively(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_AssigneesDeduplicatedCaseInsensitively(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
-	items := b.collectFilterItems()
+	items := allFilterRows(b.collectFilterGroups())
 
 	// "alice" and "Alice" should appear only once.
 	aliceCount := 0
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByAssignee && strings.EqualFold(item.value, "alice") {
+		if item.itemType == filterByAssignee && strings.EqualFold(item.value, "alice") {
 			aliceCount++
 		}
 	}
@@ -456,77 +430,50 @@ func TestFilterMode_CollectFilterItems_AssigneesDeduplicatedCaseInsensitively(t 
 	}
 }
 
-func TestFilterMode_CollectFilterItems_LabelsOnly_NoAssigneesHeader(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_LabelsOnly_NoAssigneesTab(t *testing.T) {
 	b := newBoardWithLabelsOnly(t)
-	items := b.collectFilterItems()
+	groups := b.collectFilterGroups()
 
-	// Should have labels but no "Assignees" header.
-	if len(items) == 0 {
-		t.Fatal("collectFilterItems returned empty list, expected label items")
-	}
-
-	for _, item := range items {
-		if item.isHeader && item.value == "Assignees" {
-			t.Error("expected no Assignees header when no assignees exist")
-		}
-		if item.itemType == filterByAssignee {
-			t.Error("expected no assignee items when no assignees exist")
-		}
+	if got, want := filterGroupTitles(groups), []string{"Labels"}; !slices.Equal(got, want) {
+		t.Errorf("tab titles = %v, want %v (no Assignees tab when no assignees exist)", got, want)
 	}
 }
 
-func TestFilterMode_CollectFilterItems_NoLabelsOrAssignees_EmptyList(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_NoLabelsOrAssignees_Empty(t *testing.T) {
 	b := newBoardWithNoLabelsOrAssignees(t)
-	items := b.collectFilterItems()
+	groups := b.collectFilterGroups()
 
-	if len(items) != 0 {
-		t.Errorf("collectFilterItems with no labels or assignees = %d items, want 0", len(items))
+	if len(groups) != 0 {
+		t.Errorf("collectFilterGroups with no labels or assignees = %v, want none", groups)
 	}
 }
 
-func TestFilterMode_CollectFilterItems_MilestonesSectionAfterAssignees(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_MilestonesTabAfterAssignees(t *testing.T) {
 	b := newBoardWithMilestones(t)
-	items := b.collectFilterItems()
+	groups := b.collectFilterGroups()
 
-	assigneesIdx := -1
-	milestonesIdx := -1
-	for i, item := range items {
-		if item.isHeader && item.value == "Assignees" {
-			assigneesIdx = i
-		}
-		if item.isHeader && item.value == "Milestones" {
-			milestonesIdx = i
-		}
-	}
-	if assigneesIdx == -1 {
-		t.Fatal("expected an Assignees header in items, but not found")
-	}
-	if milestonesIdx == -1 {
-		t.Fatal("expected a Milestones header in items, but not found")
+	titles := filterGroupTitles(groups)
+	assigneesIdx := slices.Index(titles, "Assignees")
+	milestonesIdx := slices.Index(titles, "Milestones")
+	if assigneesIdx == -1 || milestonesIdx == -1 {
+		t.Fatalf("tab titles = %v, want both Assignees and Milestones", titles)
 	}
 	if milestonesIdx < assigneesIdx {
-		t.Errorf("Milestones header at index %d, want after Assignees header at index %d", milestonesIdx, assigneesIdx)
+		t.Errorf("Milestones tab at %d, want after Assignees at %d", milestonesIdx, assigneesIdx)
 	}
-
-	milestoneCount := 0
-	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByMilestone {
-			milestoneCount++
-		}
-	}
-	if milestoneCount != 2 {
-		t.Errorf("milestone items = %d, want 2 (v1.0, To Do deduplicated case-insensitively)", milestoneCount)
+	if n := len(groups[milestonesIdx].items); n != 2 {
+		t.Errorf("milestone rows = %d, want 2 (v1.0, To Do deduplicated case-insensitively)", n)
 	}
 }
 
-func TestFilterMode_CollectFilterItems_MilestonesDeduplicatedCaseInsensitively(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_MilestonesDeduplicatedCaseInsensitively(t *testing.T) {
 	b := newBoardWithMilestones(t)
-	items := b.collectFilterItems()
+	items := allFilterRows(b.collectFilterGroups())
 
 	// "v1.0" and "V1.0" should appear only once.
 	v1Count := 0
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByMilestone && strings.EqualFold(item.value, "v1.0") {
+		if item.itemType == filterByMilestone && strings.EqualFold(item.value, "v1.0") {
 			v1Count++
 		}
 	}
@@ -535,15 +482,15 @@ func TestFilterMode_CollectFilterItems_MilestonesDeduplicatedCaseInsensitively(t
 	}
 }
 
-func TestFilterMode_CollectFilterItems_MilestoneEqualsColumnName_NotExcluded(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_MilestoneEqualsColumnName_NotExcluded(t *testing.T) {
 	b := newBoardWithMilestones(t)
-	items := b.collectFilterItems()
+	items := allFilterRows(b.collectFilterGroups())
 
 	// Milestone "To Do" matches the "To Do" column title, but milestones are a
 	// distinct namespace from board columns (unlike labels) and must still appear.
 	found := false
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByMilestone && strings.EqualFold(item.value, "To Do") {
+		if item.itemType == filterByMilestone && strings.EqualFold(item.value, "To Do") {
 			found = true
 			break
 		}
@@ -553,49 +500,32 @@ func TestFilterMode_CollectFilterItems_MilestoneEqualsColumnName_NotExcluded(t *
 	}
 }
 
-func TestFilterMode_CollectFilterItems_EmptyMilestoneSkipped(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_EmptyMilestoneSkipped(t *testing.T) {
 	b := newBoardWithMilestones(t)
-	items := b.collectFilterItems()
+	items := allFilterRows(b.collectFilterGroups())
 
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByMilestone && item.value == "" {
-			t.Error("collectFilterItems should never produce an empty-string milestone item")
+		if item.itemType == filterByMilestone && item.value == "" {
+			t.Error("collectFilterGroups should never produce an empty-string milestone item")
 		}
 	}
 }
 
-func TestFilterMode_CollectFilterItems_NoMilestones_NoMilestonesHeader(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_NoMilestones_NoMilestonesTab(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
-	items := b.collectFilterItems()
+	titles := filterGroupTitles(b.collectFilterGroups())
 
-	for _, item := range items {
-		if item.isHeader && item.value == "Milestones" {
-			t.Error("expected no Milestones header when no card has a milestone")
-		}
-		if item.itemType == filterByMilestone {
-			t.Error("expected no milestone items when no card has a milestone")
-		}
+	if slices.Contains(titles, "Milestones") {
+		t.Errorf("tab titles = %v, want no Milestones tab when no card has a milestone", titles)
 	}
 }
 
-func TestFilterMode_CollectFilterItems_MilestonesOnly_GuardIncludesItems(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_MilestonesOnly(t *testing.T) {
 	b := newBoardWithMilestonesOnly(t)
-	items := b.collectFilterItems()
+	titles := filterGroupTitles(b.collectFilterGroups())
 
-	// The early-return guard must account for milestones, not just labels/assignees.
-	if len(items) == 0 {
-		t.Fatal("collectFilterItems returned empty list, expected milestone items (guard should not ignore milestones)")
-	}
-
-	hasMilestonesHeader := false
-	for _, item := range items {
-		if item.isHeader && item.value == "Milestones" {
-			hasMilestonesHeader = true
-			break
-		}
-	}
-	if !hasMilestonesHeader {
-		t.Error("expected a Milestones header when the board has milestones but no labels or assignees")
+	if want := []string{"Milestones"}; !slices.Equal(titles, want) {
+		t.Errorf("tab titles = %v, want %v when the board has milestones but no labels or assignees", titles, want)
 	}
 }
 
@@ -611,30 +541,37 @@ func TestFilterMode_FKeyEntersFilterMode(t *testing.T) {
 	}
 }
 
-func TestFilterMode_FKeyPopulatesFilterItems(t *testing.T) {
+func TestFilterMode_FKeyPopulatesFilterGroups(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	b = sendKey(t, b, keyMsg("f"))
 
-	if len(b.filterItems) == 0 {
-		t.Error("after pressing 'f': filterItems is empty, expected populated items")
+	if len(b.filterGroups) == 0 {
+		t.Error("after pressing 'f': filterGroups is empty, expected populated groups")
 	}
 }
 
-func TestFilterMode_FKeySetsFilterCursorToFirstSelectableItem(t *testing.T) {
+func TestFilterMode_FKeyOpensFirstTabAtFirstRow(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
+	b.filterTab, b.filterCursor = 1, 2 // stale state from an earlier session
 
 	b = sendKey(t, b, keyMsg("f"))
 
-	// The first item is a header (index 0), so cursor should be at index 1 (first selectable item).
-	if b.filterCursor == 0 {
-		t.Error("filterCursor should skip the header at index 0")
+	if b.filterTab != 0 || b.filterCursor != 0 {
+		t.Errorf("after 'f' with no active filter: tab = %d, cursor = %d; want tab 0, cursor 0", b.filterTab, b.filterCursor)
 	}
-	if b.filterCursor >= len(b.filterItems) {
-		t.Fatal("filterCursor out of bounds")
-	}
-	if b.filterItems[b.filterCursor].isHeader {
-		t.Errorf("filterCursor points to a header item, should point to a selectable item")
+}
+
+func TestFilterMode_FKeyOpensFirstTabHoldingASelection(t *testing.T) {
+	b := newBoardWithMilestones(t)
+	setActiveFilters(&b,
+		filterSelection{itemType: filterByMilestone, value: "v1.0"},
+		filterSelection{itemType: filterByAssignee, value: "alice"})
+
+	b = sendKey(t, b, keyMsg("f"))
+
+	if got := b.filterGroups[b.filterTab].itemType; got != filterByAssignee || b.filterCursor != 0 {
+		t.Errorf("after 'f': tab category = %d, cursor = %d; want the Assignees tab (first with a selection), cursor 0", got, b.filterCursor)
 	}
 }
 
@@ -691,7 +628,7 @@ func TestFilterMode_EnterTogglesItemAndStaysInFilterMode(t *testing.T) {
 	}
 
 	cursorBefore := b.filterCursor
-	selected := b.filterItems[b.filterCursor]
+	selected := currentFilterRow(t, b)
 
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
@@ -708,7 +645,7 @@ func TestFilterMode_EnterTogglesItemAndStaysInFilterMode(t *testing.T) {
 
 // --- Picker navigation tests ---
 
-func TestFilterMode_JMovesDown_SkipsHeaders(t *testing.T) {
+func TestFilterMode_JMovesDown(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	b = sendKey(t, b, keyMsg("f"))
@@ -719,12 +656,9 @@ func TestFilterMode_JMovesDown_SkipsHeaders(t *testing.T) {
 	if b.filterCursor <= initialCursor {
 		t.Errorf("after 'j': filterCursor = %d, want > %d", b.filterCursor, initialCursor)
 	}
-	if b.filterItems[b.filterCursor].isHeader {
-		t.Error("after 'j': cursor should not land on a header item")
-	}
 }
 
-func TestFilterMode_KMovesUp_SkipsHeaders(t *testing.T) {
+func TestFilterMode_KMovesUp(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	b = sendKey(t, b, keyMsg("f"))
@@ -738,9 +672,6 @@ func TestFilterMode_KMovesUp_SkipsHeaders(t *testing.T) {
 
 	if b.filterCursor >= cursorAfterDown {
 		t.Errorf("after 'k': filterCursor = %d, want < %d", b.filterCursor, cursorAfterDown)
-	}
-	if b.filterItems[b.filterCursor].isHeader {
-		t.Error("after 'k': cursor should not land on a header item")
 	}
 }
 
@@ -774,224 +705,113 @@ func TestFilterMode_UpArrowMovesUp(t *testing.T) {
 	}
 }
 
-func TestFilterMode_CursorDoesNotGoPastLastSelectableItem(t *testing.T) {
-	b := newBoardWithLabelsAndAssignees(t)
-
-	b = sendKey(t, b, keyMsg("f"))
-
-	// Move cursor down many times to try to go past the last item.
-	for i := 0; i < len(b.filterItems)+5; i++ {
-		b = sendKey(t, b, keyMsg("j"))
-	}
-
-	if b.filterCursor >= len(b.filterItems) {
-		t.Errorf("filterCursor = %d, should be within bounds (len = %d)", b.filterCursor, len(b.filterItems))
-	}
-	if b.filterItems[b.filterCursor].isHeader {
-		t.Error("cursor should not land on a header item")
-	}
-}
-
-func TestFilterMode_CursorDoesNotGoBeforeFirstSelectableItem(t *testing.T) {
-	b := newBoardWithLabelsAndAssignees(t)
-
-	b = sendKey(t, b, keyMsg("f"))
-
-	// Move cursor up many times to try to go before the first selectable item.
-	for i := 0; i < len(b.filterItems)+5; i++ {
-		b = sendKey(t, b, keyMsg("k"))
-	}
-
-	// Cursor should still be on a selectable item (not a header).
-	if b.filterItems[b.filterCursor].isHeader {
-		t.Error("cursor should not land on a header item after pressing 'k' many times")
-	}
-}
-
-func TestFilterMode_NavigationSkipsAssigneesHeader(t *testing.T) {
-	b := newBoardWithLabelsAndAssignees(t)
-
-	b = sendKey(t, b, keyMsg("f"))
-
-	// Navigate through all items. At no point should cursor be on a header.
-	for i := 0; i < len(b.filterItems); i++ {
-		if b.filterItems[b.filterCursor].isHeader {
-			t.Errorf("cursor at index %d is on a header item, should skip headers", b.filterCursor)
-		}
-		b = sendKey(t, b, keyMsg("j"))
-	}
-}
-
-func TestFilterMode_NavigationSkipsMilestonesHeader(t *testing.T) {
+// j/k cycle within the active tab only: no number of presses reaches a row
+// of another category or changes the tab.
+func TestFilterMode_NavigationStaysWithinActiveTab(t *testing.T) {
 	b := newBoardWithMilestones(t)
-
 	b = sendKey(t, b, keyMsg("f"))
+	tab := b.filterTab
+	itemType := b.filterGroups[tab].itemType
 
-	// Navigate through all items. At no point should cursor be on a header,
-	// including the new "Milestones" header.
-	for i := 0; i < len(b.filterItems); i++ {
-		if b.filterItems[b.filterCursor].isHeader {
-			t.Errorf("cursor at index %d is on a header item, should skip headers", b.filterCursor)
+	for _, key := range []string{"j", "k"} {
+		for i := 0; i < len(allFilterRows(b.filterGroups))+2; i++ {
+			b = sendKey(t, b, keyMsg(key))
+			if b.filterTab != tab || currentFilterRow(t, b).itemType != itemType {
+				t.Fatalf("after %d x %q: tab = %d, row = %+v; want tab %d rows only", i+1, key, b.filterTab, currentFilterRow(t, b), tab)
+			}
 		}
-		b = sendKey(t, b, keyMsg("j"))
 	}
 }
 
 // --- Wrap-around tests (#426 PR 2) ---
 //
-// The filter picker's header-skipping cursor is rebuilt on the shared
-// moveCursor wrap primitive: moving down from the last selectable item wraps
-// to the first selectable item (skipping the leading "Labels" header), and
-// moving up from the first selectable item wraps to the last selectable item
-// -- never landing on a header in either direction.
+// The filter picker's cursor is built on the shared moveCursor wrap
+// primitive: moving down from the active tab's last row wraps to its first
+// row, and moving up from the first row wraps to the last.
 
-// selectableFilterCount counts the non-header items in b.filterItems.
-func selectableFilterCount(b Board) int {
-	count := 0
-	for _, item := range b.filterItems {
-		if !item.isHeader {
-			count++
-		}
-	}
-	return count
-}
-
-func TestFilterMode_JWrapsFromLastSelectableToFirstSelectable(t *testing.T) {
+func TestFilterMode_JWrapsFromLastRowToFirstRow(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 	b = sendKey(t, b, keyMsg("f"))
 
-	firstSelectable := b.filterCursor
-	selectableCount := selectableFilterCount(b)
-	if selectableCount <= 1 {
-		t.Fatal("fixture needs more than one selectable filter item to test wraparound")
+	rowCount := len(b.visibleFilterItems())
+	if rowCount <= 1 {
+		t.Fatal("fixture needs more than one row in the first tab to test wraparound")
 	}
 
-	// Walk down to the last selectable item.
-	for i := 0; i < selectableCount-1; i++ {
+	for i := 0; i < rowCount-1; i++ {
 		b = sendKey(t, b, keyMsg("j"))
 	}
-	if b.filterItems[b.filterCursor].isHeader {
-		t.Fatalf("precondition: cursor landed on a header at index %d", b.filterCursor)
+	if b.filterCursor != rowCount-1 {
+		t.Fatalf("precondition: cursor = %d, want the last row %d", b.filterCursor, rowCount-1)
 	}
 
-	// One more 'j' from the last selectable item should wrap to the first
-	// selectable item, skipping the leading "Labels" header.
 	b = sendKey(t, b, keyMsg("j"))
-	if b.filterCursor != firstSelectable {
-		t.Errorf("cursor after 'j' past last selectable item = %d, want %d (wrap to first selectable)", b.filterCursor, firstSelectable)
-	}
-	if b.filterItems[b.filterCursor].isHeader {
-		t.Error("cursor after wrap-down landed on a header item")
+	if b.filterCursor != 0 {
+		t.Errorf("cursor after 'j' past the last row = %d, want 0 (wrap to first)", b.filterCursor)
 	}
 }
 
-func TestFilterMode_KWrapsFromFirstSelectableToLastSelectable(t *testing.T) {
+func TestFilterMode_KWrapsFromFirstRowToLastRow(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 	b = sendKey(t, b, keyMsg("f"))
 
-	firstSelectable := b.filterCursor
-	selectableCount := selectableFilterCount(b)
-	if selectableCount <= 1 {
-		t.Fatal("fixture needs more than one selectable filter item to test wraparound")
+	rowCount := len(b.visibleFilterItems())
+	if rowCount <= 1 {
+		t.Fatal("fixture needs more than one row in the first tab to test wraparound")
 	}
 
-	// Walk down to the last selectable item to know its index.
-	for i := 0; i < selectableCount-1; i++ {
-		b = sendKey(t, b, keyMsg("j"))
-	}
-	lastSelectable := b.filterCursor
-
-	// Walk back up to the first selectable item.
-	for i := 0; i < selectableCount-1; i++ {
-		b = sendKey(t, b, keyMsg("k"))
-	}
-	if b.filterCursor != firstSelectable {
-		t.Fatalf("precondition: cursor = %d, want %d (first selectable)", b.filterCursor, firstSelectable)
-	}
-
-	// One more 'k' from the first selectable item should wrap to the last
-	// selectable item, never landing on the leading "Labels" header.
 	b = sendKey(t, b, keyMsg("k"))
-	if b.filterCursor != lastSelectable {
-		t.Errorf("cursor after 'k' before first selectable item = %d, want %d (wrap to last selectable)", b.filterCursor, lastSelectable)
-	}
-	if b.filterItems[b.filterCursor].isHeader {
-		t.Error("cursor after wrap-up landed on a header item")
+	if b.filterCursor != rowCount-1 {
+		t.Errorf("cursor after 'k' before the first row = %d, want %d (wrap to last)", b.filterCursor, rowCount-1)
 	}
 }
 
-func TestFilterMode_DownArrowWrapsFromLastSelectableToFirstSelectable(t *testing.T) {
+func TestFilterMode_DownArrowWrapsFromLastRowToFirstRow(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 	b = sendKey(t, b, keyMsg("f"))
 
-	firstSelectable := b.filterCursor
-	selectableCount := selectableFilterCount(b)
-	if selectableCount <= 1 {
-		t.Fatal("fixture needs more than one selectable filter item to test wraparound")
+	rowCount := len(b.visibleFilterItems())
+	if rowCount <= 1 {
+		t.Fatal("fixture needs more than one row in the first tab to test wraparound")
 	}
 
-	for i := 0; i < selectableCount-1; i++ {
+	for i := 0; i < rowCount; i++ {
 		b = sendKey(t, b, arrowMsg(tea.KeyDown))
 	}
-
-	b = sendKey(t, b, arrowMsg(tea.KeyDown))
-	if b.filterCursor != firstSelectable {
-		t.Errorf("cursor after Down arrow past last selectable item = %d, want %d (wrap to first selectable)", b.filterCursor, firstSelectable)
-	}
-	if b.filterItems[b.filterCursor].isHeader {
-		t.Error("cursor after wrap-down landed on a header item")
+	if b.filterCursor != 0 {
+		t.Errorf("cursor after Down arrow past the last row = %d, want 0 (wrap to first)", b.filterCursor)
 	}
 }
 
-func TestFilterMode_UpArrowWrapsFromFirstSelectableToLastSelectable(t *testing.T) {
+func TestFilterMode_UpArrowWrapsFromFirstRowToLastRow(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 	b = sendKey(t, b, keyMsg("f"))
 
-	firstSelectable := b.filterCursor
-	selectableCount := selectableFilterCount(b)
-	if selectableCount <= 1 {
-		t.Fatal("fixture needs more than one selectable filter item to test wraparound")
-	}
-
-	for i := 0; i < selectableCount-1; i++ {
-		b = sendKey(t, b, arrowMsg(tea.KeyDown))
-	}
-	lastSelectable := b.filterCursor
-
-	for i := 0; i < selectableCount-1; i++ {
-		b = sendKey(t, b, arrowMsg(tea.KeyUp))
-	}
-	if b.filterCursor != firstSelectable {
-		t.Fatalf("precondition: cursor = %d, want %d (first selectable)", b.filterCursor, firstSelectable)
+	rowCount := len(b.visibleFilterItems())
+	if rowCount <= 1 {
+		t.Fatal("fixture needs more than one row in the first tab to test wraparound")
 	}
 
 	b = sendKey(t, b, arrowMsg(tea.KeyUp))
-	if b.filterCursor != lastSelectable {
-		t.Errorf("cursor after Up arrow before first selectable item = %d, want %d (wrap to last selectable)", b.filterCursor, lastSelectable)
-	}
-	if b.filterItems[b.filterCursor].isHeader {
-		t.Error("cursor after wrap-up landed on a header item")
+	if b.filterCursor != rowCount-1 {
+		t.Errorf("cursor after Up arrow before the first row = %d, want %d (wrap to last)", b.filterCursor, rowCount-1)
 	}
 }
 
 // TestFilterMode_ZeroSelectableItems_NoOp covers the moveCursor length<=1
-// no-op guard for a filter picker forced into filterMode with zero
-// selectable items -- j/k must leave the cursor at 0 and must not panic
-// walking the header-skip loop.
+// no-op guard for a filter picker forced into filterMode with no groups --
+// j/k and the category keys must leave the cursor at 0 and must not panic.
 func TestFilterMode_ZeroSelectableItems_NoOp(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 	b.mode = filterMode
-	b.filterItems = nil
+	b.filterGroups = nil
 	b.filterCursor = 0
 
-	b = sendKey(t, b, keyMsg("j"))
-	if b.filterCursor != 0 {
-		t.Errorf("cursor after 'j' with zero selectable items = %d, want 0 (no-op)", b.filterCursor)
-	}
-
-	b = sendKey(t, b, keyMsg("k"))
-	if b.filterCursor != 0 {
-		t.Errorf("cursor after 'k' with zero selectable items = %d, want 0 (no-op)", b.filterCursor)
+	for _, key := range []string{"j", "k", "l", "h"} {
+		b = sendKey(t, b, keyMsg(key))
+		if b.filterCursor != 0 || b.filterTab != 0 {
+			t.Errorf("after %q with no groups: cursor = %d, tab = %d; want 0, 0 (no-op)", key, b.filterCursor, b.filterTab)
+		}
 	}
 }
 
@@ -1017,8 +837,8 @@ func TestFilterMode_SingleSelectableItem_NoOp(t *testing.T) {
 	if board.mode != filterMode {
 		t.Fatalf("expected filterMode after 'f', got %d", board.mode)
 	}
-	if got := selectableFilterCount(board); got != 1 {
-		t.Fatalf("precondition: selectableFilterCount = %d, want 1", got)
+	if got := len(board.visibleFilterItems()); got != 1 {
+		t.Fatalf("precondition: rows in the active tab = %d, want 1", got)
 	}
 	initialCursor := board.filterCursor
 
@@ -1040,8 +860,8 @@ func TestFilterMode_SelectLabel_SetsFilterByLabel(t *testing.T) {
 
 	b = sendKey(t, b, keyMsg("f"))
 
-	// Cursor should be on the first label (after the header).
-	selectedItem := b.filterItems[b.filterCursor]
+	// Cursor should be on the first label.
+	selectedItem := currentFilterRow(t, b)
 	if selectedItem.itemType != filterByLabel {
 		t.Fatalf("expected first selectable item to be a label, got type %d", selectedItem.itemType)
 	}
@@ -1059,15 +879,9 @@ func TestFilterMode_SelectAssignee_SetsFilterByAssignee(t *testing.T) {
 
 	b = sendKey(t, b, keyMsg("f"))
 
-	// Navigate past all labels to reach an assignee item.
-	for b.filterItems[b.filterCursor].itemType != filterByAssignee {
-		b = sendKey(t, b, keyMsg("j"))
-		if b.filterCursor >= len(b.filterItems)-1 {
-			t.Fatal("could not reach an assignee item")
-		}
-	}
+	b = focusFilterTab(t, b, filterByAssignee)
 
-	selectedItem := b.filterItems[b.filterCursor]
+	selectedItem := currentFilterRow(t, b)
 	expectedValue := selectedItem.value
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
@@ -1081,15 +895,9 @@ func TestFilterMode_SelectMilestone_SetsFilterByMilestone(t *testing.T) {
 
 	b = sendKey(t, b, keyMsg("f"))
 
-	// Navigate past all labels and assignees to reach a milestone item.
-	for b.filterItems[b.filterCursor].itemType != filterByMilestone {
-		b = sendKey(t, b, keyMsg("j"))
-		if b.filterCursor >= len(b.filterItems)-1 {
-			t.Fatal("could not reach a milestone item")
-		}
-	}
+	b = focusFilterTab(t, b, filterByMilestone)
 
-	selectedItem := b.filterItems[b.filterCursor]
+	selectedItem := currentFilterRow(t, b)
 	expectedValue := selectedItem.value
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
@@ -1110,22 +918,9 @@ func TestFilterMode_SelectMilestone_AccumulatesWithPriorLabelFilter(t *testing.T
 	// toggled a label before opening the picker again.
 	setActiveFilter(&b, filterByLabel, "bug")
 
-	b.filterItems = b.collectFilterItems()
-	b.mode = filterMode
-
-	// Move the filter cursor to a milestone item.
-	milestoneCursor := -1
-	for i, item := range b.filterItems {
-		if !item.isHeader && item.itemType == filterByMilestone {
-			milestoneCursor = i
-			break
-		}
-	}
-	if milestoneCursor == -1 {
-		t.Fatal("precondition: could not find a milestone item in filterItems")
-	}
-	b.filterCursor = milestoneCursor
-	expectedValue := b.filterItems[milestoneCursor].value
+	b = sendKey(t, b, keyMsg("f"))
+	b = focusFilterTab(t, b, filterByMilestone)
+	expectedValue := currentFilterRow(t, b).value
 
 	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
 	board, ok := m.(Board)
@@ -1222,21 +1017,24 @@ func TestFilterMode_FOpensPickerWhenNoFilter(t *testing.T) {
 }
 
 // TestFilterMode_FOpensWithEmptyItemsWhenFiltersActive covers Q8's relaxed
-// empty-items guard: a board whose own collectFilterItems() yields zero rows
+// empty-items guard: a board whose own collectFilterGroups() yields no groups
 // must still open the picker via 'f' when a filter selected from another
 // entry point (e.g. the Milestones modal) is already active -- otherwise
 // filter.clear_all would be unreachable.
 func TestFilterMode_FOpensWithEmptyItemsWhenFiltersActive(t *testing.T) {
 	b := newBoardWithNoLabelsOrAssignees(t)
-	if got := b.collectFilterItems(); len(got) != 0 {
-		t.Fatalf("precondition: collectFilterItems() = %v, want empty", got)
+	if got := b.collectFilterGroups(); len(got) != 0 {
+		t.Fatalf("precondition: collectFilterGroups() = %v, want empty", got)
 	}
 	setActiveFilter(&b, filterByLabel, "some-other-repo-label")
 
 	b = sendKey(t, b, keyMsg("f"))
 
 	if b.mode != filterMode {
-		t.Errorf("'f' with an active filter but zero collectFilterItems() rows should still open the picker, mode = %d, want filterMode", b.mode)
+		t.Errorf("'f' with an active filter but zero collectFilterGroups() rows should still open the picker, mode = %d, want filterMode", b.mode)
+	}
+	if view := b.viewFilterModal(); !strings.Contains(view, "No filterable values") {
+		t.Errorf("picker with no groups should say it has nothing to filter; got:\n%s", view)
 	}
 }
 
@@ -1262,8 +1060,8 @@ func TestFilterMode_ViewContainsFilterItems(t *testing.T) {
 
 	// The view should contain label names.
 	foundLabel := false
-	for _, item := range b.filterItems {
-		if !item.isHeader && item.itemType == filterByLabel {
+	for _, item := range b.visibleFilterItems() {
+		if item.itemType == filterByLabel {
 			if strings.Contains(view, item.value) {
 				foundLabel = true
 				break
@@ -1275,7 +1073,7 @@ func TestFilterMode_ViewContainsFilterItems(t *testing.T) {
 	}
 }
 
-func TestFilterMode_ViewContainsSectionHeaders(t *testing.T) {
+func TestFilterMode_ViewContainsCategoryTabs(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 
 	b = sendKey(t, b, keyMsg("f"))
@@ -1283,10 +1081,10 @@ func TestFilterMode_ViewContainsSectionHeaders(t *testing.T) {
 	view := b.View()
 
 	if !strings.Contains(view, "Labels") {
-		t.Error("View() in filterMode should contain 'Labels' header")
+		t.Error("View() in filterMode should contain the 'Labels' tab")
 	}
 	if !strings.Contains(view, "Assignees") {
-		t.Error("View() in filterMode should contain 'Assignees' header")
+		t.Error("View() in filterMode should contain the 'Assignees' tab")
 	}
 }
 
@@ -1296,7 +1094,7 @@ func TestFilterMode_ViewHighlightsSelectedItem(t *testing.T) {
 	b = sendKey(t, b, keyMsg("f"))
 
 	// The selected item's value should appear in the view.
-	selectedItem := b.filterItems[b.filterCursor]
+	selectedItem := currentFilterRow(t, b)
 	view := b.View()
 
 	if !strings.Contains(view, selectedItem.value) {
@@ -1313,7 +1111,7 @@ func TestFilterMode_View_SanitizesControlSequencesInFilterItemValue(t *testing.T
 	b := newBoardWithLabelsAndAssignees(t)
 
 	b = sendKey(t, b, keyMsg("f"))
-	b.filterItems[b.filterCursor].value = "\x1b[31mRED\x1b[0m"
+	b.filterGroups[b.filterTab].items[b.filterCursor].value = "\x1b[31mRED\x1b[0m"
 
 	view := b.View()
 
@@ -1435,7 +1233,7 @@ func TestFilterMode_BlocksNavigation(t *testing.T) {
 // --- Column-name label exclusion tests ---
 
 // newBoardWithColumnNameLabels creates a board where column titles overlap with
-// card labels. This verifies that collectFilterItems excludes labels that match
+// card labels. This verifies that collectFilterGroups excludes labels that match
 // column names.
 //
 // Columns: "To Do", "In Progress"
@@ -1477,14 +1275,14 @@ func newBoardWithColumnNameLabels(t *testing.T) Board {
 	return board
 }
 
-func TestFilterMode_CollectFilterItems_ExcludesColumnNameLabels(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_ExcludesColumnNameLabels(t *testing.T) {
 	b := newBoardWithColumnNameLabels(t)
-	items := b.collectFilterItems()
+	items := allFilterRows(b.collectFilterGroups())
 
 	// Only "bug" and "feature" should appear as label items.
 	// "To Do" and "In Progress" should be excluded because they match column titles.
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByLabel {
+		if item.itemType == filterByLabel {
 			lower := strings.ToLower(item.value)
 			if lower == "to do" || lower == "in progress" {
 				t.Errorf("label %q should be excluded because it matches a column name", item.value)
@@ -1494,7 +1292,7 @@ func TestFilterMode_CollectFilterItems_ExcludesColumnNameLabels(t *testing.T) {
 
 	labelCount := 0
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByLabel {
+		if item.itemType == filterByLabel {
 			labelCount++
 		}
 	}
@@ -1503,7 +1301,7 @@ func TestFilterMode_CollectFilterItems_ExcludesColumnNameLabels(t *testing.T) {
 	}
 }
 
-func TestFilterMode_CollectFilterItems_ExcludesColumnNamesCaseInsensitive(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_ExcludesColumnNamesCaseInsensitive(t *testing.T) {
 	// Create a board where card labels use different casing than column titles.
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
@@ -1531,12 +1329,12 @@ func TestFilterMode_CollectFilterItems_ExcludesColumnNamesCaseInsensitive(t *tes
 	board.Width = 120
 	board.Height = 40
 
-	items := board.collectFilterItems()
+	items := allFilterRows(board.collectFilterGroups())
 
 	// "to do" (lowercase) and "IN PROGRESS" (uppercase) should still be excluded
 	// because column name matching is case-insensitive.
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByLabel {
+		if item.itemType == filterByLabel {
 			lower := strings.ToLower(item.value)
 			if lower == "to do" || lower == "in progress" {
 				t.Errorf("label %q should be excluded (case-insensitive match to column name)", item.value)
@@ -1546,7 +1344,7 @@ func TestFilterMode_CollectFilterItems_ExcludesColumnNamesCaseInsensitive(t *tes
 
 	labelCount := 0
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByLabel {
+		if item.itemType == filterByLabel {
 			labelCount++
 		}
 	}
@@ -1555,7 +1353,7 @@ func TestFilterMode_CollectFilterItems_ExcludesColumnNamesCaseInsensitive(t *tes
 	}
 }
 
-func TestFilterMode_CollectFilterItems_AllLabelsAreColumnNames_OmitsLabelSection(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_AllLabelsAreColumnNames_OmitsLabelsTab(t *testing.T) {
 	// Board where every label is a column name — no labels should remain after exclusion.
 	p := provider.NewFakeProvider()
 	b := NewBoard(p, nil, nil, nil, "", "", "", 0, 0, "Working", false, false, nil, nil, true)
@@ -1585,28 +1383,9 @@ func TestFilterMode_CollectFilterItems_AllLabelsAreColumnNames_OmitsLabelSection
 	board.Width = 120
 	board.Height = 40
 
-	items := board.collectFilterItems()
-
-	// No "Labels" header should exist since all labels are column names.
-	for _, item := range items {
-		if item.isHeader && item.value == "Labels" {
-			t.Error("expected no 'Labels' header when all labels match column names")
-		}
-		if !item.isHeader && item.itemType == filterByLabel {
-			t.Errorf("unexpected label item %q; all labels should be excluded as column names", item.value)
-		}
-	}
-
-	// Assignees should still be present.
-	hasAssigneesHeader := false
-	for _, item := range items {
-		if item.isHeader && item.value == "Assignees" {
-			hasAssigneesHeader = true
-			break
-		}
-	}
-	if !hasAssigneesHeader {
-		t.Error("expected 'Assignees' header even when all labels are excluded")
+	// No Labels tab since all labels are column names; Assignees remains.
+	if got, want := filterGroupTitles(board.collectFilterGroups()), []string{"Assignees"}; !slices.Equal(got, want) {
+		t.Errorf("tab titles = %v, want %v when all labels match column names", got, want)
 	}
 }
 
@@ -1619,7 +1398,7 @@ func TestFilterMode_View_ToggledItemShowsAsteriskMarker(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 	b = sendKey(t, b, keyMsg("f"))
 
-	selectedItem := b.filterItems[b.filterCursor]
+	selectedItem := currentFilterRow(t, b)
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter)) // toggle on; picker stays open
 
 	view := b.viewFilterModal()
@@ -1644,17 +1423,11 @@ func TestFilterMode_View_UntoggledItemShowsNoAsteriskMarker(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 	b = sendKey(t, b, keyMsg("f"))
 
-	otherIdx := -1
-	for i, item := range b.filterItems {
-		if !item.isHeader {
-			otherIdx = i
-			break
-		}
-	}
-	if otherIdx == -1 {
+	items := b.visibleFilterItems()
+	if len(items) == 0 {
 		t.Fatal("fixture needs at least one selectable filter item")
 	}
-	otherItem := b.filterItems[otherIdx]
+	otherItem := items[0]
 
 	view := b.viewFilterModal()
 	var line string
@@ -1684,9 +1457,9 @@ func TestFilterMode_View_AsteriskMarkerSurvivesCursorHighlight(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 	b = sendKey(t, b, keyMsg("f"))
 
-	selectedItem := b.filterItems[b.filterCursor]
+	selectedItem := currentFilterRow(t, b)
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
-	if b.filterItems[b.filterCursor].value != selectedItem.value {
+	if currentFilterRow(t, b).value != selectedItem.value {
 		t.Fatalf("precondition: cursor should remain on the toggled item")
 	}
 
@@ -1720,18 +1493,12 @@ func TestFilterMode_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
 	b := newBoardWithLabelsAndAssignees(t)
 	b = sendKey(t, b, keyMsg("f"))
 
-	selectedItem := b.filterItems[b.filterCursor]
-	otherIdx := -1
-	for i, item := range b.filterItems {
-		if !item.isHeader && i != b.filterCursor {
-			otherIdx = i
-			break
-		}
-	}
-	if otherIdx == -1 {
+	selectedItem := currentFilterRow(t, b)
+	items := b.visibleFilterItems()
+	if len(items) < 2 {
 		t.Fatal("fixture needs at least two selectable filter items")
 	}
-	otherItem := b.filterItems[otherIdx]
+	otherItem := items[(b.filterCursor+1)%len(items)]
 
 	view := b.viewFilterModal()
 	var titleLine, selectedLine, nonSelectedLine string
@@ -1759,29 +1526,44 @@ func TestFilterMode_View_NonSelectedRowGray_SelectedRowBoldWhite(t *testing.T) {
 // onto a second physical line.
 func TestFilterMode_View_NewlineInItemValue_RendersOneRow(t *testing.T) {
 	b := newLoadedTestBoard(t)
-	b.filterItems = []filterItem{
+	b.filterGroups = []filterGroup{{itemType: filterByLabel, title: "Labels", items: []filterItem{
 		{itemType: filterByLabel, value: "line one\nline two"},
-	}
+	}}}
 
 	view := b.viewFilterModal()
 	assertOneRow(t, view, "line one", "line two")
 }
 
-func TestFilterMode_CollectFilterItems_AssigneesUnaffectedByColumnExclusion(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_AssigneesUnaffectedByColumnExclusion(t *testing.T) {
 	b := newBoardWithColumnNameLabels(t)
-	items := b.collectFilterItems()
+	items := allFilterRows(b.collectFilterGroups())
 
 	// Assignees should be unaffected by column-name label exclusion.
 	// The board has "alice" and "bob" as assignees.
 	assigneeCount := 0
 	for _, item := range items {
-		if !item.isHeader && item.itemType == filterByAssignee {
+		if item.itemType == filterByAssignee {
 			assigneeCount++
 		}
 	}
 	if assigneeCount != 2 {
 		t.Errorf("assignee items = %d, want 2 (alice, bob); assignees should not be affected by column-name exclusion", assigneeCount)
 	}
+}
+
+// filterLayout renders groups as "Title|Title|..." with itemType's tab
+// followed by its row values, e.g. "Labels|Hierarchy|Parents".
+func filterLayout(groups []filterGroup, itemType filterType) string {
+	var parts []string
+	for _, g := range groups {
+		parts = append(parts, g.title)
+		if g.itemType == itemType {
+			for _, item := range g.items {
+				parts = append(parts, item.value)
+			}
+		}
+	}
+	return strings.Join(parts, "|")
 }
 
 // hierarchyBoard: Backlog #1 parent, #2 sub-issue (unloaded parent, label bug),
@@ -1815,17 +1597,10 @@ func openFilterPickerOn(t *testing.T, b Board, itemType filterType, value string
 	if b.mode != filterMode {
 		b = sendKey(t, b, keyMsg("f"))
 	}
-	for i, item := range b.filterItems {
-		if !item.isHeader && item.itemType == itemType && item.value == value {
-			b.filterCursor = i
-			return b
-		}
-	}
-	t.Fatalf("picker has no row %v/%q; items = %+v", itemType, value, b.filterItems)
-	return b
+	return focusFilterRow(t, b, itemType, value)
 }
 
-func TestFilterMode_CollectFilterItems_HierarchySection(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_HierarchySection(t *testing.T) {
 	parent := provider.Card{Number: 1, Title: "P", SubIssueCount: 1, Milestone: "v1", Labels: []provider.Label{{Name: "bug"}}}
 	child := provider.Card{Number: 2, Title: "C", ParentNumber: 1}
 	plain := provider.Card{Number: 3, Title: "S", Labels: []provider.Label{{Name: "bug"}}}
@@ -1837,28 +1612,22 @@ func TestFilterMode_CollectFilterItems_HierarchySection(t *testing.T) {
 		{"parents only", []provider.Card{parent}, "Labels|Milestones|Hierarchy|Parents"},
 		{"sub-issues only", []provider.Card{child, plain}, "Labels|Hierarchy|Sub-issues"},
 		{"both, fixed order, last", []provider.Card{child, parent}, "Labels|Milestones|Hierarchy|Parents|Sub-issues"},
-		{"neither omits the header", []provider.Card{plain}, "Labels"},
+		{"neither omits the tab", []provider.Card{plain}, "Labels"},
 	}
 	for _, tc := range cases {
 		b := newBoardWithInlineCards(t, tc.cards, 120, 40)
-		var got []string
-		for _, item := range b.collectFilterItems() {
-			if item.isHeader || item.itemType == filterByHierarchy {
-				got = append(got, item.value)
-			}
-		}
-		if strings.Join(got, "|") != tc.want {
-			t.Errorf("%s: sections/rows = %v, want %s", tc.name, got, tc.want)
+		if got := filterLayout(b.collectFilterGroups(), filterByHierarchy); got != tc.want {
+			t.Errorf("%s: tabs/rows = %s, want %s", tc.name, got, tc.want)
 		}
 	}
 }
 
-func TestFilterMode_CollectFilterItems_HierarchyRowsListedAcrossColumns(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_HierarchyRowsListedAcrossColumns(t *testing.T) {
 	b := hierarchyBoard(t)
 	b.ActiveTab = 1
 	var got []string
-	for _, item := range b.collectFilterItems() {
-		if item.itemType == filterByHierarchy && !item.isHeader {
+	for _, item := range allFilterRows(b.collectFilterGroups()) {
+		if item.itemType == filterByHierarchy {
 			got = append(got, item.value)
 		}
 	}
@@ -1914,8 +1683,8 @@ func TestFilterMode_FKeyOpensPickerWhenOnlyHierarchyRowsExist(t *testing.T) {
 	m, cmd := b.Update(keyMsg("f"))
 	execCmds(cmd)
 	board := m.(Board)
-	if board.mode != filterMode || len(board.filterItems) != 3 {
-		t.Errorf("mode = %d, items = %d; want filterMode with header + 2 Hierarchy rows", board.mode, len(board.filterItems))
+	if got, want := filterLayout(board.filterGroups, filterByHierarchy), "Hierarchy|Parents|Sub-issues"; board.mode != filterMode || got != want {
+		t.Errorf("mode = %d, tabs/rows = %s; want filterMode with %s", board.mode, got, want)
 	}
 }
 
@@ -1927,18 +1696,18 @@ func TestFilterMode_LabelNamedParents_IsIndependentOfHierarchyParentsRow(t *test
 	if !b.filters.contains(filterByLabel, "Parents") || b.filters.contains(filterByHierarchy, hierarchyParentsValue) {
 		t.Fatalf("toggling the label row: filters = %+v, want only the label selection", b.filters)
 	}
+	b = openFilterPickerOn(t, b, filterByHierarchy, hierarchyParentsValue)
 	if strings.Contains(findLineContaining(t, b.viewFilterModal(), hierarchyLine), "*") {
 		t.Errorf("Hierarchy Parents row must not be marked by a label named Parents")
 	}
 
-	b = openFilterPickerOn(t, b, filterByHierarchy, hierarchyParentsValue)
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 	if !b.filters.contains(filterByLabel, "Parents") || !b.filters.contains(filterByHierarchy, hierarchyParentsValue) || filterCount(&b) != 2 {
 		t.Errorf("filters = %+v, want label and Hierarchy selections as separate entries", b.filters)
 	}
 }
 
-func TestFilterMode_CollectFilterItems_DependenciesSection(t *testing.T) {
+func TestFilterMode_CollectFilterGroups_DependenciesSection(t *testing.T) {
 	blocked := provider.Card{Number: 1, Title: "B", BlockedByCount: 1, SubIssueCount: 1}
 	closedOnly := provider.Card{Number: 2, Title: "C", BlockedByCount: 0, TotalBlockedByCount: 2}
 	plain := provider.Card{Number: 3, Title: "S", Labels: []provider.Label{{Name: "bug"}}}
@@ -1953,14 +1722,8 @@ func TestFilterMode_CollectFilterItems_DependenciesSection(t *testing.T) {
 	}
 	for _, tc := range cases {
 		b := newBoardWithInlineCards(t, tc.cards, 120, 40)
-		var got []string
-		for _, item := range b.collectFilterItems() {
-			if item.isHeader || item.itemType == filterByDependency {
-				got = append(got, item.value)
-			}
-		}
-		if strings.Join(got, "|") != tc.want {
-			t.Errorf("%s: sections/rows = %v, want %s", tc.name, got, tc.want)
+		if got := filterLayout(b.collectFilterGroups(), filterByDependency); got != tc.want {
+			t.Errorf("%s: tabs/rows = %s, want %s", tc.name, got, tc.want)
 		}
 	}
 }
@@ -1974,7 +1737,7 @@ func TestFilterMode_NoBlockedCard_PickerStaysClosedWithoutOtherValues(t *testing
 	m, cmd := b.Update(keyMsg("f"))
 	execCmds(cmd)
 	if board := m.(Board); board.mode == filterMode {
-		t.Errorf("mode = filterMode with items %+v, want the picker closed: an Unblocked-only row filters nothing", board.filterItems)
+		t.Errorf("mode = filterMode with items %+v, want the picker closed: an Unblocked-only row filters nothing", board.filterGroups)
 	}
 }
 
@@ -2001,5 +1764,194 @@ func TestFilterMode_BlockedRow_TogglesWithGlyphAndPlainSegment(t *testing.T) {
 	}
 	if seg := b.statusBar.filterStatus; !strings.Contains(seg, dependencyBlockedValue) || strings.Contains(seg, blockedByGlyph) {
 		t.Errorf("status-bar segment = %q, want the plain label %q without the card glyph", seg, dependencyBlockedValue)
+	}
+}
+
+// --- Category tabs ---
+
+// fiveCategoryCards carries a value for every filter category.
+func fiveCategoryCards() []provider.Card {
+	return []provider.Card{
+		{Number: 1, Title: "A", Labels: []provider.Label{{Name: "bug"}, {Name: "ui"}}, Assignees: []provider.Assignee{{Login: "alice"}}, Milestone: "v1", SubIssueCount: 1},
+		{Number: 2, Title: "B", ParentNumber: 1, BlockedByCount: 1},
+		{Number: 3, Title: "C", Labels: []provider.Label{{Name: "docs"}}},
+	}
+}
+
+func TestFilterMode_CategoryKeys_SwitchTabsWrapAndResetCursor(t *testing.T) {
+	b := newBoardWithInlineCards(t, fiveCategoryCards(), 120, 40)
+	b = sendKey(t, b, keyMsg("f"))
+	last := len(b.filterGroups) - 1
+	if last < 1 {
+		t.Fatalf("precondition: want several tabs, got %v", filterGroupTitles(b.filterGroups))
+	}
+
+	next := []tea.KeyMsg{keyMsg("l"), arrowMsg(tea.KeyRight), arrowMsg(tea.KeyTab)}
+	prev := []tea.KeyMsg{keyMsg("h"), arrowMsg(tea.KeyLeft), arrowMsg(tea.KeyShiftTab)}
+	for i := range next {
+		b.filterTab, b.filterCursor = 0, 1
+		b = sendKey(t, b, next[i])
+		if b.filterTab != 1 || b.filterCursor != 0 {
+			t.Errorf("%q from tab 0: tab = %d, cursor = %d; want tab 1, cursor 0", next[i].String(), b.filterTab, b.filterCursor)
+		}
+		b.filterTab = last
+		b = sendKey(t, b, next[i])
+		if b.filterTab != 0 {
+			t.Errorf("%q from the last tab: tab = %d, want 0 (wrap)", next[i].String(), b.filterTab)
+		}
+		b = sendKey(t, b, prev[i])
+		if b.filterTab != last || b.filterCursor != 0 {
+			t.Errorf("%q from tab 0: tab = %d, cursor = %d; want the last tab %d (wrap), cursor 0", prev[i].String(), b.filterTab, b.filterCursor, last)
+		}
+	}
+	if b.mode != filterMode {
+		t.Errorf("mode = %d after switching tabs, want filterMode", b.mode)
+	}
+}
+
+func TestFilterMode_EnterTogglesTheActiveTabsRow(t *testing.T) {
+	b := newBoardWithInlineCards(t, fiveCategoryCards(), 120, 40)
+	b = sendKey(t, b, keyMsg("f"))
+	b = focusFilterTab(t, b, filterByMilestone)
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+
+	if !hasFilter(&b, filterByMilestone, "v1") || filterCount(&b) != 1 {
+		t.Errorf("filters = %+v, want only the Milestones tab's row v1", b.filters)
+	}
+}
+
+func TestFilterMode_View_TabRowShowsSelectedCountBadges(t *testing.T) {
+	b := newBoardWithInlineCards(t, fiveCategoryCards(), 120, 40)
+	setActiveFilters(&b,
+		filterSelection{itemType: filterByLabel, value: "bug"},
+		filterSelection{itemType: filterByLabel, value: "ui"},
+		filterSelection{itemType: filterByDependency, value: dependencyBlockedValue})
+	b = sendKey(t, b, keyMsg("f"))
+
+	view := b.viewFilterModal()
+	for _, want := range []string{"Labels (2)", "Dependencies (1)", "Assignees", "Milestones", "Hierarchy"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view missing tab %q; got:\n%s", want, view)
+		}
+	}
+	for _, unwanted := range []string{"Assignees (", "Milestones (", "Hierarchy ("} {
+		if strings.Contains(view, unwanted) {
+			t.Errorf("view shows a badge %q for a tab with no selection", unwanted)
+		}
+	}
+}
+
+func TestFilterMode_View_TabRowWrapsWithinModalWidth(t *testing.T) {
+	b := newBoardWithInlineCards(t, fiveCategoryCards(), 120, 40)
+	setActiveFilters(&b,
+		filterSelection{itemType: filterByLabel, value: "bug"},
+		filterSelection{itemType: filterByMilestone, value: "v1"})
+	b = sendKey(t, b, keyMsg("f"))
+	width := modalContentWidth(62)
+
+	lines := b.filterTabLines(width)
+
+	joined := strings.Join(lines, "\n")
+	for _, title := range filterGroupTitles(b.filterGroups) {
+		if !strings.Contains(joined, title) {
+			t.Errorf("tab lines %q missing %q", joined, title)
+		}
+	}
+	if len(lines) < 2 {
+		t.Errorf("tab lines = %q, want the five tabs wrapped onto more than one line at width %d", lines, width)
+	}
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w > width {
+			t.Errorf("tab line %q is %d cells, want <= %d", line, w, width)
+		}
+	}
+}
+
+// --- Scrolling ---
+
+func manyLabelsBoard(t *testing.T, count, height int) Board {
+	t.Helper()
+	cards := make([]provider.Card, count)
+	for i := range cards {
+		cards[i] = provider.Card{Number: i + 1, Title: "Card", Labels: []provider.Label{{Name: fmt.Sprintf("label-%02d", i)}}}
+	}
+	return newBoardWithInlineCards(t, cards, 120, height)
+}
+
+func TestFilterMode_View_LongListScrollsWithinTerminalHeight(t *testing.T) {
+	const height = 20
+	b := manyLabelsBoard(t, 40, height)
+	b = sendKey(t, b, keyMsg("f"))
+	rows := b.visibleFilterItems()
+
+	view := b.viewFilterModal()
+	if !strings.Contains(view, "▼") || strings.Contains(view, "▲") || !strings.Contains(view, rows[0].value) {
+		t.Errorf("at the top: want ▼ only and the first row visible; got:\n%s", view)
+	}
+	if h := lipgloss.Height(view); h > height {
+		t.Errorf("modal height = %d at the top, want <= %d", h, height)
+	}
+
+	b = sendKey(t, b, keyMsg("k")) // wraps to the last row
+	lastRow := rows[len(rows)-1].value
+	view = b.viewFilterModal()
+	if !strings.Contains(view, "▲") || strings.Contains(view, "▼") {
+		t.Errorf("at the bottom: want ▲ only; got:\n%s", view)
+	}
+	if !strings.Contains(view, lastRow) || strings.Contains(view, rows[0].value) {
+		t.Errorf("at the bottom: want the selected last row %q visible and the first row scrolled away; got:\n%s", lastRow, view)
+	}
+	if h := lipgloss.Height(view); h > height {
+		t.Errorf("modal height = %d at the bottom, want <= %d", h, height)
+	}
+}
+
+func TestFilterMode_View_ShortListRendersWithoutScrollIndicators(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	b = sendKey(t, b, keyMsg("f"))
+
+	view := b.viewFilterModal()
+	if strings.Contains(view, "▲") || strings.Contains(view, "▼") {
+		t.Errorf("short list must not show scroll indicators; got:\n%s", view)
+	}
+	for _, item := range b.visibleFilterItems() {
+		if !strings.Contains(view, item.value) {
+			t.Errorf("view missing row %q", item.value)
+		}
+	}
+}
+
+// --- Refresh while open ---
+
+func TestFilterMode_RefreshWhileOpen_KeepsTabAndClampsCursor(t *testing.T) {
+	b := newBoardWithInlineCards(t, fiveCategoryCards(), 120, 40)
+	b = sendKey(t, b, keyMsg("f"))
+	b = focusFilterTab(t, b, filterByLabel)
+	b = sendKey(t, b, keyMsg("k")) // last label row
+
+	b = simulateRefreshWithCards(t, b, []provider.Column{{Title: "Working", Cards: []provider.Card{
+		{Number: 1, Title: "A", Assignees: []provider.Assignee{{Login: "alice"}}, Labels: []provider.Label{{Name: "bug"}}},
+	}}})
+
+	if got := b.filterGroups[b.filterTab].itemType; got != filterByLabel || b.filterCursor != 0 {
+		t.Errorf("after refresh: tab category = %d, cursor = %d; want the Labels tab kept and the cursor clamped to 0", got, b.filterCursor)
+	}
+	if b.mode != filterMode {
+		t.Errorf("mode = %d after refresh, want filterMode", b.mode)
+	}
+}
+
+func TestFilterMode_RefreshWhileOpen_VanishedTabFallsBackToFirst(t *testing.T) {
+	b := newBoardWithInlineCards(t, fiveCategoryCards(), 120, 40)
+	b = sendKey(t, b, keyMsg("f"))
+	b = focusFilterTab(t, b, filterByMilestone)
+
+	b = simulateRefreshWithCards(t, b, []provider.Column{{Title: "Working", Cards: []provider.Card{
+		{Number: 1, Title: "A", Labels: []provider.Label{{Name: "bug"}}},
+	}}})
+
+	if b.filterTab != 0 || b.filterCursor != 0 || len(b.visibleFilterItems()) == 0 {
+		t.Errorf("after the Milestones tab vanished: tab = %d, cursor = %d, rows = %v; want tab 0, cursor 0", b.filterTab, b.filterCursor, b.visibleFilterItems())
 	}
 }

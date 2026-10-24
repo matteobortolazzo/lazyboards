@@ -278,7 +278,9 @@ stateful multi-select (`filter.select`/`filter.clear_all` toggle entries
 into/out of a persistent selection set rather than scalar-replacing it), with
 no change to the mode's capability row above. This file stays mechanism-only
 -- see [README.md#filter](../README.md#filter) for the actual key bindings
-and picker behavior.
+and picker behavior. It later gained `filter.next_category`/
+`filter.prev_category` for the picker's category tabs, likewise with no
+capability change.
 
 `columns.<name>` overlays `normal`/`detail` (`keymap.go`'s `Resolve`), so it
 inherits both of their capabilities in full:

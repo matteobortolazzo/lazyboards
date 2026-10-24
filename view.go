@@ -1530,36 +1530,99 @@ func (b Board) viewDeleteModal() string {
 	return b.renderModal(modalContent, modalWidth)
 }
 
+// filterModalChromeLines is the filter picker's fixed vertical overhead
+// around its tab row and list: renderModal's border and padding (4), the
+// "Filter" title, the rule under the tabs, and the blank line plus the two
+// hint-bar lines below the list.
+const filterModalChromeLines = 9
+
+// filterTabLines renders the picker's category tabs, wrapped to width: the
+// active tab in the selected-row style, the others muted, each badged with
+// its selected-row count. Titles are app-defined, so they need no
+// sanitizing.
+func (b Board) filterTabLines(width int) []string {
+	const sep = " │ "
+	var lines []string
+	line, lineWidth := "", 0
+	for i, g := range b.filterGroups {
+		label := g.title
+		if n := b.filters.countOf(g.itemType); n > 0 {
+			label = fmt.Sprintf("%s (%d)", label, n)
+		}
+		labelWidth := lipgloss.Width(label)
+		if i == b.filterTab {
+			label = selectedCardStyle.Render(label)
+		} else {
+			label = helpStyle.Render(label)
+		}
+		switch {
+		case lineWidth == 0:
+			line, lineWidth = label, labelWidth
+		case lineWidth+lipgloss.Width(sep)+labelWidth <= width:
+			line += helpStyle.Render(sep) + label
+			lineWidth += lipgloss.Width(sep) + labelWidth
+		default:
+			lines = append(lines, line)
+			line, lineWidth = label, labelWidth
+		}
+	}
+	if lineWidth > 0 {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
 func (b Board) viewFilterModal() string {
 	// modalWidth widened from the pre-#653 50 to fit the new "Clear all" hint
-	// (filter.clear_all) alongside Cancel/Navigate/Select in the hint bar
-	// without truncation.
+	// (filter.clear_all); the hint bar now spans two lines (filterNavHints,
+	// filterActionHints) so each fits without truncation.
 	modalWidth := 62
+	contentWidth := modalContentWidth(modalWidth)
 
 	var lines []string
 	lines = append(lines, "Filter")
-	lines = append(lines, "")
+	tabLines := b.filterTabLines(contentWidth)
+	lines = append(lines, tabLines...)
+	lines = append(lines, helpStyle.Render(strings.Repeat("─", contentWidth)))
 
-	for i, item := range b.filterItems {
-		if item.isHeader {
-			lines = append(lines, helpStyle.Render(item.value))
-			continue
+	items := b.visibleFilterItems()
+	if len(items) == 0 {
+		lines = append(lines, "No filterable values")
+	} else {
+		// b.Height <= 0 means the terminal size is not (yet) known: show
+		// every row unwindowed, mirroring viewMilestoneListModal.
+		maxRowLines := len(items)
+		if b.Height > 0 {
+			maxRowLines = b.Height - filterModalChromeLines - len(tabLines)
+			if maxRowLines < 1 {
+				maxRowLines = 1
+			}
 		}
-		prefix := "  "
-		if b.filters.contains(item.itemType, item.value) {
-			prefix = "* "
+		start, end, showUp, showDown := scrollWindow(b.filterCursor, len(items), maxRowLines)
+		if showUp {
+			lines = append(lines, helpStyle.Render("▲"))
 		}
-		display := prefix + sanitizeSingleLine(item.value)
-		if glyph := filterRowGlyph(item); glyph != "" {
-			display = prefix + glyph + " " + sanitizeSingleLine(item.value)
+		for i := start; i < end; i++ {
+			item := items[i]
+			prefix := "  "
+			if b.filters.contains(item.itemType, item.value) {
+				prefix = "* "
+			}
+			display := prefix + sanitizeSingleLine(item.value)
+			if glyph := filterRowGlyph(item); glyph != "" {
+				display = prefix + glyph + " " + sanitizeSingleLine(item.value)
+			}
+			display = selectedRowStyle(truncateCell(display, contentWidth), i == b.filterCursor)
+			lines = append(lines, display)
 		}
-		display = selectedRowStyle(display, i == b.filterCursor)
-		lines = append(lines, display)
+		if showDown {
+			lines = append(lines, helpStyle.Render("▼"))
+		}
 	}
 
 	lines = append(lines, "")
-	filterHints := NewStatusBar(b.filterHints())
-	lines = append(lines, filterHints.View(modalContentWidth(modalWidth), 0, 0))
+	lines = append(lines, NewStatusBar(b.filterNavHints()).View(contentWidth, 0, 0))
+	lines = append(lines, NewStatusBar(b.filterActionHints()).View(contentWidth, 0, 0))
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)

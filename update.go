@@ -654,7 +654,8 @@ func (b *Board) resetRepoScopedState() {
 	b.searchQuery = ""
 	b.searchInput.SetValue("")
 	b.filters = nil
-	b.filterItems = nil
+	b.filterGroups = nil
+	b.filterTab = 0
 	b.filterCursor = 0
 	b.refreshFilterStatus()
 
@@ -731,8 +732,8 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 		b.sortColumns()
 		b.refreshing = false
 
-		// Rebuild filter items from refreshed data (labels/assignees may have changed).
-		b.filterItems = b.collectFilterItems()
+		// Rebuild filter groups from refreshed data (labels/assignees may have changed).
+		b.refreshFilterGroups()
 
 		// Clamp ActiveTab if columns were reduced.
 		if b.ActiveTab >= len(b.Columns) {
@@ -822,8 +823,8 @@ func (b Board) handleBoardFetched(msg boardFetchedMsg) (tea.Model, tea.Cmd) {
 	b.detailScrollOffset = 0
 	b.detailFocused = false
 
-	// Rebuild filter items from new data.
-	b.filterItems = b.collectFilterItems()
+	// Rebuild filter groups from new data.
+	b.refreshFilterGroups()
 
 	// Reset cursor/scroll for all columns when filter is active.
 	if b.hasActiveFilters() {
@@ -1417,32 +1418,6 @@ func (b *Board) restoreFocusHints() {
 	b.statusBar.SetActionHints(b.normalHints)
 }
 
-// filterMoveDown cycles the filter cursor to the next selectable (non-header)
-// item, wrapping from the last selectable item to the first.
-func (b *Board) filterMoveDown() {
-	b.filterMove(true)
-}
-
-// filterMoveUp cycles the filter cursor to the previous selectable
-// (non-header) item, wrapping from the first selectable item to the last.
-func (b *Board) filterMoveUp() {
-	b.filterMove(false)
-}
-
-// filterMove steps the filter cursor one position via moveCursor, skipping
-// header rows, until it lands on a selectable item or the loop's bound
-// (len(filterItems) iterations) is reached -- guarding against an infinite
-// loop if every item were somehow a header. A list with no selectable items
-// is a no-op.
-func (b *Board) filterMove(down bool) {
-	for range b.filterItems {
-		b.filterCursor = moveCursor(b.filterCursor, len(b.filterItems), down)
-		if !b.filterItems[b.filterCursor].isHeader {
-			return
-		}
-	}
-}
-
 // moveCursor returns cursor moved one step within [0, length-1], cycling
 // around the ends: down from the last item wraps to the first, up from the
 // first item wraps to the last. Lists with 0 or 1 items are a no-op (cursor
@@ -1500,30 +1475,6 @@ func clampCursor(cursor, length int, down bool) int {
 		return cursor - 1
 	}
 	return cursor
-}
-
-// filterMoveClamp steps the filter cursor one position in the wheel
-// direction, skipping header rows like filterMove, but STOPPING at the
-// first/last selectable item instead of wrapping around. A list with no
-// selectable items in that direction is a no-op.
-func (b *Board) filterMoveClamp(down bool) {
-	if len(b.filterItems) == 0 {
-		return
-	}
-	cursor := b.filterCursor
-	for {
-		next := clampCursor(cursor, len(b.filterItems), down)
-		if next == cursor {
-			// Hit the bound without finding a selectable item in that
-			// direction; leave the cursor where it started.
-			return
-		}
-		cursor = next
-		if !b.filterItems[cursor].isHeader {
-			b.filterCursor = cursor
-			return
-		}
-	}
 }
 
 // dispatchGitMenuAction closes the git menu and runs act: the keymap.Action
