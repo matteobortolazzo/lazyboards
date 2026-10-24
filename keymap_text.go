@@ -540,6 +540,48 @@ func (b Board) searchHints() []Hint {
 	return hints
 }
 
+// filterSearchHintSpecs curates the filter picker query input's non-glyph
+// hints (Apply, Clear); Navigate is added by filterSearchHints, like
+// searchHints.
+var filterSearchHintSpecs = []hintSpec{
+	{desc: "Apply", commands: []keymap.CommandID{keymap.CommandFilterSearchApply}},
+	{desc: "Clear", commands: []keymap.CommandID{keymap.CommandFilterSearchCancel}},
+}
+
+// filterSearchHints derives the filter picker query input's status-bar
+// hints from the active keymap: Apply, Clear, then the arrow-preferred
+// Navigate pair.
+func (b Board) filterSearchHints() []Hint {
+	entries := singleKeyEntries(b.keys.Entries(keymap.ModeFilterSearch, ""))
+	hints := builtinHints(entries, filterSearchHintSpecs)
+	if key := glyphHintKey(entries, true, keymap.CommandFilterSearchPrev, keymap.CommandFilterSearchNext); key != "" {
+		hints = append(hints, Hint{Key: key, Desc: "Navigate"})
+	}
+	return hints
+}
+
+// runFilterSearchCommand runs the filter-query command id resolves to:
+// apply keeps the query and returns to the picker, cancel clears it first,
+// and next/prev move the cursor over the narrowed rows.
+func (b Board) runFilterSearchCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
+	switch id {
+	case keymap.CommandFilterSearchCancel:
+		b.clearFilterQuery()
+		b.filterCursor = 0
+		b.mode = filterMode
+		b.statusBar.SetActionHints(b.filterHints())
+	case keymap.CommandFilterSearchApply:
+		b.filterQuery.Blur()
+		b.mode = filterMode
+		b.statusBar.SetActionHints(b.filterHints())
+	case keymap.CommandFilterSearchNext:
+		b.filterCursor = moveCursor(b.filterCursor, len(b.visibleFilterItems()), true)
+	case keymap.CommandFilterSearchPrev:
+		b.filterCursor = moveCursor(b.filterCursor, len(b.visibleFilterItems()), false)
+	}
+	return b, nil
+}
+
 // commentHints derives the comment modal's status-bar hints from the active
 // keymap, byte-identical to today's commentModeHints package var (pre-#540
 // model.go) under the default table.

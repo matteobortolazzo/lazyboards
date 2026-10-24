@@ -30,6 +30,7 @@ const (
 	CommandFilterClearAll     CommandID = "filter.clear_all"
 	CommandFilterNextCategory CommandID = "filter.next_category"
 	CommandFilterPrevCategory CommandID = "filter.prev_category"
+	CommandFilterSearch       CommandID = "filter.search"
 
 	CommandAssignClose  CommandID = "assign.close"
 	CommandAssignToggle CommandID = "assign.toggle"
@@ -69,6 +70,7 @@ var modalCommands = []Command{
 	{CommandFilterClearAll, "Clear all"},
 	{CommandFilterNextCategory, "Category"},
 	{CommandFilterPrevCategory, "Category"},
+	{CommandFilterSearch, "Search"},
 
 	{CommandAssignClose, "Cancel"},
 	{CommandAssignToggle, "Toggle"},

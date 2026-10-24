@@ -1063,7 +1063,7 @@ func TestKeymapModals_Filter_HintKeysAlwaysDispatch(t *testing.T) {
 		keymap.CommandFilterClose: true, keymap.CommandFilterSelect: true,
 		keymap.CommandFilterNext: true, keymap.CommandFilterPrev: true,
 		keymap.CommandFilterClearAll: true, keymap.CommandFilterNextCategory: true,
-		keymap.CommandFilterPrevCategory: true,
+		keymap.CommandFilterPrevCategory: true, keymap.CommandFilterSearch: true,
 	}
 	tests := []struct {
 		name  string
@@ -1088,7 +1088,11 @@ func TestKeymapModals_Filter_HintKeysAlwaysDispatch(t *testing.T) {
 				t.Fatal("filterHints() returned no hints")
 			}
 			for _, h := range hints {
-				for _, key := range strings.Split(h.Key, "/") {
+				keys := strings.Split(h.Key, "/")
+				if h.Key == "/" {
+					keys = []string{"/"}
+				}
+				for _, key := range keys {
 					result := b.keys.Lookup(keymap.ModeFilter, "", keymap.Sequence{keymap.Key(key)})
 					if result.Outcome != keymap.OutcomeMatch || !handled[result.Binding.Command] {
 						t.Errorf("hint %+v: key %q resolves to %+v, want a filter command the handler dispatches", h, key, result)

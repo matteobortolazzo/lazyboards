@@ -50,6 +50,7 @@ var filterDefaults = Table{
 	"h":         CommandBinding(CommandFilterPrevCategory),
 	"left":      CommandBinding(CommandFilterPrevCategory),
 	"shift+tab": CommandBinding(CommandFilterPrevCategory),
+	"/":         CommandBinding(CommandFilterSearch),
 }
 
 // assignDefaults is the default ModeAssign table, transcribed from

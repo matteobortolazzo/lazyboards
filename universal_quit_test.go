@@ -283,6 +283,15 @@ func TestUniversalQuit_DispatchesInEveryMode(t *testing.T) {
 			}
 			return b
 		}},
+		{"filter_search", keymap.ModeFilterSearch, func(t *testing.T) Board {
+			b, _ := newUniversalQuitBoard(t, universalQuitKeymapYAML(keymap.ModeFilterSearch), nil, nil)
+			b = sendKey(t, b, keyMsg("f"))
+			b = sendKey(t, b, keyMsg("/"))
+			if b.mode != filterSearchMode {
+				t.Fatalf("precondition: mode = %d, want filterSearchMode", b.mode)
+			}
+			return b
+		}},
 		{"assign", keymap.ModeAssign, func(t *testing.T) Board {
 			b, _ := newUniversalQuitBoard(t, universalQuitKeymapYAML(keymap.ModeAssign), nil, nil)
 			// Populate collaborators post-load, exactly like

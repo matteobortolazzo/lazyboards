@@ -147,7 +147,7 @@ func (b Board) View() string {
 		return b.viewDeleteModal()
 	}
 
-	if b.mode == filterMode {
+	if b.mode == filterMode || b.mode == filterSearchMode {
 		return b.viewFilterModal()
 	}
 
@@ -1572,11 +1572,14 @@ func (b Board) filterTabLines(width int) []string {
 	return lines
 }
 
+// filterModalWidth is the filter picker's modal width, widened from the
+// pre-#653 50 to fit the "Clear all" hint (filter.clear_all); the hint bar
+// spans two lines (filterNavHints, filterActionHints) so each fits without
+// truncation. NewBoard sizes the query input from it too.
+const filterModalWidth = 62
+
 func (b Board) viewFilterModal() string {
-	// modalWidth widened from the pre-#653 50 to fit the new "Clear all" hint
-	// (filter.clear_all); the hint bar now spans two lines (filterNavHints,
-	// filterActionHints) so each fits without truncation.
-	modalWidth := 62
+	modalWidth := filterModalWidth
 	contentWidth := modalContentWidth(modalWidth)
 
 	var lines []string
@@ -1585,15 +1588,26 @@ func (b Board) viewFilterModal() string {
 	lines = append(lines, tabLines...)
 	lines = append(lines, helpStyle.Render(strings.Repeat("─", contentWidth)))
 
+	// The query line shows while typing or while a query narrows the rows.
+	// Its value is kept sanitized to one line by handleFilterSearchModeKey.
+	queryLines := 0
+	if b.mode == filterSearchMode || b.filterQuery.Value() != "" {
+		lines = append(lines, b.filterQuery.View())
+		queryLines = 1
+	}
+
 	items := b.visibleFilterItems()
-	if len(items) == 0 {
+	switch {
+	case len(items) == 0 && len(b.filterGroups) > 0:
+		lines = append(lines, "No matches")
+	case len(items) == 0:
 		lines = append(lines, "No filterable values")
-	} else {
+	default:
 		// b.Height <= 0 means the terminal size is not (yet) known: show
 		// every row unwindowed, mirroring viewMilestoneListModal.
 		maxRowLines := len(items)
 		if b.Height > 0 {
-			maxRowLines = b.Height - filterModalChromeLines - len(tabLines)
+			maxRowLines = b.Height - filterModalChromeLines - len(tabLines) - queryLines
 			if maxRowLines < 1 {
 				maxRowLines = 1
 			}
@@ -1621,8 +1635,12 @@ func (b Board) viewFilterModal() string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, NewStatusBar(b.filterNavHints()).View(contentWidth, 0, 0))
-	lines = append(lines, NewStatusBar(b.filterActionHints()).View(contentWidth, 0, 0))
+	if b.mode == filterSearchMode {
+		lines = append(lines, NewStatusBar(b.filterSearchHints()).View(contentWidth, 0, 0), "")
+	} else {
+		lines = append(lines, NewStatusBar(b.filterNavHints()).View(contentWidth, 0, 0))
+		lines = append(lines, NewStatusBar(b.filterActionHints()).View(contentWidth, 0, 0))
+	}
 
 	modalContent := strings.Join(lines, "\n")
 	return b.renderModal(modalContent, modalWidth)

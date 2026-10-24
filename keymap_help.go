@@ -54,6 +54,7 @@ var helpModeSections = []helpModeSectionSpec{
 	{title: "Close Confirm", mode: keymap.ModeCloseConfirm, openedBy: keymap.CommandCardClose},
 	{title: "Filter", mode: keymap.ModeFilter, openedBy: keymap.CommandBoardFilter},
 	{title: "Search", mode: keymap.ModeSearch, openedBy: keymap.CommandBoardSearch},
+	{title: "Filter Search", mode: keymap.ModeFilterSearch},
 	{title: "Assign", mode: keymap.ModeAssign, openedBy: keymap.CommandCardAssign},
 	{title: "Git Menu", mode: keymap.ModeGitPanel, openedBy: keymap.CommandViewGitPanel},
 	{title: "Dispatch (cenci)", mode: keymap.ModeDispatch, openedBy: keymap.CommandViewDispatch},

@@ -403,6 +403,8 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b.handleDeleteModeKey(msg)
 		case filterMode:
 			return b.handleFilterModeKey(msg)
+		case filterSearchMode:
+			return b.handleFilterSearchModeKey(msg)
 		case assignMode:
 			return b.handleAssignModeKey(msg)
 		case gitPanelMode:
@@ -657,6 +659,7 @@ func (b *Board) resetRepoScopedState() {
 	b.filterGroups = nil
 	b.filterTab = 0
 	b.filterCursor = 0
+	b.clearFilterQuery()
 	b.refreshFilterStatus()
 
 	b.prList = prListState{}

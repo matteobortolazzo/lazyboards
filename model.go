@@ -186,6 +186,9 @@ const (
 	commentMode
 	deleteMode
 	filterMode
+	// filterSearchMode is the filter picker's type-to-narrow query input:
+	// the picker stays on screen while Board.filterQuery has focus.
+	filterSearchMode
 	assignMode
 	gitPanelMode
 	dispatchMode
@@ -954,6 +957,7 @@ type Board struct {
 	filterGroups                []filterGroup
 	filterTab                   int
 	filterCursor                int
+	filterQuery                 textinput.Model
 	filters                     filterSet
 	collaborators               []Assignee
 	authenticatedUser           string
@@ -1075,6 +1079,14 @@ func NewBoard(p provider.BoardProvider, defaultActions map[string]config.Action,
 	si.CharLimit = 100
 	si.Prompt = "/ "
 
+	fq := textinput.New()
+	fq.CharLimit = 100
+	fq.Prompt = "/ "
+	// Bound the visible text so a long query scrolls horizontally on one
+	// line: viewFilterModal reserves exactly one line for it. The trailing
+	// cell is the cursor's.
+	fq.Width = modalContentWidth(filterModalWidth) - lipgloss.Width(fq.Prompt) - 1
+
 	metadataTTL := refreshInterval * metadataTTLMultiplier
 	if metadataTTL < minMetadataTTL {
 		metadataTTL = minMetadataTTL
@@ -1114,6 +1126,7 @@ func NewBoard(p provider.BoardProvider, defaultActions map[string]config.Action,
 			labelInput: li,
 		},
 		searchInput: si,
+		filterQuery: fq,
 	}
 
 	// Card-scope hints are omitted because no columns/cards are loaded yet;
@@ -2097,18 +2110,39 @@ func (b *Board) collectFilterGroups() []filterGroup {
 	return groups
 }
 
-// visibleFilterItems returns the active filter tab's rows: what the picker's
-// cursor indexes, toggles, and renders. Empty when there are no groups.
+// visibleFilterItems returns the active filter tab's rows narrowed by the
+// picker's query (case-insensitive substring of the row value): what the
+// picker's cursor indexes, toggles, and renders. Empty when there are no
+// groups or no row matches.
 func (b *Board) visibleFilterItems() []filterItem {
 	if b.filterTab < 0 || b.filterTab >= len(b.filterGroups) {
 		return nil
 	}
-	return b.filterGroups[b.filterTab].items
+	items := b.filterGroups[b.filterTab].items
+	query := strings.ToLower(b.filterQuery.Value())
+	if query == "" {
+		return items
+	}
+	var matched []filterItem
+	for _, item := range items {
+		if strings.Contains(strings.ToLower(item.value), query) {
+			matched = append(matched, item)
+		}
+	}
+	return matched
+}
+
+// clearFilterQuery empties and blurs the picker's query input.
+func (b *Board) clearFilterQuery() {
+	b.filterQuery.SetValue("")
+	b.filterQuery.Blur()
 }
 
 // openFilterPicker loads the picker's groups and starts on the first tab
-// holding an active selection (else the first tab), cursor on its first row.
+// holding an active selection (else the first tab), cursor on its first row,
+// with an empty query.
 func (b *Board) openFilterPicker(groups []filterGroup) {
+	b.clearFilterQuery()
 	b.filterGroups = groups
 	b.filterTab = 0
 	b.filterCursor = 0

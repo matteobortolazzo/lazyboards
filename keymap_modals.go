@@ -40,6 +40,7 @@ var filterNavHintSpecs = []hintSpec{
 var filterActionHintSpecs = []hintSpec{
 	{desc: "Select", commands: []keymap.CommandID{keymap.CommandFilterSelect}},
 	{desc: "Clear all", commands: []keymap.CommandID{keymap.CommandFilterClearAll}},
+	{desc: "Search", commands: []keymap.CommandID{keymap.CommandFilterSearch}},
 }
 
 // filterHints derives the filter-picker modal's status-bar hints from the

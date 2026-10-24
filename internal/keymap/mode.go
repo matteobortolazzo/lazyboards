@@ -57,6 +57,10 @@ const (
 	// modal.
 	ModeFilter Mode = "filter"
 
+	// ModeFilterSearch is handleFilterSearchModeKey, the filter picker's
+	// type-to-narrow query input (opened by filter.search).
+	ModeFilterSearch Mode = "filter_search"
+
 	// ModeAssign is handleAssignModeKey, the assignee picker modal.
 	ModeAssign Mode = "assign"
 
@@ -115,6 +119,7 @@ var modes = []Mode{
 	ModeComment,
 	ModeDelete,
 	ModeFilter,
+	ModeFilterSearch,
 	ModeAssign,
 	ModeGitPanel,
 	ModeDispatch,
@@ -169,20 +174,22 @@ func (m Mode) Resolvable() bool {
 // textInputModes is the set of modes whose handler consumes every printable
 // rune keypress as literal text input (see the handlers named in each
 // Mode's own doc comment: handleCreateModeKey, handleConfigModeKey,
-// handleSearchModeKey, handleCommentModeKey/comment_mode.go, and
-// handleDeleteModeKey's confirmation text field). A key binding for a bare
+// handleSearchModeKey, handleCommentModeKey/comment_mode.go,
+// handleDeleteModeKey's confirmation text field, and
+// handleFilterSearchModeKey). A key binding for a bare
 // printable rune in one of these modes can never dispatch -- the input
 // widget swallows the keypress before any lookup happens.
 var textInputModes = map[Mode]bool{
-	ModeCreate:  true,
-	ModeConfig:  true,
-	ModeSearch:  true,
-	ModeComment: true,
-	ModeDelete:  true,
+	ModeCreate:       true,
+	ModeConfig:       true,
+	ModeSearch:       true,
+	ModeComment:      true,
+	ModeDelete:       true,
+	ModeFilterSearch: true,
 }
 
 // ConsumesPrintableRunes reports whether m is a text-input surface (create,
-// config, search, comment, delete) that swallows every printable rune as
+// config, search, comment, delete, filter_search) that swallows every printable rune as
 // literal text, so no bare printable-rune key can ever be bound there.
 func (m Mode) ConsumesPrintableRunes() bool {
 	return textInputModes[m]
