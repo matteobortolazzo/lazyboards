@@ -222,10 +222,10 @@ A key is any BubbleTea key notation exactly as shown in the Keybindings tables (
 `keymaps:` is the only key-binding syntax. A config declaring a top-level `actions:` key, or an `actions:` key on any `columns:` entry, **fails to load** — the error names the file and the offending key.
 
 <!-- keymap-bindable-modes:start -->
-Bindable modes: `normal`, `detail`, `create`, `error`, `config`, `pr_picker`, `search`, `help`, `label_confirm`, `close_confirm`, `comment`, `delete`, `filter`, `assign`, `git_panel`, `dispatch`, `pr_list`, `milestone_list`, `agent_list`, `trust_confirm`. See [Keybindings](#keybindings) for each mode's shipped command-id table.
+Bindable modes: `normal`, `detail`, `create`, `error`, `config`, `pr_picker`, `search`, `help`, `label_confirm`, `close_confirm`, `comment`, `delete`, `filter`, `filter_search`, `assign`, `git_panel`, `dispatch`, `pr_list`, `milestone_list`, `agent_list`, `trust_confirm`. See [Keybindings](#keybindings) for each mode's shipped command-id table.
 <!-- keymap-bindable-modes:end -->
 
-**Mode capabilities:** not every mode's dispatch seam can do everything a binding might ask of it. Multi-key sequences dispatch only in `normal`, `detail`, and per-column `keymaps.columns.<name>` overlays — every other mode resolves a single key by exact match only. Inline actions dispatch only in `normal`, `detail`, `git_panel`, `pr_list` (restricted there to `scope: pr` actions, never inferred — see [Pull Requests](#pull-requests)), and `keymaps.columns.<name>` overlays — every other mode can only bind a built-in command id. A bare printable-rune key (a single character, no modifier) is rejected in `create`, `config`, `search`, `comment`, and `delete` — those modes' text inputs swallow every printable keystroke before any lookup runs; a named key (`enter`, `esc`, `ctrl+n`, ...) or an `alt+<rune>` form is exempt and binds normally. A binding one of these seams can never reach is a load-time config error, not a silent no-op — see [`docs/keymaps.md#mode-capability-matrix`](docs/keymaps.md#mode-capability-matrix) for the full per-mode matrix.
+**Mode capabilities:** not every mode's dispatch seam can do everything a binding might ask of it. Multi-key sequences dispatch only in `normal`, `detail`, and per-column `keymaps.columns.<name>` overlays — every other mode resolves a single key by exact match only. Inline actions dispatch only in `normal`, `detail`, `git_panel`, `pr_list` (restricted there to `scope: pr` actions, never inferred — see [Pull Requests](#pull-requests)), and `keymaps.columns.<name>` overlays — every other mode can only bind a built-in command id. A bare printable-rune key (a single character, no modifier) is rejected in `create`, `config`, `search`, `comment`, `delete`, and `filter_search` — those modes' text inputs swallow every printable keystroke before any lookup runs; a named key (`enter`, `esc`, `ctrl+n`, ...) or an `alt+<rune>` form is exempt and binds normally. A binding one of these seams can never reach is a load-time config error, not a silent no-op — see [`docs/keymaps.md#mode-capability-matrix`](docs/keymaps.md#mode-capability-matrix) for the full per-mode matrix.
 
 **Merge and precedence:** local config (`.lazyboards.yml`) merges over global config (`~/.config/lazyboards/config.yml`) per key — a mode or column the local file never mentions at all inherits the global table wholesale; an explicitly empty local table (`keymaps.normal: {}`) means "inherit nothing from global," not "unbind the built-in defaults" — unbinding a specific built-in still requires an explicit `~` entry for that key. Once merged, the resulting user config always wins over the built-in defaults, key by key — a user binding overrides a default with the same key, and every default key the user config doesn't mention is left untouched.
 
@@ -881,6 +881,14 @@ re-applying the filter to the board immediately and leaving the modal open;
 selected rows show a `*` prefix. `c` clears every selection at once (also
 leaving the modal open).
 
+`/` starts typing a query that narrows the active tab's rows to those whose
+value contains it (case-insensitive substring). The `/ <query>` line shows
+while typing and whenever a query is set; the query persists across tab
+switches, and a tab with no matching rows shows "No matches". `enter` keeps the
+query and returns to the list (so `enter` again toggles a narrowed row), `esc`
+clears it, and closing the picker clears it too. Tab badges still count
+selections, not matches.
+
 The active selection set is always visible in the status bar — see [Filter
 Segment](#filter-segment).
 
@@ -903,6 +911,17 @@ resets every repository's filters.
 | `k` / `up` (↑) | `filter.prev` | Navigate |
 | `l` / `right` (→) / `tab` | `filter.next_category` | Next category tab |
 | `h` / `left` (←) / `shift+tab` | `filter.prev_category` | Previous category tab |
+| `/` | `filter.search` | Search |
+
+While typing a query (`filter_search` mode), all letters and digits type into
+the query:
+
+| Key | Command | Action |
+|-----|---------|--------|
+| `enter` | `filter_search.apply` | Apply (keep query) |
+| `esc` | `filter_search.cancel` | Clear query |
+| `down` (↓) / `ctrl+n` | `filter_search.next` | Navigate |
+| `up` (↑) / `ctrl+p` | `filter_search.prev` | Navigate |
 
 ### Search
 

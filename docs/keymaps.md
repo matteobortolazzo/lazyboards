@@ -78,8 +78,9 @@ Three layers, each with a narrow responsibility:
    `runHelpCommand`). `keymap_modals.go` is the seam for the six list-style
    modals (`lookupModalBinding`, shared by `filter`/`assign`/`pr_picker`/
    `pr_list`/`milestone_list`/`agent_list`). `keymap_text.go` is the seam for
-   the seven text/confirm modes (`textBinding`, shared by `close_confirm`/
-   `label_confirm`/`delete`/`create`/`config`/`search`/`comment`), which
+   the text/confirm modes (`textBinding`, shared by `close_confirm`/
+   `label_confirm`/`delete`/`create`/`config`/`search`/`comment`/
+   `trust_confirm`/`filter_search`), which
    additionally guards `Mode.ConsumesPrintableRunes()` so literal keystrokes
    reach the mode's `textinput` instead of being intercepted as commands.
    None of these seams contains a hardcoded `switch msg.String()` — every one
@@ -258,6 +259,7 @@ token.
 | `comment` | no | no | rejected | yes | no |
 | `delete` | no | no | rejected | yes | no |
 | `filter` | no | no | allowed | yes | no |
+| `filter_search` | no | no | rejected | yes | no |
 | `assign` | no | no | allowed | yes | no |
 | `git_panel` | no | yes | allowed | yes | no |
 | `dispatch` | no | no | allowed | yes | no |
@@ -280,7 +282,9 @@ no change to the mode's capability row above. This file stays mechanism-only
 -- see [README.md#filter](../README.md#filter) for the actual key bindings
 and picker behavior. It later gained `filter.next_category`/
 `filter.prev_category` for the picker's category tabs, likewise with no
-capability change.
+capability change. `filter.search` (`/`) enters `filter_search`, the picker's
+query-input text mode: like `search`, it consumes printable runes, so a bare
+printable-rune binding there is rejected at load time.
 
 `columns.<name>` overlays `normal`/`detail` (`keymap.go`'s `Resolve`), so it
 inherits both of their capabilities in full:

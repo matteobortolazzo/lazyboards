@@ -432,9 +432,15 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		switch result.Binding.Command {
 		case keymap.CommandFilterClose:
+			b.clearFilterQuery()
 			b.mode = normalMode
 			b.restoreFocusHints()
 			return b, nil
+		case keymap.CommandFilterSearch:
+			b.mode = filterSearchMode
+			cmd := b.filterQuery.Focus()
+			b.statusBar.SetActionHints(b.filterSearchHints())
+			return b, cmd
 		case keymap.CommandFilterSelect:
 			// #653 AC2: Enter toggles the cursor's item into/out of the
 			// filter set, re-applies immediately, and leaves the modal open
@@ -599,6 +605,31 @@ func (b Board) handleSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	col.Cursor = 0
 	col.ScrollOffset = 0
 	b.statusBar.SetActionHints(b.searchHints())
+	return b, cmd
+}
+
+// handleFilterSearchModeKey routes the filter picker's query input through
+// textBinding: a bound command runs via runFilterSearchCommand, anything else
+// (printable runes included) edits the query, which is kept sanitized to one
+// line and resets the cursor to the first narrowed row.
+func (b Board) handleFilterSearchModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if binding, ok := b.textBinding(keymap.ModeFilterSearch, msg); ok && binding.Kind == keymap.BindingCommand {
+		if cmd, ok := b.universalDispatch(binding); ok {
+			return b, cmd
+		}
+		switch binding.Command {
+		case keymap.CommandFilterSearchApply, keymap.CommandFilterSearchCancel,
+			keymap.CommandFilterSearchNext, keymap.CommandFilterSearchPrev:
+			return b.runFilterSearchCommand(binding.Command)
+		}
+	}
+
+	var cmd tea.Cmd
+	b.filterQuery, cmd = b.filterQuery.Update(msg)
+	if value := b.filterQuery.Value(); sanitizeSingleLine(value) != value {
+		b.filterQuery.SetValue(sanitizeSingleLine(value))
+	}
+	b.filterCursor = 0
 	return b, cmd
 }
 

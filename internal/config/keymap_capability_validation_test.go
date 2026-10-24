@@ -496,6 +496,7 @@ var capabilityCommandMatrix = []capabilityCommandCase{
 	{keymap.ModeConfig, "f1", keymap.CommandConfigSave, keymap.CommandCreateSubmit},
 	{keymap.ModeSearch, "f1", keymap.CommandSearchApply, keymap.CommandConfigSave},
 	{keymap.ModeComment, "f1", keymap.CommandCommentSubmit, keymap.CommandSearchApply},
+	{keymap.ModeFilterSearch, "f1", keymap.CommandFilterSearchApply, keymap.CommandSearchApply},
 }
 
 // capabilityCommandYAML builds a minimal keymaps.<mode>.<key>: <id> config.
@@ -603,6 +604,7 @@ var nonInlineActionModes = []keymap.Mode{
 	keymap.ModeSearch,
 	keymap.ModeComment,
 	keymap.ModeDelete,
+	keymap.ModeFilterSearch,
 	keymap.ModeCloseConfirm,
 	keymap.ModeLabelConfirm,
 	keymap.ModeTrustConfirm,

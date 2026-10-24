@@ -138,11 +138,12 @@ func TestModeNames_AreSnakeCase(t *testing.T) {
 	}
 }
 
-// TestConsumesPrintableRunes_TextInputModes pins the exact five-mode set
-// named by #510's acceptance criteria: create, config, search, comment,
-// delete each swallow every printable rune as literal text input.
+// TestConsumesPrintableRunes_TextInputModes pins the exact text-input set:
+// #510's five (create, config, search, comment, delete) plus the filter
+// picker's query input (filter_search) each swallow every printable rune as
+// literal text input.
 func TestConsumesPrintableRunes_TextInputModes(t *testing.T) {
-	want := []Mode{ModeCreate, ModeConfig, ModeSearch, ModeComment, ModeDelete}
+	want := []Mode{ModeCreate, ModeConfig, ModeSearch, ModeComment, ModeDelete, ModeFilterSearch}
 	for _, m := range want {
 		if !m.ConsumesPrintableRunes() {
 			t.Errorf("Mode(%q).ConsumesPrintableRunes() = false, want true", m)
@@ -155,11 +156,12 @@ func TestConsumesPrintableRunes_TextInputModes(t *testing.T) {
 // reject a bare printable-rune binding there too).
 func TestConsumesPrintableRunes_OtherModes_False(t *testing.T) {
 	textInput := map[Mode]bool{
-		ModeCreate:  true,
-		ModeConfig:  true,
-		ModeSearch:  true,
-		ModeComment: true,
-		ModeDelete:  true,
+		ModeCreate:       true,
+		ModeConfig:       true,
+		ModeSearch:       true,
+		ModeComment:      true,
+		ModeDelete:       true,
+		ModeFilterSearch: true,
 	}
 	for _, m := range Modes() {
 		if textInput[m] {

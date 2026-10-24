@@ -67,6 +67,17 @@ var searchDefaults = Table{
 	"shift+tab": CommandBinding(CommandSearchPrevColumn),
 }
 
+// filterSearchDefaults is the default ModeFilterSearch table: the filter
+// picker's query input, shaped like searchDefaults minus column switching.
+var filterSearchDefaults = Table{
+	"enter":  CommandBinding(CommandFilterSearchApply),
+	"esc":    CommandBinding(CommandFilterSearchCancel),
+	"down":   CommandBinding(CommandFilterSearchNext),
+	"ctrl+n": CommandBinding(CommandFilterSearchNext),
+	"up":     CommandBinding(CommandFilterSearchPrev),
+	"ctrl+p": CommandBinding(CommandFilterSearchPrev),
+}
+
 // commentDefaults is the default ModeComment table, transcribed from
 // handleCommentModeKey (mode_handlers.go).
 var commentDefaults = Table{
@@ -94,5 +105,6 @@ var textDefaultTables = map[Mode]Table{
 	ModeConfig:       configDefaults,
 	ModeSearch:       searchDefaults,
 	ModeComment:      commentDefaults,
+	ModeFilterSearch: filterSearchDefaults,
 	ModeTrustConfirm: trustConfirmDefaults,
 }

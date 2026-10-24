@@ -943,6 +943,20 @@ func focusFilterTab(t *testing.T, b Board, itemType filterType) Board {
 	return b
 }
 
+// typeFilterQuery opens the filter picker's query input with the default
+// filter.search key ("/") and types query into it one rune at a time.
+func typeFilterQuery(t *testing.T, b Board, query string) Board {
+	t.Helper()
+	b = sendKey(t, b, keyMsg("/"))
+	if b.mode != filterSearchMode {
+		t.Fatalf("mode = %d after '/', want filterSearchMode", b.mode)
+	}
+	for _, r := range query {
+		b = sendKey(t, b, keyMsg(string(r)))
+	}
+	return b
+}
+
 // focusFilterRow focuses itemType's tab, then presses the default
 // filter.next key ("j") until the row matching value (case-insensitive) is
 // under the cursor.

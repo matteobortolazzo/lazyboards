@@ -48,6 +48,11 @@ const (
 	CommandCommentSubmit CommandID = "comment.submit"
 	CommandCommentCancel CommandID = "comment.cancel"
 
+	CommandFilterSearchApply  CommandID = "filter_search.apply"
+	CommandFilterSearchCancel CommandID = "filter_search.cancel"
+	CommandFilterSearchNext   CommandID = "filter_search.next"
+	CommandFilterSearchPrev   CommandID = "filter_search.prev"
+
 	CommandTrustConfirmTrust CommandID = "trust_confirm.trust"
 	CommandTrustConfirmSkip  CommandID = "trust_confirm.skip"
 )
@@ -86,6 +91,11 @@ var textCommands = []Command{
 
 	{CommandCommentSubmit, "Submit"},
 	{CommandCommentCancel, "Cancel"},
+
+	{CommandFilterSearchApply, "Apply"},
+	{CommandFilterSearchCancel, "Clear"},
+	{CommandFilterSearchNext, "Navigate"},
+	{CommandFilterSearchPrev, "Navigate"},
 
 	{CommandTrustConfirmTrust, "Trust now"},
 	{CommandTrustConfirmSkip, "Skip"},
