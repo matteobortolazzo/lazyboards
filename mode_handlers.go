@@ -309,22 +309,14 @@ func (b Board) runNormalCommand(id keymap.CommandID) (tea.Model, tea.Cmd) {
 		// #653: 'f' always opens the picker and never clears (AC1). The
 		// empty-items guard is relaxed to Q8's "still open when a filter is
 		// already active" so filter.clear_all stays reachable even on a
-		// board whose own collectFilterItems() yields zero rows (e.g. a
+		// board whose own collectFilterGroups() yields zero rows (e.g. a
 		// selection made from the Milestones modal on a board whose cards
 		// carry no labels/assignees/milestones of their own).
-		items := b.collectFilterItems()
-		if len(items) == 0 && !b.hasActiveFilters() {
+		groups := b.collectFilterGroups()
+		if len(groups) == 0 && !b.hasActiveFilters() {
 			return b, nil
 		}
-		b.filterItems = items
-		// Set cursor to first selectable (non-header) item.
-		b.filterCursor = 0
-		for i, item := range items {
-			if !item.isHeader {
-				b.filterCursor = i
-				break
-			}
-		}
+		b.openFilterPicker(groups)
 		b.mode = filterMode
 		b.statusBar.SetActionHints(b.filterHints())
 		return b, nil
@@ -446,11 +438,11 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case keymap.CommandFilterSelect:
 			// #653 AC2: Enter toggles the cursor's item into/out of the
 			// filter set, re-applies immediately, and leaves the modal open
-			// with the cursor unchanged -- filterItems is not recollected
-			// while the picker is open (epic assumption: the list can't
-			// shrink under the cursor), so filterCursor needs no adjustment.
-			if b.filterCursor < len(b.filterItems) && !b.filterItems[b.filterCursor].isHeader {
-				item := b.filterItems[b.filterCursor]
+			// with the cursor unchanged -- toggling never changes the rows
+			// (only a refresh does, via refreshFilterGroups' clamp).
+			items := b.visibleFilterItems()
+			if b.filterCursor < len(items) {
+				item := items[b.filterCursor]
 				return b, b.toggleFilter(item.itemType, item.value)
 			}
 			return b, nil
@@ -460,9 +452,13 @@ func (b Board) handleFilterModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd := b.statusBar.SetTimedMessage("Filters cleared", StatusSuccess, statusMessageDuration)
 			return b, tea.Batch(cmd, saveCmd)
 		case keymap.CommandFilterNext:
-			b.filterMoveDown()
+			b.filterCursor = moveCursor(b.filterCursor, len(b.visibleFilterItems()), true)
 		case keymap.CommandFilterPrev:
-			b.filterMoveUp()
+			b.filterCursor = moveCursor(b.filterCursor, len(b.visibleFilterItems()), false)
+		case keymap.CommandFilterNextCategory:
+			b.switchFilterTab(true)
+		case keymap.CommandFilterPrevCategory:
+			b.switchFilterTab(false)
 		default:
 			// Q4: config load now rejects a command id from a different
 			// domain (e.g. a stray override binding board.refresh here)

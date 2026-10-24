@@ -592,10 +592,10 @@ func TestFilter_FilterItemsRebuiltOnRefresh(t *testing.T) {
 	// Set a label filter.
 	setActiveFilter(&b, filterByLabel, "bug")
 
-	// Verify "urgent" label is NOT in the current filter items.
-	b.filterItems = b.collectFilterItems()
-	for _, item := range b.filterItems {
-		if !item.isHeader && item.value == "urgent" {
+	// Verify "urgent" label is NOT in the current filter groups.
+	b.filterGroups = b.collectFilterGroups()
+	for _, item := range allFilterRows(b.filterGroups) {
+		if item.value == "urgent" {
 			t.Fatal("precondition: 'urgent' label should not exist before refresh")
 		}
 	}
@@ -613,16 +613,16 @@ func TestFilter_FilterItemsRebuiltOnRefresh(t *testing.T) {
 	}
 	b = simulateRefreshWithCards(t, b, columnsWithUrgent)
 
-	// The filterItems should be rebuilt from the new data and include "urgent".
+	// The filter groups should be rebuilt from the new data and include "urgent".
 	foundUrgent := false
-	for _, item := range b.filterItems {
-		if !item.isHeader && item.value == "urgent" {
+	for _, item := range allFilterRows(b.filterGroups) {
+		if item.value == "urgent" {
 			foundUrgent = true
 			break
 		}
 	}
 	if !foundUrgent {
-		t.Errorf("filterItems after refresh should include new label 'urgent', got items: %v", b.filterItems)
+		t.Errorf("filter groups after refresh should include new label 'urgent', got groups: %v", b.filterGroups)
 	}
 }
 
@@ -638,16 +638,9 @@ func TestFilter_CursorClampedOnFilterApply(t *testing.T) {
 	}
 
 	// Enter filter mode and select a filter that reduces the list to 2 cards.
-	b.filterItems = b.collectFilterItems()
 	// Find the "alice" assignee item (only 2 cards in Backlog assigned to alice: #1, #3).
-	b.filterCursor = 0
-	for i, item := range b.filterItems {
-		if !item.isHeader && item.itemType == filterByAssignee && strings.EqualFold(item.value, "alice") {
-			b.filterCursor = i
-			break
-		}
-	}
-	b.mode = filterMode
+	b = sendKey(t, b, keyMsg("f"))
+	b = focusFilterRow(t, b, filterByAssignee, "alice")
 
 	// Press Enter to apply the filter.
 	m, _ := b.Update(arrowMsg(tea.KeyEnter))
@@ -866,7 +859,7 @@ func TestFilter_FilterPersistsAcrossTabSwitch(t *testing.T) {
 // TestFilter_ApplyFilter_EmptyColumns_DoesNotPanic) asserts toggleFilter
 // still sets the active filter fields even when the board has no columns yet
 // (e.g. before the first successful fetch) -- handleFilterModeKey's inlined
-// block never needed this guard because it's only reachable once filterItems
+// block never needed this guard because it's only reachable once filterGroups
 // has been populated from a fetched board, but toggleFilter is a shared
 // building block for future callers (e.g. the milestones view) that may
 // invoke it before Columns is populated.
@@ -1163,7 +1156,7 @@ func TestFilterSegment_SelectingLabelSetsStatusBarSegment(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	b = sendKey(t, b, keyMsg("f"))
-	labelItem := b.filterItems[b.filterCursor]
+	labelItem := currentFilterRow(t, b)
 	if labelItem.itemType != filterByLabel {
 		t.Fatalf("precondition: initial filter cursor should land on a label row, got %+v", labelItem)
 	}
@@ -1198,18 +1191,13 @@ func TestFilterSegment_SecondSelectionShowsPlusOneSuffix(t *testing.T) {
 	b := newBoardWithFilterableCards(t)
 
 	b = sendKey(t, b, keyMsg("f"))
-	labelItem := b.filterItems[b.filterCursor]
+	labelItem := currentFilterRow(t, b)
 	if labelItem.itemType != filterByLabel {
 		t.Fatalf("precondition: initial filter cursor should land on a label row, got %+v", labelItem)
 	}
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	for b.filterItems[b.filterCursor].itemType != filterByAssignee {
-		b = sendKey(t, b, keyMsg("j"))
-		if b.filterCursor >= len(b.filterItems)-1 {
-			t.Fatal("could not reach an assignee item")
-		}
-	}
+	b = focusFilterTab(t, b, filterByAssignee)
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
 	if filterCount(&b) != 2 {
@@ -1275,7 +1263,7 @@ func TestFilterSegment_ReferenceNavHiddenJumpClearsStatusBarSegment(t *testing.T
 	b, _ := newActionTestBoardWithColumns(t, nil, columns)
 
 	b = sendKey(t, b, keyMsg("f"))
-	labelItem := b.filterItems[b.filterCursor]
+	labelItem := currentFilterRow(t, b)
 	if labelItem.value != "bug" {
 		t.Fatalf("precondition: expected the first selectable label to be %q, got %q", "bug", labelItem.value)
 	}
@@ -1361,22 +1349,13 @@ func TestFilter_TwoCategorySelection_EndToEnd_ANDOfORsCountsAndSegment(t *testin
 	b := newBoardWithFilterableCards(t)
 
 	b = sendKey(t, b, keyMsg("f"))
-	labelItem := b.filterItems[b.filterCursor]
+	labelItem := currentFilterRow(t, b)
 	if labelItem.value != "bug" {
 		t.Fatalf("precondition: expected the first selectable label to be %q, got %q", "bug", labelItem.value)
 	}
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 
-	for {
-		item := b.filterItems[b.filterCursor]
-		if item.itemType == filterByAssignee && strings.EqualFold(item.value, "alice") {
-			break
-		}
-		b = sendKey(t, b, keyMsg("j"))
-		if b.filterCursor >= len(b.filterItems)-1 {
-			t.Fatal("could not reach the alice assignee item")
-		}
-	}
+	b = focusFilterRow(t, b, filterByAssignee, "alice")
 	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
 	b = sendKey(t, b, arrowMsg(tea.KeyEsc))
 

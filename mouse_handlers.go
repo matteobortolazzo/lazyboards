@@ -43,7 +43,7 @@ func (b Board) handleMouseWheel(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case prPickerMode:
 		return b.handlePRPickerWheel(msg)
 	case filterMode:
-		b.filterMoveClamp(msg.Button == tea.MouseButtonWheelDown)
+		b.filterCursor = clampCursor(b.filterCursor, len(b.visibleFilterItems()), msg.Button == tea.MouseButtonWheelDown)
 		return b, nil
 	}
 	return b, nil

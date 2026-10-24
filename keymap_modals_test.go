@@ -1000,3 +1000,101 @@ func TestKeymapModals_AgentList_EmptyAndLoadedHintsStayDistinct(t *testing.T) {
 		t.Errorf("status bar after shrinking to zero windows = %q, want \"Cancel\" to remain", emptyStatus)
 	}
 }
+
+// --- filter.next_category / filter.prev_category: remap/unbind and the
+// hint<->dispatch invariant.
+
+func TestKeymapModals_Filter_Category_RemapMovesDispatchAndHint(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{
+		keymap.ModeFilter: {
+			"l":     keymap.UnboundBinding(),
+			"right": keymap.UnboundBinding(),
+			"tab":   keymap.UnboundBinding(),
+			"n":     keymap.CommandBinding(keymap.CommandFilterNextCategory),
+		},
+	}, nil)
+	b = sendKey(t, b, keyMsg("f"))
+
+	b = sendKey(t, b, keyMsg("l"))
+	if b.filterTab != 0 {
+		t.Errorf("filterTab = %d after the unbound old 'l', want 0 (no-op)", b.filterTab)
+	}
+	b = sendKey(t, b, keyMsg("n"))
+	if b.filterTab != 1 {
+		t.Errorf("filterTab = %d after the remapped 'n', want 1", b.filterTab)
+	}
+
+	var categoryKey string
+	for _, h := range b.filterHints() {
+		if h.Desc == "Category" {
+			categoryKey = h.Key
+		}
+	}
+	if !strings.Contains(categoryKey, "n") || strings.Contains(categoryKey, "l") {
+		t.Errorf("Category hint key = %q, want it to advertise 'n' and not the unbound 'l'", categoryKey)
+	}
+}
+
+func TestKeymapModals_Filter_Category_UnboundBothHidesHint(t *testing.T) {
+	b := newBoardWithLabelsAndAssignees(t)
+	unbind := keymap.Table{}
+	for _, k := range []string{"l", "right", "tab", "h", "left", "shift+tab"} {
+		unbind[k] = keymap.UnboundBinding()
+	}
+	b = boardWithOverrideKeymap(t, b, map[keymap.Mode]keymap.Table{keymap.ModeFilter: unbind}, nil)
+	b = sendKey(t, b, keyMsg("f"))
+
+	b = sendKey(t, b, keyMsg("h"))
+	if b.filterTab != 0 {
+		t.Errorf("filterTab = %d after an unbound 'h', want 0", b.filterTab)
+	}
+	for _, h := range b.filterHints() {
+		if h.Desc == "Category" {
+			t.Errorf("filterHints() = %+v, want no Category hint once both commands are unbound", b.filterHints())
+		}
+	}
+}
+
+// Every key the filter hint bar advertises resolves to a command the filter
+// handler dispatches -- under the default table and a remapped one.
+func TestKeymapModals_Filter_HintKeysAlwaysDispatch(t *testing.T) {
+	handled := map[keymap.CommandID]bool{
+		keymap.CommandFilterClose: true, keymap.CommandFilterSelect: true,
+		keymap.CommandFilterNext: true, keymap.CommandFilterPrev: true,
+		keymap.CommandFilterClearAll: true, keymap.CommandFilterNextCategory: true,
+		keymap.CommandFilterPrevCategory: true,
+	}
+	tests := []struct {
+		name  string
+		modes map[keymap.Mode]keymap.Table
+	}{
+		{name: "default table", modes: nil},
+		{name: "remapped and unbound table", modes: map[keymap.Mode]keymap.Table{keymap.ModeFilter: {
+			"l": keymap.UnboundBinding(),
+			"n": keymap.CommandBinding(keymap.CommandFilterNextCategory),
+			"c": keymap.UnboundBinding(),
+			"x": keymap.CommandBinding(keymap.CommandFilterClearAll),
+		}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newBoardWithLabelsAndAssignees(t)
+			if tc.modes != nil {
+				b = boardWithOverrideKeymap(t, b, tc.modes, nil)
+			}
+			hints := b.filterHints()
+			if len(hints) == 0 {
+				t.Fatal("filterHints() returned no hints")
+			}
+			for _, h := range hints {
+				for _, key := range strings.Split(h.Key, "/") {
+					result := b.keys.Lookup(keymap.ModeFilter, "", keymap.Sequence{keymap.Key(key)})
+					if result.Outcome != keymap.OutcomeMatch || !handled[result.Binding.Command] {
+						t.Errorf("hint %+v: key %q resolves to %+v, want a filter command the handler dispatches", h, key, result)
+					}
+				}
+			}
+		})
+	}
+}

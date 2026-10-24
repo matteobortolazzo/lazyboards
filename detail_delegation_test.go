@@ -148,7 +148,7 @@ type detailDelegationSnapshot struct {
 	deleteCardNumber  int
 	assignCursor      int
 	assignItemCount   int
-	filterItemCount   int
+	filterGroupCount  int
 	filterCursor      int
 	prListCursor      int
 	prListGeneration  uint64
@@ -184,7 +184,7 @@ func snapshotDetailDelegationState(b Board) detailDelegationSnapshot {
 		deleteCardNumber:  b.delete.card.Number,
 		assignCursor:      b.assign.cursor,
 		assignItemCount:   len(b.assign.items),
-		filterItemCount:   len(b.filterItems),
+		filterGroupCount:  len(b.filterGroups),
 		filterCursor:      b.filterCursor,
 		prListCursor:      b.prList.cursor,
 		prListGeneration:  b.prList.generation,

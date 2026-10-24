@@ -1381,30 +1381,15 @@ func TestMouseWheelDown_PRPickerMode_LinkedPRsShrinkToZeroWhileOpen_ClosesPicker
 
 // --- Filter picker modal ---
 //
-// The filter picker mixes selectable items with non-selectable header rows
-// (collectFilterItems groups Labels/Assignees/Milestones under headers).
-// The wheel path must skip headers the same way filterMove does, but clamp
-// at the first/last selectable item instead of wrapping.
+// The wheel moves the cursor within the active category tab only, clamping
+// at its first/last row instead of wrapping or crossing into another tab.
 
-func TestMouseWheelDown_FilterMode_SkipsHeaderRow(t *testing.T) {
+func TestMouseWheelDown_FilterMode_MovesWithinActiveTab(t *testing.T) {
 	b := newMouseEnabledFilterBoard(t)
-
-	// Locate a selectable item immediately followed by a header row
-	// dynamically (rather than hardcoding an index) -- collectFilterItems'
-	// exact section ordering is a fixture implementation detail, not
-	// something this test should assume.
-	beforeHeader, afterHeader := -1, -1
-	for i := 0; i < len(b.filterItems)-2; i++ {
-		if !b.filterItems[i].isHeader && b.filterItems[i+1].isHeader && !b.filterItems[i+2].isHeader {
-			beforeHeader = i
-			afterHeader = i + 2
-			break
-		}
+	if len(b.visibleFilterItems()) < 2 {
+		t.Fatal("test setup: the first filter tab needs at least two rows")
 	}
-	if beforeHeader == -1 {
-		t.Fatal("test setup: fixture must contain at least two filter sections separated by a header")
-	}
-	b.filterCursor = beforeHeader
+	tab := b.filterTab
 
 	m, cmd := b.Update(wheelDownMsg())
 	board, ok := m.(Board)
@@ -1414,27 +1399,14 @@ func TestMouseWheelDown_FilterMode_SkipsHeaderRow(t *testing.T) {
 	if cmd != nil {
 		t.Errorf("cmd = %v, want nil", cmd)
 	}
-	if board.filterCursor != afterHeader {
-		t.Errorf("filterCursor = %d after wheel down past a header, want %d (header skipped)", board.filterCursor, afterHeader)
-	}
-	if board.filterItems[board.filterCursor].isHeader {
-		t.Errorf("filterCursor landed on a header row (index %d)", board.filterCursor)
+	if board.filterCursor != 1 || board.filterTab != tab {
+		t.Errorf("after wheel down: cursor = %d, tab = %d; want cursor 1 on tab %d", board.filterCursor, board.filterTab, tab)
 	}
 }
 
-func TestMouseWheelUp_FilterMode_AtFirstSelectable_ClampsNoWrap(t *testing.T) {
+func TestMouseWheelUp_FilterMode_AtFirstRow_ClampsNoWrap(t *testing.T) {
 	b := newMouseEnabledFilterBoard(t)
-	firstSelectable := -1
-	for i, item := range b.filterItems {
-		if !item.isHeader {
-			firstSelectable = i
-			break
-		}
-	}
-	if firstSelectable == -1 {
-		t.Fatal("test setup: fixture must contain at least one selectable filter item")
-	}
-	b.filterCursor = firstSelectable
+	b.filterCursor = 0
 
 	m, cmd := b.Update(wheelUpMsg())
 	board, ok := m.(Board)
@@ -1444,23 +1416,19 @@ func TestMouseWheelUp_FilterMode_AtFirstSelectable_ClampsNoWrap(t *testing.T) {
 	if cmd != nil {
 		t.Errorf("cmd = %v, want nil", cmd)
 	}
-	if board.filterCursor != firstSelectable {
-		t.Errorf("filterCursor = %d after wheel up at first selectable, want %d (no wrap)", board.filterCursor, firstSelectable)
+	if board.filterCursor != 0 {
+		t.Errorf("filterCursor = %d after wheel up at the first row, want 0 (no wrap)", board.filterCursor)
 	}
 }
 
-func TestMouseWheelDown_FilterMode_AtLastSelectable_ClampsNoWrap(t *testing.T) {
+func TestMouseWheelDown_FilterMode_AtLastRow_ClampsWithinTab(t *testing.T) {
 	b := newMouseEnabledFilterBoard(t)
-	lastSelectable := -1
-	for i, item := range b.filterItems {
-		if !item.isHeader {
-			lastSelectable = i
-		}
+	if len(b.filterGroups) < 2 {
+		t.Fatal("test setup: fixture must have at least two filter tabs")
 	}
-	if lastSelectable == -1 {
-		t.Fatal("test setup: fixture must contain at least one selectable filter item")
-	}
-	b.filterCursor = lastSelectable
+	last := len(b.visibleFilterItems()) - 1
+	b.filterCursor = last
+	tab := b.filterTab
 
 	m, cmd := b.Update(wheelDownMsg())
 	board, ok := m.(Board)
@@ -1470,8 +1438,8 @@ func TestMouseWheelDown_FilterMode_AtLastSelectable_ClampsNoWrap(t *testing.T) {
 	if cmd != nil {
 		t.Errorf("cmd = %v, want nil", cmd)
 	}
-	if board.filterCursor != lastSelectable {
-		t.Errorf("filterCursor = %d after wheel down at last selectable, want %d (no wrap)", board.filterCursor, lastSelectable)
+	if board.filterCursor != last || board.filterTab != tab {
+		t.Errorf("after wheel down at the last row: cursor = %d, tab = %d; want cursor %d on tab %d (no wrap, no tab change)", board.filterCursor, board.filterTab, last, tab)
 	}
 }
 

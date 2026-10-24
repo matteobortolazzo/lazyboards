@@ -28,20 +28,35 @@ func (b Board) lookupModalBinding(mode keymap.Mode, msg tea.KeyMsg) keymap.Resul
 
 // --- Filter mode hints ---
 
-// filterHintSpecs curates the filter-picker modal's status-bar hints,
-// transcribed from the deleted filterModeHints var.
-var filterHintSpecs = []hintSpec{
+// filterNavHintSpecs and filterActionHintSpecs curate the filter-picker
+// modal's status-bar hints, split in two so the modal renders them on two
+// lines (one line no longer fits its width once Category joined them).
+var filterNavHintSpecs = []hintSpec{
 	{desc: "Cancel", commands: []keymap.CommandID{keymap.CommandFilterClose}},
+	{desc: "Category", commands: []keymap.CommandID{keymap.CommandFilterPrevCategory, keymap.CommandFilterNextCategory}, grouped: true},
 	{desc: "Navigate", commands: []keymap.CommandID{keymap.CommandFilterNext, keymap.CommandFilterPrev}, grouped: true},
+}
+
+var filterActionHintSpecs = []hintSpec{
 	{desc: "Select", commands: []keymap.CommandID{keymap.CommandFilterSelect}},
 	{desc: "Clear all", commands: []keymap.CommandID{keymap.CommandFilterClearAll}},
 }
 
 // filterHints derives the filter-picker modal's status-bar hints from the
-// active keymap, so a remap/unbind is reflected automatically.
+// active keymap, so a remap/unbind is reflected automatically: the
+// navigation hints, then the action hints.
 func (b Board) filterHints() []Hint {
-	entries := b.keys.Entries(keymap.ModeFilter, "")
-	return builtinHints(entries, filterHintSpecs)
+	return append(b.filterNavHints(), b.filterActionHints()...)
+}
+
+// filterNavHints is the first line of the filter modal's hint bar.
+func (b Board) filterNavHints() []Hint {
+	return builtinHints(b.keys.Entries(keymap.ModeFilter, ""), filterNavHintSpecs)
+}
+
+// filterActionHints is the second line of the filter modal's hint bar.
+func (b Board) filterActionHints() []Hint {
+	return builtinHints(b.keys.Entries(keymap.ModeFilter, ""), filterActionHintSpecs)
 }
 
 // --- Assign mode hints ---

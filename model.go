@@ -267,11 +267,18 @@ const (
 	dependencyUnblockedValue = "Unblocked"
 )
 
-// filterItem represents a single entry in the filter picker list.
+// filterItem represents a single selectable row in the filter picker.
 type filterItem struct {
 	itemType filterType
 	value    string
-	isHeader bool
+}
+
+// filterGroup is one category tab of the filter picker: its rows, all of
+// itemType, under an app-defined title.
+type filterGroup struct {
+	itemType filterType
+	title    string
+	items    []filterItem
 }
 
 // filterSelection is a single (category, value) entry in a Board's active
@@ -944,7 +951,8 @@ type Board struct {
 	closeConfirm                closeConfirmState
 	trustConfirm                trustConfirmState
 	delete                      deleteState
-	filterItems                 []filterItem
+	filterGroups                []filterGroup
+	filterTab                   int
 	filterCursor                int
 	filters                     filterSet
 	collaborators               []Assignee
@@ -1681,6 +1689,18 @@ func (fs filterSet) contains(itemType filterType, value string) bool {
 	return false
 }
 
+// countOf returns how many selections in fs belong to itemType (the filter
+// picker's per-tab badge).
+func (fs filterSet) countOf(itemType filterType) int {
+	n := 0
+	for _, sel := range fs {
+		if sel.itemType == itemType {
+			n++
+		}
+	}
+	return n
+}
+
 // toggled returns a fresh filterSet with sel added if absent, or removed
 // (case-insensitively, matching contains) if already present. It never
 // mutates fs's backing array -- Board is copied by value through every
@@ -1954,12 +1974,12 @@ func (b *Board) clearSearch() {
 	col.ScrollOffset = 0
 }
 
-// collectFilterItems scans all columns for unique labels, assignees, and
+// collectFilterGroups scans all columns for unique labels, assignees, and
 // milestones, plus trailing Hierarchy (Parents / Sub-issues) and Dependencies
-// (Blocked / Unblocked, only when some card is blocked) sections (rows in
-// fixed order, each listed only when a card qualifies), returning a list of
-// filterItems with section headers.
-func (b *Board) collectFilterItems() []filterItem {
+// (Blocked / Unblocked, only when some card is blocked) categories (rows in
+// fixed order, each listed only when a card qualifies), returning one
+// filterGroup per non-empty category in fixed tab order.
+func (b *Board) collectFilterGroups() []filterGroup {
 	// Build a set of column titles for exclusion (case-insensitive).
 	columnNames := make(map[string]bool, len(b.Columns))
 	for _, col := range b.Columns {
@@ -2036,56 +2056,97 @@ func (b *Board) collectFilterItems() []filterItem {
 		}
 	}
 
-	if len(labels) == 0 && len(assignees) == 0 && len(milestones) == 0 && !hasParents && !hasSubIssues && !hasBlocked {
-		return nil
-	}
-
 	sortFoldStrings(labels)
 	sortFoldStrings(assignees)
 	sortFoldStrings(milestones)
 
-	var items []filterItem
-
-	if len(labels) > 0 {
-		items = append(items, filterItem{isHeader: true, value: "Labels"})
-		for _, name := range labels {
-			items = append(items, filterItem{itemType: filterByLabel, value: name})
+	var groups []filterGroup
+	addGroup := func(itemType filterType, title string, values []string) {
+		if len(values) == 0 {
+			return
 		}
+		items := make([]filterItem, len(values))
+		for i, v := range values {
+			items[i] = filterItem{itemType: itemType, value: v}
+		}
+		groups = append(groups, filterGroup{itemType: itemType, title: title, items: items})
 	}
 
-	if len(assignees) > 0 {
-		items = append(items, filterItem{isHeader: true, value: "Assignees"})
-		for _, login := range assignees {
-			items = append(items, filterItem{itemType: filterByAssignee, value: login})
-		}
-	}
+	addGroup(filterByLabel, "Labels", labels)
+	addGroup(filterByAssignee, "Assignees", assignees)
+	addGroup(filterByMilestone, "Milestones", milestones)
 
-	if len(milestones) > 0 {
-		items = append(items, filterItem{isHeader: true, value: "Milestones"})
-		for _, name := range milestones {
-			items = append(items, filterItem{itemType: filterByMilestone, value: name})
-		}
+	var hierarchy []string
+	if hasParents {
+		hierarchy = append(hierarchy, hierarchyParentsValue)
 	}
-
-	if hasParents || hasSubIssues {
-		items = append(items, filterItem{isHeader: true, value: "Hierarchy"})
-		if hasParents {
-			items = append(items, filterItem{itemType: filterByHierarchy, value: hierarchyParentsValue})
-		}
-		if hasSubIssues {
-			items = append(items, filterItem{itemType: filterByHierarchy, value: hierarchySubIssuesValue})
-		}
+	if hasSubIssues {
+		hierarchy = append(hierarchy, hierarchySubIssuesValue)
 	}
+	addGroup(filterByHierarchy, "Hierarchy", hierarchy)
 
+	var dependencies []string
 	if hasBlocked {
-		items = append(items, filterItem{isHeader: true, value: "Dependencies"})
-		items = append(items, filterItem{itemType: filterByDependency, value: dependencyBlockedValue})
+		dependencies = append(dependencies, dependencyBlockedValue)
 		if hasUnblocked {
-			items = append(items, filterItem{itemType: filterByDependency, value: dependencyUnblockedValue})
+			dependencies = append(dependencies, dependencyUnblockedValue)
 		}
 	}
+	addGroup(filterByDependency, "Dependencies", dependencies)
 
-	return items
+	return groups
+}
+
+// visibleFilterItems returns the active filter tab's rows: what the picker's
+// cursor indexes, toggles, and renders. Empty when there are no groups.
+func (b *Board) visibleFilterItems() []filterItem {
+	if b.filterTab < 0 || b.filterTab >= len(b.filterGroups) {
+		return nil
+	}
+	return b.filterGroups[b.filterTab].items
+}
+
+// openFilterPicker loads the picker's groups and starts on the first tab
+// holding an active selection (else the first tab), cursor on its first row.
+func (b *Board) openFilterPicker(groups []filterGroup) {
+	b.filterGroups = groups
+	b.filterTab = 0
+	b.filterCursor = 0
+	for i, g := range groups {
+		if b.filters.countOf(g.itemType) > 0 {
+			b.filterTab = i
+			break
+		}
+	}
+}
+
+// switchFilterTab moves to the next (or previous) category tab, wrapping at
+// both ends, and resets the cursor to the tab's first row.
+func (b *Board) switchFilterTab(next bool) {
+	if len(b.filterGroups) == 0 {
+		return
+	}
+	b.filterTab = moveCursor(b.filterTab, len(b.filterGroups), next)
+	b.filterCursor = 0
+}
+
+// refreshFilterGroups rebuilds the picker's groups from refreshed board data,
+// keeping the active tab by category when it still exists (else the first
+// tab) and clamping the cursor into the active tab's rows.
+func (b *Board) refreshFilterGroups() {
+	var activeType filterType
+	if b.filterTab >= 0 && b.filterTab < len(b.filterGroups) {
+		activeType = b.filterGroups[b.filterTab].itemType
+	}
+	b.filterGroups = b.collectFilterGroups()
+	b.filterTab = 0
+	for i, g := range b.filterGroups {
+		if g.itemType == activeType {
+			b.filterTab = i
+			break
+		}
+	}
+	b.filterCursor = clampCursorToLength(b.filterCursor, len(b.visibleFilterItems()))
 }
 
 // collectKnownLabels returns a set of all label names (lowercased) across the board.

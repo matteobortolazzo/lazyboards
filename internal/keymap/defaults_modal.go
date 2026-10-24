@@ -37,13 +37,19 @@ var agentListDefaults = Table{
 // filterDefaults is the default ModeFilter table, transcribed from
 // handleFilterModeKey (mode_handlers.go).
 var filterDefaults = Table{
-	"esc":   CommandBinding(CommandFilterClose),
-	"enter": CommandBinding(CommandFilterSelect),
-	"j":     CommandBinding(CommandFilterNext),
-	"down":  CommandBinding(CommandFilterNext),
-	"k":     CommandBinding(CommandFilterPrev),
-	"up":    CommandBinding(CommandFilterPrev),
-	"c":     CommandBinding(CommandFilterClearAll),
+	"esc":       CommandBinding(CommandFilterClose),
+	"enter":     CommandBinding(CommandFilterSelect),
+	"j":         CommandBinding(CommandFilterNext),
+	"down":      CommandBinding(CommandFilterNext),
+	"k":         CommandBinding(CommandFilterPrev),
+	"up":        CommandBinding(CommandFilterPrev),
+	"c":         CommandBinding(CommandFilterClearAll),
+	"l":         CommandBinding(CommandFilterNextCategory),
+	"right":     CommandBinding(CommandFilterNextCategory),
+	"tab":       CommandBinding(CommandFilterNextCategory),
+	"h":         CommandBinding(CommandFilterPrevCategory),
+	"left":      CommandBinding(CommandFilterPrevCategory),
+	"shift+tab": CommandBinding(CommandFilterPrevCategory),
 }
 
 // assignDefaults is the default ModeAssign table, transcribed from
