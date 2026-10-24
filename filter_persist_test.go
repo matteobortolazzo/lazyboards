@@ -168,6 +168,8 @@ func categoryOf(t *testing.T, ft filterType) string {
 		return config.FilterCategoryMilestone
 	case filterByHierarchy:
 		return config.FilterCategoryHierarchy
+	case filterByDependency:
+		return config.FilterCategoryDependency
 	}
 	t.Fatalf("no on-disk category for filterType %d", ft)
 	return ""
@@ -620,6 +622,36 @@ func TestFilterPersist_HierarchyToggle_SavesAndRestores(t *testing.T) {
 	restored := seedFromState(newUnloadedPersistBoard(persistOwner, persistRepo, path), config.Config{}, loadPersistedState(t, path))
 	if !hasFilter(&restored, filterByHierarchy, item.value) {
 		t.Errorf("filters = %+v after restart, want the hierarchy row %q active", restored.filters, item.value)
+	}
+}
+
+// A Dependencies row persists under the "dependency" on-disk category and
+// survives a restart, like the Hierarchy rows above.
+func TestFilterPersist_DependencyToggle_SavesAndRestores(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.yml")
+	data := persistBoardData()
+	data.Columns[0].Cards[0].BlockedByCount = 1
+	b := newPersistBoardFor(t, path, persistOwner, persistRepo, data)
+	b = sendKey(t, b, keyMsg("f"))
+	for b.filterItems[b.filterCursor].itemType != filterByDependency {
+		if b.filterCursor >= len(b.filterItems)-1 {
+			t.Fatal("could not reach a dependency row")
+		}
+		b = sendKey(t, b, keyMsg("j"))
+	}
+	item := b.filterItems[b.filterCursor]
+
+	_, _ = updateAndRun(t, b, arrowMsg(tea.KeyEnter))
+
+	got := loadPersistedState(t, path).FiltersFor(persistRepoKey())
+	want := []config.FilterSelection{{Category: "dependency", Value: item.value}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("persisted filters = %+v, want %+v", got, want)
+	}
+
+	restored := seedFromState(newUnloadedPersistBoard(persistOwner, persistRepo, path), config.Config{}, loadPersistedState(t, path))
+	if !hasFilter(&restored, filterByDependency, item.value) {
+		t.Errorf("filters = %+v after restart, want the dependency row %q active", restored.filters, item.value)
 	}
 }
 

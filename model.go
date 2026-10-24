@@ -248,6 +248,7 @@ const (
 	filterByAssignee
 	filterByMilestone
 	filterByHierarchy
+	filterByDependency
 )
 
 // Fixed row values of the Hierarchy filter category. They are app-defined
@@ -255,6 +256,15 @@ const (
 const (
 	hierarchyParentsValue   = "Parents"
 	hierarchySubIssuesValue = "Sub-issues"
+)
+
+// Fixed row values of the Dependencies filter category, app-defined like the
+// Hierarchy rows. Blocked means at least one open blocker (BlockedByCount,
+// GitHub's open-only count); Unblocked is its complement, so a card whose
+// blockers are all closed -- or that never had any -- is Unblocked.
+const (
+	dependencyBlockedValue   = "Blocked"
+	dependencyUnblockedValue = "Unblocked"
 )
 
 // filterItem represents a single entry in the filter picker list.
@@ -1527,6 +1537,15 @@ func cardMatchesSelection(card Card, sel filterSelection) bool {
 		default:
 			return false
 		}
+	case filterByDependency:
+		switch {
+		case strings.EqualFold(sel.value, dependencyBlockedValue):
+			return card.BlockedByCount > 0
+		case strings.EqualFold(sel.value, dependencyUnblockedValue):
+			return card.BlockedByCount == 0
+		default:
+			return false
+		}
 	default:
 		return false
 	}
@@ -1720,10 +1739,11 @@ func (b *Board) toggleFilter(itemType filterType, value string) tea.Cmd {
 // filterCategories maps each persistable filterType to its on-disk category
 // string. Written out explicitly so the filterType integers never reach disk.
 var filterCategories = map[filterType]string{
-	filterByLabel:     config.FilterCategoryLabel,
-	filterByAssignee:  config.FilterCategoryAssignee,
-	filterByMilestone: config.FilterCategoryMilestone,
-	filterByHierarchy: config.FilterCategoryHierarchy,
+	filterByLabel:      config.FilterCategoryLabel,
+	filterByAssignee:   config.FilterCategoryAssignee,
+	filterByMilestone:  config.FilterCategoryMilestone,
+	filterByHierarchy:  config.FilterCategoryHierarchy,
+	filterByDependency: config.FilterCategoryDependency,
 }
 
 // filterSetToState converts fs to its on-disk form, in ordered() order so the
@@ -1935,7 +1955,8 @@ func (b *Board) clearSearch() {
 }
 
 // collectFilterItems scans all columns for unique labels, assignees, and
-// milestones, plus a trailing Hierarchy section (Parents / Sub-issues rows in
+// milestones, plus trailing Hierarchy (Parents / Sub-issues) and Dependencies
+// (Blocked / Unblocked, only when some card is blocked) sections (rows in
 // fixed order, each listed only when a card qualifies), returning a list of
 // filterItems with section headers.
 func (b *Board) collectFilterItems() []filterItem {
@@ -1994,8 +2015,11 @@ func (b *Board) collectFilterItems() []filterItem {
 		}
 	}
 
-	// Hierarchy rows are present when any card on the board qualifies.
-	var hasParents, hasSubIssues bool
+	// Hierarchy and Dependencies rows are present when any card on the board
+	// qualifies. The Dependencies section additionally needs at least one
+	// blocked card: with none, Unblocked would match every card, a no-op row
+	// that would also keep the picker open on a board with nothing to filter.
+	var hasParents, hasSubIssues, hasBlocked, hasUnblocked bool
 	for _, col := range b.Columns {
 		for _, card := range col.Cards {
 			if card.SubIssueCount > 0 {
@@ -2004,10 +2028,15 @@ func (b *Board) collectFilterItems() []filterItem {
 			if card.ParentNumber > 0 {
 				hasSubIssues = true
 			}
+			if card.BlockedByCount > 0 {
+				hasBlocked = true
+			} else {
+				hasUnblocked = true
+			}
 		}
 	}
 
-	if len(labels) == 0 && len(assignees) == 0 && len(milestones) == 0 && !hasParents && !hasSubIssues {
+	if len(labels) == 0 && len(assignees) == 0 && len(milestones) == 0 && !hasParents && !hasSubIssues && !hasBlocked {
 		return nil
 	}
 
@@ -2045,6 +2074,14 @@ func (b *Board) collectFilterItems() []filterItem {
 		}
 		if hasSubIssues {
 			items = append(items, filterItem{itemType: filterByHierarchy, value: hierarchySubIssuesValue})
+		}
+	}
+
+	if hasBlocked {
+		items = append(items, filterItem{isHeader: true, value: "Dependencies"})
+		items = append(items, filterItem{itemType: filterByDependency, value: dependencyBlockedValue})
+		if hasUnblocked {
+			items = append(items, filterItem{itemType: filterByDependency, value: dependencyUnblockedValue})
 		}
 	}
 

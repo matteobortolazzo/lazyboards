@@ -1459,3 +1459,78 @@ func TestFilter_HierarchyActive_SearchNeverReturnsFilteredOutCards(t *testing.T)
 		t.Errorf("filteredCards() = %v, want %v (only the parent pulled in by the search)", got, want)
 	}
 }
+
+// visibleCardNumbers returns the card numbers every column shows, in board order.
+func visibleCardNumbers(b Board) []int {
+	var got []int
+	for i := range b.Columns {
+		b.ActiveTab = i
+		for _, c := range b.visibleCards() {
+			got = append(got, c.Number)
+		}
+	}
+	return got
+}
+
+func TestFilter_DependencySelections_ShowExpectedCardsAndCounts(t *testing.T) {
+	blocked := filterSelection{itemType: filterByDependency, value: dependencyBlockedValue}
+	unblocked := filterSelection{itemType: filterByDependency, value: dependencyUnblockedValue}
+
+	b := newLoadedTestBoard(t)
+	var wantBlocked, wantUnblocked []int
+	for _, col := range b.Columns {
+		for _, c := range col.Cards {
+			if c.BlockedByCount > 0 {
+				wantBlocked = append(wantBlocked, c.Number)
+			} else {
+				wantUnblocked = append(wantUnblocked, c.Number)
+			}
+		}
+	}
+	if len(wantBlocked) == 0 || len(wantUnblocked) == 0 {
+		t.Fatalf("precondition: fake board needs blocked and unblocked cards, got %v / %v", wantBlocked, wantUnblocked)
+	}
+	all := visibleCardNumbers(b)
+
+	cases := []struct {
+		name string
+		sel  []filterSelection
+		want []int
+	}{
+		{"blocked only", []filterSelection{blocked}, wantBlocked},
+		{"unblocked only", []filterSelection{unblocked}, wantUnblocked},
+		{"both rows match everything", []filterSelection{blocked, unblocked}, all},
+	}
+	for _, tc := range cases {
+		fb := b
+		setActiveFilters(&fb, tc.sel...)
+		got := visibleCardNumbers(fb)
+		if !slices.Equal(got, tc.want) || fb.totalFilteredCards() != len(tc.want) {
+			t.Errorf("%s: visible = %v (total %d), want %v", tc.name, got, fb.totalFilteredCards(), tc.want)
+		}
+	}
+}
+
+// Card #8 in the fake board has two blockers that are both closed: its
+// open-only BlockedByCount is 0, so it is Unblocked, never Blocked.
+func TestFilter_DependencyClosedOnlyBlockers_CountAsUnblocked(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	colIdx, cardIdx, ok := b.findCard(8)
+	if !ok {
+		t.Fatal("precondition: fake card #8 not on the board")
+	}
+	if card := b.Columns[colIdx].Cards[cardIdx]; card.TotalBlockedByCount == 0 || card.BlockedByCount != 0 {
+		t.Fatalf("precondition: fake card #8 = %+v, want closed-only blockers", card)
+	}
+
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{{dependencyBlockedValue, false}, {dependencyUnblockedValue, true}} {
+		fb := b
+		setActiveFilters(&fb, filterSelection{itemType: filterByDependency, value: tc.value})
+		if got := slices.Contains(visibleCardNumbers(fb), 8); got != tc.want {
+			t.Errorf("%s: card #8 visible = %v, want %v", tc.value, got, tc.want)
+		}
+	}
+}

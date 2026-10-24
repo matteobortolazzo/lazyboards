@@ -13,7 +13,7 @@ Built with [BubbleTea](https://github.com/charmbracelet/bubbletea) and [lipgloss
 - Edit cards in your editor with YAML frontmatter (title, labels, body)
 - Card creation via modal form with label and assignee fields
 - Assign and unassign collaborators to cards
-- Search cards by title, label, or number (`#637` and `637` are equivalent) and filter by label, assignee, milestone, or hierarchy (parents / sub-issues); a match also surfaces that card's parent and sub-issues (one hop, board-loaded relatives only)
+- Search cards by title, label, or number (`#637` and `637` are equivalent) and filter by label, assignee, milestone, hierarchy (parents / sub-issues), or dependencies (blocked / unblocked); a match also surfaces that card's parent and sub-issues (one hop, board-loaded relatives only)
 - Active filter selections are always visible in the status bar via a `⚑` segment (see [Filter Segment](#filter-segment))
 - PR linking with picker modal
 - Milestones modal: every open milestone in the repository with progress bar, counts, and due date, `Enter` to filter the board by milestone (`m`)
@@ -516,7 +516,7 @@ Set `LAZYBOARDS_DEBUG_LOG=<path>` to append watcher connection errors (including
 
 ### Filter Segment
 
-When at least one [filter](#filter) selection is active, the status bar shows a `⚑` segment, left of the dispatch and git segments (leftmost in the tail — before dispatch, before git). Its full form names the first selection, e.g. `⚑ bug`, appending ` +N` for each additional selection (omitted at exactly one selection, e.g. two selections renders `⚑ bug +1`). A Hierarchy selection is named by its plain label with no card glyph (`⚑ Parents`, `⚑ Sub-issues`) and sorts after label, assignee, and milestone selections. When the full form doesn't fit, it degrades to a compact `⚑ <total>` form showing just the selection count. It renders nothing at all when no filter is active.
+When at least one [filter](#filter) selection is active, the status bar shows a `⚑` segment, left of the dispatch and git segments (leftmost in the tail — before dispatch, before git). Its full form names the first selection, e.g. `⚑ bug`, appending ` +N` for each additional selection (omitted at exactly one selection, e.g. two selections renders `⚑ bug +1`). A Hierarchy selection is named by its plain label with no card glyph (`⚑ Parents`, `⚑ Sub-issues`) and sorts after label, assignee, and milestone selections; a Dependencies selection is likewise plain (`⚑ Blocked`, `⚑ Unblocked`) and sorts last. When the full form doesn't fit, it degrades to a compact `⚑ <total>` form showing just the selection count. It renders nothing at all when no filter is active.
 
 Under width contention, the status bar's tail segments degrade in this order: drop the dispatch segment first, then degrade the filter segment from its full named form to the compact form, then drop the git segment.
 
@@ -845,18 +845,25 @@ trusted a previous version of this same repo before.
 
 ### Filter
 
-The picker lists Labels, Assignees, Milestones, and Hierarchy sections (only
-sections with at least one value are shown), built from the cards currently on
-the board. Entries within each section are sorted alphabetically
-(case-insensitive), except Hierarchy.
+The picker lists Labels, Assignees, Milestones, Hierarchy, and Dependencies
+sections (only sections with at least one value are shown), built from the cards
+currently on the board. Entries within each section are sorted alphabetically
+(case-insensitive), except Hierarchy and Dependencies.
 
-The Hierarchy section is always last and has up to two rows, in this fixed
+The Hierarchy section follows Milestones and has up to two rows, in this fixed
 order: `󰙅 Parents` (cards with sub-issues, the ones showing the `󰙅 N/M` line) and
 `󱞫 Sub-issues` (cards that have a parent, the ones showing the `󱞫 #N` line). A row
 is listed only when at least one card on the board qualifies. Selecting both
 rows means "has any sub-issue relationship", so standalone cards drop out; a card
 that is both a parent and a sub-issue matches either row. Like any other
 category, Hierarchy combines with the rest using AND.
+
+The Dependencies section is always last and is shown only when at least one card
+on the board is blocked. It has up to two rows, in this fixed order: `󰂭 Blocked`
+(cards with at least one open blocker, the ones showing the `󰂭` blocked-by line)
+and `Unblocked` (every other card, including one whose blockers are all closed).
+Selecting both rows matches every card. Dependencies combines with the other
+categories using AND.
 
 `f` always opens the picker, even while a filter is already active — it never
 clears it. `enter` toggles the selection on/off for the row under the cursor,

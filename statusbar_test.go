@@ -2029,3 +2029,25 @@ func TestFormatFilterSegment_Hierarchy_PlainLabelsOrderedAfterOtherCategories(t 
 		}
 	}
 }
+
+func TestFormatFilterSegment_Dependency_PlainLabelsOrderedLast(t *testing.T) {
+	blocked := filterSelection{itemType: filterByDependency, value: dependencyBlockedValue}
+	cases := []struct {
+		name string
+		fs   filterSet
+		want string // the first-named selection
+	}{
+		{"label sorts before dependency", filterSet{blocked, {itemType: filterByLabel, value: "bug"}}, "bug"},
+		{"hierarchy sorts before dependency", filterSet{blocked, {itemType: filterByHierarchy, value: hierarchyParentsValue}}, hierarchyParentsValue},
+		{"both rows name Blocked first", filterSet{{itemType: filterByDependency, value: dependencyUnblockedValue}, blocked}, dependencyBlockedValue},
+	}
+	for _, tc := range cases {
+		full, compact := formatFilterSegment(tc.fs)
+		if !strings.Contains(full, filterGlyph+" "+tc.want) || !strings.Contains(full, "+1") {
+			t.Errorf("%s: full = %q, want it to name %q with a +1 suffix", tc.name, full, tc.want)
+		}
+		if strings.Contains(full, blockedByGlyph) || strings.Contains(compact, blockedByGlyph) {
+			t.Errorf("%s: segment (%q, %q) contains the card glyph, want plain labels", tc.name, full, compact)
+		}
+	}
+}
