@@ -659,21 +659,25 @@ const subIssueParentGlyph = "\U000F0645"
 // direction reads as "this points to its parent" at a glance.
 const subIssueChildGlyph = "\U000F17AB"
 
-// hierarchyRowGlyph returns the card glyph shown before a Hierarchy filter
-// row in the picker, or "" for any other row (#663). Render-time only: the
-// stored row value and the status-bar segment stay glyph-free.
-func hierarchyRowGlyph(item filterItem) string {
-	if item.itemType != filterByHierarchy {
-		return ""
+// filterRowGlyph returns the card glyph shown before a Hierarchy or
+// Dependencies filter row in the picker, or "" for any other row (#663).
+// Render-time only: the stored row value and the status-bar segment stay
+// glyph-free. Unblocked has no card-side glyph, so it renders plain.
+func filterRowGlyph(item filterItem) string {
+	switch item.itemType {
+	case filterByHierarchy:
+		switch {
+		case strings.EqualFold(item.value, hierarchyParentsValue):
+			return subIssueParentGlyph
+		case strings.EqualFold(item.value, hierarchySubIssuesValue):
+			return subIssueChildGlyph
+		}
+	case filterByDependency:
+		if strings.EqualFold(item.value, dependencyBlockedValue) {
+			return blockedByGlyph
+		}
 	}
-	switch {
-	case strings.EqualFold(item.value, hierarchyParentsValue):
-		return subIssueParentGlyph
-	case strings.EqualFold(item.value, hierarchySubIssuesValue):
-		return subIssueChildGlyph
-	default:
-		return ""
-	}
+	return ""
 }
 
 // blockedByGlyph marks a card that is blocked by at least one open issue,
@@ -1546,7 +1550,7 @@ func (b Board) viewFilterModal() string {
 			prefix = "* "
 		}
 		display := prefix + sanitizeSingleLine(item.value)
-		if glyph := hierarchyRowGlyph(item); glyph != "" {
+		if glyph := filterRowGlyph(item); glyph != "" {
 			display = prefix + glyph + " " + sanitizeSingleLine(item.value)
 		}
 		display = selectedRowStyle(display, i == b.filterCursor)

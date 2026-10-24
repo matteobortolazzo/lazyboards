@@ -1937,3 +1937,69 @@ func TestFilterMode_LabelNamedParents_IsIndependentOfHierarchyParentsRow(t *test
 		t.Errorf("filters = %+v, want label and Hierarchy selections as separate entries", b.filters)
 	}
 }
+
+func TestFilterMode_CollectFilterItems_DependenciesSection(t *testing.T) {
+	blocked := provider.Card{Number: 1, Title: "B", BlockedByCount: 1, SubIssueCount: 1}
+	closedOnly := provider.Card{Number: 2, Title: "C", BlockedByCount: 0, TotalBlockedByCount: 2}
+	plain := provider.Card{Number: 3, Title: "S", Labels: []provider.Label{{Name: "bug"}}}
+	cases := []struct {
+		name  string
+		cards []provider.Card
+		want  string
+	}{
+		{"blocked only", []provider.Card{blocked}, "Hierarchy|Dependencies|Blocked"},
+		{"both, fixed order, last", []provider.Card{closedOnly, blocked}, "Hierarchy|Dependencies|Blocked|Unblocked"},
+		{"nothing blocked omits the section", []provider.Card{plain, closedOnly}, "Labels"},
+	}
+	for _, tc := range cases {
+		b := newBoardWithInlineCards(t, tc.cards, 120, 40)
+		var got []string
+		for _, item := range b.collectFilterItems() {
+			if item.isHeader || item.itemType == filterByDependency {
+				got = append(got, item.value)
+			}
+		}
+		if strings.Join(got, "|") != tc.want {
+			t.Errorf("%s: sections/rows = %v, want %s", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestFilterMode_NoBlockedCard_PickerStaysClosedWithoutOtherValues(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "A"},
+		{Number: 2, Title: "B", TotalBlockedByCount: 1},
+	}, 120, 40)
+
+	m, cmd := b.Update(keyMsg("f"))
+	execCmds(cmd)
+	if board := m.(Board); board.mode == filterMode {
+		t.Errorf("mode = filterMode with items %+v, want the picker closed: an Unblocked-only row filters nothing", board.filterItems)
+	}
+}
+
+func TestFilterMode_BlockedRow_TogglesWithGlyphAndPlainSegment(t *testing.T) {
+	blockedRow := blockedByGlyph + " " + dependencyBlockedValue
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "A", BlockedByCount: 2},
+		{Number: 2, Title: "B"},
+	}, 120, 40)
+	b = openFilterPickerOn(t, b, filterByDependency, dependencyBlockedValue)
+
+	view := b.viewFilterModal()
+	unblockedLine := findLineContaining(t, view, dependencyUnblockedValue)
+	if !strings.Contains(view, blockedRow) || strings.Contains(unblockedLine, blockedByGlyph) {
+		t.Fatalf("want a glyph-prefixed Blocked row and a plain Unblocked row; got:\n%s", view)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if b.mode != filterMode || !b.filters.contains(filterByDependency, dependencyBlockedValue) || b.totalFilteredCards() != 1 {
+		t.Errorf("after enter: mode = %d, filters = %+v, total = %d; want picker open, Blocked active, 1 card", b.mode, b.filters, b.totalFilteredCards())
+	}
+	if !strings.Contains(findLineContaining(t, b.viewFilterModal(), blockedRow), "* "+blockedRow) {
+		t.Errorf("selected Blocked row want '* ' before the glyph")
+	}
+	if seg := b.statusBar.filterStatus; !strings.Contains(seg, dependencyBlockedValue) || strings.Contains(seg, blockedByGlyph) {
+		t.Errorf("status-bar segment = %q, want the plain label %q without the card glyph", seg, dependencyBlockedValue)
+	}
+}

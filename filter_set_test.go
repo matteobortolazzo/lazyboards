@@ -472,3 +472,42 @@ func TestFilterSet_Hierarchy_TruthTable(t *testing.T) {
 		}
 	}
 }
+
+func TestFilterSet_Dependency_TruthTable(t *testing.T) {
+	cards := []Card{
+		{Number: 1, BlockedByCount: 2, TotalBlockedByCount: 2},
+		{Number: 2, BlockedByCount: 0, TotalBlockedByCount: 3}, // every blocker closed
+		{Number: 3},
+		{Number: 4, BlockedByCount: 1, Labels: []Label{{Name: "bug"}}},
+		{Number: 5, Labels: []Label{{Name: "Blocked"}}},
+	}
+	dep := func(v string) filterSelection { return filterSelection{itemType: filterByDependency, value: v} }
+	bug := filterSelection{itemType: filterByLabel, value: "bug"}
+	labelBlocked := filterSelection{itemType: filterByLabel, value: "Blocked"}
+	cases := []struct {
+		name string
+		fs   filterSet
+		want []int
+	}{
+		{"blocked only", filterSet{dep(dependencyBlockedValue)}, []int{1, 4}},
+		{"unblocked includes closed-only blockers", filterSet{dep(dependencyUnblockedValue)}, []int{2, 3, 5}},
+		{"both rows are OR", filterSet{dep(dependencyBlockedValue), dep(dependencyUnblockedValue)}, []int{1, 2, 3, 4, 5}},
+		{"blocked AND label", filterSet{dep(dependencyBlockedValue), bug}, []int{4}},
+		{"unblocked AND label with no overlap", filterSet{dep(dependencyUnblockedValue), bug}, nil},
+		{"label named Blocked never matches the Blocked row", filterSet{labelBlocked}, []int{5}},
+		{"case-insensitive value", filterSet{dep("unBLOCKED")}, []int{2, 3, 5}},
+		{"empty value matches nothing", filterSet{dep("")}, nil},
+		{"unknown value matches nothing", filterSet{dep("Blocking")}, nil},
+	}
+	for _, tc := range cases {
+		var got []int
+		for _, c := range cards {
+			if tc.fs.matches(c) {
+				got = append(got, c.Number)
+			}
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s: matched cards %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

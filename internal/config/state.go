@@ -15,10 +15,11 @@ import (
 // On-disk filter categories. They are strings, never the board's internal
 // filterType integers, so those values never become a file-format contract.
 const (
-	FilterCategoryLabel     = "label"
-	FilterCategoryAssignee  = "assignee"
-	FilterCategoryMilestone = "milestone"
-	FilterCategoryHierarchy = "hierarchy"
+	FilterCategoryLabel      = "label"
+	FilterCategoryAssignee   = "assignee"
+	FilterCategoryMilestone  = "milestone"
+	FilterCategoryHierarchy  = "hierarchy"
+	FilterCategoryDependency = "dependency"
 )
 
 // FilterSelection is one persisted filter selection: a category and the value
@@ -116,7 +117,7 @@ func parseState(data []byte) (State, error) {
 	for key, sels := range st.Filters {
 		for _, sel := range sels {
 			switch sel.Category {
-			case FilterCategoryLabel, FilterCategoryAssignee, FilterCategoryMilestone, FilterCategoryHierarchy:
+			case FilterCategoryLabel, FilterCategoryAssignee, FilterCategoryMilestone, FilterCategoryHierarchy, FilterCategoryDependency:
 			default:
 				return State{}, fmt.Errorf("filters %q: unknown category %q", key, sel.Category)
 			}
