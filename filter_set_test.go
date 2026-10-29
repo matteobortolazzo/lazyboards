@@ -473,6 +473,46 @@ func TestFilterSet_Hierarchy_TruthTable(t *testing.T) {
 	}
 }
 
+func TestFilterSet_HierarchyLeaves_TruthTable(t *testing.T) {
+	cards := []Card{
+		{Number: 1},                  // standalone
+		{Number: 2, ParentNumber: 9}, // child with no sub-issues of its own
+		{Number: 3, ParentNumber: 1, SubIssueCount: 2, SubIssueCompleted: 1}, // middle node, one sub-issue still open
+		{Number: 4, SubIssueCount: 2},                                        // open parent, nothing done
+		{Number: 5, SubIssueCount: 2, SubIssueCompleted: 2},                  // every sub-issue closed
+		{Number: 6, BlockedByCount: 1},                                       // blocked leaf
+		{Number: 7, Labels: []Label{{Name: "bug"}}},
+	}
+	hier := func(v string) filterSelection { return filterSelection{itemType: filterByHierarchy, value: v} }
+	dep := func(v string) filterSelection { return filterSelection{itemType: filterByDependency, value: v} }
+	bug := filterSelection{itemType: filterByLabel, value: "bug"}
+	cases := []struct {
+		name string
+		fs   filterSet
+		want []int
+	}{
+		{"leaves excludes open parents and middle nodes", filterSet{hier(hierarchyLeavesValue)}, []int{1, 2, 5, 6, 7}},
+		{"leaves OR parents", filterSet{hier(hierarchyLeavesValue), hier(hierarchyParentsValue)}, []int{1, 2, 3, 4, 5, 6, 7}},
+		{"leaves OR sub-issues", filterSet{hier(hierarchyLeavesValue), hier(hierarchySubIssuesValue)}, []int{1, 2, 3, 5, 6, 7}},
+		{"leaves AND label", filterSet{hier(hierarchyLeavesValue), bug}, []int{7}},
+		{"leaves AND unblocked", filterSet{hier(hierarchyLeavesValue), dep(dependencyUnblockedValue)}, []int{1, 2, 5, 7}},
+		{"case-insensitive value", filterSet{hier("lEaVeS")}, []int{1, 2, 5, 6, 7}},
+		{"empty value matches nothing", filterSet{hier("")}, nil},
+		{"unknown value matches nothing", filterSet{hier("Leaf")}, nil},
+	}
+	for _, tc := range cases {
+		var got []int
+		for _, c := range cards {
+			if tc.fs.matches(c) {
+				got = append(got, c.Number)
+			}
+		}
+		if !slices.Equal(got, tc.want) {
+			t.Errorf("%s: matched cards %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestFilterSet_Dependency_TruthTable(t *testing.T) {
 	cards := []Card{
 		{Number: 1, BlockedByCount: 2, TotalBlockedByCount: 2},

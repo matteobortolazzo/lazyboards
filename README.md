@@ -516,7 +516,7 @@ Set `LAZYBOARDS_DEBUG_LOG=<path>` to append watcher connection errors (including
 
 ### Filter Segment
 
-When at least one [filter](#filter) selection is active, the status bar shows a `⚑` segment, left of the dispatch and git segments (leftmost in the tail — before dispatch, before git). Its full form names the first selection, e.g. `⚑ bug`, appending ` +N` for each additional selection (omitted at exactly one selection, e.g. two selections renders `⚑ bug +1`). A Hierarchy selection is named by its plain label with no card glyph (`⚑ Parents`, `⚑ Sub-issues`) and sorts after label, assignee, and milestone selections; a Dependencies selection is likewise plain (`⚑ Blocked`, `⚑ Unblocked`) and sorts last. When the full form doesn't fit, it degrades to a compact `⚑ <total>` form showing just the selection count. It renders nothing at all when no filter is active.
+When at least one [filter](#filter) selection is active, the status bar shows a `⚑` segment, left of the dispatch and git segments (leftmost in the tail — before dispatch, before git). Its full form names the first selection, e.g. `⚑ bug`, appending ` +N` for each additional selection (omitted at exactly one selection, e.g. two selections renders `⚑ bug +1`). A Hierarchy selection is named by its plain label with no card glyph (`⚑ Parents`, `⚑ Sub-issues`, `⚑ Leaves`) and sorts after label, assignee, and milestone selections (alphabetically among the Hierarchy rows); a Dependencies selection is likewise plain (`⚑ Blocked`, `⚑ Unblocked`) and sorts last. When the full form doesn't fit, it degrades to a compact `⚑ <total>` form showing just the selection count. It renders nothing at all when no filter is active.
 
 Under width contention, the status bar's tail segments degrade in this order: drop the dispatch segment first, then degrade the filter segment from its full named form to the compact form, then drop the git segment.
 
@@ -860,13 +860,18 @@ A tab with more rows than fit the terminal scrolls with the cursor, showing `▲
 screen. A refresh while the picker is open keeps the current tab (falling back
 to the first tab if its category disappeared) and keeps the cursor in range.
 
-The Hierarchy tab follows Milestones and has up to two rows, in this fixed
-order: `󰙅 Parents` (cards with sub-issues, the ones showing the `󰙅 N/M` line) and
-`󱞫 Sub-issues` (cards that have a parent, the ones showing the `󱞫 #N` line). A row
-is listed only when at least one card on the board qualifies. Selecting both
-rows means "has any sub-issue relationship", so standalone cards drop out; a card
-that is both a parent and a sub-issue matches either row. Like any other
-category, Hierarchy combines with the rest using AND.
+The Hierarchy tab follows Milestones and has up to three rows, in this fixed
+order: `󰙅 Parents` (cards with sub-issues, the ones showing the `󰙅 N/M` line),
+`󱞫 Sub-issues` (cards that have a parent, the ones showing the `󱞫 #N` line), and
+`Leaves` (the work you can actually pick up: every card with no open sub-issues
+— standalone cards, sub-issues without children of their own, and parents whose
+sub-issues are all closed). Parents and Sub-issues are listed only when at least
+one card on the board qualifies; Leaves only when the board has both a leaf and
+a non-leaf, since otherwise it would match every card. Selecting Parents and
+Sub-issues together means "has any sub-issue relationship", so standalone cards
+drop out; a card that is both a parent and a sub-issue matches either row.
+Combine Leaves with Dependencies' `Unblocked` to see only work that can start
+now. Like any other category, Hierarchy combines with the rest using AND.
 
 The Dependencies tab is always last and is shown only when at least one card
 on the board is blocked. It has up to two rows, in this fixed order: `󰂭 Blocked`

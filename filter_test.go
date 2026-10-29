@@ -1393,11 +1393,15 @@ func TestFilter_TwoCategorySelection_EndToEnd_ANDOfORsCountsAndSegment(t *testin
 func TestFilter_HierarchySelections_ShowExpectedCardsAndCounts(t *testing.T) {
 	parents := filterSelection{itemType: filterByHierarchy, value: hierarchyParentsValue}
 	subs := filterSelection{itemType: filterByHierarchy, value: hierarchySubIssuesValue}
+	leaves := filterSelection{itemType: filterByHierarchy, value: hierarchyLeavesValue}
 	cases := []struct {
 		name string
 		sel  []filterSelection
 		want [][]int // card numbers per column
 	}{
+		{"leaves only, all-closed parent included", []filterSelection{leaves}, [][]int{{2, 4, 5}, {6, 7}}},
+		{"leaves OR parents shows every card", []filterSelection{leaves, parents}, [][]int{{1, 2, 3, 4, 5}, {6, 7}}},
+		{"leaves AND label bug", []filterSelection{leaves, {itemType: filterByLabel, value: "bug"}}, [][]int{{2}, nil}},
 		{"parents only", []filterSelection{parents}, [][]int{{1, 3}, {6}}},
 		{"sub-issues only", []filterSelection{subs}, [][]int{{2, 3, 5}, nil}},
 		{"both, dual-role card once", []filterSelection{parents, subs}, [][]int{{1, 2, 3, 5}, {6}}},
@@ -1421,6 +1425,44 @@ func TestFilter_HierarchySelections_ShowExpectedCardsAndCounts(t *testing.T) {
 		}
 		if b.totalFilteredCards() != total {
 			t.Errorf("%s: totalFilteredCards() = %d, want %d", tc.name, b.totalFilteredCards(), total)
+		}
+	}
+}
+
+// The fake board's card #5 is a parent with one of its two sub-issues still
+// open (not a leaf); card #11 has one sub-issue and it is closed (a leaf).
+func TestFilter_HierarchyLeaves_AgainstFakeBoard(t *testing.T) {
+	b := newLoadedTestBoard(t)
+	var wantLeaves []int
+	for _, col := range b.Columns {
+		for _, c := range col.Cards {
+			if c.SubIssueCompleted >= c.SubIssueCount {
+				wantLeaves = append(wantLeaves, c.Number)
+			}
+		}
+	}
+
+	leaves := filterSelection{itemType: filterByHierarchy, value: hierarchyLeavesValue}
+	unblocked := filterSelection{itemType: filterByDependency, value: dependencyUnblockedValue}
+
+	setActiveFilters(&b, leaves)
+	got := visibleCardNumbers(b)
+	if !slices.Equal(got, wantLeaves) || b.totalFilteredCards() != len(wantLeaves) {
+		t.Errorf("leaves: visible = %v (total %d), want %v", got, b.totalFilteredCards(), wantLeaves)
+	}
+	if slices.Contains(got, 5) || !slices.Contains(got, 11) {
+		t.Errorf("leaves: visible = %v, want the open parent #5 excluded and the all-closed parent #11 included", got)
+	}
+
+	// Leaves AND Unblocked is the actionable subset: blocked leaves drop out.
+	setActiveFilters(&b, leaves, unblocked)
+	visible := visibleCardNumbers(b)
+	for _, col := range b.Columns {
+		for _, c := range col.Cards {
+			wantVisible := c.SubIssueCompleted >= c.SubIssueCount && c.BlockedByCount == 0
+			if got := slices.Contains(visible, c.Number); got != wantVisible {
+				t.Errorf("leaves AND unblocked: card #%d visible = %v, want %v", c.Number, got, wantVisible)
+			}
 		}
 	}
 }

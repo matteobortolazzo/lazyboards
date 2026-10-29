@@ -610,6 +610,30 @@ func TestFilterPersist_HierarchyToggle_SavesAndRestores(t *testing.T) {
 	}
 }
 
+// The Leaves row is a Hierarchy row, so it persists under the existing
+// "hierarchy" on-disk category with no schema change.
+func TestFilterPersist_HierarchyLeavesToggle_SavesAndRestores(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.yml")
+	data := persistBoardData()
+	data.Columns[0].Cards[0].SubIssueCount = 2 // an open parent, so some card is not a leaf
+	b := newPersistBoardFor(t, path, persistOwner, persistRepo, data)
+	b = sendKey(t, b, keyMsg("f"))
+	b = focusFilterRow(t, b, filterByHierarchy, hierarchyLeavesValue)
+
+	_, _ = updateAndRun(t, b, arrowMsg(tea.KeyEnter))
+
+	got := loadPersistedState(t, path).FiltersFor(persistRepoKey())
+	want := []config.FilterSelection{{Category: config.FilterCategoryHierarchy, Value: hierarchyLeavesValue}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("persisted filters = %+v, want %+v", got, want)
+	}
+
+	restored := seedFromState(newUnloadedPersistBoard(persistOwner, persistRepo, path), config.Config{}, loadPersistedState(t, path))
+	if !hasFilter(&restored, filterByHierarchy, hierarchyLeavesValue) {
+		t.Errorf("filters = %+v after restart, want the Leaves row active", restored.filters)
+	}
+}
+
 // A Dependencies row persists under the "dependency" on-disk category and
 // survives a restart, like the Hierarchy rows above.
 func TestFilterPersist_DependencyToggle_SavesAndRestores(t *testing.T) {

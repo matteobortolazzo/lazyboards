@@ -256,9 +256,12 @@ const (
 
 // Fixed row values of the Hierarchy filter category. They are app-defined
 // (not card data); the picker adds the card glyph at render time only.
+// Leaves is the actionable work: a card with no open sub-issues, whether it is
+// standalone, a child, or a parent whose sub-issues are all closed.
 const (
 	hierarchyParentsValue   = "Parents"
 	hierarchySubIssuesValue = "Sub-issues"
+	hierarchyLeavesValue    = "Leaves"
 )
 
 // Fixed row values of the Dependencies filter category, app-defined like the
@@ -1555,6 +1558,8 @@ func cardMatchesSelection(card Card, sel filterSelection) bool {
 			return card.SubIssueCount > 0
 		case strings.EqualFold(sel.value, hierarchySubIssuesValue):
 			return card.ParentNumber > 0
+		case strings.EqualFold(sel.value, hierarchyLeavesValue):
+			return card.SubIssueCompleted >= card.SubIssueCount
 		default:
 			return false
 		}
@@ -2052,11 +2057,17 @@ func (b *Board) collectFilterGroups() []filterGroup {
 	// qualifies. The Dependencies section additionally needs at least one
 	// blocked card: with none, Unblocked would match every card, a no-op row
 	// that would also keep the picker open on a board with nothing to filter.
-	var hasParents, hasSubIssues, hasBlocked, hasUnblocked bool
+	// Leaves follows the same reasoning: it needs both a leaf and a non-leaf.
+	var hasParents, hasSubIssues, hasLeaf, hasNonLeaf, hasBlocked, hasUnblocked bool
 	for _, col := range b.Columns {
 		for _, card := range col.Cards {
 			if card.SubIssueCount > 0 {
 				hasParents = true
+			}
+			if card.SubIssueCompleted >= card.SubIssueCount {
+				hasLeaf = true
+			} else {
+				hasNonLeaf = true
 			}
 			if card.ParentNumber > 0 {
 				hasSubIssues = true
@@ -2095,6 +2106,9 @@ func (b *Board) collectFilterGroups() []filterGroup {
 	}
 	if hasSubIssues {
 		hierarchy = append(hierarchy, hierarchySubIssuesValue)
+	}
+	if hasLeaf && hasNonLeaf {
+		hierarchy = append(hierarchy, hierarchyLeavesValue)
 	}
 	addGroup(filterByHierarchy, "Hierarchy", hierarchy)
 

@@ -2030,6 +2030,35 @@ func TestFormatFilterSegment_Hierarchy_PlainLabelsOrderedAfterOtherCategories(t 
 	}
 }
 
+func TestFormatFilterSegment_HierarchyLeaves_PlainLabelOrderedAsHierarchy(t *testing.T) {
+	leaves := filterSelection{itemType: filterByHierarchy, value: hierarchyLeavesValue}
+	single, singleCompact := formatFilterSegment(filterSet{leaves})
+	if !strings.Contains(single, filterGlyph+" "+hierarchyLeavesValue) || !strings.Contains(singleCompact, filterGlyph+" 1") {
+		t.Errorf("single selection: full = %q, compact = %q, want %q and the compact count form", single, singleCompact, filterGlyph+" "+hierarchyLeavesValue)
+	}
+
+	cases := []struct {
+		name string
+		fs   filterSet
+		want string // the first-named selection
+	}{
+		{"leaves sorts alphabetically within the category", filterSet{{itemType: filterByHierarchy, value: hierarchyParentsValue}, leaves}, hierarchyLeavesValue},
+		{"label sorts before leaves", filterSet{leaves, {itemType: filterByLabel, value: "bug"}}, "bug"},
+		{"leaves sorts before dependency", filterSet{{itemType: filterByDependency, value: dependencyUnblockedValue}, leaves}, hierarchyLeavesValue},
+	}
+	for _, tc := range cases {
+		full, compact := formatFilterSegment(tc.fs)
+		if !strings.Contains(full, filterGlyph+" "+tc.want) || !strings.Contains(full, "+1") {
+			t.Errorf("%s: full = %q, want it to name %q with a +1 suffix", tc.name, full, tc.want)
+		}
+		for _, glyph := range []string{subIssueParentGlyph, subIssueChildGlyph, blockedByGlyph} {
+			if strings.Contains(full, glyph) || strings.Contains(compact, glyph) {
+				t.Errorf("%s: segment (%q, %q) contains a card glyph, want plain labels", tc.name, full, compact)
+			}
+		}
+	}
+}
+
 func TestFormatFilterSegment_Dependency_PlainLabelsOrderedLast(t *testing.T) {
 	blocked := filterSelection{itemType: filterByDependency, value: dependencyBlockedValue}
 	cases := []struct {
