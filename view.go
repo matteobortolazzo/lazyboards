@@ -662,7 +662,7 @@ const subIssueChildGlyph = "\U000F17AB"
 // filterRowGlyph returns the card glyph shown before a Hierarchy or
 // Dependencies filter row in the picker, or "" for any other row (#663).
 // Render-time only: the stored row value and the status-bar segment stay
-// glyph-free. Unblocked has no card-side glyph, so it renders plain.
+// glyph-free. Unblocked and Leaves have no card-side glyph, so they render plain.
 func filterRowGlyph(item filterItem) string {
 	switch item.itemType {
 	case filterByHierarchy:

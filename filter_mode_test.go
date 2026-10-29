@@ -1611,8 +1611,12 @@ func TestFilterMode_CollectFilterGroups_HierarchySection(t *testing.T) {
 	}{
 		{"parents only", []provider.Card{parent}, "Labels|Milestones|Hierarchy|Parents"},
 		{"sub-issues only", []provider.Card{child, plain}, "Labels|Hierarchy|Sub-issues"},
-		{"both, fixed order, last", []provider.Card{child, parent}, "Labels|Milestones|Hierarchy|Parents|Sub-issues"},
+		{"both, fixed order, last", []provider.Card{child, parent}, "Labels|Milestones|Hierarchy|Parents|Sub-issues|Leaves"},
 		{"neither omits the tab", []provider.Card{plain}, "Labels"},
+		{"parent beside a standalone card adds Leaves", []provider.Card{parent, plain}, "Labels|Milestones|Hierarchy|Parents|Leaves"},
+		{"every card a leaf omits Leaves", []provider.Card{child, plain}, "Labels|Hierarchy|Sub-issues"},
+		{"no card a leaf omits Leaves", []provider.Card{parent, {Number: 4, Title: "P2", SubIssueCount: 3, SubIssueCompleted: 2}}, "Labels|Milestones|Hierarchy|Parents"},
+		{"an all-closed parent is a leaf", []provider.Card{parent, {Number: 4, Title: "Done", SubIssueCount: 2, SubIssueCompleted: 2}}, "Labels|Milestones|Hierarchy|Parents|Leaves"},
 	}
 	for _, tc := range cases {
 		b := newBoardWithInlineCards(t, tc.cards, 120, 40)
@@ -1631,7 +1635,7 @@ func TestFilterMode_CollectFilterGroups_HierarchyRowsListedAcrossColumns(t *test
 			got = append(got, item.value)
 		}
 	}
-	if want := hierarchyParentsValue + "|" + hierarchySubIssuesValue; strings.Join(got, "|") != want {
+	if want := hierarchyParentsValue + "|" + hierarchySubIssuesValue + "|" + hierarchyLeavesValue; strings.Join(got, "|") != want {
 		t.Errorf("hierarchy rows = %v, want %s (sub-issues live only in another column)", got, want)
 	}
 }
@@ -1683,8 +1687,62 @@ func TestFilterMode_FKeyOpensPickerWhenOnlyHierarchyRowsExist(t *testing.T) {
 	m, cmd := b.Update(keyMsg("f"))
 	execCmds(cmd)
 	board := m.(Board)
-	if got, want := filterLayout(board.filterGroups, filterByHierarchy), "Hierarchy|Parents|Sub-issues"; board.mode != filterMode || got != want {
+	if got, want := filterLayout(board.filterGroups, filterByHierarchy), "Hierarchy|Parents|Sub-issues|Leaves"; board.mode != filterMode || got != want {
 		t.Errorf("mode = %d, tabs/rows = %s; want filterMode with %s", board.mode, got, want)
+	}
+}
+
+func TestFilterMode_LeavesRow_RendersPlainAndTogglesInPlace(t *testing.T) {
+	b := openFilterPickerOn(t, hierarchyBoard(t), filterByHierarchy, hierarchyLeavesValue)
+	cursor := b.filterCursor
+
+	view := b.viewFilterModal()
+	leavesLine := findLineContaining(t, view, hierarchyLeavesValue)
+	if strings.Contains(leavesLine, subIssueParentGlyph) || strings.Contains(leavesLine, subIssueChildGlyph) || strings.Contains(leavesLine, blockedByGlyph) {
+		t.Errorf("Leaves row = %q, want a plain row without any card glyph", leavesLine)
+	}
+	if strings.Index(view, hierarchySubIssuesValue) > strings.Index(view, hierarchyLeavesValue) {
+		t.Errorf("want the Leaves row after the Sub-issues row; got:\n%s", view)
+	}
+
+	m, cmd := b.Update(arrowMsg(tea.KeyEnter))
+	execCmds(cmd)
+	b = m.(Board)
+	if b.mode != filterMode || b.filterCursor != cursor {
+		t.Errorf("after enter: mode=%d cursor=%d, want filterMode and cursor %d", b.mode, b.filterCursor, cursor)
+	}
+	if !b.filters.contains(filterByHierarchy, hierarchyLeavesValue) || filterCount(&b) != 1 {
+		t.Errorf("filters = %+v, want only the Leaves selection", b.filters)
+	}
+	// Of hierarchyBoard's 7 cards only #1 and #3 still have open sub-issues;
+	// #6's are all closed, so it counts as a leaf.
+	if got, want := b.totalFilteredCards(), 5; got != want {
+		t.Errorf("total = %d, want %d leaf cards", got, want)
+	}
+	if !strings.Contains(findLineContaining(t, b.viewFilterModal(), hierarchyLeavesValue), "* ") {
+		t.Errorf("selected Leaves row want a '* ' marker")
+	}
+	if seg := b.statusBar.filterStatus; !strings.Contains(seg, filterGlyph+" "+hierarchyLeavesValue) {
+		t.Errorf("status-bar segment = %q, want the plain %q label", seg, hierarchyLeavesValue)
+	}
+
+	b = sendKey(t, b, arrowMsg(tea.KeyEnter))
+	if visible := visibleCardNumbers(b); b.hasActiveFilters() || len(visible) != 7 {
+		t.Errorf("second enter: filters = %+v, visible = %v, want the toggle undone and all 7 cards", b.filters, visible)
+	}
+}
+
+func TestFilterMode_AllLeavesBoard_PickerStaysClosed(t *testing.T) {
+	b := newBoardWithInlineCards(t, []provider.Card{
+		{Number: 1, Title: "A"},
+		{Number: 2, Title: "B"},
+	}, 120, 40)
+
+	m, cmd := b.Update(keyMsg("f"))
+	execCmds(cmd)
+	board := m.(Board)
+	if got := filterLayout(board.collectFilterGroups(), filterByHierarchy); board.mode == filterMode {
+		t.Errorf("mode = filterMode with tabs/rows %s, want the picker closed: a Leaves row matching every card filters nothing", got)
 	}
 }
 
