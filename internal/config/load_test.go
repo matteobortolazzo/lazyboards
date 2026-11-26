@@ -570,3 +570,58 @@ func TestUpdateCheckValue_ExplicitTrueReturnsTrue(t *testing.T) {
 		t.Error("UpdateCheckValue() = false when UpdateCheck is explicitly true, want true")
 	}
 }
+
+// --- SystemUsage config tests (#677) ---
+
+func TestLoad_SystemUsage_DefaultsToTrueWhenOmitted(t *testing.T) {
+	result := mustLoadConfig(t, "provider: github\n", "")
+
+	if result.SystemUsage != nil {
+		t.Errorf("SystemUsage should be nil when omitted, got %v", *result.SystemUsage)
+	}
+	if !result.SystemUsageValue() {
+		t.Error("SystemUsageValue() = false when system_usage is omitted, want true (default)")
+	}
+}
+
+func TestLoad_SystemUsage_ExplicitFalse(t *testing.T) {
+	result := mustLoadConfig(t, "provider: github\nsystem_usage: false\n", "")
+
+	if result.SystemUsage == nil {
+		t.Fatal("SystemUsage should not be nil when set in config")
+	}
+	if result.SystemUsageValue() {
+		t.Error("SystemUsageValue() = true when system_usage is explicitly false, want false")
+	}
+}
+
+func TestLoad_SystemUsage_ExplicitTrue(t *testing.T) {
+	result := mustLoadConfig(t, "provider: github\nsystem_usage: true\n", "")
+
+	if !result.SystemUsageValue() {
+		t.Error("SystemUsageValue() = false when system_usage is explicitly true, want true")
+	}
+}
+
+func TestLoad_SystemUsage_LocalFalseOverridesGlobalTrue(t *testing.T) {
+	result := mustLoadConfig(t, "provider: github\nsystem_usage: true\n", "system_usage: false\n")
+
+	if result.SystemUsageValue() {
+		t.Error("SystemUsageValue() = true, want false (local false should override global true)")
+	}
+}
+
+func TestLoad_SystemUsage_LocalTrueOverridesGlobalFalse(t *testing.T) {
+	result := mustLoadConfig(t, "provider: github\nsystem_usage: false\n", "system_usage: true\n")
+
+	if !result.SystemUsageValue() {
+		t.Error("SystemUsageValue() = false, want true (local true should override global false)")
+	}
+}
+
+func TestSystemUsageValue_NilDefaultsToTrue(t *testing.T) {
+	cfg := Config{}
+	if !cfg.SystemUsageValue() {
+		t.Error("SystemUsageValue() = false when SystemUsage is nil, want true (segment enabled by default)")
+	}
+}

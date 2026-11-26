@@ -20,6 +20,7 @@ import (
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/matteobortolazzo/lazyboards/internal/sysstat"
 )
 
 // subscribeCenciWatchCmd returns a tea.Cmd that reads the next snapshot from
@@ -210,6 +211,33 @@ func scheduleGitStatusTick(b Board) tea.Cmd {
 	}
 	return tea.Tick(gitStatusPollInterval, func(time.Time) tea.Msg {
 		return gitStatusTickMsg{}
+	})
+}
+
+// fetchSysUsageCmd returns a tea.Cmd that takes one raw host CPU/memory sample
+// from reader (#677), delivering sysUsageMsg with either the sample or the read
+// error. The reader is stateless; Update derives the CPU percentage from the
+// previous sample, so concurrently running Cmds share no mutable state.
+func fetchSysUsageCmd(reader sysstat.Reader) tea.Cmd {
+	return func() tea.Msg {
+		sample, err := reader.Read()
+		if err != nil {
+			return sysUsageMsg{err: err}
+		}
+		return sysUsageMsg{sample: sample}
+	}
+}
+
+// scheduleSysUsageTick returns a tea.Cmd that fires a sysUsageTickMsg after
+// b.sysPollInterval, as an independent-interval poll (not chained off the
+// fetch's completion), like scheduleGitStatusTick. Returns nil when the board
+// has no reader configured.
+func scheduleSysUsageTick(b Board) tea.Cmd {
+	if b.sysReader == nil {
+		return nil
+	}
+	return tea.Tick(b.sysPollInterval, func(time.Time) tea.Msg {
+		return sysUsageTickMsg{}
 	})
 }
 

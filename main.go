@@ -20,6 +20,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/matteobortolazzo/lazyboards/internal/sysstat"
 	"github.com/shurcooL/githubv4"
 	"golang.org/x/oauth2"
 )
@@ -211,6 +212,19 @@ func seedFromState(board Board, cfg config.Config, state config.State) Board {
 	board.sortNewestFirst = config.ResolveSortNewestFirst(state, board.repoStateKey(), board.configSortNewestFirst)
 	board.restoreSavedFilters(state.FiltersFor(board.repoStateKey()))
 	return board
+}
+
+// sysReaderFor is the single decision function for the status bar's host
+// CPU/memory segment (#677): it returns nil -- a true nil interface, so the
+// board's `sysReader == nil` checks hold -- when system_usage is off, and
+// otherwise whatever newReader yields (itself nil on a platform with no
+// reader). main() passes sysstat.NewReader; tests pass a fake factory after a
+// real config.Load.
+func sysReaderFor(cfg config.Config, newReader func() sysstat.Reader) sysstat.Reader {
+	if !cfg.SystemUsageValue() {
+		return nil
+	}
+	return newReader()
 }
 
 func main() {
@@ -444,6 +458,11 @@ func main() {
 		os.Exit(1)
 	}
 	board = board.withKeymap(km)
+
+	// Host CPU/memory segment (#677): only the main board gets a reader -- the
+	// first-launch board above shows a standalone config modal with no status
+	// bar. nil when system_usage is off or the platform has no reader.
+	board.sysReader = sysReaderFor(cfg, sysstat.NewReader)
 
 	// Let a repo saved in the config modal retarget the board in place,
 	// instead of writing the file and refreshing the previous repository.
