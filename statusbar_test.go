@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
+	"github.com/matteobortolazzo/lazyboards/internal/sysstat"
 	"github.com/muesli/termenv"
 )
 
@@ -2078,5 +2080,371 @@ func TestFormatFilterSegment_Dependency_PlainLabelsOrderedLast(t *testing.T) {
 		if strings.Contains(full, blockedByGlyph) || strings.Contains(compact, blockedByGlyph) {
 			t.Errorf("%s: segment (%q, %q) contains the card glyph, want plain labels", tc.name, full, compact)
 		}
+	}
+}
+
+// --- Host CPU/memory segment (#677) ---
+
+// sysTestSample is the ticket's worked memory example: MemTotal 16330000 kB,
+// MemAvailable 9900000 kB, i.e. 6430000 kB used.
+var sysTestSample = sysstat.Sample{MemTotalKiB: 16330000, MemAvailableKiB: 9900000}
+
+const sysTestCPUPercent = 12
+
+// sysTestSegment is the segment the ticket shows for sysTestSample at
+// sysTestCPUPercent.
+const sysTestSegment = "cpu 12% mem 6.1/15.6G"
+
+func sysTestUsage() sysstat.Usage {
+	return sysstat.NewUsage(sysTestCPUPercent, sysTestSample)
+}
+
+func TestFormatSysUsageSegment_TicketExample(t *testing.T) {
+	got := formatSysUsageSegment(sysTestUsage())
+	if got != sysTestSegment {
+		t.Errorf("formatSysUsageSegment() = %q, want %q", got, sysTestSegment)
+	}
+}
+
+// TestFormatSysUsageSegment_GiBConversion derives every expected string from
+// the spec: GiB = KiB / 1,048,576 rendered with one decimal, CPU as a bare
+// integer percent.
+func TestFormatSysUsageSegment_GiBConversion(t *testing.T) {
+	const gibKiB = 1048576
+	cases := []struct {
+		name string
+		cpu  int
+		cur  sysstat.Sample
+		want string
+	}{
+		{"whole GiB values", 0, sysstat.Sample{MemTotalKiB: 8 * gibKiB, MemAvailableKiB: 4 * gibKiB}, "cpu 0% mem 4.0/8.0G"},
+		{"full cpu", 100, sysstat.Sample{MemTotalKiB: 2 * gibKiB, MemAvailableKiB: 0}, "cpu 100% mem 2.0/2.0G"},
+		{"half GiB step", 7, sysstat.Sample{MemTotalKiB: 4 * gibKiB, MemAvailableKiB: 4*gibKiB - gibKiB/2}, "cpu 7% mem 0.5/4.0G"},
+		{"nothing used", 3, sysstat.Sample{MemTotalKiB: gibKiB, MemAvailableKiB: gibKiB}, "cpu 3% mem 0.0/1.0G"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatSysUsageSegment(sysstat.NewUsage(tc.cpu, tc.cur))
+			if got != tc.want {
+				t.Errorf("formatSysUsageSegment() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFormatSysUsageSegment_PlainASCII(t *testing.T) {
+	got := formatSysUsageSegment(sysTestUsage())
+	for _, r := range got {
+		if r >= 0x80 || r == 0x1b {
+			t.Fatalf("formatSysUsageSegment() = %q, want plain ASCII with no styling (found %q)", got, r)
+		}
+	}
+}
+
+func TestStatusBar_SetSysUsage_AppearsInView(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetSysUsage(sysTestUsage())
+
+	view := sb.View(200)
+	if !strings.Contains(view, sysTestSegment) {
+		t.Errorf("View() = %q, want it to contain %q", view, sysTestSegment)
+	}
+}
+
+func TestStatusBar_ClearSysUsage_HidesSegment(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetSysUsage(sysTestUsage())
+	sb.ClearSysUsage()
+
+	view := sb.View(200)
+	if strings.Contains(view, "cpu ") {
+		t.Errorf("View() = %q, want no system-usage segment after ClearSysUsage()", view)
+	}
+}
+
+func TestStatusBar_SysUsage_UnsetNeverRendersCPU(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetGitStatus("main +0~0")
+
+	view := sb.View(200)
+	if strings.Contains(view, "cpu ") {
+		t.Errorf("View() = %q, want no system-usage segment when never set", view)
+	}
+}
+
+func TestStatusBar_SysUsage_TimedAndStickyMessagesOverrideSegment(t *testing.T) {
+	timed := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	timed.SetSysUsage(sysTestUsage())
+	timed.SetTimedMessage("Board refreshed", StatusSuccess, 3*time.Second)
+	if view := timed.View(200); strings.Contains(view, "cpu ") || !strings.Contains(view, "Board refreshed") {
+		t.Errorf("timed View() = %q, want the timed message and no system-usage segment", view)
+	}
+
+	sticky := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sticky.SetSysUsage(sysTestUsage())
+	sticky.SetStickyMessage("Update available", StatusInfo)
+	if view := sticky.View(200); strings.Contains(view, "cpu ") || !strings.Contains(view, "Update available") {
+		t.Errorf("sticky View() = %q, want the sticky message and no system-usage segment", view)
+	}
+}
+
+// tailTierCase describes one filter/dispatch/git presence combination with
+// the tail ladder the pre-existing tailGroups() documents for it, and the
+// same ladder with the system-usage tier prepended.
+type tailTierCase struct {
+	name                  string
+	filter, dispatch, git bool
+	wantUnset             [][]string
+	wantSysTier           string
+}
+
+// tailTierFixtures hold the segment text used by the tier tests: the filter's
+// full and compact forms, dispatch, git, and the system-usage segment.
+const (
+	tierFilterFull    = "F"
+	tierFilterCompact = "f"
+	tierDispatch      = "D"
+	tierGit           = "G"
+	tierSys           = "S"
+)
+
+// tailTierCases are written from tailGroups()'s documented ladder:
+// [filter(full)+dispatch+git], [filter(full)+git, filter(compact)+git],
+// [filter(compact) alone]; a tier introducing an unset dispatch/git segment is
+// omitted, and duplicate forms within a tier collapse.
+func tailTierCases() []tailTierCase {
+	return []tailTierCase{
+		{"filter dispatch git", true, true, true, [][]string{{"F D G"}, {"F G", "f G"}, {"f"}}, "F D G S"},
+		{"filter dispatch", true, true, false, [][]string{{"F D"}, {"F", "f"}}, "F D S"},
+		{"filter git", true, false, true, [][]string{{"F G", "f G"}, {"f"}}, "F G S"},
+		{"filter only", true, false, false, [][]string{{"F", "f"}}, "F S"},
+		{"dispatch git", false, true, true, [][]string{{"D G"}, {"G"}}, "D G S"},
+		{"dispatch only", false, true, false, [][]string{{"D"}}, "D S"},
+		{"git only", false, false, true, [][]string{{"G"}}, "G S"},
+		{"nothing", false, false, false, nil, "S"},
+	}
+}
+
+func (c tailTierCase) bar(withSys bool) StatusBar {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	if c.filter {
+		sb.SetFilterStatus(tierFilterFull, tierFilterCompact)
+	}
+	if c.dispatch {
+		sb.SetDispatchStatus(tierDispatch)
+	}
+	if c.git {
+		sb.SetGitStatus(tierGit)
+	}
+	if withSys {
+		sb.sysUsage = tierSys
+	}
+	return sb
+}
+
+// TestTailGroups_SysUsageUnset_MatchesDocumentedLadder is the AC8 parity guard:
+// with the system-usage segment unset, tailGroups() is exactly the ladder it
+// documented before the segment existed, for all eight combinations.
+func TestTailGroups_SysUsageUnset_MatchesDocumentedLadder(t *testing.T) {
+	for _, c := range tailTierCases() {
+		t.Run(c.name, func(t *testing.T) {
+			got := c.bar(false).tailGroups()
+			if !reflect.DeepEqual(got, c.wantUnset) {
+				t.Errorf("tailGroups() = %q, want %q", got, c.wantUnset)
+			}
+		})
+	}
+}
+
+// TestTailGroups_SysUsageSet_AddsOneHighestTierAndKeepsTheRest pins the tier
+// shape: the segment adds exactly one new top tier carrying every set segment
+// with the system-usage segment rightmost, and every lower tier is untouched.
+func TestTailGroups_SysUsageSet_AddsOneHighestTierAndKeepsTheRest(t *testing.T) {
+	for _, c := range tailTierCases() {
+		t.Run(c.name, func(t *testing.T) {
+			want := append([][]string{{c.wantSysTier}}, c.wantUnset...)
+			got := c.bar(true).tailGroups()
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("tailGroups() = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// TestTailGroups_OutsideGitRepo_SysUsageAloneIsASingleGroup covers the
+// no-filter/no-dispatch/no-git edge case.
+func TestTailGroups_OutsideGitRepo_SysUsageAloneIsASingleGroup(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	sb.SetSysUsage(sysTestUsage())
+
+	want := [][]string{{sysTestSegment}}
+	got := sb.tailGroups()
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("tailGroups() = %q, want %q", got, want)
+	}
+}
+
+func TestStatusBar_SysUsage_OutsideGitRepo_RendersAtRightEdge(t *testing.T) {
+	hints := []Hint{{Key: "q", Desc: "Quit"}}
+	sb := NewStatusBar(hints)
+	sb.SetSysUsage(sysTestUsage())
+
+	H := lipgloss.Width(renderHints(hints, 1<<30))
+	S := lipgloss.Width(sysTestSegment)
+	width := H + 1 + S + 5
+	view := sb.View(width)
+
+	if !strings.HasSuffix(view, sysTestSegment) {
+		t.Errorf("View(%d) = %q, want it to end with %q at the right edge", width, view, sysTestSegment)
+	}
+	if got := lipgloss.Width(view); got != width {
+		t.Errorf("View(%d) width = %d, want the line padded to the full width", width, got)
+	}
+}
+
+// TestStatusBar_SysUsage_RightmostAfterGit pins the placement: with every
+// segment set and room for all of them, the system-usage segment is the last
+// token, right of git.
+func TestStatusBar_SysUsage_RightmostAfterGit(t *testing.T) {
+	sb := NewStatusBar([]Hint{{Key: "q", Desc: "Quit"}})
+	full, compact := formatFilterSegment(filterSet{{itemType: filterByLabel, value: "bug"}})
+	gitSegment := "main +0~0"
+	dispatchSegment := "⟳ dispatch"
+	sb.SetFilterStatus(full, compact)
+	sb.SetDispatchStatus(dispatchSegment)
+	sb.SetGitStatus(gitSegment)
+	sb.SetSysUsage(sysTestUsage())
+
+	view := sb.View(300)
+	if !strings.HasSuffix(view, sysTestSegment) {
+		t.Fatalf("View() = %q, want it to end with %q", view, sysTestSegment)
+	}
+	gitIdx := strings.Index(view, gitSegment)
+	sysIdx := strings.Index(view, sysTestSegment)
+	if gitIdx < 0 || gitIdx > sysIdx {
+		t.Errorf("View() = %q, want the git segment present and left of the system-usage segment", view)
+	}
+}
+
+// TestStatusBar_SysUsage_DroppedBeforeAnyOtherTailDegradation drives the
+// narrowest widths at which each tail still fits: the first squeeze removes
+// only the system-usage segment, leaving filter, dispatch and git intact with
+// full hints.
+func TestStatusBar_SysUsage_DroppedBeforeAnyOtherTailDegradation(t *testing.T) {
+	hints := []Hint{{Key: "q", Desc: "Quit"}}
+	sb := NewStatusBar(hints)
+	full, compact := formatFilterSegment(filterSet{{itemType: filterByLabel, value: "bug"}})
+	dispatchSegment := "⟳ dispatch"
+	gitSegment := "main +0~0"
+	sb.SetFilterStatus(full, compact)
+	sb.SetDispatchStatus(dispatchSegment)
+	sb.SetGitStatus(gitSegment)
+	sb.SetSysUsage(sysTestUsage())
+
+	H := lipgloss.Width(renderHints(hints, 1<<30))
+	F := lipgloss.Width(full)
+	D := lipgloss.Width(dispatchSegment)
+	G := lipgloss.Width(gitSegment)
+	S := lipgloss.Width(sysTestSegment)
+
+	withSys := F + 1 + D + 1 + G + 1 + S
+	widthFits := H + 1 + withSys
+	if view := sb.View(widthFits); !strings.Contains(view, sysTestSegment) {
+		t.Fatalf("View(%d) = %q, want the segment shown when everything fits", widthFits, view)
+	}
+
+	widthSqueezed := widthFits - 1
+	view := sb.View(widthSqueezed)
+	if strings.Contains(view, "cpu ") {
+		t.Errorf("View(%d) = %q, want the system-usage segment dropped first", widthSqueezed, view)
+	}
+	for _, seg := range []string{full, dispatchSegment, gitSegment} {
+		if !strings.Contains(view, seg) {
+			t.Errorf("View(%d) = %q, want %q kept while only the system-usage segment is dropped", widthSqueezed, view, seg)
+		}
+	}
+	if !strings.Contains(view, hints[0].Desc) {
+		t.Errorf("View(%d) = %q, want the full hints kept", widthSqueezed, view)
+	}
+}
+
+// TestStatusBar_SysUsage_HintsKeepPriority is the AC9 guard: at a width where
+// the full hints plus the segment do not fit, the full hints render and the
+// segment is omitted, instead of the segment showing next to truncated hints.
+func TestStatusBar_SysUsage_HintsKeepPriority(t *testing.T) {
+	hints := []Hint{{Key: "q", Desc: "Quit"}, {Key: "r", Desc: "Refresh"}, {Key: "n", Desc: "New"}}
+	gitSegment := "main +0~0"
+	sb := NewStatusBar(hints)
+	sb.SetGitStatus(gitSegment)
+	sb.SetSysUsage(sysTestUsage())
+
+	H := lipgloss.Width(renderHints(hints, 1<<30))
+	G := lipgloss.Width(gitSegment)
+	S := lipgloss.Width(sysTestSegment)
+
+	width := H + 1 + G + 1 + S - 1
+	view := sb.View(width)
+
+	if strings.Contains(view, "cpu ") {
+		t.Errorf("View(%d) = %q, want the system-usage segment omitted when it would need truncated hints", width, view)
+	}
+	if strings.Contains(view, "...") {
+		t.Errorf("View(%d) = %q, want the full hints, not truncated ones", width, view)
+	}
+	for _, h := range hints {
+		if !strings.Contains(view, h.Desc) {
+			t.Errorf("View(%d) = %q, want hint %q rendered in full", width, view, h.Desc)
+		}
+	}
+	if !strings.Contains(view, gitSegment) {
+		t.Errorf("View(%d) = %q, want the lower tier (git) to still render", width, view)
+	}
+}
+
+// TestStatusBar_SysUsage_NeverTriesTruncatedHints covers the same rule with the
+// segment as the only tail: a width where the segment would fit beside a bare
+// ellipsis must still omit it and leave the hints as they would render alone.
+func TestStatusBar_SysUsage_NeverTriesTruncatedHints(t *testing.T) {
+	hints := []Hint{{Key: "q", Desc: "Quit"}, {Key: "r", Desc: "Refresh"}, {Key: "n", Desc: "New"}}
+	sb := NewStatusBar(hints)
+	sb.SetSysUsage(sysTestUsage())
+
+	ellipsisWidth := lipgloss.Width(hintDescStyle.Render(" ..."))
+	S := lipgloss.Width(sysTestSegment)
+	width := S + 1 + ellipsisWidth
+
+	view := sb.View(width)
+	if strings.Contains(view, "cpu ") {
+		t.Errorf("View(%d) = %q, want the segment omitted rather than shown next to truncated hints", width, view)
+	}
+	want := NewStatusBar(hints).View(width)
+	if view != want {
+		t.Errorf("View(%d) = %q, want the same as a bar without the segment: %q", width, view, want)
+	}
+}
+
+// TestStatusBar_SysUsage_TooWideIsOmittedNeverCut covers a segment wider than
+// the space left after the agent prefix and hints.
+func TestStatusBar_SysUsage_TooWideIsOmittedNeverCut(t *testing.T) {
+	sb := NewStatusBar(nil)
+	sb.SetSysUsage(sysTestUsage())
+
+	const running = 2
+	prefixWidth := lipgloss.Width(agentPrefix(running, 0, 0, 0, 0, 0) + hintDescStyle.Render(" | "))
+	S := lipgloss.Width(sysTestSegment)
+
+	// The segment needs S cells plus the 1-space separator; give it one less.
+	tooNarrow := prefixWidth + S
+	view := sb.View(tooNarrow, running)
+	for _, fragment := range []string{"cpu", "mem", "%", "G"} {
+		if strings.Contains(view, fragment) {
+			t.Errorf("View(%d) = %q, want no part of the segment (found %q) when it cannot fit", tooNarrow, view, fragment)
+		}
+	}
+
+	exactFit := prefixWidth + 1 + S
+	view = sb.View(exactFit, running)
+	if !strings.HasSuffix(view, sysTestSegment) {
+		t.Errorf("View(%d) = %q, want the whole segment once it fits", exactFit, view)
 	}
 }

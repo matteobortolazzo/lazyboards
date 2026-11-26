@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/matteobortolazzo/lazyboards/internal/cenciwatch"
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
+	"github.com/matteobortolazzo/lazyboards/internal/sysstat"
 )
 
 // Hint represents a single key-description pair shown in the status bar.
@@ -49,6 +51,9 @@ type StatusBar struct {
 	// hides the segment.
 	filterStatus        string
 	filterStatusCompact string
+	// sysUsage holds the pre-formatted host CPU/memory segment (#677). Empty
+	// hides it.
+	sysUsage string
 	// stickyMessage is a separate, non-timed notice (used by the
 	// update-available check, #444). It survives ClearMessage() -- only
 	// ClearStickyMessage() removes it -- and only appears in View() when no
@@ -160,6 +165,33 @@ func (s *StatusBar) SetFilterStatus(full, compact string) {
 	s.filterStatusCompact = compact
 }
 
+// SetSysUsage sets the host CPU/memory segment (#677) shown rightmost in the
+// status bar, right of the git segment. Like the other segments it is a
+// pre-formatted string, but it is plain ASCII built from app-generated digits
+// only, so nothing untrusted reaches it.
+func (s *StatusBar) SetSysUsage(u sysstat.Usage) {
+	s.sysUsage = formatSysUsageSegment(u)
+}
+
+// ClearSysUsage hides the host CPU/memory segment (e.g. on a read failure).
+func (s *StatusBar) ClearSysUsage() {
+	s.sysUsage = ""
+}
+
+// kibPerGiB converts the KiB the kernel reports into GiB.
+const kibPerGiB = 1048576
+
+// formatSysUsageSegment formats a sysstat.Usage into the compact, plain-ASCII
+// host-usage segment, e.g. "cpu 12% mem 6.1/15.6G": an integer CPU percent,
+// then memory used/total in GiB (KiB / 1,048,576) with one decimal. Like
+// formatGitSegment it carries no glyph and no colour.
+func formatSysUsageSegment(u sysstat.Usage) string {
+	return fmt.Sprintf("cpu %d%% mem %.1f/%.1fG",
+		u.CPUPercent,
+		float64(u.MemUsedKiB)/kibPerGiB,
+		float64(u.MemTotalKiB)/kibPerGiB)
+}
+
 // formatFilterSegment formats a filterSet into the active-filter status-bar
 // segment's full and compact forms (#654). The full form names the entry
 // sorted first by fs.ordered() (itemType, then case-insensitive value),
@@ -206,8 +238,13 @@ func joinNonEmpty(parts ...string) string {
 
 // tailGroups builds the ordered priority-tier table of candidate tail
 // segments for View()'s width-contention loop (#654), highest-priority tier
-// first: [filter(full)+dispatch+git], [filter(full)+git,
-// filter(compact)+git], [filter(compact) alone]. Each inner group holds the
+// first: [filter(full)+dispatch+git+sys] (only when the host-usage segment is
+// set, #677), [filter(full)+dispatch+git], [filter(full)+git,
+// filter(compact)+git], [filter(compact) alone]. The system-usage tier is the
+// new highest priority and is a single form, so it is the first thing
+// dropped under width contention (View() tries it with FULL hints only, so
+// hints keep priority over host usage); with the segment unset it is absent
+// and the ladder is exactly the pre-#677 one. Each inner group holds the
 // full-vs-compact filter-form sub-choices available at that segment-presence
 // tier. A tier that would introduce a segment (dispatch or git) that isn't
 // actually set is omitted entirely -- rather than reducing to a duplicate of
@@ -231,6 +268,7 @@ func joinNonEmpty(parts ...string) string {
 func (s StatusBar) tailGroups() [][]string {
 	hasDispatch := s.dispatchStatus != ""
 	hasGit := s.gitStatus != ""
+	hasSys := s.sysUsage != ""
 
 	var groups [][]string
 	addGroup := func(forms ...string) {
@@ -249,6 +287,9 @@ func (s StatusBar) tailGroups() [][]string {
 		}
 	}
 
+	if hasSys {
+		addGroup(joinNonEmpty(s.filterStatus, s.dispatchStatus, s.gitStatus, s.sysUsage))
+	}
 	if hasDispatch {
 		addGroup(joinNonEmpty(s.filterStatus, s.dispatchStatus, s.gitStatus))
 	}
@@ -477,8 +518,8 @@ func (s StatusBar) View(width int, counts ...int) string {
 	// The prefix consumes width that is no longer available for hints.
 	width -= lipgloss.Width(prefix)
 
-	// Build the candidate tail segment tiers (filter + dispatch + git) in
-	// priority order via tailGroups(). Within a group, fitTail is tried
+	// Build the candidate tail segment tiers (filter + dispatch + git + host
+	// usage) in priority order via tailGroups(). Within a group, fitTail is tried
 	// against FULL (untruncated) hints for every member first, then against
 	// truncated/ellipsis hints for every member, before moving on to the
 	// next (lower-priority) group -- see tailGroups()'s doc comment for why
@@ -506,11 +547,18 @@ func (s StatusBar) View(width int, counts ...int) string {
 		return prefix + hintsView + strings.Repeat(" ", padding) + tail, true
 	}
 
-	for _, group := range groups {
+	for i, group := range groups {
 		for _, tail := range group {
 			if line, ok := fitTail(tail, func(int) string { return fullHints }); ok {
 				return line
 			}
+		}
+		// The system-usage tier (always first when set) is full-hints-only:
+		// host usage never costs the hints any room, so when it does not fit
+		// beside the full hints it is omitted whole and the lower tiers take
+		// over with their usual full-then-truncated passes.
+		if s.sysUsage != "" && i == 0 {
+			continue
 		}
 		for _, tail := range group {
 			if line, ok := fitTail(tail, func(hintsWidth int) string { return renderHints(s.hints, hintsWidth) }); ok {
