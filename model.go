@@ -21,6 +21,7 @@ import (
 	gitdetect "github.com/matteobortolazzo/lazyboards/internal/git"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/matteobortolazzo/lazyboards/internal/sysstat"
 	"github.com/muesli/termenv"
 )
 
@@ -219,6 +220,12 @@ const cenciWatchClearThreshold = 2
 // poll (a fallback for out-of-app changes), independent of any fetch/refresh
 // completion so it can't spin on an ambiguous read result.
 const gitStatusPollInterval = 12 * time.Second
+
+// sysUsagePollInterval is the fixed interval for the host CPU/memory poll
+// behind the status bar's system-usage segment (#677). A fixed constant, like
+// gitStatusPollInterval -- there is no config key for it. Board.sysPollInterval
+// carries it so tests can shorten it.
+const sysUsagePollInterval = 2 * time.Second
 
 // metadataTTLMultiplier and minMetadataTTL together determine how long
 // collaborators/authenticated-user/repo-labels are cached before an
@@ -433,6 +440,17 @@ type gitStatusMsg struct {
 
 // gitStatusTickMsg is sent when the background git status poll timer fires.
 type gitStatusTickMsg struct{}
+
+// sysUsageMsg is sent when a host CPU/memory read completes (success or
+// failure). It carries the raw sample; the CPU percentage is derived in Update
+// from the previous sample, so the reader stays stateless (#677).
+type sysUsageMsg struct {
+	sample sysstat.Sample
+	err    error
+}
+
+// sysUsageTickMsg is sent when the host-usage poll timer fires.
+type sysUsageTickMsg struct{}
 
 // configSavedMsg is sent when a config file has been saved successfully. It
 // carries the provider name and "owner/repo" that were just written: a
@@ -973,13 +991,24 @@ type Board struct {
 	// resolved once at startup (empty when not inside tmux). The agents list is
 	// scoped to it so an instance surfaces only the agents in its own session
 	// (#410); empty means "not in tmux", which disables the scoping.
-	tmuxSession   string
-	gitReader     gitdetect.Reader
-	gitPanel      gitPanelState
-	prList        prListState
-	milestoneList milestoneListState
-	agentList     agentListState
-	dispatch      dispatchState
+	tmuxSession string
+	gitReader   gitdetect.Reader
+	// sysReader reads the host CPU/memory counters for the status-bar
+	// system-usage segment (#677). nil disables the feature: no poll, no
+	// segment. main() sets it after NewBoard, via sysReaderFor.
+	sysReader sysstat.Reader
+	// sysPrevSample is the baseline the next sample's CPU delta is computed
+	// against. nil until the first successful read; kept across a read error
+	// so the next successful read yields a delta immediately.
+	sysPrevSample *sysstat.Sample
+	// sysPollInterval is the delay between host-usage polls. NewBoard sets
+	// sysUsagePollInterval; tests shorten it.
+	sysPollInterval time.Duration
+	gitPanel        gitPanelState
+	prList          prListState
+	milestoneList   milestoneListState
+	agentList       agentListState
+	dispatch        dispatchState
 	// openPRCount is the repo-wide open-PR total shown by the status-bar PR
 	// indicator, updated by every successful ListOpenPRs result (board fetch
 	// cycles and the v modal's fetch). -1 is the "never fetched" sentinel:
@@ -1109,6 +1138,7 @@ func NewBoard(p provider.BoardProvider, defaultActions map[string]config.Action,
 		sessionMaxLen:      sessionMaxLen,
 		refreshInterval:    refreshInterval,
 		followUpDelay:      cleanupFollowUpDelay,
+		sysPollInterval:    sysUsagePollInterval,
 		metadataTTL:        metadataTTL,
 		workingLabel:       workingLabel,
 		mouseEnabled:       mouseEnabled,
@@ -2434,14 +2464,35 @@ func (b Board) prIndicatorCount() int {
 // Both handleTrustConfirmCommand's skip/accept transitions call startupCmds()
 // directly once the prompt is resolved, so the deferred fetch/watchers still
 // run -- just after the decision instead of racing it.
+//
+// The host CPU/memory poll (#677) is the one thing that starts here, on every
+// branch including both early returns: it has no board-fetch race to avoid, so
+// the segment is live behind the first-launch modal and the trust prompt too.
+// It is deliberately not part of startupCmds(), which the trust transitions
+// re-run -- that would leave a second tick chain refreshing the segment twice
+// per interval. With no reader the poll is nil, so Init() returns exactly what
+// it did before.
 func (b Board) Init() tea.Cmd {
-	if b.config.firstLaunch {
+	poll := b.startSysUsagePoll()
+	if b.config.firstLaunch || b.mode == trustConfirmMode {
+		return poll
+	}
+	if poll == nil {
+		return b.startupCmds()
+	}
+	return tea.Batch(b.startupCmds(), poll)
+}
+
+// startSysUsagePoll starts the host CPU/memory poll chain (#677): an immediate
+// read plus the first tick. It returns a literal nil when no reader is
+// configured (disabled, or a platform with no reader), so Init()'s Cmd is
+// unchanged for such boards. Only Init() calls it -- startupCmds() is re-run by
+// the trust-confirm transitions and must never start a second chain.
+func (b Board) startSysUsagePoll() tea.Cmd {
+	if b.sysReader == nil {
 		return nil
 	}
-	if b.mode == trustConfirmMode {
-		return nil
-	}
-	return b.startupCmds()
+	return tea.Batch(fetchSysUsageCmd(b.sysReader), scheduleSysUsageTick(b))
 }
 
 // startupCmds is the full set of commands a normal startup issues: the

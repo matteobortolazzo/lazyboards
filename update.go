@@ -14,6 +14,7 @@ import (
 	"github.com/matteobortolazzo/lazyboards/internal/debuglog"
 	"github.com/matteobortolazzo/lazyboards/internal/keymap"
 	"github.com/matteobortolazzo/lazyboards/internal/provider"
+	"github.com/matteobortolazzo/lazyboards/internal/sysstat"
 )
 
 func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -112,6 +113,15 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return b, nil
 		}
 		return b, tea.Batch(fetchGitStatusCmd(b.gitReader, "."), scheduleGitStatusTick(b))
+
+	case sysUsageMsg:
+		return b.handleSysUsage(msg), nil
+
+	case sysUsageTickMsg:
+		if b.sysReader == nil {
+			return b, nil
+		}
+		return b, tea.Batch(fetchSysUsageCmd(b.sysReader), scheduleSysUsageTick(b))
 
 	case boardFetchedMsg:
 		if b.mode == trustConfirmMode {
@@ -437,6 +447,34 @@ func (b Board) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return b, cmd
 	}
 	return b, nil
+}
+
+// handleSysUsage applies one host CPU/memory read to the status bar (#677).
+// The CPU percentage needs two samples, so the first read only stores the
+// baseline and leaves the segment hidden -- never "cpu 0%". A read error hides
+// the segment silently (no status message, like gitStatusMsg) but keeps the
+// baseline, so the next successful read shows the segment again straight away.
+// A non-advancing total (counter reset, e.g. after suspend) leaves the rendered
+// segment as it is and rebases on the new sample. The tick chain is untouched:
+// it is driven by sysUsageTickMsg alone. resetRepoScopedState never clears this
+// segment -- host usage is not repo-scoped.
+func (b Board) handleSysUsage(msg sysUsageMsg) Board {
+	if msg.err != nil {
+		b.statusBar.ClearSysUsage()
+		return b
+	}
+	sample := msg.sample
+	prev := b.sysPrevSample
+	b.sysPrevSample = &sample
+	if prev == nil {
+		return b
+	}
+	pct, ok := sysstat.CPUPercent(*prev, sample)
+	if !ok {
+		return b
+	}
+	b.statusBar.SetSysUsage(sysstat.NewUsage(pct, sample))
+	return b
 }
 
 func (b Board) handleRefreshTick(msg refreshTickMsg) (tea.Model, tea.Cmd) {

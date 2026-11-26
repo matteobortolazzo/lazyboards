@@ -100,6 +100,7 @@ type Config struct {
 	Cenci            *bool          `yaml:"cenci,omitempty"`
 	Cleanup          *string        `yaml:"cleanup,omitempty"`
 	UpdateCheck      *bool          `yaml:"update_check,omitempty"`
+	SystemUsage      *bool          `yaml:"system_usage,omitempty"`
 	SortOrder        *string        `yaml:"sort_order,omitempty"`
 	Keymaps          *Keymaps       `yaml:"keymaps,omitempty"`
 	// LocalHash is the content hash of the local config file Load() read
@@ -170,6 +171,15 @@ func (c Config) UpdateCheckValue() bool {
 		return true
 	}
 	return *c.UpdateCheck
+}
+
+// SystemUsageValue returns true if the status bar's host CPU/memory segment is
+// enabled (#677). Defaults to true (enabled) when the field is not set.
+func (c Config) SystemUsageValue() bool {
+	if c.SystemUsage == nil {
+		return true
+	}
+	return *c.SystemUsage
 }
 
 // CleanupValue returns the configured top-level default cleanup command, or ""

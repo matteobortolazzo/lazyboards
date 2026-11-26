@@ -189,6 +189,7 @@ Place shared settings in `~/.config/lazyboards/config.yml` for options that appl
 | `mouse` | bool | `true` | Enable mouse support |
 | `cenci` | bool | `true` | Enable live agent status badges + status-bar counts (requires the cenci-watch daemon; silently off when absent) |
 | `update_check` | bool | `true` | Check for newer lazyboards releases on startup and show a sticky notice when one is available |
+| `system_usage` | bool | `true` | Show live host CPU and memory usage in the status bar (Linux only; see [System Usage Segment](#system-usage-segment)) |
 | `sort_order` | string | `oldest` | Card sort direction by creation date: `oldest` or `newest` created first (board-wide; sets the starting direction, and `s` toggles it) |
 | `cleanup` | string | — | Default cleanup command applied to every column that doesn't set its own (see [Column Cleanup](#column-cleanup)) |
 | `columns` | list | `[New, Refined, Implementing]` | Column definitions (name, cleanup) |
@@ -498,7 +499,7 @@ Custom inline actions bound via `keymaps.git_panel` honor `board`/`card`/`pr` sc
 
 ### Status Bar Prefix (agent + PR counts)
 
-At the left of the status bar, an always-visible prefix summarizes the whole repository: agent-status counts (`▶N` running, `!N` awaiting input) followed by the repo-wide open-PR total (` N`, using the same PR glyph shown on cards). Each token is omitted when its count is zero, and the prefix disappears entirely when all are zero. Because the prefix is reserved before anything else, it stays visible through timed status messages and is never truncated to make room for hints or the right-aligned git/dispatch segments.
+At the left of the status bar, an always-visible prefix summarizes the whole repository: agent-status counts (`▶N` running, `!N` awaiting input) followed by the repo-wide open-PR total (` N`, using the same PR glyph shown on cards). Each token is omitted when its count is zero, and the prefix disappears entirely when all are zero. Because the prefix is reserved before anything else, it stays visible through timed status messages and is never truncated to make room for hints or the right-aligned git/dispatch/system-usage segments.
 
 The agent counts cover every window the cenci-watch daemon tracks — across all tmux sessions, whether or not a window's name joins to a card on the board. (The `A` agents modal, by contrast, is scoped to this instance's own tmux session, so its row count may be smaller than the status-bar total.) The PR total counts every open PR in the repository — the same set the `P` [open-PR list](#pull-requests) shows — not just PRs linked to cards. Until the first repo-wide listing succeeds (or if it isn't available), the PR token falls back to the card-linked sum; afterwards a failed refresh keeps the last known total rather than dropping the token.
 
@@ -510,7 +511,7 @@ The segment refreshes on board start, after every board refresh, after any succe
 
 ### Dispatch Status Segment
 
-When the cenci-watch daemon reports the background dispatch loop enabled, the status bar shows a `⟳ dispatch` segment, right-aligned to the left of the git segment (see [Git Status Segment](#git-status-segment) for priority rules — the dispatch segment is dropped first on narrow terminals). It's sourced live from the same watcher subscription that drives agent-status badges, so it appears and disappears immediately as the loop is toggled or the daemon becomes unreachable — no restart needed. If the last dispatch pass failed, the segment renders in red instead of its normal color. A single transient watcher reconnect blip is tolerated and does not clear the segment; it only clears after a second consecutive watcher error with no successful reconnect in between.
+When the cenci-watch daemon reports the background dispatch loop enabled, the status bar shows a `⟳ dispatch` segment, right-aligned to the left of the git segment (see [Git Status Segment](#git-status-segment) for priority rules — the dispatch segment is dropped ahead of the filter and git segments on narrow terminals). It's sourced live from the same watcher subscription that drives agent-status badges, so it appears and disappears immediately as the loop is toggled or the daemon becomes unreachable — no restart needed. If the last dispatch pass failed, the segment renders in red instead of its normal color. A single transient watcher reconnect blip is tolerated and does not clear the segment; it only clears after a second consecutive watcher error with no successful reconnect in between.
 
 Set `LAZYBOARDS_DEBUG_LOG=<path>` to append watcher connection errors (including tolerated blips) to a file at `<path>`, one timestamped line per error — useful for diagnosing daemon connectivity issues. Unset (the default), this is a complete no-op: no file is created and there's no overhead.
 
@@ -518,7 +519,11 @@ Set `LAZYBOARDS_DEBUG_LOG=<path>` to append watcher connection errors (including
 
 When at least one [filter](#filter) selection is active, the status bar shows a `⚑` segment, left of the dispatch and git segments (leftmost in the tail — before dispatch, before git). Its full form names the first selection, e.g. `⚑ bug`, appending ` +N` for each additional selection (omitted at exactly one selection, e.g. two selections renders `⚑ bug +1`). A Hierarchy selection is named by its plain label with no card glyph (`⚑ Parents`, `⚑ Sub-issues`, `⚑ Leaves`) and sorts after label, assignee, and milestone selections (alphabetically among the Hierarchy rows); a Dependencies selection is likewise plain (`⚑ Blocked`, `⚑ Unblocked`) and sorts last. When the full form doesn't fit, it degrades to a compact `⚑ <total>` form showing just the selection count. It renders nothing at all when no filter is active.
 
-Under width contention, the status bar's tail segments degrade in this order: drop the dispatch segment first, then degrade the filter segment from its full named form to the compact form, then drop the git segment.
+Under width contention, the status bar's tail segments degrade in this order: drop the system-usage segment first, then the dispatch segment, then degrade the filter segment from its full named form to the compact form, then drop the git segment.
+
+### System Usage Segment
+
+On Linux, the status bar shows a compact, plain-ASCII segment with the host machine's live CPU and memory usage — e.g. `cpu 12% mem 6.1/15.6G`: CPU busy percent (0–100) across all cores, then memory used/total in GiB, where used is `MemTotal − MemAvailable`. It is the rightmost segment, right of the git segment, and refreshes every 2 seconds. CPU is measured between two readings, so the segment stays hidden until the second reading (about 2 seconds after startup). If `/proc` can't be read, the segment is cleared silently (no error message) and reappears on the next successful read. It is not shown on macOS or Windows, and hints always keep priority over it. Set `system_usage: false` in the global or local config to turn it off.
 
 ### Crash Reports
 
